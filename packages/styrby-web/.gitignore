@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Next.js build
+.next/
+out/
+
+# Testing
+playwright-report/
+test-results/
+
+# Misc
+.DS_Store
+*.pem
+
+# Debug
+npm-debug.log*
+
+# Env files (handled at root level)
+.env*.local
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
