@@ -114,6 +114,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build shared (dependency)
+        run: npm run build -w styrby-shared --if-present
+
       - name: Build CLI
         run: npm run build -w styrby-cli --if-present
 
@@ -141,17 +144,23 @@ jobs:
       - name: Build web
         run: npm run build -w styrby-web
 
+      # Turbopack creates files with colons in names which can't be uploaded
+      # Rename them before uploading
+      - name: Prepare artifact
+        run: |
+          cd packages/styrby-web/.next
+          # Find and rename files with colons (replace : with __)
+          find . -name "*:*" -type f | while read f; do
+            newname=$(echo "$f" | sed 's/:/__/g')
+            mkdir -p "$(dirname "$newname")"
+            mv "$f" "$newname"
+          done
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: nextjs-build
-          path: |
-            packages/styrby-web/.next/static
-            packages/styrby-web/.next/standalone
-            packages/styrby-web/.next/BUILD_ID
-            packages/styrby-web/.next/package.json
-            packages/styrby-web/.next/prerender-manifest.json
-            packages/styrby-web/.next/routes-manifest.json
+          path: packages/styrby-web/.next
           retention-days: 1
           include-hidden-files: true
           if-no-files-found: warn
