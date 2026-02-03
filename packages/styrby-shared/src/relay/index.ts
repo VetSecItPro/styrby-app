@@ -6,3 +6,5 @@
 
 export * from './types.js';
 export * from './client.js';
+export * from './pairing.js';
+export * from './offline-queue.js';
