@@ -15,6 +15,80 @@ import * as fs from 'node:fs';
 import { CONFIG_DIR, ensureConfigDir } from './configuration';
 import { logger } from '@/ui/logger';
 
+// ============================================================================
+// Persisted Data (Auth & Machine Info)
+// ============================================================================
+
+/**
+ * Persisted data structure for authentication and machine info.
+ */
+export interface PersistedData {
+  /** User ID from Supabase auth */
+  userId?: string;
+  /** Access token for Supabase */
+  accessToken?: string;
+  /** Refresh token for Supabase */
+  refreshToken?: string;
+  /** Unique machine identifier */
+  machineId?: string;
+  /** Machine name (hostname) */
+  machineName?: string;
+  /** When the user authenticated */
+  authenticatedAt?: string;
+  /** When the machine was paired */
+  pairedAt?: string;
+}
+
+const DATA_FILE = path.join(CONFIG_DIR, 'data.json');
+
+/**
+ * Save persisted data to disk.
+ *
+ * @param data - Data to persist
+ */
+export function savePersistedData(data: PersistedData): void {
+  ensureConfigDir();
+  const existing = loadPersistedData() || {};
+  const merged = { ...existing, ...data };
+  fs.writeFileSync(DATA_FILE, JSON.stringify(merged, null, 2), { mode: 0o600 });
+  logger.debug('Persisted data saved');
+}
+
+/**
+ * Load persisted data from disk.
+ *
+ * @returns Persisted data or null if not found
+ */
+export function loadPersistedData(): PersistedData | null {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const content = fs.readFileSync(DATA_FILE, 'utf-8');
+      return JSON.parse(content) as PersistedData;
+    }
+  } catch (error) {
+    logger.error('Failed to load persisted data', { error });
+  }
+  return null;
+}
+
+/**
+ * Clear all persisted data.
+ */
+export function clearPersistedData(): void {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      fs.unlinkSync(DATA_FILE);
+      logger.debug('Persisted data cleared');
+    }
+  } catch (error) {
+    logger.error('Failed to clear persisted data', { error });
+  }
+}
+
+// ============================================================================
+// Sessions
+// ============================================================================
+
 /**
  * Session metadata stored locally
  */
@@ -148,6 +222,11 @@ export function clearAllSessions(): void {
  * Default export for compatibility
  */
 export default {
+  // Auth & machine data
+  savePersistedData,
+  loadPersistedData,
+  clearPersistedData,
+  // Sessions
   saveSession,
   loadSession,
   deleteSession,

@@ -76,8 +76,11 @@ export interface PairingResult {
 // Constants
 // ============================================================================
 
+/** Pairing token expiration time in minutes */
+export const PAIRING_EXPIRY_MINUTES = 5;
+
 /** Pairing token expiration time (5 minutes) */
-export const PAIRING_TOKEN_EXPIRY_MS = 5 * 60 * 1000;
+export const PAIRING_TOKEN_EXPIRY_MS = PAIRING_EXPIRY_MINUTES * 60 * 1000;
 
 /** QR code deep link scheme */
 export const PAIRING_SCHEME = 'styrby://pair';
