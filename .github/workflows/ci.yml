@@ -146,10 +146,15 @@ jobs:
         with:
           name: nextjs-build
           path: |
-            packages/styrby-web/.next
-            !packages/styrby-web/.next/cache
+            packages/styrby-web/.next/static
+            packages/styrby-web/.next/standalone
+            packages/styrby-web/.next/BUILD_ID
+            packages/styrby-web/.next/package.json
+            packages/styrby-web/.next/prerender-manifest.json
+            packages/styrby-web/.next/routes-manifest.json
           retention-days: 1
           include-hidden-files: true
+          if-no-files-found: warn
 
   # ─── E2E tests ───
   e2e:
