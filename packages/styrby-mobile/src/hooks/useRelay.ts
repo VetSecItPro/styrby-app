@@ -2,19 +2,23 @@
  * Relay Connection Hook
  *
  * Manages the connection to the Supabase Realtime relay channel.
+ * Integrates with the offline queue for resilience.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import NetInfo from '@react-native-community/netinfo';
 import {
   createRelayClient,
   type RelayClient,
   type RelayMessage,
   type PresenceState,
   type ConnectionState,
+  type EnqueueOptions,
 } from 'styrby-shared';
 import { supabase } from '../lib/supabase';
+import { offlineQueue } from '../services/offline-queue';
 
 // ============================================================================
 // Storage Keys
@@ -41,8 +45,12 @@ export interface UseRelayReturn {
   connectionState: ConnectionState;
   /** Whether connected to relay */
   isConnected: boolean;
+  /** Whether device is online (has network) */
+  isOnline: boolean;
   /** Whether CLI is online */
   isCliOnline: boolean;
+  /** Number of pending offline messages */
+  pendingQueueCount: number;
   /** Pairing info (if paired) */
   pairingInfo: PairingInfo | null;
   /** List of connected devices */
@@ -51,8 +59,11 @@ export interface UseRelayReturn {
   connect: () => Promise<void>;
   /** Disconnect from relay */
   disconnect: () => Promise<void>;
-  /** Send a message */
-  sendMessage: (message: Omit<RelayMessage, 'id' | 'timestamp' | 'sender_device_id' | 'sender_type'>) => Promise<void>;
+  /** Send a message (queues if offline) */
+  sendMessage: (
+    message: Omit<RelayMessage, 'id' | 'timestamp' | 'sender_device_id' | 'sender_type'>,
+    options?: EnqueueOptions
+  ) => Promise<void>;
   /** Save pairing info */
   savePairing: (info: PairingInfo) => Promise<void>;
   /** Clear pairing info */
@@ -85,14 +96,33 @@ export function useRelay(): UseRelayReturn {
   const [pairingInfo, setPairingInfo] = useState<PairingInfo | null>(null);
   const [connectedDevices, setConnectedDevices] = useState<PresenceState[]>([]);
   const [lastMessage, setLastMessage] = useState<RelayMessage | null>(null);
+  const [isOnline, setIsOnline] = useState(true);
+  const [pendingQueueCount, setPendingQueueCount] = useState(0);
 
   const clientRef = useRef<RelayClient | null>(null);
   const deviceIdRef = useRef<string | null>(null);
+  const processingQueueRef = useRef(false);
 
   // Load pairing info on mount
   useEffect(() => {
     loadPairingInfo();
+    updateQueueCount();
   }, []);
+
+  // Monitor network state
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      const wasOffline = !isOnline;
+      const nowOnline = state.isConnected ?? false;
+      setIsOnline(nowOnline);
+
+      // When coming back online, process the queue
+      if (wasOffline && nowOnline && pairingInfo) {
+        processOfflineQueue();
+      }
+    });
+    return () => unsubscribe();
+  }, [isOnline, pairingInfo]);
 
   // Handle app state changes (background/foreground)
   useEffect(() => {
@@ -186,6 +216,8 @@ export function useRelay(): UseRelayReturn {
       client.on('subscribed', () => {
         setConnectionState('connected');
         setConnectedDevices(client.getConnectedDevices());
+        // Process any queued messages
+        processOfflineQueue();
       });
 
       client.on('error', ({ message }) => {
@@ -217,20 +249,63 @@ export function useRelay(): UseRelayReturn {
     setConnectedDevices([]);
   };
 
-  // Send a message
-  const sendMessage = async (
-    message: Omit<RelayMessage, 'id' | 'timestamp' | 'sender_device_id' | 'sender_type'>
-  ) => {
-    if (!clientRef.current?.isConnected()) {
-      throw new Error('Not connected');
+  // Update pending queue count
+  const updateQueueCount = async () => {
+    try {
+      const stats = await offlineQueue.getStats();
+      setPendingQueueCount(stats.pending);
+    } catch (error) {
+      console.error('Failed to get queue stats:', error);
     }
-    await clientRef.current.send(message);
+  };
+
+  // Process offline queue
+  const processOfflineQueue = async () => {
+    if (processingQueueRef.current) return;
+    if (!clientRef.current?.isConnected()) return;
+
+    processingQueueRef.current = true;
+    try {
+      await offlineQueue.processQueue(async (message) => {
+        await clientRef.current!.send(message);
+      });
+    } catch (error) {
+      console.error('Failed to process offline queue:', error);
+    } finally {
+      processingQueueRef.current = false;
+      await updateQueueCount();
+    }
+  };
+
+  // Send a message (queues if offline)
+  const sendMessage = async (
+    message: Omit<RelayMessage, 'id' | 'timestamp' | 'sender_device_id' | 'sender_type'>,
+    options?: EnqueueOptions
+  ) => {
+    // If connected, send directly
+    if (clientRef.current?.isConnected()) {
+      await clientRef.current.send(message);
+      return;
+    }
+
+    // Otherwise, queue for later
+    if (!isOnline) {
+      console.log('Offline: queuing message for later');
+      await offlineQueue.enqueue(message as RelayMessage, options);
+      await updateQueueCount();
+      return;
+    }
+
+    // Not connected but online - try to connect first
+    throw new Error('Not connected to relay');
   };
 
   return {
     connectionState,
     isConnected: connectionState === 'connected',
+    isOnline,
     isCliOnline: connectedDevices.some((d) => d.device_type === 'cli'),
+    pendingQueueCount,
     pairingInfo,
     connectedDevices,
     connect,

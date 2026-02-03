@@ -70,6 +70,12 @@ export default async function DashboardPage() {
                 Sessions
               </Link>
               <Link
+                href="/costs"
+                className="text-sm font-medium text-zinc-400 hover:text-zinc-100 transition-colors"
+              >
+                Costs
+              </Link>
+              <Link
                 href="/settings"
                 className="text-sm font-medium text-zinc-400 hover:text-zinc-100 transition-colors"
               >

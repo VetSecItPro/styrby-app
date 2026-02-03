@@ -1,7 +1,7 @@
 /**
  * Tab Navigation Layout
  *
- * Main app navigation with Chat, Sessions, and Settings tabs.
+ * Main app navigation with Dashboard, Chat, Sessions, and Settings tabs.
  */
 
 import { Tabs } from 'expo-router';
@@ -25,6 +25,15 @@ export default function TabLayout() {
     >
       <Tabs.Screen
         name="index"
+        options={{
+          title: 'Dashboard',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="grid" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="chat"
         options={{
           title: 'Chat',
           tabBarIcon: ({ color, size }) => (
