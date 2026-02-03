@@ -14,3 +14,6 @@ export * from './relay/index.js';
 
 // Re-export design system
 export * from './design/index.js';
+
+// Re-export error attribution (namespaced to avoid conflicts)
+export * as errors from './errors/index.js';
