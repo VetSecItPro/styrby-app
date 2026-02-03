@@ -6,5 +6,11 @@
  */
 
 // Re-export types
-export * from './types';
-export * from './constants';
+export * from './types.js';
+export * from './constants.js';
+
+// Re-export relay module
+export * from './relay/index.js';
+
+// Re-export design system
+export * from './design/index.js';
