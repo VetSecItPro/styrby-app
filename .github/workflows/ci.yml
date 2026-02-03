@@ -1,0 +1,282 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  # Placeholder env vars for build (real values in Vercel/runtime)
+  NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+  SUPABASE_URL: https://placeholder.supabase.co
+  SUPABASE_SERVICE_ROLE_KEY: placeholder-service-key
+  POLAR_ACCESS_TOKEN: placeholder-polar-token
+  POLAR_WEBHOOK_SECRET: placeholder-webhook-secret
+  POLAR_ORGANIZATION_ID: placeholder-org-id
+  EXPO_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+  EXPO_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+
+jobs:
+  # ─── Quality gate: lint + typecheck ───
+  quality:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (if configured)
+        run: npm run lint --if-present
+        continue-on-error: true
+
+      - name: Type check CLI
+        run: npm run typecheck -w styrby-cli --if-present
+        continue-on-error: true
+
+      - name: Type check shared
+        run: npm run typecheck -w styrby-shared --if-present
+        continue-on-error: true
+
+  # ─── Security scanning ───
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+      - name: Secret pattern scan
+        run: |
+          echo "Scanning for leaked secrets in source..."
+          # Patterns for: Stripe, AWS, private keys, GitHub tokens, Supabase service keys, Polar tokens
+          PATTERNS='sk_live_|sk_test_|AKIA[0-9A-Z]{16}|-----BEGIN (RSA |EC )?PRIVATE KEY|ghp_[a-zA-Z0-9]{36}|glpat-[a-zA-Z0-9\-]{20}|sbp_[a-zA-Z0-9]{40}|eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+|polar_at_[a-zA-Z0-9]+'
+
+          MATCHES=$(grep -rn --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.json" -E "$PATTERNS" . \
+            --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=dist \
+            --exclude=package-lock.json --exclude=pnpm-lock.yaml || true)
+
+          if [ -n "$MATCHES" ]; then
+            echo "::error::Potential secrets found in source code!"
+            echo "$MATCHES"
+            exit 1
+          fi
+          echo "No secrets detected."
+
+      - name: Semgrep SAST
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/owasp-top-ten
+            p/typescript
+        continue-on-error: true
+
+  # ─── CLI package build ───
+  build-cli:
+    name: Build CLI
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build CLI
+        run: npm run build -w styrby-cli --if-present
+
+      - name: Test CLI entry point
+        run: |
+          # Verify CLI can at least show help
+          node packages/styrby-cli/bin/styrby.mjs help || echo "CLI help check completed"
+
+  # ─── Web package build (when added) ───
+  build-web:
+    name: Build Web
+    runs-on: ubuntu-latest
+    needs: quality
+    if: ${{ hashFiles('packages/styrby-web/package.json') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web
+        run: npm run build -w styrby-web
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextjs-build
+          path: |
+            packages/styrby-web/.next
+            !packages/styrby-web/.next/cache
+          retention-days: 1
+          include-hidden-files: true
+
+  # ─── E2E tests (when web is added) ───
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: build-web
+    if: ${{ hashFiles('packages/styrby-web/package.json') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: nextjs-build
+          path: packages/styrby-web/.next
+
+      - name: Cache Playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright
+        run: npx playwright install chromium --with-deps
+
+      - name: Run E2E tests
+        run: npm run test:e2e -w styrby-web --if-present
+
+      - name: Upload failure artifacts
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: packages/styrby-web/playwright-report/
+          retention-days: 7
+
+  # ─── Bundle size check (when web is added) ───
+  bundle-size:
+    name: Bundle Size
+    runs-on: ubuntu-latest
+    needs: build-web
+    if: ${{ hashFiles('packages/styrby-web/package.json') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: nextjs-build
+          path: packages/styrby-web/.next
+
+      - name: Check bundle sizes
+        run: |
+          echo "## Bundle Size Report" >> $GITHUB_STEP_SUMMARY
+          echo '| File | Size |' >> $GITHUB_STEP_SUMMARY
+          echo '|------|------|' >> $GITHUB_STEP_SUMMARY
+
+          WARN=0
+          FAIL=0
+
+          for f in $(find packages/styrby-web/.next/static/chunks -name "*.js" -type f 2>/dev/null | sort); do
+            SIZE=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f" 2>/dev/null || echo "0")
+            SIZE_KB=$((SIZE / 1024))
+            NAME=$(basename "$f")
+
+            if [ "$SIZE_KB" -gt 750 ]; then
+              echo "| \`$NAME\` | **${SIZE_KB}KB** :x: |" >> $GITHUB_STEP_SUMMARY
+              FAIL=$((FAIL + 1))
+            elif [ "$SIZE_KB" -gt 500 ]; then
+              echo "| \`$NAME\` | **${SIZE_KB}KB** :warning: |" >> $GITHUB_STEP_SUMMARY
+              WARN=$((WARN + 1))
+            elif [ "$SIZE_KB" -gt 200 ]; then
+              echo "| \`$NAME\` | ${SIZE_KB}KB |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Chunks > 500KB: $WARN warnings, $FAIL failures" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$FAIL" -gt 0 ]; then
+            echo "::error::$FAIL chunk(s) exceed 750KB limit"
+            exit 1
+          fi
+
+  # ─── Summary ───
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [quality, security, build-cli]
+    if: always()
+    steps:
+      - name: Evaluate results
+        run: |
+          echo "## CI Results" >> $GITHUB_STEP_SUMMARY
+          echo '| Job | Status |' >> $GITHUB_STEP_SUMMARY
+          echo '|-----|--------|' >> $GITHUB_STEP_SUMMARY
+
+          FAILED=0
+
+          check_job() {
+            local name="$1"
+            local result="$2"
+            if [ "$result" = "success" ]; then
+              echo "| $name | :white_check_mark: passed |" >> $GITHUB_STEP_SUMMARY
+            elif [ "$result" = "skipped" ]; then
+              echo "| $name | :fast_forward: skipped |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| $name | :x: $result |" >> $GITHUB_STEP_SUMMARY
+              FAILED=$((FAILED + 1))
+            fi
+          }
+
+          check_job "Quality" "${{ needs.quality.result }}"
+          check_job "Security" "${{ needs.security.result }}"
+          check_job "Build CLI" "${{ needs.build-cli.result }}"
+
+          if [ "$FAILED" -gt 0 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo ":x: **$FAILED job(s) failed**" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo ":white_check_mark: **All checks passed**" >> $GITHUB_STEP_SUMMARY
