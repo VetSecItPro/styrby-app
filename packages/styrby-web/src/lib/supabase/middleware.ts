@@ -6,6 +6,21 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 /**
+ * Checks if Supabase environment variables are properly configured.
+ * Returns false for missing or placeholder values.
+ */
+function hasValidSupabaseConfig(): boolean {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  // Check if values exist and are not placeholders
+  if (!url || !key) return false;
+  if (url.includes('placeholder') || key.includes('placeholder')) return false;
+
+  return true;
+}
+
+/**
  * Updates the Supabase auth session by refreshing the token if needed.
  * Should be called in middleware for every request.
  *
@@ -16,6 +31,11 @@ export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   });
+
+  // Skip session refresh if Supabase is not configured (CI/test environment)
+  if (!hasValidSupabaseConfig()) {
+    return supabaseResponse;
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
