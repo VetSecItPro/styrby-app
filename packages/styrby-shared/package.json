@@ -1,0 +1,18 @@
+{
+  "name": "styrby-shared",
+  "version": "0.1.0",
+  "description": "Shared types and utilities for Styrby",
+  "author": "Steel Motion LLC",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "type": "module",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

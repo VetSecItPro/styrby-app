@@ -1,0 +1,20 @@
+{
+  "name": "styrby",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "cli": "npm -w styrby-cli",
+    "mobile": "npm -w styrby-mobile",
+    "web": "npm -w styrby-web",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "clean": "rm -rf node_modules packages/*/node_modules packages/*/dist"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

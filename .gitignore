@@ -1,0 +1,81 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+.pnp.cjs
+
+# Build output
+.next/
+out/
+build/
+dist/
+.vercel
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.p12
+*.pfx
+
+# API keys & credentials
+credentials.json
+service-account*.json
+*-credentials.json
+*.secret
+secrets/
+
+# Planning & internal docs
+PRD*.md
+prd*.md
+planning/
+docs/internal/
+notes/
+*.plan
+*.draft
+
+# Security audit reports (contain vulnerability details)
+.security-audit.json
+.security-reports/
+
+# Claude Code project memory
+CLAUDE.md
+
+# Local docs (planning, marketing, audits — never pushed)
+docs/
+
+# IDE & editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Debug & logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.log
+
+# Testing
+coverage/
+.nyc_output/
+
+# TypeScript cache
+*.tsbuildinfo
+next-env.d.ts
+
+# Sentry
+.sentryclirc
+
+# Misc
+*.pid
+*.seed
+*.pid.lock
+.cache/
