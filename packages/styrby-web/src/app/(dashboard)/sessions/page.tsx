@@ -71,6 +71,12 @@ export default async function SessionsPage() {
                 Sessions
               </Link>
               <Link
+                href="/costs"
+                className="text-sm font-medium text-zinc-400 hover:text-zinc-100 transition-colors"
+              >
+                Costs
+              </Link>
+              <Link
                 href="/settings"
                 className="text-sm font-medium text-zinc-400 hover:text-zinc-100 transition-colors"
               >
