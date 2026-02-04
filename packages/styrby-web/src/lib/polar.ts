@@ -26,8 +26,14 @@ export const TIERS = {
   free: {
     id: 'free',
     name: 'Free',
-    price: 0,
-    polarProductId: undefined as string | undefined,
+    price: {
+      monthly: 0,
+      annual: 0,
+    },
+    polarProductId: {
+      monthly: undefined as string | undefined,
+      annual: undefined as string | undefined,
+    },
     features: [
       '1 connected machine',
       '7-day session history',
@@ -46,8 +52,14 @@ export const TIERS = {
   pro: {
     id: 'pro',
     name: 'Pro',
-    price: 19,
-    polarProductId: process.env.POLAR_PRO_PRODUCT_ID,
+    price: {
+      monthly: 19,
+      annual: 190,
+    },
+    polarProductId: {
+      monthly: process.env.POLAR_PRO_MONTHLY_PRODUCT_ID,
+      annual: process.env.POLAR_PRO_ANNUAL_PRODUCT_ID,
+    },
     features: [
       '5 connected machines',
       '90-day session history',
@@ -69,8 +81,14 @@ export const TIERS = {
   power: {
     id: 'power',
     name: 'Power',
-    price: 49,
-    polarProductId: process.env.POLAR_POWER_PRODUCT_ID,
+    price: {
+      monthly: 49,
+      annual: 490,
+    },
+    polarProductId: {
+      monthly: process.env.POLAR_POWER_MONTHLY_PRODUCT_ID,
+      annual: process.env.POLAR_POWER_ANNUAL_PRODUCT_ID,
+    },
     features: [
       '15 connected machines',
       '1-year session history',
@@ -93,12 +111,33 @@ export const TIERS = {
 } as const;
 
 export type TierId = keyof typeof TIERS;
+export type BillingCycle = 'monthly' | 'annual';
 
 /**
  * Get tier configuration by ID.
  */
 export function getTier(tierId: TierId) {
   return TIERS[tierId] || TIERS.free;
+}
+
+/**
+ * Get product ID for a tier and billing cycle.
+ */
+export function getProductId(tierId: TierId, cycle: BillingCycle): string | undefined {
+  const tier = TIERS[tierId];
+  if (!tier || tierId === 'free') return undefined;
+  return tier.polarProductId[cycle];
+}
+
+/**
+ * Get display price for a tier and billing cycle.
+ */
+export function getDisplayPrice(tierId: TierId, cycle: BillingCycle): { amount: number; period: string } {
+  const tier = TIERS[tierId];
+  if (cycle === 'annual') {
+    return { amount: tier.price.annual, period: '/year' };
+  }
+  return { amount: tier.price.monthly, period: '/month' };
 }
 
 /**

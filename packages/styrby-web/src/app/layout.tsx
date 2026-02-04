@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
-import { PostHogProvider } from '@/components/providers/PostHogProvider';
 import './globals.css';
 
 const inter = Inter({
@@ -51,7 +50,7 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${jetbrainsMono.variable} antialiased min-h-screen bg-zinc-950 text-zinc-50`}
       >
-        <PostHogProvider>{children}</PostHogProvider>
+        {children}
       </body>
     </html>
   );

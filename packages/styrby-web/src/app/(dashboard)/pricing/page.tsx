@@ -1,8 +1,8 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { TIERS, type TierId } from '@/lib/polar';
-import { UpgradeButton } from './upgrade-button';
+import { type TierId } from '@/lib/polar';
+import { PricingCards } from './pricing-cards';
 
 /**
  * Pricing page - subscription tiers and upgrade options.
@@ -67,7 +67,7 @@ export default async function PricingPage() {
 
       {/* Main content */}
       <main className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-12">
-        <div className="text-center mb-12">
+        <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-zinc-100">
             Choose Your Plan
           </h1>
@@ -76,87 +76,8 @@ export default async function PricingPage() {
           </p>
         </div>
 
-        {/* Pricing cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {(Object.keys(TIERS) as TierId[]).map((tierId) => {
-            const tier = TIERS[tierId];
-            const isCurrentTier = currentTier === tierId;
-            const isPopular = tierId === 'pro';
-
-            return (
-              <div
-                key={tierId}
-                className={`rounded-2xl p-6 relative ${
-                  isPopular
-                    ? 'bg-gradient-to-b from-orange-500/10 to-zinc-900 border border-orange-500/20'
-                    : 'bg-zinc-900 border border-zinc-800'
-                }`}
-              >
-                {isPopular && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-orange-500 px-3 py-1 text-xs font-medium text-white">
-                    Most Popular
-                  </div>
-                )}
-
-                {isCurrentTier && (
-                  <div className="absolute top-4 right-4">
-                    <span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-1 text-xs font-medium text-green-400">
-                      Current
-                    </span>
-                  </div>
-                )}
-
-                <h3 className="text-xl font-semibold text-zinc-100">{tier.name}</h3>
-
-                <div className="mt-4">
-                  <span className="text-4xl font-bold text-zinc-100">${tier.price}</span>
-                  <span className="text-zinc-500">/month</span>
-                </div>
-
-                <ul className="mt-6 space-y-3">
-                  {tier.features.map((feature, index) => (
-                    <li key={index} className="flex items-center gap-2 text-sm text-zinc-400">
-                      <svg
-                        className="h-5 w-5 text-green-500 flex-shrink-0"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M5 13l4 4L19 7"
-                        />
-                      </svg>
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-
-                <div className="mt-8">
-                  {isCurrentTier ? (
-                    <button
-                      disabled
-                      className="w-full rounded-lg bg-zinc-800 py-3 text-sm font-semibold text-zinc-400 cursor-not-allowed"
-                    >
-                      Current Plan
-                    </button>
-                  ) : tierId === 'free' ? (
-                    <button
-                      disabled
-                      className="w-full rounded-lg bg-zinc-800 py-3 text-sm font-semibold text-zinc-400 cursor-not-allowed"
-                    >
-                      Free Forever
-                    </button>
-                  ) : (
-                    <UpgradeButton tierId={tierId} isPopular={isPopular} />
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        {/* Pricing cards with billing toggle */}
+        <PricingCards currentTier={currentTier} />
 
         {/* Limits comparison table */}
         <div className="mt-16">

@@ -347,6 +347,7 @@ export default function Home() {
               <div className="mt-4">
                 <span className="text-4xl font-bold text-zinc-100">$19</span>
                 <span className="text-zinc-500">/month</span>
+                <div className="text-sm text-green-400 mt-1">or $190/year (2 months free)</div>
               </div>
               <ul className="mt-6 space-y-3">
                 <li className="flex items-center gap-2 text-sm text-zinc-400">
@@ -389,6 +390,7 @@ export default function Home() {
               <div className="mt-4">
                 <span className="text-4xl font-bold text-zinc-100">$49</span>
                 <span className="text-zinc-500">/month</span>
+                <div className="text-sm text-green-400 mt-1">or $490/year (2 months free)</div>
               </div>
               <ul className="mt-6 space-y-3">
                 <li className="flex items-center gap-2 text-sm text-zinc-400">

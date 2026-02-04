@@ -1,14 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { type TierId } from '@/lib/polar';
+import { type TierId, type BillingCycle } from '@/lib/polar';
 
 interface UpgradeButtonProps {
   tierId: TierId;
+  billingCycle: BillingCycle;
   isPopular?: boolean;
 }
 
-export function UpgradeButton({ tierId, isPopular }: UpgradeButtonProps) {
+export function UpgradeButton({ tierId, billingCycle, isPopular }: UpgradeButtonProps) {
   const [loading, setLoading] = useState(false);
 
   const handleUpgrade = async () => {
@@ -17,7 +18,7 @@ export function UpgradeButton({ tierId, isPopular }: UpgradeButtonProps) {
       const response = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tierId }),
+        body: JSON.stringify({ tierId, billingCycle }),
       });
 
       const data = await response.json();
