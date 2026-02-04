@@ -16,6 +16,11 @@ export const polar = new Polar({
 
 /**
  * Subscription tier configuration.
+ *
+ * Limits are enforced to prevent abuse:
+ * - Machines: Supabase Realtime connections
+ * - Messages: Relay bandwidth
+ * - History: Database storage
  */
 export const TIERS = {
   free: {
@@ -26,43 +31,63 @@ export const TIERS = {
     features: [
       '1 connected machine',
       '7-day session history',
-      'Basic cost tracking',
+      '1,000 messages/month',
+      'Error notifications only',
+      'All 3 agents supported',
     ],
     limits: {
       machines: 1,
       historyDays: 7,
+      messagesPerMonth: 1_000,
+      budgetAlerts: 0,
+      teamMembers: 1,
     },
   },
   pro: {
     id: 'pro',
     name: 'Pro',
-    price: 9,
+    price: 19,
     polarProductId: process.env.POLAR_PRO_PRODUCT_ID,
     features: [
       '5 connected machines',
-      'Unlimited session history',
-      'Advanced analytics',
-      'Budget alerts',
+      '90-day session history',
+      '25,000 messages/month',
+      'All push notifications',
+      '3 budget alerts',
+      'Full cost analytics',
+      'CSV export',
+      'Email support',
     ],
     limits: {
       machines: 5,
-      historyDays: -1, // unlimited
+      historyDays: 90,
+      messagesPerMonth: 25_000,
+      budgetAlerts: 3,
+      teamMembers: 1,
     },
   },
   power: {
     id: 'power',
     name: 'Power',
-    price: 29,
+    price: 49,
     polarProductId: process.env.POLAR_POWER_PRODUCT_ID,
     features: [
-      'Unlimited machines',
-      'Team sharing',
-      'API access',
-      'Priority support',
+      '15 connected machines',
+      '1-year session history',
+      '100,000 messages/month',
+      'Custom notification rules',
+      '10 budget alerts',
+      'Up to 5 team members',
+      'API access (read-only)',
+      'CSV + JSON export',
+      'Priority email support',
     ],
     limits: {
-      machines: -1, // unlimited
-      historyDays: -1,
+      machines: 15,
+      historyDays: 365,
+      messagesPerMonth: 100_000,
+      budgetAlerts: 10,
+      teamMembers: 5,
     },
   },
 } as const;

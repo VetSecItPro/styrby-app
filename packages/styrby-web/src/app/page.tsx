@@ -320,7 +320,13 @@ export default function Home() {
                   <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  Basic cost tracking
+                  1,000 messages/month
+                </li>
+                <li className="flex items-center gap-2 text-sm text-zinc-400">
+                  <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  All 3 agents supported
                 </li>
               </ul>
               <Link
@@ -339,7 +345,7 @@ export default function Home() {
               <h3 className="text-xl font-semibold text-zinc-100">Pro</h3>
               <p className="mt-2 text-sm text-zinc-500">For daily use</p>
               <div className="mt-4">
-                <span className="text-4xl font-bold text-zinc-100">$9</span>
+                <span className="text-4xl font-bold text-zinc-100">$19</span>
                 <span className="text-zinc-500">/month</span>
               </div>
               <ul className="mt-6 space-y-3">
@@ -353,26 +359,26 @@ export default function Home() {
                   <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  Unlimited session history
+                  90-day session history
                 </li>
                 <li className="flex items-center gap-2 text-sm text-zinc-400">
                   <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  Advanced analytics
+                  25,000 messages/month
                 </li>
                 <li className="flex items-center gap-2 text-sm text-zinc-400">
                   <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  Budget alerts
+                  Budget alerts + analytics
                 </li>
               </ul>
               <Link
                 href="/login"
                 className="mt-8 block w-full rounded-lg bg-orange-500 py-3 text-center text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
               >
-                Start 7-Day Trial
+                Start Free Trial
               </Link>
             </div>
 
@@ -381,7 +387,7 @@ export default function Home() {
               <h3 className="text-xl font-semibold text-zinc-100">Power</h3>
               <p className="mt-2 text-sm text-zinc-500">For teams and power users</p>
               <div className="mt-4">
-                <span className="text-4xl font-bold text-zinc-100">$29</span>
+                <span className="text-4xl font-bold text-zinc-100">$49</span>
                 <span className="text-zinc-500">/month</span>
               </div>
               <ul className="mt-6 space-y-3">
@@ -389,32 +395,32 @@ export default function Home() {
                   <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  Unlimited machines
+                  15 machines, 5 team members
                 </li>
                 <li className="flex items-center gap-2 text-sm text-zinc-400">
                   <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  Team sharing
+                  1-year session history
                 </li>
                 <li className="flex items-center gap-2 text-sm text-zinc-400">
                   <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  API access
+                  100,000 messages/month
                 </li>
                 <li className="flex items-center gap-2 text-sm text-zinc-400">
                   <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  Priority support
+                  API access + priority support
                 </li>
               </ul>
               <Link
                 href="/login"
                 className="mt-8 block w-full rounded-lg bg-zinc-800 py-3 text-center text-sm font-semibold text-zinc-100 hover:bg-zinc-700 transition-colors"
               >
-                Start 7-Day Trial
+                Start Free Trial
               </Link>
             </div>
           </div>

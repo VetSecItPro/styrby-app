@@ -158,12 +158,79 @@ export default async function PricingPage() {
           })}
         </div>
 
-        {/* FAQ or additional info */}
+        {/* Limits comparison table */}
+        <div className="mt-16">
+          <h2 className="text-xl font-semibold text-zinc-100 text-center mb-8">
+            Compare Plans
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-800">
+                  <th className="text-left py-3 px-4 text-zinc-400 font-medium">Feature</th>
+                  <th className="text-center py-3 px-4 text-zinc-400 font-medium">Free</th>
+                  <th className="text-center py-3 px-4 text-zinc-400 font-medium">Pro</th>
+                  <th className="text-center py-3 px-4 text-zinc-400 font-medium">Power</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800">
+                <tr>
+                  <td className="py-3 px-4 text-zinc-300">Connected machines</td>
+                  <td className="py-3 px-4 text-center text-zinc-400">1</td>
+                  <td className="py-3 px-4 text-center text-zinc-100">5</td>
+                  <td className="py-3 px-4 text-center text-zinc-100">15</td>
+                </tr>
+                <tr>
+                  <td className="py-3 px-4 text-zinc-300">Session history</td>
+                  <td className="py-3 px-4 text-center text-zinc-400">7 days</td>
+                  <td className="py-3 px-4 text-center text-zinc-100">90 days</td>
+                  <td className="py-3 px-4 text-center text-zinc-100">1 year</td>
+                </tr>
+                <tr>
+                  <td className="py-3 px-4 text-zinc-300">Messages/month</td>
+                  <td className="py-3 px-4 text-center text-zinc-400">1,000</td>
+                  <td className="py-3 px-4 text-center text-zinc-100">25,000</td>
+                  <td className="py-3 px-4 text-center text-zinc-100">100,000</td>
+                </tr>
+                <tr>
+                  <td className="py-3 px-4 text-zinc-300">Budget alerts</td>
+                  <td className="py-3 px-4 text-center text-zinc-500">-</td>
+                  <td className="py-3 px-4 text-center text-zinc-100">3</td>
+                  <td className="py-3 px-4 text-center text-zinc-100">10</td>
+                </tr>
+                <tr>
+                  <td className="py-3 px-4 text-zinc-300">Team members</td>
+                  <td className="py-3 px-4 text-center text-zinc-500">-</td>
+                  <td className="py-3 px-4 text-center text-zinc-500">-</td>
+                  <td className="py-3 px-4 text-center text-zinc-100">5</td>
+                </tr>
+                <tr>
+                  <td className="py-3 px-4 text-zinc-300">API access</td>
+                  <td className="py-3 px-4 text-center text-zinc-500">-</td>
+                  <td className="py-3 px-4 text-center text-zinc-500">-</td>
+                  <td className="py-3 px-4 text-center text-green-500">Yes</td>
+                </tr>
+                <tr>
+                  <td className="py-3 px-4 text-zinc-300">Support</td>
+                  <td className="py-3 px-4 text-center text-zinc-500">-</td>
+                  <td className="py-3 px-4 text-center text-zinc-100">Email</td>
+                  <td className="py-3 px-4 text-center text-zinc-100">Priority email</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* FAQ */}
         <div className="mt-12 text-center">
           <p className="text-zinc-500">
-            All plans include a 7-day free trial.{' '}
+            Questions?{' '}
+            <a href="mailto:support@styrby.dev" className="text-orange-500 hover:text-orange-400">
+              Contact support
+            </a>
+            {' '}or{' '}
             <Link href="/settings" className="text-orange-500 hover:text-orange-400">
-              Manage your subscription
+              manage your subscription
             </Link>
           </p>
         </div>
