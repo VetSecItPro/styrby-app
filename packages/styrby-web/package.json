@@ -13,11 +13,9 @@
   },
   "dependencies": {
     "@polar-sh/sdk": "^0.29.3",
-    "@sentry/nextjs": "^10.38.0",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.47.10",
     "next": "16.1.6",
-    "posthog-js": "^1.338.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "recharts": "^2.15.0",

@@ -52,15 +52,37 @@ function verifySignature(
 
 /**
  * Maps Polar product IDs to subscription tiers.
+ * Handles both monthly and annual product variants.
  */
 function getTierFromProductId(productId: string): 'free' | 'pro' | 'power' {
-  if (productId === process.env.POLAR_PRO_PRODUCT_ID) {
+  // Pro tier (monthly or annual)
+  if (
+    productId === process.env.POLAR_PRO_MONTHLY_PRODUCT_ID ||
+    productId === process.env.POLAR_PRO_ANNUAL_PRODUCT_ID
+  ) {
     return 'pro';
   }
-  if (productId === process.env.POLAR_POWER_PRODUCT_ID) {
+  // Power tier (monthly or annual)
+  if (
+    productId === process.env.POLAR_POWER_MONTHLY_PRODUCT_ID ||
+    productId === process.env.POLAR_POWER_ANNUAL_PRODUCT_ID
+  ) {
     return 'power';
   }
   return 'free';
+}
+
+/**
+ * Determines billing cycle from product ID.
+ */
+function getBillingCycleFromProductId(productId: string): 'monthly' | 'annual' {
+  if (
+    productId === process.env.POLAR_PRO_ANNUAL_PRODUCT_ID ||
+    productId === process.env.POLAR_POWER_ANNUAL_PRODUCT_ID
+  ) {
+    return 'annual';
+  }
+  return 'monthly';
 }
 
 export async function POST(request: Request) {
@@ -139,13 +161,15 @@ export async function POST(request: Request) {
         }
 
         // Upsert subscription
+        const productId = data.product_id || '';
         await supabase.from('subscriptions').upsert(
           {
             user_id: profile.id,
             polar_subscription_id: data.id,
             polar_customer_id: data.customer_id,
-            polar_product_id: data.product_id,
-            tier: getTierFromProductId(data.product_id || ''),
+            polar_product_id: productId,
+            tier: getTierFromProductId(productId),
+            billing_cycle: getBillingCycleFromProductId(productId),
             status: data.status === 'active' ? 'active' : 'canceled',
             current_period_start: data.current_period_start,
             current_period_end: data.current_period_end,

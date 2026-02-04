@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { TIERS, type TierId } from '@/lib/polar';
+import { TIERS, type TierId, type BillingCycle } from '@/lib/polar';
 import { Polar } from '@polar-sh/sdk';
 
 const polar = new Polar({
@@ -28,26 +28,35 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse request body
-    const { tierId } = (await request.json()) as { tierId: TierId };
+    const { tierId, billingCycle = 'monthly' } = (await request.json()) as {
+      tierId: TierId;
+      billingCycle?: BillingCycle;
+    };
 
     if (!tierId || !TIERS[tierId]) {
       return NextResponse.json({ error: 'Invalid tier' }, { status: 400 });
     }
 
-    const tier = TIERS[tierId];
+    if (billingCycle !== 'monthly' && billingCycle !== 'annual') {
+      return NextResponse.json({ error: 'Invalid billing cycle' }, { status: 400 });
+    }
 
-    if (!tier.polarProductId) {
+    const tier = TIERS[tierId];
+    const productId = tier.polarProductId[billingCycle];
+
+    if (!productId) {
       return NextResponse.json({ error: 'Tier not available for purchase' }, { status: 400 });
     }
 
     // Create checkout session
     const checkout = await polar.checkouts.create({
-      productId: tier.polarProductId,
+      productId,
       successUrl: `${process.env.NEXT_PUBLIC_APP_URL}/settings?checkout=success`,
       customerEmail: user.email!,
       metadata: {
         userId: user.id,
         tierId,
+        billingCycle,
       },
     });
 
