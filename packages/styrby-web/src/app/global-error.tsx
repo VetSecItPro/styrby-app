@@ -3,12 +3,9 @@
 /**
  * Global Error Boundary
  *
- * Catches unhandled errors in the app and reports them to Sentry.
+ * Catches unhandled errors in the app.
  * This is the last line of defense for errors in the application.
  */
-
-import * as Sentry from '@sentry/nextjs';
-import { useEffect } from 'react';
 
 export default function GlobalError({
   error,
@@ -17,11 +14,6 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  useEffect(() => {
-    // Report the error to Sentry
-    Sentry.captureException(error);
-  }, [error]);
-
   return (
     <html lang="en">
       <body className="bg-zinc-950 text-zinc-100 min-h-screen flex items-center justify-center">
@@ -29,7 +21,7 @@ export default function GlobalError({
           <div className="text-6xl mb-4">!</div>
           <h1 className="text-2xl font-bold mb-4">Something went wrong</h1>
           <p className="text-zinc-400 mb-6">
-            An unexpected error occurred. Our team has been notified and is working on a fix.
+            An unexpected error occurred. Please try again.
           </p>
           <div className="space-y-3">
             <button
