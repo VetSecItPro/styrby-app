@@ -16,8 +16,18 @@ import PaymentFailedEmail from '@/emails/payment-failed';
 import BudgetAlertEmail from '@/emails/budget-alert';
 import WeeklySummaryEmail from '@/emails/weekly-summary';
 
-// Initialize Resend client
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy-initialize Resend client to avoid build-time errors
+let resendClient: Resend | null = null;
+
+function getResendClient(): Resend {
+  if (!resendClient) {
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error('RESEND_API_KEY environment variable is not set');
+    }
+    resendClient = new Resend(process.env.RESEND_API_KEY);
+  }
+  return resendClient;
+}
 
 // Default sender
 const FROM_EMAIL = 'hello@styrbyapp.com';
@@ -39,7 +49,7 @@ export async function sendEmail({
   replyTo?: string;
 }) {
   try {
-    const { data, error } = await resend.emails.send({
+    const { data, error } = await getResendClient().emails.send({
       from,
       to,
       subject,
