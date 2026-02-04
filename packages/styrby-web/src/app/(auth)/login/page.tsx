@@ -3,6 +3,7 @@
 import { useState, Suspense } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 
 /**
@@ -71,9 +72,13 @@ function LoginForm() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <Link href="/" className="flex justify-center mb-8">
-          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center">
-            <span className="text-2xl font-bold text-white">S</span>
-          </div>
+          <Image
+            src="/logo.png"
+            alt="Styrby"
+            width={48}
+            height={48}
+            className="h-12 w-12"
+          />
         </Link>
 
         <h1 className="text-2xl font-bold text-center mb-2">Welcome to Styrby</h1>
