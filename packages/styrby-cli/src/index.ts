@@ -294,12 +294,28 @@ async function handlePair(): Promise<void> {
 
 /**
  * Handle the 'start' command.
- * Starts an agent session.
+ *
+ * Creates a full agent session that bridges the AI coding agent (Claude, Codex,
+ * Gemini, etc.) to the Styrby mobile app via Supabase Realtime.
+ *
+ * Flow:
+ * 1. Load persisted credentials and verify authentication
+ * 2. Create an authenticated Supabase client with the stored access token
+ * 3. Connect the StyrbyApi relay to the user's Realtime channel
+ * 4. Look up the requested agent in the AgentRegistry and create a backend
+ * 5. Start a managed session (ApiSessionManager handles agent <-> relay bridging)
+ * 6. Wait for the session to end (user presses Ctrl+C, mobile sends end_session, or agent exits)
+ * 7. Clean up: dispose agent, disconnect relay, update session status
  *
  * @param args - Command arguments (--agent, --project, etc.)
  */
 async function handleStart(args: string[]): Promise<void> {
-  // Parse arguments
+  const chalk = (await import('chalk')).default;
+  const os = await import('os');
+  const path = await import('path');
+  const { createClient } = await import('@supabase/supabase-js');
+
+  // ── Parse CLI arguments ──────────────────────────────────────────────
   let agentType = 'claude';
   let projectPath = process.cwd();
 
@@ -311,26 +327,406 @@ async function handleStart(args: string[]): Promise<void> {
     }
   }
 
+  // Resolve relative paths to absolute so the agent runs in the right directory
+  projectPath = path.resolve(projectPath);
+
   logger.info(`Starting ${agentType} session in ${projectPath}`);
-  // TODO: Implement
-  // 1. Check authentication
-  // 2. Connect to Supabase Realtime
-  // 3. Start agent via AgentBackend
-  // 4. Relay messages to mobile
-  logger.warn('Start not yet implemented');
+
+  // ── 1. Check authentication ──────────────────────────────────────────
+  const { loadPersistedData } = await import('@/persistence');
+  const data = loadPersistedData();
+
+  if (!data?.userId || !data?.accessToken) {
+    console.log(chalk.red('\nNot authenticated.'));
+    console.log('Run ' + chalk.cyan('styrby onboard') + ' to set up authentication.\n');
+    process.exit(1);
+  }
+
+  const machineId = data.machineId || `machine_${crypto.randomUUID()}`;
+  const deviceName = os.hostname();
+
+  logger.debug('Credentials loaded', {
+    userId: data.userId.slice(0, 8) + '...',
+    machineId: machineId.slice(0, 8) + '...',
+  });
+
+  // ── 2. Create authenticated Supabase client ──────────────────────────
+  const { config: envConfig } = await import('@/env');
+
+  if (!envConfig.supabaseAnonKey) {
+    console.log(chalk.red('\nSupabase anonymous key not configured.'));
+    console.log('Set the SUPABASE_ANON_KEY environment variable.\n');
+    process.exit(1);
+  }
+
+  const supabase = createClient(envConfig.supabaseUrl, envConfig.supabaseAnonKey, {
+    auth: { persistSession: false },
+    global: {
+      headers: { Authorization: `Bearer ${data.accessToken}` },
+    },
+  });
+
+  // ── 3. Connect to Supabase Realtime relay ────────────────────────────
+  const { StyrbyApi } = await import('@/api/api');
+  const apiClient = new StyrbyApi();
+
+  apiClient.configure({
+    supabase,
+    userId: data.userId,
+    machineId,
+    machineName: deviceName,
+    debug: process.env.STYRBY_LOG_LEVEL === 'debug',
+  });
+
+  console.log(chalk.gray('Connecting to relay...'));
+
+  try {
+    await apiClient.connect();
+  } catch (error) {
+    console.log(chalk.red('\nFailed to connect to the relay.'));
+    console.log('Check your internet connection and try again.');
+    if (error instanceof Error) {
+      logger.debug('Relay connection error', { message: error.message });
+    }
+    process.exit(1);
+  }
+
+  console.log(chalk.green('Connected to relay.'));
+
+  // Check if mobile is online (informational, not blocking)
+  if (apiClient.isMobileOnline()) {
+    console.log(chalk.green('Mobile app is online.'));
+  } else {
+    console.log(chalk.yellow('Mobile app is not yet connected. Open the Styrby app to control this session.'));
+  }
+
+  // ── 4. Initialize agent registry and create backend ──────────────────
+  // WHY: We initialize agents here (not at module load) because the agent
+  // factories have heavy imports (@agentclientprotocol/sdk, transport handlers)
+  // that would slow down CLI startup for every command, not just 'start'.
+  const { initializeAgents, agentRegistry } = await import('@/agent/index');
+  initializeAgents();
+
+  // Validate the requested agent is available
+  const validAgentId = agentType as import('@/agent/core/AgentBackend').AgentId;
+  if (!agentRegistry.has(validAgentId)) {
+    const available = agentRegistry.list().join(', ') || 'none registered';
+    console.log(chalk.red(`\nAgent "${agentType}" is not available.`));
+    console.log(`Registered agents: ${available}`);
+    console.log(`\nInstall with: ${chalk.cyan(`styrby install ${agentType}`)}\n`);
+    await apiClient.disconnect();
+    process.exit(1);
+  }
+
+  console.log(chalk.gray(`Creating ${agentType} backend...`));
+
+  const agent = agentRegistry.create(validAgentId, {
+    cwd: projectPath,
+  });
+
+  // ── 5. Start managed session (agent <-> relay bridge) ────────────────
+  const { ApiSessionManager } = await import('@/api/apiSession');
+  const sessionManager = new ApiSessionManager();
+
+  let activeSession: import('@/api/apiSession').ActiveSession;
+
+  try {
+    activeSession = await sessionManager.startManagedSession({
+      supabase,
+      api: apiClient,
+      agent,
+      agentType: agentType as import('styrby-shared').AgentType,
+      userId: data.userId,
+      machineId,
+      projectPath,
+    });
+  } catch (error) {
+    console.log(chalk.red('\nFailed to start agent session.'));
+    if (error instanceof Error) {
+      console.log(chalk.red(error.message));
+    }
+    await apiClient.disconnect();
+    process.exit(1);
+  }
+
+  console.log('');
+  console.log(chalk.green.bold(`Session started.`));
+  console.log(chalk.gray(`  Session:  ${activeSession.sessionId.slice(0, 8)}...`));
+  console.log(chalk.gray(`  Agent:    ${agentType}`));
+  console.log(chalk.gray(`  Project:  ${projectPath}`));
+  console.log('');
+  console.log('Send messages from the Styrby mobile app.');
+  console.log('Press ' + chalk.cyan('Ctrl+C') + ' to end the session.\n');
+
+  // Save session locally for 'styrby status' to find
+  const { saveSession } = await import('@/persistence');
+  saveSession({
+    sessionId: activeSession.sessionId,
+    agentType: agentType as 'claude' | 'codex' | 'gemini',
+    projectPath,
+    createdAt: new Date().toISOString(),
+    lastActivityAt: new Date().toISOString(),
+    status: 'running',
+  });
+
+  // ── 6. Wait for session to end ───────────────────────────────────────
+
+  // WHY: We use a Promise that resolves when:
+  // (a) User presses Ctrl+C
+  // (b) Mobile sends an 'end_session' command
+  // (c) The process receives SIGTERM (e.g., from a service manager)
+  // This keeps the CLI alive while the relay bridge handles all communication.
+  const sessionDone = new Promise<string>((resolve) => {
+    // Handle Ctrl+C (SIGINT)
+    const onSigint = () => {
+      process.off('SIGINT', onSigint);
+      process.off('SIGTERM', onSigterm);
+      resolve('user_interrupt');
+    };
+
+    // Handle SIGTERM (graceful shutdown)
+    const onSigterm = () => {
+      process.off('SIGINT', onSigint);
+      process.off('SIGTERM', onSigterm);
+      resolve('sigterm');
+    };
+
+    process.on('SIGINT', onSigint);
+    process.on('SIGTERM', onSigterm);
+
+    // Listen for 'end_session' command from mobile
+    sessionManager.onSessionUpdate(activeSession.sessionId, (update) => {
+      if (update.type === 'end_session_requested') {
+        process.off('SIGINT', onSigint);
+        process.off('SIGTERM', onSigterm);
+        resolve('mobile_end_session');
+      }
+    });
+  });
+
+  const endReason = await sessionDone;
+  logger.debug('Session ending', { reason: endReason });
+
+  // ── 7. Clean up ──────────────────────────────────────────────────────
+  console.log(chalk.gray('\nEnding session...'));
+
+  await activeSession.stop();
+  await apiClient.disconnect();
+
+  // Update local session record
+  saveSession({
+    sessionId: activeSession.sessionId,
+    agentType: agentType as 'claude' | 'codex' | 'gemini',
+    projectPath,
+    createdAt: new Date().toISOString(),
+    lastActivityAt: new Date().toISOString(),
+    status: 'stopped',
+  });
+
+  const reasonLabels: Record<string, string> = {
+    user_interrupt: 'User pressed Ctrl+C',
+    sigterm: 'Process terminated',
+    mobile_end_session: 'Ended from mobile app',
+  };
+
+  console.log(chalk.green('\nSession ended.'));
+  console.log(chalk.gray(`Reason: ${reasonLabels[endReason] || endReason}\n`));
 }
 
 /**
  * Handle the 'status' command.
- * Shows current connection and session status.
+ *
+ * Displays a formatted status table showing:
+ * - Daemon process state (running/stopped, PID, uptime)
+ * - Supabase Realtime connection state
+ * - Authentication status (user ID if authenticated)
+ * - Mobile pairing status
+ * - Active sessions count
+ *
+ * Gathers information from multiple sources:
+ * 1. Daemon status (PID file + status file via getDaemonStatus)
+ * 2. IPC socket for live daemon data (if daemon is responsive)
+ * 3. Persisted credentials for auth state
+ * 4. Persisted data for pairing state
+ * 5. Local session storage for active sessions
  */
 async function handleStatus(): Promise<void> {
-  logger.info('Checking status...');
-  // TODO: Implement
-  // 1. Check if daemon is running
-  // 2. Check connection to Supabase
-  // 3. List active sessions
-  logger.warn('Status not yet implemented');
+  const chalk = (await import('chalk')).default;
+  const { getDaemonStatus } = await import('@/daemon/run');
+  const { canConnectToDaemon, getDaemonStatusViaIpc, listConnectedDevices } = await import('@/daemon/controlClient');
+  const { loadPersistedData, listSessions } = await import('@/persistence');
+
+  // ── Gather data from all sources in parallel ──────────────────────────
+  // WHY: We fetch from multiple independent sources. Doing it in parallel
+  // saves time (~3s IPC timeout if daemon is dead) and avoids sequential waits.
+  const [fileStatus, ipcReachable, persistedData, storedSessions] = await Promise.all([
+    Promise.resolve(getDaemonStatus()),
+    canConnectToDaemon(),
+    Promise.resolve(loadPersistedData()),
+    Promise.resolve(listSessions()),
+  ]);
+
+  // If IPC is reachable, prefer its live data over the status file
+  let daemonStatus = fileStatus;
+  let connectedDevices: unknown[] = [];
+
+  if (ipcReachable) {
+    const [ipcStatus, devices] = await Promise.all([
+      getDaemonStatusViaIpc(),
+      listConnectedDevices(),
+    ]);
+    if (ipcStatus.running) {
+      daemonStatus = ipcStatus;
+    }
+    connectedDevices = devices;
+  }
+
+  // ── Format uptime ─────────────────────────────────────────────────────
+  /**
+   * Convert seconds into a human-readable uptime string.
+   *
+   * @param seconds - Total seconds of uptime
+   * @returns Formatted string like "2h 15m" or "45s"
+   */
+  const formatUptime = (seconds: number): string => {
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return `${h}h ${m}m`;
+  };
+
+  // ── Build status lines ────────────────────────────────────────────────
+  const SEPARATOR = chalk.gray('\u2500'.repeat(45));
+  const LABEL_WIDTH = 14;
+
+  /**
+   * Format a status row with consistent label alignment.
+   *
+   * @param label - Left-side label text
+   * @param value - Right-side value text (already chalk-colored)
+   * @returns Formatted row string
+   */
+  const row = (label: string, value: string): string => {
+    return `  ${chalk.bold(label.padEnd(LABEL_WIDTH))} ${value}`;
+  };
+
+  console.log('');
+  console.log(chalk.bold.cyan('  Styrby Status'));
+  console.log(`  ${SEPARATOR}`);
+
+  // ── Daemon ────────────────────────────────────────────────────────────
+  if (daemonStatus.running) {
+    const pidStr = daemonStatus.pid ? ` (PID ${daemonStatus.pid})` : '';
+    const uptimeStr = daemonStatus.uptimeSeconds
+      ? chalk.gray(` | uptime ${formatUptime(daemonStatus.uptimeSeconds)}`)
+      : '';
+    console.log(row('Daemon:', chalk.green('Running') + chalk.gray(pidStr) + uptimeStr));
+  } else {
+    const hint = daemonStatus.errorMessage
+      ? chalk.gray(` (${daemonStatus.errorMessage})`)
+      : '';
+    console.log(row('Daemon:', chalk.red('Stopped') + hint));
+  }
+
+  // ── Connection ────────────────────────────────────────────────────────
+  if (daemonStatus.running) {
+    const stateColors: Record<string, (s: string) => string> = {
+      connected: chalk.green,
+      connecting: chalk.yellow,
+      reconnecting: chalk.yellow,
+      disconnected: chalk.red,
+      error: chalk.red,
+    };
+    const state = daemonStatus.connectionState || 'unknown';
+    const colorFn = stateColors[state] || chalk.gray;
+    const stateLabel = state.charAt(0).toUpperCase() + state.slice(1);
+    const errorHint = state === 'error' && daemonStatus.errorMessage
+      ? chalk.gray(` (${daemonStatus.errorMessage})`)
+      : '';
+    console.log(row('Connection:', colorFn(stateLabel) + errorHint));
+  } else {
+    console.log(row('Connection:', chalk.gray('N/A (daemon not running)')));
+  }
+
+  // ── Auth ──────────────────────────────────────────────────────────────
+  if (persistedData?.userId && persistedData?.accessToken) {
+    // WHY: We don't store the email in persisted data currently, so we show
+    // the user ID (truncated) as a proxy. A future enhancement could decode
+    // the JWT to extract the email claim.
+    const userDisplay = persistedData.userId.length > 12
+      ? `${persistedData.userId.substring(0, 12)}...`
+      : persistedData.userId;
+    const authDate = persistedData.authenticatedAt
+      ? chalk.gray(` (since ${new Date(persistedData.authenticatedAt).toLocaleDateString()})`)
+      : '';
+    console.log(row('Auth:', chalk.green('Authenticated') + chalk.gray(` [${userDisplay}]`) + authDate));
+  } else {
+    console.log(row('Auth:', chalk.red('Not authenticated') + chalk.gray(' (run: styrby onboard)')));
+  }
+
+  // ── Mobile Pairing ────────────────────────────────────────────────────
+  if (persistedData?.pairedAt) {
+    const pairedDate = new Date(persistedData.pairedAt);
+    const timeSincePair = Date.now() - pairedDate.getTime();
+    const timeAgo = formatTimeAgo(timeSincePair);
+
+    // Check if mobile is currently connected via relay
+    const mobileOnline = connectedDevices.some((d) => {
+      const device = d as { device_type?: string };
+      return device.device_type === 'mobile';
+    });
+
+    if (mobileOnline) {
+      console.log(row('Mobile:', chalk.green('Online') + chalk.gray(` (paired ${timeAgo} ago)`)));
+    } else {
+      console.log(row('Mobile:', chalk.yellow('Paired') + chalk.gray(` (last paired ${timeAgo} ago, currently offline)`)));
+    }
+  } else {
+    console.log(row('Mobile:', chalk.red('Not paired') + chalk.gray(' (run: styrby pair)')));
+  }
+
+  // ── Sessions ──────────────────────────────────────────────────────────
+  const activeSessions = storedSessions.filter(s => s.status === 'active' || s.status === 'running');
+  if (activeSessions.length > 0) {
+    const sessionDescs = activeSessions.map(s => {
+      const project = s.projectPath.split('/').pop() || s.projectPath;
+      return `${s.agentType}/${project}`;
+    });
+    const sessionStr = `${activeSessions.length} active (${sessionDescs.join(', ')})`;
+    console.log(row('Sessions:', chalk.green(sessionStr)));
+  } else if (daemonStatus.activeSessions && daemonStatus.activeSessions > 0) {
+    console.log(row('Sessions:', chalk.green(`${daemonStatus.activeSessions} active`)));
+  } else {
+    console.log(row('Sessions:', chalk.gray('None')));
+  }
+
+  console.log(`  ${SEPARATOR}`);
+
+  // ── Hints ─────────────────────────────────────────────────────────────
+  if (!daemonStatus.running) {
+    console.log('');
+    console.log(chalk.gray('  Tip: Start the daemon with: styrby start'));
+  }
+
+  console.log('');
+}
+
+/**
+ * Format a duration in milliseconds as a human-readable "time ago" string.
+ *
+ * @param ms - Duration in milliseconds
+ * @returns Human-readable relative time (e.g., "2m", "3h", "5d")
+ */
+function formatTimeAgo(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
 }
 
 /**
