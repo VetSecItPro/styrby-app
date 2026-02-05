@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 
 /**
  * Marketing landing page - showcases Styrby features and benefits.
@@ -11,9 +12,13 @@ export default function Home() {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center">
-                <span className="text-lg font-bold text-white">S</span>
-              </div>
+              <Image
+                src="/logo.png"
+                alt="Styrby"
+                width={32}
+                height={32}
+                className="h-8 w-8"
+              />
               <span className="font-semibold text-zinc-100">Styrby</span>
             </div>
 
@@ -56,9 +61,14 @@ export default function Home() {
         <div className="relative mx-auto max-w-4xl text-center">
           {/* Logo */}
           <div className="mb-8 flex justify-center">
-            <div className="h-20 w-20 rounded-2xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/20">
-              <span className="text-4xl font-bold text-white">S</span>
-            </div>
+            <Image
+              src="/logo.png"
+              alt="Styrby"
+              width={80}
+              height={80}
+              className="h-20 w-20 drop-shadow-lg"
+              priority
+            />
           </div>
 
           {/* Badge */}

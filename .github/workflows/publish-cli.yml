@@ -1,0 +1,94 @@
+# Publish Styrby CLI to npm
+#
+# WHY: This workflow publishes with npm Provenance, which cryptographically
+# proves the package came from this repository via GitHub Actions.
+# This is what professional packages do for supply chain security.
+#
+# TRIGGER: Manually via workflow_dispatch, or when a release is published
+#
+# REQUIREMENTS:
+# 1. NPM_TOKEN secret must be set in GitHub repo settings
+# 2. npm account must have 2FA enabled
+# 3. Package name "styrby" must be available (it is)
+
+name: Publish CLI to npm
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (skip actual publish)'
+        required: false
+        type: boolean
+        default: false
+
+  # Auto-trigger on release
+  release:
+    types: [published]
+
+# Ensure only one publish runs at a time
+concurrency:
+  group: publish-cli
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and Publish
+    runs-on: ubuntu-latest
+
+    # Required for npm provenance
+    permissions:
+      contents: read
+      id-token: write
+
+    defaults:
+      run:
+        working-directory: packages/styrby-cli
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: .
+
+      - name: Security audit
+        run: npm audit --audit-level=high
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test CLI
+        run: node dist/index.js --help
+
+      - name: Verify package contents
+        run: npm pack --dry-run
+
+      - name: Publish to npm (dry run)
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        run: npm publish --dry-run
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish to npm with provenance
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify publication
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          sleep 10
+          npm view styrby
