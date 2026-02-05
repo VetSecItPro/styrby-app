@@ -1,13 +1,38 @@
 /**
  * Checkout API Route
  *
+ * POST /api/billing/checkout
+ *
  * Creates a Polar checkout session for subscription upgrade.
+ *
+ * @auth Required - Supabase Auth JWT
+ *
+ * @body {
+ *   tierId: 'pro' | 'power',
+ *   billingCycle?: 'monthly' | 'annual'
+ * }
+ *
+ * @returns 200 { url: string }
+ *
+ * @error 400 { error: string }
+ * @error 401 { error: 'Unauthorized' }
+ * @error 500 { error: 'Failed to create checkout session' }
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { TIERS, type TierId, type BillingCycle } from '@/lib/polar';
 import { Polar } from '@polar-sh/sdk';
+import { z } from 'zod';
+
+/**
+ * Zod schema for checkout request validation.
+ * WHY: Prevents malformed or unexpected input from reaching the Polar API.
+ */
+const CheckoutRequestSchema = z.object({
+  tierId: z.string().min(1, 'tierId is required'),
+  billingCycle: z.enum(['monthly', 'annual']).optional().default('monthly'),
+});
 
 const polar = new Polar({
   accessToken: process.env.POLAR_ACCESS_TOKEN,
@@ -27,18 +52,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Parse request body
-    const { tierId, billingCycle = 'monthly' } = (await request.json()) as {
-      tierId: TierId;
-      billingCycle?: BillingCycle;
-    };
+    // Parse and validate request body with Zod
+    const rawBody = await request.json();
+    const parseResult = CheckoutRequestSchema.safeParse(rawBody);
 
-    if (!tierId || !TIERS[tierId]) {
-      return NextResponse.json({ error: 'Invalid tier' }, { status: 400 });
+    if (!parseResult.success) {
+      return NextResponse.json(
+        { error: parseResult.error.errors.map((e) => e.message).join(', ') },
+        { status: 400 }
+      );
     }
 
-    if (billingCycle !== 'monthly' && billingCycle !== 'annual') {
-      return NextResponse.json({ error: 'Invalid billing cycle' }, { status: 400 });
+    const { tierId, billingCycle } = parseResult.data as {
+      tierId: TierId;
+      billingCycle: BillingCycle;
+    };
+
+    if (!TIERS[tierId]) {
+      return NextResponse.json({ error: 'Invalid tier' }, { status: 400 });
     }
 
     const tier = TIERS[tierId];
@@ -62,7 +93,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ url: checkout.url });
   } catch (error) {
-    console.error('Checkout error:', error);
+    const isDev = process.env.NODE_ENV === 'development';
+    console.error('Checkout error:', isDev ? error : (error instanceof Error ? error.message : 'Unknown error'));
     return NextResponse.json(
       { error: 'Failed to create checkout session' },
       { status: 500 }
