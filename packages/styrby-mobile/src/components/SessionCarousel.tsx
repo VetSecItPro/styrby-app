@@ -15,18 +15,32 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH - 48; // 24px padding on each side
 
 /**
- * Active session data
+ * Represents an active coding session displayed in the dashboard carousel.
+ * Populated from the Supabase `sessions` table and updated in real time
+ * via relay messages (session_state, cost_update, permission_request).
  */
 export interface ActiveSession {
+  /** Session UUID from Supabase */
   id: string;
+  /** Which AI agent is running this session */
   agentType: AgentType;
+  /** Session title (auto-generated or user-set) */
   title: string;
+  /** Current session state for the carousel UI */
   status: 'running' | 'idle' | 'waiting_permission';
+  /** ISO timestamp of the most recent activity */
   lastActivity?: string;
+  /** Total number of messages in this session */
   messageCount: number;
+  /** Total cost in USD for this session */
   costUsd: number;
+  /** Pending permission request details, if the session is waiting for approval */
   pendingPermission?: {
+    /** The relay permission request ID, used when sending approval/denial */
+    requestId: string;
+    /** Tool name being requested (e.g., "Bash", "Write") */
     type: string;
+    /** Human-readable description of what the tool will do */
     description: string;
   };
 }
@@ -42,6 +56,8 @@ const AGENT_CONFIG: Record<AgentType, { name: string; color: string; bgColor: st
   claude: { name: 'Claude', color: '#f97316', bgColor: 'rgba(249, 115, 22, 0.15)', icon: 'terminal' },
   codex: { name: 'Codex', color: '#22c55e', bgColor: 'rgba(34, 197, 94, 0.15)', icon: 'code-slash' },
   gemini: { name: 'Gemini', color: '#3b82f6', bgColor: 'rgba(59, 130, 246, 0.15)', icon: 'sparkles' },
+  opencode: { name: 'OpenCode', color: '#8b5cf6', bgColor: 'rgba(139, 92, 246, 0.15)', icon: 'code-working' },
+  aider: { name: 'Aider', color: '#ec4899', bgColor: 'rgba(236, 72, 153, 0.15)', icon: 'people' },
 };
 
 export function SessionCarousel({ sessions, onSessionPress, onApprove, onDeny }: SessionCarouselProps) {

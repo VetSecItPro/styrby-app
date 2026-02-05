@@ -49,6 +49,8 @@ const AGENT_CONFIG: Record<AgentType, { name: string; color: string; bgColor: st
   claude: { name: 'Claude', color: '#f97316', bgColor: 'rgba(249, 115, 22, 0.1)' },
   codex: { name: 'Codex', color: '#22c55e', bgColor: 'rgba(34, 197, 94, 0.1)' },
   gemini: { name: 'Gemini', color: '#3b82f6', bgColor: 'rgba(59, 130, 246, 0.1)' },
+  opencode: { name: 'OpenCode', color: '#8b5cf6', bgColor: 'rgba(139, 92, 246, 0.1)' },
+  aider: { name: 'Aider', color: '#ec4899', bgColor: 'rgba(236, 72, 153, 0.1)' },
 };
 
 function CodeBlock({ content, language }: { content: string; language?: string }) {
