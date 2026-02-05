@@ -47,6 +47,8 @@ const AGENT_COLORS: Record<AgentType, string> = {
   claude: '#f97316',
   codex: '#22c55e',
   gemini: '#3b82f6',
+  opencode: '#8b5cf6',
+  aider: '#ec4899',
 };
 
 const TYPE_CONFIG: Record<NotificationType, { icon: keyof typeof Ionicons.glyphMap; color: string }> = {
