@@ -18,11 +18,30 @@ import WeeklySummaryEmail from '@/emails/weekly-summary';
 
 // Lazy-initialize Resend client to avoid build-time errors
 let resendClient: Resend | null = null;
+let warnedMissingKey = false;
 
-function getResendClient(): Resend {
+/**
+ * Get the lazily-initialized Resend client.
+ *
+ * WHY this returns null instead of throwing: Email is a nice-to-have feature
+ * in Styrby. The app should function fully without it — welcome emails, budget
+ * alerts, and weekly summaries are enhancements, not hard requirements.
+ * Throwing here would crash API routes and auth callbacks just because the
+ * RESEND_API_KEY is missing in development or a misconfigured deployment.
+ *
+ * @returns The Resend client instance, or null if RESEND_API_KEY is not set
+ */
+function getResendClient(): Resend | null {
   if (!resendClient) {
     if (!process.env.RESEND_API_KEY) {
-      throw new Error('RESEND_API_KEY environment variable is not set');
+      if (!warnedMissingKey) {
+        console.warn(
+          '[resend] RESEND_API_KEY is not set — email sending is disabled. ' +
+          'Set this environment variable to enable transactional emails.'
+        );
+        warnedMissingKey = true;
+      }
+      return null;
     }
     resendClient = new Resend(process.env.RESEND_API_KEY);
   }
@@ -36,6 +55,16 @@ const from = `${FROM_NAME} <${FROM_EMAIL}>`;
 
 /**
  * Generic email send function.
+ *
+ * Gracefully no-ops if the Resend client is not configured (RESEND_API_KEY
+ * missing). This ensures the app works without email — callers do not need
+ * to check for null before calling.
+ *
+ * @param to - Recipient email address
+ * @param subject - Email subject line
+ * @param react - React Email component to render as the email body
+ * @param replyTo - Reply-to address (defaults to hello@styrbyapp.com)
+ * @returns Result object with `success` boolean and optional `id` or `error`
  */
 export async function sendEmail({
   to,
@@ -48,8 +77,14 @@ export async function sendEmail({
   react: React.ReactElement;
   replyTo?: string;
 }) {
+  const client = getResendClient();
+
+  if (!client) {
+    return { success: false, error: 'Email sending is disabled (RESEND_API_KEY not set)' };
+  }
+
   try {
-    const { data, error } = await getResendClient().emails.send({
+    const { data, error } = await client.emails.send({
       from,
       to,
       subject,
