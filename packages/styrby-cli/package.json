@@ -1,7 +1,7 @@
 {
-  "name": "styrby",
+  "name": "styrby-cli",
   "version": "0.1.0",
-  "description": "Mobile remote control for AI coding agents. Control Claude Code, Codex, Gemini, OpenCode, and Aider from your phone.",
+  "description": "Mobile remote control for AI coding agents. Control Claude Code, Codex, Gemini, and OpenCode from your phone.",
   "author": {
     "name": "Steel Motion LLC",
     "email": "security@steelmotionllc.com",
