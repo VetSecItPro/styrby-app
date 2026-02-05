@@ -3,14 +3,16 @@
  *
  * Handles the complete device pairing flow after scanning a QR code from the CLI.
  * Validates the pairing payload, persists pairing info to secure storage,
- * registers push notifications, and establishes the relay connection.
+ * exchanges E2E encryption keys, registers push notifications, and establishes
+ * the relay connection.
  *
  * Flow:
  * 1. Decode and validate the QR code payload
  * 2. Verify the user is authenticated with Supabase
  * 3. Store pairing info in secure storage
- * 4. Register push notification token for the paired device
- * 5. Connect to the relay channel for real-time communication
+ * 4. Generate/retrieve E2E encryption keypair and exchange public keys
+ * 5. Register push notification token for the paired device
+ * 6. Connect to the relay channel for real-time communication
  */
 
 import * as SecureStore from 'expo-secure-store';
@@ -22,6 +24,7 @@ import {
 } from 'styrby-shared';
 import { supabase } from '../lib/supabase';
 import { registerForPushNotifications, savePushToken } from './notifications';
+import { registerPublicKey, getRecipientPublicKey, clearEncryptionCache } from './encryption';
 
 // ============================================================================
 // Storage Keys
@@ -115,7 +118,8 @@ const ERROR_MESSAGES: Record<PairingErrorCode, string> = {
  * 2. Validate the payload structure and expiry
  * 3. Verify the authenticated user matches the QR code user
  * 4. Persist pairing info to SecureStore
- * 5. Register push notifications for the paired device
+ * 5. Exchange E2E encryption keys (upload mobile key, fetch CLI key)
+ * 6. Register push notifications for the paired device
  *
  * @param qrData - Raw string data scanned from the QR code
  * @returns Result object with success status, pairing info, or error details
@@ -123,7 +127,7 @@ const ERROR_MESSAGES: Record<PairingErrorCode, string> = {
  * @example
  * const result = await executePairing('styrby://pair?data=...');
  * if (result.success) {
- *   // Navigate to main app
+ *   // Navigate to main app -- E2E encryption is ready
  * } else {
  *   // Show result.error to user
  * }
@@ -176,7 +180,30 @@ export async function executePairing(qrData: string): Promise<PairingAttemptResu
     return createError('STORAGE_FAILED');
   }
 
-  // Step 7: Register push notifications (non-blocking, best-effort)
+  // Step 7: Exchange E2E encryption keys
+  // WHY: Key exchange happens during pairing because both devices are actively
+  // online and the user has confirmed the trust relationship via QR code.
+  // After this step, all future messages can be E2E encrypted.
+  try {
+    // 7a: Upload mobile's public key to machine_keys table
+    await registerPublicKey(user.id);
+
+    // 7b: Pre-fetch the CLI's public key into the in-memory cache
+    // WHY: This validates that the CLI has already registered its key
+    // and warms the cache so the first encrypted message does not
+    // need an additional Supabase query.
+    await getRecipientPublicKey(payload.machineId);
+  } catch (keyExchangeError) {
+    // WHY: Key exchange failure is not fatal to pairing. The mobile app
+    // can still communicate over the relay channel -- messages will just
+    // be sent without encryption until keys are available. The encryption
+    // service will retry key fetch on next encrypt/decrypt attempt.
+    if (__DEV__) {
+      console.warn('[Pairing] E2E key exchange failed (non-fatal):', keyExchangeError);
+    }
+  }
+
+  // Step 8: Register push notifications (non-blocking, best-effort)
   // WHY: Push notifications enhance the experience but are not required for pairing.
   // We do not fail the pairing if push registration fails.
   registerPushNotificationsAsync().catch(() => {
@@ -217,12 +244,17 @@ export async function isPaired(): Promise<boolean> {
 }
 
 /**
- * Clears all pairing data from SecureStore.
+ * Clears all pairing data from SecureStore and resets encryption caches.
  * Used when the user wants to unpair or re-pair with a different CLI.
+ *
+ * WHY clear encryption cache: If the user re-pairs with a different CLI,
+ * the cached recipient keys from the previous pairing would cause encryption
+ * to the wrong device. Clearing forces a fresh key lookup on next pairing.
  */
 export async function clearPairingInfo(): Promise<void> {
   await SecureStore.deleteItemAsync(PAIRING_INFO_KEY);
   await SecureStore.deleteItemAsync(PAIRING_TOKEN_KEY);
+  clearEncryptionCache();
 }
 
 /**

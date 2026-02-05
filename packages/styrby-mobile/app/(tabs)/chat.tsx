@@ -2,14 +2,20 @@
  * Chat Screen
  *
  * Main chat interface for communicating with AI agents.
- * Provides session persistence (Supabase), typing indicators,
- * stop/cancel controls, and permission approval feedback.
+ * Provides session persistence (Supabase), E2E encrypted messaging,
+ * typing indicators, stop/cancel controls, and permission approval feedback.
  *
  * Session lifecycle:
  * 1. On mount, checks for an existing sessionId in route params or resumes the most recent active session
  * 2. On first user message (if no active session), creates a new session in Supabase
- * 3. Every sent/received message is persisted to session_messages
+ * 3. Every sent/received message is E2E encrypted and persisted to session_messages
  * 4. When the user navigates away, the session stays active for later resumption
+ *
+ * E2E Encryption:
+ * - Messages are encrypted with NaCl box before being stored in Supabase
+ * - Relay messages are also encrypted in transit via Supabase Realtime
+ * - Falls back to plaintext if encryption keys are unavailable
+ * - Decryption failures show "[Unable to decrypt]" placeholder
  */
 
 import { View, Text, FlatList, TextInput, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
@@ -22,6 +28,7 @@ import { PermissionCard, type PermissionRequest } from '../../src/components/Per
 import { TypingIndicatorInline, type AgentState } from '../../src/components/TypingIndicator';
 import { StopButtonIcon } from '../../src/components/StopButton';
 import { supabase } from '../../src/lib/supabase';
+import { encryptMessage, decryptMessage } from '../../src/services/encryption';
 import type { AgentType } from 'styrby-shared';
 
 // ============================================================================
@@ -31,6 +38,10 @@ import type { AgentType } from 'styrby-shared';
 /**
  * Supabase session_messages row shape matching the `session_messages` table.
  * Used for persisting and loading chat messages.
+ *
+ * Encryption strategy:
+ * - When E2E encryption is active: content=null, encrypted_content + nonce are populated
+ * - Backward compatibility: if encrypted_content is null, fall back to plaintext content
  */
 interface SessionMessageRow {
   /** UUID primary key */
@@ -39,11 +50,11 @@ interface SessionMessageRow {
   session_id: string;
   /** Message role: user, assistant, system, or tool */
   role: 'user' | 'assistant' | 'system' | 'tool';
-  /** Plaintext message content (E2E encryption comes later) */
+  /** Plaintext content (null when E2E encryption is active) */
   content: string | null;
-  /** Encrypted content blob (not used yet) */
+  /** Base64-encoded NaCl box ciphertext (null for legacy plaintext messages) */
   encrypted_content: string | null;
-  /** Encryption nonce (not used yet) */
+  /** Base64-encoded NaCl nonce used for encryption (null for plaintext) */
   nonce: string | null;
   /** Input tokens consumed by this message */
   input_tokens: number | null;
@@ -77,6 +88,15 @@ const AGENT_CONFIG: Record<AgentType, { name: string; color: string; bgColor: st
  * WHY: opencode and aider are not yet integrated into the CLI relay.
  */
 const SELECTABLE_AGENTS: AgentType[] = ['claude', 'codex', 'gemini'];
+
+/**
+ * Placeholder shown when a message cannot be decrypted.
+ * WHY: Graceful degradation -- the user sees that a message exists but
+ * cannot be read, rather than a crash or empty bubble. This can happen
+ * if keys were rotated, the keypair was regenerated, or the message was
+ * encrypted with a different device's key.
+ */
+const DECRYPTION_FAILED_PLACEHOLDER = '[Unable to decrypt]';
 
 // ============================================================================
 // Dev Logger
@@ -230,8 +250,13 @@ export default function ChatScreen() {
   }
 
   /**
-   * Fetches all messages for a given session from the session_messages table
-   * and populates the local messages state.
+   * Fetches all messages for a given session from the session_messages table,
+   * decrypts encrypted messages, and populates the local messages state.
+   *
+   * Handles three content scenarios per message:
+   * 1. Encrypted (encrypted_content + nonce populated): decrypt using E2E keys
+   * 2. Plaintext fallback (content populated, encrypted_content null): use as-is
+   * 3. Decryption failure: show placeholder "[Unable to decrypt]"
    *
    * @param targetSessionId - The session ID to load messages for
    * @returns void
@@ -249,13 +274,41 @@ export default function ChatScreen() {
     }
 
     if (messageRows && messageRows.length > 0) {
-      const loadedMessages: ChatMessageData[] = (messageRows as SessionMessageRow[]).map((row) => ({
-        id: row.id,
-        role: row.role === 'tool' ? 'system' : row.role as ChatMessageData['role'],
-        content: [{ type: 'text' as const, content: row.content ?? '' }],
-        timestamp: row.created_at,
-        costUsd: row.cost_usd ?? undefined,
-      }));
+      const machineId = pairingInfo?.machineId;
+
+      const loadedMessages: ChatMessageData[] = await Promise.all(
+        (messageRows as SessionMessageRow[]).map(async (row) => {
+          let messageContent: string;
+
+          if (row.encrypted_content && row.nonce && machineId) {
+            // WHY: Message is E2E encrypted. Attempt decryption using the
+            // paired CLI machine's public key and our secret key.
+            try {
+              messageContent = await decryptMessage(row.encrypted_content, row.nonce, machineId);
+            } catch (decryptError) {
+              logger.error(`Failed to decrypt message ${row.id}:`, decryptError);
+              messageContent = DECRYPTION_FAILED_PLACEHOLDER;
+            }
+          } else if (row.content !== null) {
+            // WHY: Backward compatibility -- message was stored as plaintext
+            // (before E2E encryption was enabled, or encryption was unavailable).
+            messageContent = row.content;
+          } else {
+            // WHY: Neither encrypted nor plaintext content available.
+            // This should not happen in normal operation but we handle it
+            // gracefully rather than crashing.
+            messageContent = DECRYPTION_FAILED_PLACEHOLDER;
+          }
+
+          return {
+            id: row.id,
+            role: row.role === 'tool' ? 'system' : row.role as ChatMessageData['role'],
+            content: [{ type: 'text' as const, content: messageContent }],
+            timestamp: row.created_at,
+            costUsd: row.cost_usd ?? undefined,
+          };
+        })
+      );
 
       setMessages(loadedMessages);
       logger.log(`Loaded ${loadedMessages.length} messages for session ${targetSessionId}`);
@@ -348,11 +401,13 @@ export default function ChatScreen() {
 
   /**
    * Persists a message to the Supabase `session_messages` table.
+   * When a paired machine ID is available, the content is E2E encrypted
+   * before storage. Falls back to plaintext if encryption is unavailable.
    *
    * @param targetSessionId - The session this message belongs to
    * @param messageId - Unique message ID (used as the PK)
    * @param role - The message role (user, assistant, system, tool)
-   * @param content - Plaintext message content
+   * @param content - Plaintext message content (will be encrypted if possible)
    * @param tokenData - Optional token usage and cost data
    * @returns void
    */
@@ -368,15 +423,43 @@ export default function ChatScreen() {
       model?: string;
     }
   ): Promise<void> {
+    let encryptedContent: string | null = null;
+    let encryptionNonce: string | null = null;
+    let plaintextContent: string | null = content;
+
+    // WHY: Attempt E2E encryption when a paired machine is available.
+    // If encryption fails (key not found, key rotation in progress, etc.),
+    // fall back to plaintext storage. This ensures messages are always
+    // saved even if the encryption infrastructure is temporarily unavailable.
+    const machineId = pairingInfo?.machineId;
+    if (machineId) {
+      try {
+        const encrypted = await encryptMessage(content, machineId);
+        encryptedContent = encrypted.encrypted;
+        encryptionNonce = encrypted.nonce;
+        // WHY: When encryption succeeds, set plaintext to null so the
+        // server never stores the readable content. This is the core
+        // privacy guarantee of E2E encryption.
+        plaintextContent = null;
+      } catch (encryptError) {
+        // WHY: Encryption failure is not fatal. We fall back to plaintext
+        // storage so the user's message is not lost. This can happen if:
+        // - The CLI has not yet registered its public key
+        // - Key rotation is in progress
+        // - SecureStore is temporarily unavailable
+        logger.error('Encryption failed, falling back to plaintext:', encryptError);
+      }
+    }
+
     const { error } = await supabase
       .from('session_messages')
       .insert({
         id: messageId,
         session_id: targetSessionId,
         role,
-        content,
-        encrypted_content: null,
-        nonce: null,
+        content: plaintextContent,
+        encrypted_content: encryptedContent,
+        nonce: encryptionNonce,
         input_tokens: tokenData?.inputTokens ?? null,
         output_tokens: tokenData?.outputTokens ?? null,
         cost_usd: tokenData?.costUsd ?? null,
@@ -396,10 +479,15 @@ export default function ChatScreen() {
    * Processes incoming relay messages and updates local state.
    * Handles agent responses, permission requests, permission responses,
    * and session state updates.
+   *
+   * WHY async IIFE: The effect handler itself cannot be async (React rules),
+   * but we need `await` for decrypting incoming encrypted messages. The IIFE
+   * pattern is the standard way to handle this in React effects.
    */
   useEffect(() => {
     if (!lastMessage) return;
 
+    void (async () => {
     switch (lastMessage.type) {
       case 'agent_response': {
         const responseData = lastMessage.payload as {
@@ -413,15 +501,38 @@ export default function ChatScreen() {
             input: number;
             output: number;
           };
+          /** Base64-encoded encrypted content (set by CLI when E2E is active) */
+          encrypted_content?: string;
+          /** Base64-encoded nonce for decryption */
+          nonce?: string;
         };
 
         const agentType = responseData.agent_type ?? responseData.agent;
+
+        // WHY: The CLI may send relay messages with E2E encrypted content.
+        // If encrypted_content and nonce are present, decrypt the payload.
+        // Otherwise, use the plaintext content field (backward compatibility).
+        let displayContent: string;
+        if (responseData.encrypted_content && responseData.nonce && pairingInfo?.machineId) {
+          try {
+            displayContent = await decryptMessage(
+              responseData.encrypted_content,
+              responseData.nonce,
+              pairingInfo.machineId
+            );
+          } catch (decryptError) {
+            logger.error('Failed to decrypt relay message:', decryptError);
+            displayContent = DECRYPTION_FAILED_PLACEHOLDER;
+          }
+        } else {
+          displayContent = responseData.content;
+        }
 
         const responseMessage: ChatMessageData = {
           id: lastMessage.id,
           role: 'assistant',
           agentType,
-          content: [{ type: 'text', content: responseData.content }],
+          content: [{ type: 'text', content: displayContent }],
           timestamp: lastMessage.timestamp,
           costUsd: responseData.cost_usd,
           durationMs: responseData.duration_ms,
@@ -437,13 +548,14 @@ export default function ChatScreen() {
           setIsLoading(false);
         }
 
-        // Persist the assistant message to Supabase
+        // Persist the assistant message to Supabase (uses the decrypted content
+        // which will be re-encrypted by saveMessageToDb for storage)
         if (sessionId) {
           saveMessageToDb(
             sessionId,
             lastMessage.id,
             'assistant',
-            responseData.content,
+            displayContent,
             {
               inputTokens: responseData.tokens?.input,
               outputTokens: responseData.tokens?.output,
@@ -490,7 +602,8 @@ export default function ChatScreen() {
         break;
       }
     }
-  }, [lastMessage, sessionId]);
+    })();
+  }, [lastMessage, sessionId, pairingInfo]);
 
   // --------------------------------------------------------------------------
   // Scroll to Bottom
@@ -550,12 +663,37 @@ export default function ChatScreen() {
     }
 
     try {
+      // WHY: When a paired machine is available, encrypt the relay payload
+      // so the message content is protected in transit via Supabase Realtime.
+      // The CLI will decrypt using its secret key + mobile's public key.
+      // If encryption fails, fall back to plaintext relay (the CLI handles both).
+      let relayPayload: Record<string, unknown> = {
+        content,
+        agent_type: selectedAgent,
+      };
+
+      if (pairingInfo?.machineId) {
+        try {
+          const encrypted = await encryptMessage(content, pairingInfo.machineId);
+          relayPayload = {
+            encrypted_content: encrypted.encrypted,
+            nonce: encrypted.nonce,
+            agent_type: selectedAgent,
+            // WHY: Include content as null to signal to the CLI that this
+            // message is encrypted. The CLI checks for encrypted_content first.
+            content: null,
+          };
+        } catch (encryptError) {
+          // WHY: Encryption failure for relay is non-fatal. Send plaintext
+          // so the user's message still reaches the CLI. This can happen
+          // during initial pairing before keys are fully exchanged.
+          logger.error('Relay encryption failed, sending plaintext:', encryptError);
+        }
+      }
+
       await sendMessage({
         type: 'chat',
-        payload: {
-          content,
-          agent_type: selectedAgent,
-        },
+        payload: relayPayload,
       });
     } catch (error) {
       const errorId = `error_${Date.now()}`;
