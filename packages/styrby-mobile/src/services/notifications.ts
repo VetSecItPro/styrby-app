@@ -47,7 +47,9 @@ Notifications.setNotificationHandler({
 export async function registerForPushNotifications(): Promise<string | null> {
   // Check if we're on a physical device
   if (!Device.isDevice) {
-    console.log('Push notifications require a physical device');
+    if (__DEV__) {
+      console.log('Push notifications require a physical device');
+    }
     return null;
   }
 
@@ -62,7 +64,9 @@ export async function registerForPushNotifications(): Promise<string | null> {
   }
 
   if (finalStatus !== 'granted') {
-    console.log('Failed to get push notification permissions');
+    if (__DEV__) {
+      console.log('Failed to get push notification permissions');
+    }
     return null;
   }
 
@@ -91,7 +95,9 @@ export async function registerForPushNotifications(): Promise<string | null> {
     });
     return tokenData.data;
   } catch (error) {
-    console.error('Error getting push token:', error);
+    if (__DEV__) {
+      console.error('Error getting push token:', error);
+    }
     return null;
   }
 }
@@ -106,7 +112,9 @@ export async function savePushToken(token: string): Promise<boolean> {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      console.error('No authenticated user');
+      if (__DEV__) {
+        console.error('No authenticated user');
+      }
       return false;
     }
 
@@ -121,13 +129,17 @@ export async function savePushToken(token: string): Promise<boolean> {
     );
 
     if (error) {
-      console.error('Error saving push token:', error);
+      if (__DEV__) {
+        console.error('Error saving push token:', error);
+      }
       return false;
     }
 
     return true;
   } catch (error) {
-    console.error('Error saving push token:', error);
+    if (__DEV__) {
+      console.error('Error saving push token:', error);
+    }
     return false;
   }
 }
@@ -150,13 +162,17 @@ export async function removePushToken(token: string): Promise<boolean> {
       .eq('token', token);
 
     if (error) {
-      console.error('Error removing push token:', error);
+      if (__DEV__) {
+        console.error('Error removing push token:', error);
+      }
       return false;
     }
 
     return true;
   } catch (error) {
-    console.error('Error removing push token:', error);
+    if (__DEV__) {
+      console.error('Error removing push token:', error);
+    }
     return false;
   }
 }

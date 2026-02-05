@@ -7,11 +7,14 @@
     "dev": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "build:dev": "eas build --profile development",
-    "build:preview": "eas build --profile preview",
-    "build:prod": "eas build --profile production",
-    "typecheck": "echo 'Skipping typecheck - NativeWind types require Babel transform at runtime'",
-    "lint": "echo 'TODO: configure eslint flat config for Expo (eslint-config-expo requires migration to flat config)'"
+    "prebuild": "node scripts/validate-config.mjs && expo prebuild",
+    "build:dev": "npm run validate && eas build --profile development",
+    "build:preview": "npm run validate && eas build --profile preview",
+    "build:prod": "npm run validate && eas build --profile production",
+    "validate": "node scripts/validate-config.mjs",
+    "generate-assets": "node scripts/generate-placeholders.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/ app/"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.0.0",
@@ -23,6 +26,7 @@
     "expo-clipboard": "~7.0.1",
     "expo-constants": "~17.0.0",
     "expo-device": "~7.0.3",
+    "expo-haptics": "^15.0.8",
     "expo-linking": "~7.0.0",
     "expo-notifications": "~0.29.14",
     "expo-router": "~4.0.0",
