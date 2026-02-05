@@ -18,18 +18,15 @@ import { getCostsForDateRange, type CostSummary } from './jsonl-parser.js';
 // Validation Helpers
 // ============================================================================
 
-/**
- * UUID v4 regex pattern for validating user IDs.
- * WHY: Validates userId format before using in queries to prevent potential
- * injection or unauthorized access if a service role key bypasses RLS.
- */
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** UUID v4 format regex for input validation */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * Validates that a string is a properly formatted UUID.
+ * Validates that a string is a properly formatted UUID v4.
+ * WHY: Prevents injection attacks if service role key bypasses RLS.
  *
  * @param value - String to validate
- * @returns True if the string is a valid UUID format
+ * @returns True if the string is a valid UUID v4 format
  */
 function isValidUuid(value: string): boolean {
   return UUID_REGEX.test(value);
@@ -147,10 +144,8 @@ export class BudgetMonitor {
   private readonly CACHE_TTL_MS = 60_000; // 1 minute cache
 
   constructor(config: BudgetMonitorConfig) {
-    // Validate userId is a proper UUID format to prevent potential injection
-    // or unauthorized access if service role key bypasses RLS
     if (!isValidUuid(config.userId)) {
-      throw new Error('Invalid userId format: must be a valid UUID');
+      throw new Error('Invalid userId format: must be a valid UUID v4');
     }
 
     this.config = {
