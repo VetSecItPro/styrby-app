@@ -58,11 +58,15 @@ jobs:
       - name: Lint (if configured)
         run: npm run lint --if-present
 
-      - name: Type check CLI
-        run: npm run typecheck -w styrby-cli --if-present
+      # Build shared first so its type declarations are available for CLI typecheck
+      - name: Build shared (type declarations)
+        run: npm run build -w styrby-shared --if-present
 
       - name: Type check shared
         run: npm run typecheck -w styrby-shared --if-present
+
+      - name: Type check CLI
+        run: npm run typecheck -w styrby-cli --if-present
 
       - name: Type check web
         run: npm run typecheck -w styrby-web --if-present
