@@ -567,7 +567,19 @@ export default function ChatScreen() {
       }
 
       case 'permission_request': {
-        const permData = lastMessage.payload as PermissionRequest;
+        // WHY: The relay payload uses snake_case (request_id, session_id, etc.)
+        // but the PermissionRequest interface uses camelCase. Map between them.
+        const p = lastMessage.payload;
+        const permData: PermissionRequest = {
+          id: p.request_id,
+          sessionId: p.session_id,
+          agentType: p.agent,
+          type: p.tool_name,
+          description: p.description,
+          riskLevel: p.risk_level,
+          timestamp: p.expires_at,
+          filePath: p.affected_files?.[0],
+        };
         setPendingPermissions((prev) => [...prev, permData]);
 
         // WHY: When a permission is requested, the agent is waiting --
@@ -577,12 +589,12 @@ export default function ChatScreen() {
       }
 
       case 'permission_response': {
-        const { id } = lastMessage.payload as { id: string };
+        const requestId = lastMessage.payload.request_id;
         // WHY: Keep the card in the list briefly so the user sees the
         // approved/denied feedback animation (handled by PermissionCard internally).
         // The card is removed after a short delay.
         setTimeout(() => {
-          setPendingPermissions((prev) => prev.filter((p) => p.id !== id));
+          setPendingPermissions((prev) => prev.filter((p) => p.id !== requestId));
         }, 1500);
         break;
       }
@@ -667,21 +679,31 @@ export default function ChatScreen() {
       // so the message content is protected in transit via Supabase Realtime.
       // The CLI will decrypt using its secret key + mobile's public key.
       // If encryption fails, fall back to plaintext relay (the CLI handles both).
-      let relayPayload: Record<string, unknown> = {
+      // WHY: The relay ChatMessage payload expects { content, agent, session_id? }.
+      // When encryption is available, we add encrypted_content and nonce fields
+      // and set content to empty string (the CLI checks encrypted_content first).
+      let relayPayload: {
+        content: string;
+        agent: AgentType;
+        session_id?: string;
+        encrypted_content?: string;
+        nonce?: string;
+      } = {
         content,
-        agent_type: selectedAgent,
+        agent: selectedAgent ?? 'claude',
+        session_id: currentSessionId ?? undefined,
       };
 
       if (pairingInfo?.machineId) {
         try {
           const encrypted = await encryptMessage(content, pairingInfo.machineId);
           relayPayload = {
+            ...relayPayload,
             encrypted_content: encrypted.encrypted,
             nonce: encrypted.nonce,
-            agent_type: selectedAgent,
-            // WHY: Include content as null to signal to the CLI that this
+            // WHY: Set content to empty to signal to the CLI that this
             // message is encrypted. The CLI checks for encrypted_content first.
-            content: null,
+            content: '',
           };
         } catch (encryptError) {
           // WHY: Encryption failure for relay is non-fatal. Send plaintext
@@ -736,8 +758,7 @@ export default function ChatScreen() {
         await sendMessage({
           type: 'permission_response',
           payload: {
-            id,
-            session_id: permission.sessionId,
+            request_id: id,
             approved: true,
           },
         });
@@ -773,8 +794,7 @@ export default function ChatScreen() {
         await sendMessage({
           type: 'permission_response',
           payload: {
-            id,
-            session_id: permission.sessionId,
+            request_id: id,
             approved: false,
           },
         });

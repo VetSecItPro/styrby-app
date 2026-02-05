@@ -1,0 +1,12 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": ["TEAM_ID.com.steelmotion.styrby"],
+        "paths": ["/auth/*", "/dashboard/*", "/invite/*"],
+        "_comment": "Replace TEAM_ID with your actual Apple Developer Team ID from https://developer.apple.com/account"
+      }
+    ]
+  }
+}

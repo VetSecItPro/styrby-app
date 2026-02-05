@@ -109,14 +109,16 @@ function getPeriodStartDate(period: 'today' | 'week' | 'month'): Date {
   switch (period) {
     case 'today':
       return startOfDay;
-    case 'week':
+    case 'week': {
       const weekAgo = new Date(startOfDay);
       weekAgo.setDate(weekAgo.getDate() - 7);
       return weekAgo;
-    case 'month':
+    }
+    case 'month': {
       const monthAgo = new Date(startOfDay);
       monthAgo.setDate(monthAgo.getDate() - 30);
       return monthAgo;
+    }
   }
 }
 

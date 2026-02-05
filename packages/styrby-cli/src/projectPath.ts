@@ -67,10 +67,21 @@ export function isWithinProject(projectPath: string, targetPath: string): boolea
 }
 
 /**
+ * Returns the current project path (CLI package root).
+ *
+ * Alias for getCurrentProjectPath, maintained for compatibility
+ * with Happy Coder imports that use `import { projectPath } from '@/projectPath'`.
+ *
+ * @returns Current working directory path (CLI package root at runtime)
+ */
+export const projectPath = getCurrentProjectPath;
+
+/**
  * Default export for compatibility with Happy Coder imports
  */
 export default {
   resolveProjectPath,
   getCurrentProjectPath,
   isWithinProject,
+  projectPath,
 };
