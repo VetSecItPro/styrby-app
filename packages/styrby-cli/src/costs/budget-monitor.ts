@@ -198,22 +198,23 @@ export class BudgetMonitor {
   /**
    * Check spending against a single budget alert.
    *
+   * When the alert has an `agent_type` set, costs are filtered to only include
+   * usage from models belonging to that agent. When `agent_type` is null, costs
+   * are aggregated across all agents.
+   *
    * @param alert - Budget alert to check
-   * @param currentCosts - Optional pre-fetched cost summary for the period
+   * @param currentCosts - Optional pre-fetched cost summary for the period.
+   *                       NOTE: If the alert has an agent_type filter and you
+   *                       pass pre-fetched costs, those costs should already be
+   *                       filtered by the same agent type. If not provided, costs
+   *                       are fetched with the correct agent filter automatically.
    * @returns Budget check result
    */
   async checkAlert(alert: BudgetAlert, currentCosts?: CostSummary): Promise<BudgetCheckResult> {
-    // Get costs for the alert's period if not provided
-    const costs = currentCosts || await this.getCostsForPeriod(alert.period);
+    // Get costs for the alert's period, filtered by agent type when applicable
+    const costs = currentCosts || await this.getCostsForPeriod(alert.period, alert.agent_type ?? undefined);
 
-    // Calculate spending (optionally filtered by agent)
-    let spendingUsd = costs.totalCostUsd;
-    if (alert.agent_type) {
-      // For agent-specific alerts, we'd need to filter by agent
-      // Since our jsonl-parser doesn't track by agent yet, use total for now
-      // TODO: Add agent filtering when cost tracking supports multiple agents
-      spendingUsd = costs.totalCostUsd;
-    }
+    const spendingUsd = costs.totalCostUsd;
 
     const percentUsed = (spendingUsd / alert.threshold_usd) * 100;
     const exceeded = spendingUsd >= alert.threshold_usd;
@@ -259,22 +260,25 @@ export class BudgetMonitor {
       return [];
     }
 
-    // Pre-fetch costs for each period type to avoid duplicate queries
-    const periodCosts: Record<BudgetAlertPeriod, CostSummary | null> = {
-      daily: null,
-      weekly: null,
-      monthly: null,
-    };
+    // Pre-fetch costs for each unique (period, agentType) combination to avoid
+    // duplicate queries. The cache key encodes both dimensions.
+    // WHY: Alerts can filter by agent type (e.g., "claude daily $10" vs "all agents
+    // monthly $50"). We need separate cost queries for each agent filter.
+    const costCache: Map<string, CostSummary> = new Map();
 
     const results: BudgetCheckResult[] = [];
 
     for (const alert of alerts) {
-      // Fetch costs for this period if not already fetched
-      if (!periodCosts[alert.period]) {
-        periodCosts[alert.period] = await this.getCostsForPeriod(alert.period);
+      const cacheKey = `${alert.period}:${alert.agent_type ?? 'all'}`;
+
+      if (!costCache.has(cacheKey)) {
+        costCache.set(
+          cacheKey,
+          await this.getCostsForPeriod(alert.period, alert.agent_type ?? undefined)
+        );
       }
 
-      const result = await this.checkAlert(alert, periodCosts[alert.period]!);
+      const result = await this.checkAlert(alert, costCache.get(cacheKey)!);
       results.push(result);
     }
 
@@ -365,9 +369,15 @@ export class BudgetMonitor {
   // --------------------------------------------------------------------------
 
   /**
-   * Get costs for a specific period using local JSONL data.
+   * Get costs for a specific period using local JSONL data, optionally
+   * filtered by agent type.
+   *
+   * @param period - Budget period (daily, weekly, monthly)
+   * @param agentType - Optional agent type to filter costs by. When provided,
+   *                    only costs from models belonging to that agent are included.
+   * @returns Aggregated cost summary for the period
    */
-  private async getCostsForPeriod(period: BudgetAlertPeriod): Promise<CostSummary> {
+  private async getCostsForPeriod(period: BudgetAlertPeriod, agentType?: AgentType): Promise<CostSummary> {
     const now = new Date();
     let startDate: Date;
 
@@ -375,19 +385,20 @@ export class BudgetMonitor {
       case 'daily':
         startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         break;
-      case 'weekly':
+      case 'weekly': {
         // Start of week (Sunday)
         const dayOfWeek = now.getDay();
         startDate = new Date(now);
         startDate.setDate(now.getDate() - dayOfWeek);
         startDate.setHours(0, 0, 0, 0);
         break;
+      }
       case 'monthly':
         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
         break;
     }
 
-    return getCostsForDateRange(startDate, now);
+    return getCostsForDateRange(startDate, now, undefined, agentType);
   }
 
   /**

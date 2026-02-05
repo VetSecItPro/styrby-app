@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as readline from 'readline';
+import type { AgentType } from 'styrby-shared';
 
 /**
  * Model pricing per 1M tokens (USD)
@@ -86,6 +87,28 @@ function getModelPricing(): Record<string, { input: number; output: number; cach
   }
 
   return defaults;
+}
+
+/**
+ * Determines the agent type that uses a given model.
+ *
+ * WHY: Budget alerts can be scoped to a specific agent (e.g., "only track
+ * Claude spending"). Model names encode which agent produced the cost:
+ * - Claude models start with "claude-" (Anthropic)
+ * - OpenAI/Codex models start with "gpt-", "o1-", or "o3-"
+ * - Gemini models start with "gemini-"
+ *
+ * @param model - Model name from token usage (e.g., 'claude-sonnet-4-20250514')
+ * @returns The agent type, or null if the model can't be mapped
+ */
+export function getAgentTypeForModel(model: string): AgentType | null {
+  const lower = model.toLowerCase();
+
+  if (lower.startsWith('claude-')) return 'claude';
+  if (lower.startsWith('gpt-') || lower.startsWith('o1-') || lower.startsWith('o3-')) return 'codex';
+  if (lower.startsWith('gemini-')) return 'gemini';
+
+  return null;
 }
 
 /**
@@ -269,12 +292,21 @@ export async function aggregateCosts(files?: string[]): Promise<CostSummary> {
 }
 
 /**
- * Get costs for a specific date range
+ * Get costs for a specific date range, optionally filtered by agent type.
+ *
+ * @param startDate - Start of the date range (inclusive)
+ * @param endDate - End of the date range (inclusive)
+ * @param files - Optional list of JSONL files to parse (defaults to all session files)
+ * @param agentType - Optional agent type filter. When provided, only costs from
+ *                    models belonging to that agent are included. When omitted,
+ *                    costs from all agents are aggregated (existing behavior).
+ * @returns Aggregated cost summary for the date range
  */
 export async function getCostsForDateRange(
   startDate: Date,
   endDate: Date,
-  files?: string[]
+  files?: string[],
+  agentType?: AgentType
 ): Promise<CostSummary> {
   const sessionFiles = files || findSessionFiles();
 
@@ -294,6 +326,11 @@ export async function getCostsForDateRange(
 
     for (const usage of usages) {
       if (usage.timestamp >= startDate && usage.timestamp <= endDate) {
+        // Skip this usage if agent type filter is active and doesn't match
+        if (agentType && getAgentTypeForModel(usage.model) !== agentType) {
+          continue;
+        }
+
         hasUsageInRange = true;
 
         // Update timestamps
