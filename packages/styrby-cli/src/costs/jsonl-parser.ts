@@ -66,10 +66,33 @@ export interface CostSummary {
 }
 
 /**
+ * Returns model pricing, with optional environment variable overrides.
+ * WHY: Allows urgent pricing updates without code release.
+ *
+ * @returns Merged pricing map (env overrides take precedence)
+ */
+function getModelPricing(): Record<string, { input: number; output: number; cacheRead?: number; cacheWrite?: number }> {
+  const defaults = MODEL_PRICING;
+
+  const envOverride = process.env.STYRBY_MODEL_PRICING_JSON;
+  if (envOverride) {
+    try {
+      const overrides = JSON.parse(envOverride);
+      return { ...defaults, ...overrides };
+    } catch {
+      // Invalid JSON in env var — fall back to defaults
+      return defaults;
+    }
+  }
+
+  return defaults;
+}
+
+/**
  * Calculate cost for token usage
  */
 export function calculateCost(usage: TokenUsage): number {
-  const pricing = MODEL_PRICING[usage.model];
+  const pricing = getModelPricing()[usage.model];
   if (!pricing) {
     // Default pricing if model unknown
     return ((usage.inputTokens * 3) + (usage.outputTokens * 15)) / 1_000_000;
