@@ -67,7 +67,6 @@
     "build": "node scripts/build.mjs",
     "build:types": "tsc --emitDeclarationOnly",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/",
     "test": "vitest run",
     "audit": "npm audit --audit-level=high",
     "prepublishOnly": "npm run audit && npm run typecheck && npm run build"
