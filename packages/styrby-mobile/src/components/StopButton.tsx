@@ -234,12 +234,22 @@ export function FloatingStopButton({
  *   onStop={handleStop}
  * />
  */
+/**
+ * Props for the icon-only stop button variant.
+ * Extends the base props with an optional accessibility label.
+ */
+interface StopButtonIconProps extends Omit<StopButtonProps, 'size' | 'label'> {
+  /** Accessibility label for screen readers */
+  accessibilityLabel?: string;
+}
+
 export function StopButtonIcon({
   isRunning,
   isStopping = false,
   onStop,
   disabled = false,
-}: Omit<StopButtonProps, 'size' | 'label'>) {
+  accessibilityLabel = 'Stop generation',
+}: StopButtonIconProps) {
   const [localStopping, setLocalStopping] = useState(false);
 
   const isStoppingState = isStopping || localStopping;
@@ -274,6 +284,9 @@ export function StopButtonIcon({
         isDisabled ? 'bg-red-500/30' : 'bg-red-500'
       }`}
       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled: isDisabled }}
     >
       {isStoppingState ? (
         <ActivityIndicator size="small" color="white" />
