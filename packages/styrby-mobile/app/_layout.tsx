@@ -13,6 +13,7 @@ import * as SecureStore from 'expo-secure-store';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../src/lib/supabase';
+import { useNotifications } from '../src/hooks/useNotifications';
 import type { Session } from '@supabase/supabase-js';
 
 import type { ErrorBoundaryProps } from 'expo-router';
@@ -75,6 +76,24 @@ export default function RootLayout() {
   const [hasOnboarded, setHasOnboarded] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [initError, setInitError] = useState<Error | null>(null);
+
+  /**
+   * WHY: useNotifications handles push token registration, foreground
+   * notification listeners, and tap-to-navigate routing. It is called
+   * unconditionally here (hooks cannot be conditional) but its internal
+   * savePushToken() gracefully handles the case where no user is
+   * authenticated yet. We call `register` again when a session becomes
+   * available to ensure the token is persisted to the device_tokens table.
+   */
+  const { isRegistered: isPushRegistered, register: registerPush } = useNotifications();
+
+  // Re-register push token when user signs in (token may have been obtained
+  // before auth was available, so savePushToken would have silently failed).
+  useEffect(() => {
+    if (session && !isPushRegistered) {
+      registerPush();
+    }
+  }, [session, isPushRegistered, registerPush]);
 
   /**
    * Runs the initialization sequence: checks onboarding status and
