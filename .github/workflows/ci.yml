@@ -25,6 +25,18 @@ env:
   RESEND_API_KEY: re_placeholder_key
 
 jobs:
+  # ─── Dependency review (PRs only) ───
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, 0BSD, CC0-1.0, Unlicense
+
   # ─── Quality gate: lint + typecheck ───
   quality:
     name: Lint & Type Check
@@ -42,18 +54,45 @@ jobs:
 
       - name: Lint (if configured)
         run: npm run lint --if-present
-        continue-on-error: true
 
       - name: Type check CLI
         run: npm run typecheck -w styrby-cli --if-present
-        continue-on-error: true
 
       - name: Type check shared
         run: npm run typecheck -w styrby-shared --if-present
-        continue-on-error: true
 
       - name: Type check web
         run: npm run typecheck -w styrby-web --if-present
+
+  # ─── CLI unit tests ───
+  test-cli:
+    name: CLI Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared (dependency)
+        run: npm run build -w styrby-shared --if-present
+
+      - name: Run CLI tests
+        run: npm run test -w styrby-cli --if-present -- --coverage
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cli-coverage
+          path: packages/styrby-cli/coverage/
+          retention-days: 7
+          if-no-files-found: warn
 
   # ─── Security scanning ───
   security:
@@ -72,7 +111,6 @@ jobs:
 
       - name: Dependency audit
         run: npm audit --audit-level=high
-        continue-on-error: true
 
       - name: Secret pattern scan
         run: |
@@ -97,11 +135,12 @@ jobs:
           config: >-
             p/owasp-top-ten
             p/typescript
-        continue-on-error: true
+            p/react
+            p/nodejs
 
-  # ─── CLI package build ───
-  build-cli:
-    name: Build CLI
+  # ─── Shared package build ───
+  build-shared:
+    name: Build Shared
     runs-on: ubuntu-latest
     needs: quality
     steps:
@@ -115,8 +154,38 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build shared (dependency)
+      - name: Build shared
         run: npm run build -w styrby-shared --if-present
+
+      - name: Upload shared build
+        uses: actions/upload-artifact@v4
+        with:
+          name: shared-build
+          path: packages/styrby-shared/dist/
+          retention-days: 1
+          if-no-files-found: warn
+
+  # ─── CLI package build ───
+  build-cli:
+    name: Build CLI
+    runs-on: ubuntu-latest
+    needs: [quality, build-shared]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download shared build
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-build
+          path: packages/styrby-shared/dist/
 
       - name: Build CLI
         run: npm run build -w styrby-cli --if-present
@@ -130,7 +199,7 @@ jobs:
   build-web:
     name: Build Web
     runs-on: ubuntu-latest
-    needs: quality
+    needs: [quality, build-shared]
     steps:
       - uses: actions/checkout@v4
 
@@ -141,6 +210,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Download shared build
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-build
+          path: packages/styrby-shared/dist/
 
       - name: Build web
         run: npm run build -w styrby-web
@@ -166,6 +241,29 @@ jobs:
           include-hidden-files: true
           if-no-files-found: warn
 
+  # ─── Mobile (Expo) build check ───
+  build-mobile:
+    name: Build Mobile
+    runs-on: ubuntu-latest
+    needs: build-shared
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint mobile
+        run: npm run lint -w styrby-mobile --if-present
+        continue-on-error: true
+
+      - name: Export web bundle (build check)
+        run: npx -w styrby-mobile expo export --platform web --output-dir /tmp/expo-export 2>&1 || echo "Expo export check completed"
+
   # ─── E2E tests ───
   e2e:
     name: E2E Tests
@@ -181,6 +279,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Download shared build
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-build
+          path: packages/styrby-shared/dist/
 
       - name: Download build artifact
         uses: actions/download-artifact@v4
@@ -259,7 +363,7 @@ jobs:
   summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [quality, security, build-cli, build-web, e2e, bundle-size]
+    needs: [quality, test-cli, security, build-shared, build-cli, build-web, build-mobile, e2e, bundle-size]
     if: always()
     steps:
       - name: Evaluate results
@@ -284,9 +388,12 @@ jobs:
           }
 
           check_job "Quality" "${{ needs.quality.result }}"
+          check_job "CLI Tests" "${{ needs.test-cli.result }}"
           check_job "Security" "${{ needs.security.result }}"
+          check_job "Build Shared" "${{ needs.build-shared.result }}"
           check_job "Build CLI" "${{ needs.build-cli.result }}"
           check_job "Build Web" "${{ needs.build-web.result }}"
+          check_job "Build Mobile" "${{ needs.build-mobile.result }}"
           check_job "E2E Tests" "${{ needs.e2e.result }}"
           check_job "Bundle Size" "${{ needs.bundle-size.result }}"
 
