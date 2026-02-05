@@ -17,6 +17,37 @@ import { createAdminClient } from '@/lib/supabase/server';
 import { headers } from 'next/headers';
 import crypto from 'crypto';
 
+// ============================================================================
+// Rate Limiting
+// ============================================================================
+
+/** Rate limiting configuration */
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 100;
+
+/** In-memory rate limit tracking */
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+/**
+ * Checks if a request should be rate limited.
+ * WHY: Prevents abuse of the webhook endpoint which uses an admin Supabase client.
+ *
+ * @param ip - Client IP address
+ * @returns True if the request should be rejected
+ */
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return false;
+  }
+
+  entry.count++;
+  return entry.count > RATE_LIMIT_MAX_REQUESTS;
+}
+
 /**
  * Polar webhook event types we handle.
  */
@@ -86,6 +117,15 @@ function getBillingCycleFromProductId(productId: string): 'monthly' | 'annual' {
 }
 
 export async function POST(request: Request) {
+  // Rate limit check
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  if (isRateLimited(ip)) {
+    return NextResponse.json(
+      { error: 'Too many requests' },
+      { status: 429, headers: { 'Retry-After': '60' } }
+    );
+  }
+
   const webhookSecret = process.env.POLAR_WEBHOOK_SECRET;
 
   if (!webhookSecret) {
