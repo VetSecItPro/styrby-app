@@ -5,10 +5,11 @@
  */
 
 import { View, Text, Pressable, Dimensions } from 'react-native';
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { router } from 'expo-router';
 import PagerView from 'react-native-pager-view';
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -45,9 +46,35 @@ const STEPS: OnboardingStep[] = [
   },
 ];
 
+/** Terminal command for CLI installation (step 2). */
+const INSTALL_COMMAND = 'npm install -g styrby';
+
+/** Terminal command for device pairing (step 3). */
+const PAIR_COMMAND = 'styrby pair';
+
 export default function OnboardingScreen() {
   const pagerRef = useRef<PagerView>(null);
   const [currentPage, setCurrentPage] = useState(0);
+
+  /**
+   * Tracks which command was recently copied so the UI can show
+   * a checkmark icon for 2 seconds as visual confirmation.
+   * Value is 'install' | 'pair' | null.
+   */
+  const [copiedCommand, setCopiedCommand] = useState<'install' | 'pair' | null>(null);
+
+  /**
+   * Copies a terminal command to the system clipboard and shows
+   * brief visual feedback (checkmark icon for 2 seconds).
+   *
+   * @param text - The command string to copy
+   * @param id - Identifier for which button to animate ('install' or 'pair')
+   */
+  const handleCopy = useCallback(async (text: string, id: 'install' | 'pair') => {
+    await Clipboard.setStringAsync(text);
+    setCopiedCommand(id);
+    setTimeout(() => setCopiedCommand(null), 2000);
+  }, []);
 
   const handleNext = () => {
     if (currentPage < STEPS.length - 1) {
@@ -105,13 +132,26 @@ export default function OnboardingScreen() {
               <View className="mt-8 bg-zinc-900 rounded-xl p-4 w-full">
                 <View className="flex-row items-center justify-between mb-2">
                   <Text className="text-zinc-500 text-sm">Terminal</Text>
-                  <Pressable className="flex-row items-center">
-                    <Ionicons name="copy-outline" size={14} color="#71717a" />
-                    <Text className="text-zinc-500 text-sm ml-1">Copy</Text>
+                  <Pressable
+                    className="flex-row items-center"
+                    onPress={() => handleCopy(INSTALL_COMMAND, 'install')}
+                    accessibilityLabel="Copy install command to clipboard"
+                    accessibilityRole="button"
+                  >
+                    <Ionicons
+                      name={copiedCommand === 'install' ? 'checkmark' : 'copy-outline'}
+                      size={14}
+                      color={copiedCommand === 'install' ? '#22c55e' : '#71717a'}
+                    />
+                    <Text
+                      className={`text-sm ml-1 ${copiedCommand === 'install' ? 'text-green-500' : 'text-zinc-500'}`}
+                    >
+                      {copiedCommand === 'install' ? 'Copied!' : 'Copy'}
+                    </Text>
                   </Pressable>
                 </View>
                 <Text className="text-green-400 font-mono text-base">
-                  npm install -g styrby
+                  {INSTALL_COMMAND}
                 </Text>
               </View>
             )}
@@ -121,12 +161,25 @@ export default function OnboardingScreen() {
               <View className="mt-8 bg-zinc-900 rounded-xl p-4 w-full">
                 <View className="flex-row items-center justify-between mb-2">
                   <Text className="text-zinc-500 text-sm">Terminal</Text>
-                  <Pressable className="flex-row items-center">
-                    <Ionicons name="copy-outline" size={14} color="#71717a" />
-                    <Text className="text-zinc-500 text-sm ml-1">Copy</Text>
+                  <Pressable
+                    className="flex-row items-center"
+                    onPress={() => handleCopy(PAIR_COMMAND, 'pair')}
+                    accessibilityLabel="Copy pair command to clipboard"
+                    accessibilityRole="button"
+                  >
+                    <Ionicons
+                      name={copiedCommand === 'pair' ? 'checkmark' : 'copy-outline'}
+                      size={14}
+                      color={copiedCommand === 'pair' ? '#22c55e' : '#71717a'}
+                    />
+                    <Text
+                      className={`text-sm ml-1 ${copiedCommand === 'pair' ? 'text-green-500' : 'text-zinc-500'}`}
+                    >
+                      {copiedCommand === 'pair' ? 'Copied!' : 'Copy'}
+                    </Text>
                   </Pressable>
                 </View>
-                <Text className="text-blue-400 font-mono text-base">styrby pair</Text>
+                <Text className="text-blue-400 font-mono text-base">{PAIR_COMMAND}</Text>
               </View>
             )}
           </View>
