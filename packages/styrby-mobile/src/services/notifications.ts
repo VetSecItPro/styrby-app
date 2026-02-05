@@ -87,7 +87,7 @@ export async function registerForPushNotifications(): Promise<string | null> {
   // Get the Expo push token
   try {
     const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId: process.env.EXPO_PROJECT_ID,
+      projectId: process.env.EXPO_PUBLIC_PROJECT_ID,
     });
     return tokenData.data;
   } catch (error) {
