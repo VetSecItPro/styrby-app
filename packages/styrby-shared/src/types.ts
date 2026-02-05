@@ -3,7 +3,7 @@
  */
 
 /** Agent identifiers supported by Styrby */
-export type AgentType = 'claude' | 'codex' | 'gemini';
+export type AgentType = 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider';
 
 /** Session status */
 export type SessionStatus = 'starting' | 'running' | 'idle' | 'stopped' | 'error';

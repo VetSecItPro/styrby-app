@@ -2,30 +2,26 @@
 /**
  * Styrby CLI entry point.
  *
- * Uses tsx to run TypeScript directly with path alias support.
- * For production, we'll bundle with esbuild or similar.
+ * In production (npm install -g styrby), this runs the compiled JavaScript.
+ * In development, use `npm run dev` which uses tsx directly.
  */
 
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { existsSync } from 'node:fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Find tsx - could be in local or root node_modules
-const localTsx = join(__dirname, '..', 'node_modules', '.bin', 'tsx');
-const rootTsx = join(__dirname, '..', '..', '..', 'node_modules', '.bin', 'tsx');
-const tsxPath = existsSync(localTsx) ? localTsx : rootTsx;
+// Import and run the compiled CLI
+const distPath = join(__dirname, '..', 'dist', 'index.js');
 
-const srcPath = join(__dirname, '..', 'src', 'index.ts');
-
-const child = spawn(tsxPath, [srcPath, ...process.argv.slice(2)], {
-  stdio: 'inherit',
-  env: process.env,
-});
-
-child.on('exit', (code) => {
-  process.exit(code ?? 0);
-});
+try {
+  await import(distPath);
+} catch (error) {
+  if (error.code === 'ERR_MODULE_NOT_FOUND') {
+    console.error('Error: Styrby CLI not built. Run `npm run build` first.');
+    console.error('If you installed via npm, please report this issue.');
+    process.exit(1);
+  }
+  throw error;
+}
