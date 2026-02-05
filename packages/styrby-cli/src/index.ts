@@ -596,6 +596,23 @@ async function handleStatus(): Promise<void> {
     return `${h}h ${m}m`;
   };
 
+  /**
+   * Format a duration in milliseconds as a human-readable "time ago" string.
+   *
+   * @param ms - Duration in milliseconds
+   * @returns Human-readable relative time (e.g., "2m", "3h", "5d")
+   */
+  const formatTimeAgo = (ms: number): string => {
+    const secs = Math.floor(ms / 1000);
+    if (secs < 60) return `${secs}s`;
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return `${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h`;
+    const days = Math.floor(hrs / 24);
+    return `${days}d`;
+  };
+
   // ── Build status lines ────────────────────────────────────────────────
   const SEPARATOR = chalk.gray('\u2500'.repeat(45));
   const LABEL_WIDTH = 14;
@@ -710,23 +727,6 @@ async function handleStatus(): Promise<void> {
   }
 
   console.log('');
-}
-
-/**
- * Format a duration in milliseconds as a human-readable "time ago" string.
- *
- * @param ms - Duration in milliseconds
- * @returns Human-readable relative time (e.g., "2m", "3h", "5d")
- */
-function formatTimeAgo(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  return `${days}d`;
 }
 
 /**
