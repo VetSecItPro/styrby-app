@@ -22,6 +22,7 @@ env:
   POLAR_ORGANIZATION_ID: placeholder-org-id
   EXPO_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
   EXPO_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+  RESEND_API_KEY: re_placeholder_key
 
 jobs:
   # ─── Quality gate: lint + typecheck ───
