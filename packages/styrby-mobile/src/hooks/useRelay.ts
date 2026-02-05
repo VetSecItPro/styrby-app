@@ -21,6 +21,20 @@ import { supabase } from '../lib/supabase';
 import { offlineQueue } from '../services/offline-queue';
 
 // ============================================================================
+// Dev-Only Logger
+// ============================================================================
+
+/**
+ * Development-only logger that suppresses output in production.
+ * WHY: Prevents sensitive relay data from appearing in production logs.
+ */
+const logger = {
+  log: (...args: unknown[]) => { if (__DEV__) console.log('[Relay]', ...args); },
+  error: (...args: unknown[]) => { if (__DEV__) console.error('[Relay]', ...args); },
+  warn: (...args: unknown[]) => { if (__DEV__) console.warn('[Relay]', ...args); },
+};
+
+// ============================================================================
 // Storage Keys
 // ============================================================================
 
@@ -76,11 +90,31 @@ export interface UseRelayReturn {
 // Device ID
 // ============================================================================
 
+/**
+ * Generates a random string using multiple entropy sources.
+ * WHY: Single Math.random() is predictable; combined sources improve uniqueness.
+ * Note: For security tokens, use expo-crypto. Device IDs are identifiers, not secrets.
+ */
+function generateSecureId(): string {
+  const timestamp = Date.now().toString(36);
+  const randomPart1 = Math.random().toString(36).substring(2, 8);
+  const randomPart2 = Math.random().toString(36).substring(2, 8);
+  const performanceNow = (typeof performance !== 'undefined' && performance.now)
+    ? Math.floor(performance.now() * 1000).toString(36)
+    : Math.random().toString(36).substring(2, 6);
+  return `${timestamp}${randomPart1}${randomPart2}${performanceNow}`.substring(0, 16);
+}
+
+/**
+ * Retrieves or creates a persistent device ID stored in SecureStore.
+ *
+ * @returns The device ID string
+ */
 async function getOrCreateDeviceId(): Promise<string> {
   let deviceId = await SecureStore.getItemAsync(STORAGE_KEYS.DEVICE_ID);
 
   if (!deviceId) {
-    deviceId = `mobile_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    deviceId = `mobile_${generateSecureId()}`;
     await SecureStore.setItemAsync(STORAGE_KEYS.DEVICE_ID, deviceId);
   }
 
@@ -152,7 +186,7 @@ export function useRelay(): UseRelayReturn {
         setPairingInfo(info);
       }
     } catch (error) {
-      console.error('Failed to load pairing info:', error);
+      logger.error('Failed to load pairing info:', error);
     }
   };
 
@@ -172,12 +206,12 @@ export function useRelay(): UseRelayReturn {
   // Connect to relay
   const connect = async () => {
     if (!pairingInfo) {
-      console.log('Cannot connect: no pairing info');
+      logger.log('Cannot connect: no pairing info');
       return;
     }
 
     if (clientRef.current?.isConnected()) {
-      console.log('Already connected');
+      logger.log('Already connected');
       return;
     }
 
@@ -221,7 +255,7 @@ export function useRelay(): UseRelayReturn {
       });
 
       client.on('error', ({ message }) => {
-        console.error('Relay error:', message);
+        logger.error('Relay error:', message);
         setConnectionState('error');
       });
 
@@ -234,7 +268,7 @@ export function useRelay(): UseRelayReturn {
       await client.connect();
       clientRef.current = client;
     } catch (error) {
-      console.error('Failed to connect:', error);
+      logger.error('Failed to connect:', error);
       setConnectionState('error');
     }
   };
@@ -255,7 +289,7 @@ export function useRelay(): UseRelayReturn {
       const stats = await offlineQueue.getStats();
       setPendingQueueCount(stats.pending);
     } catch (error) {
-      console.error('Failed to get queue stats:', error);
+      logger.error('Failed to get queue stats:', error);
     }
   };
 
@@ -270,7 +304,7 @@ export function useRelay(): UseRelayReturn {
         await clientRef.current!.send(message);
       });
     } catch (error) {
-      console.error('Failed to process offline queue:', error);
+      logger.error('Failed to process offline queue:', error);
     } finally {
       processingQueueRef.current = false;
       await updateQueueCount();
@@ -290,7 +324,7 @@ export function useRelay(): UseRelayReturn {
 
     // Otherwise, queue for later
     if (!isOnline) {
-      console.log('Offline: queuing message for later');
+      logger.log('Offline: queuing message for later');
       await offlineQueue.enqueue(message as RelayMessage, options);
       await updateQueueCount();
       return;
