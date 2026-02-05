@@ -290,7 +290,9 @@ export function decryptFromStorage(
  * @returns A 16-character hex string fingerprint
  */
 export async function generateFingerprint(publicKey: Uint8Array): Promise<string> {
-  const hashBuffer = await crypto.subtle.digest('SHA-256', publicKey);
+  // WHY: Explicit ArrayBuffer cast avoids TS2345 with Uint8Array<ArrayBufferLike>
+  // in strict TypeScript 5.9+ where SharedArrayBuffer is not assignable to ArrayBuffer.
+  const hashBuffer = await crypto.subtle.digest('SHA-256', publicKey as Uint8Array<ArrayBuffer>);
   const hashArray = new Uint8Array(hashBuffer);
   return Array.from(hashArray.slice(0, 8))
     .map((b) => b.toString(16).padStart(2, '0'))
