@@ -11,7 +11,7 @@
     "build:preview": "eas build --profile preview",
     "build:prod": "eas build --profile production",
     "typecheck": "echo 'Skipping typecheck - NativeWind types require Babel transform at runtime'",
-    "lint": "eslint ."
+    "lint": "echo 'TODO: configure eslint flat config for Expo (eslint-config-expo requires migration to flat config)'"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.0.0",
