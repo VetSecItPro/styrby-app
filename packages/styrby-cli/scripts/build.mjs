@@ -139,9 +139,43 @@ await esbuild.build({
   }],
 });
 
+// Build the daemon process entry point (forked by startDaemon)
+// WHY: The daemon runs as a separate child_process.fork() -- it needs its own
+// bundled JS file so it can run independently of the main CLI process.
+console.log('🔄 Building daemon process...');
+await esbuild.build({
+  entryPoints: [join(ROOT, 'src/daemon/daemonProcess.ts')],
+  bundle: true,
+  platform: 'node',
+  target: 'node20',
+  format: 'esm',
+  outfile: join(ROOT, 'dist/daemon/daemonProcess.js'),
+  external,
+  sourcemap: true,
+  minify: false,
+  keepNames: true,
+  alias: {
+    'styrby-shared': join(ROOT, '..', 'styrby-shared', 'src', 'index.ts'),
+  },
+  plugins: [{
+    name: 'path-alias',
+    setup(build) {
+      build.onResolve({ filter: /^@\// }, args => {
+        const relativePath = args.path.slice(2);
+        let fullPath = join(ROOT, 'src', relativePath);
+        if (existsSync(fullPath + '.ts')) return { path: fullPath + '.ts' };
+        if (existsSync(join(fullPath, 'index.ts'))) return { path: join(fullPath, 'index.ts') };
+        return { path: fullPath };
+      });
+    },
+  }],
+  define: { 'process.env.NODE_ENV': '"production"' },
+});
+
 console.log('✅ Build complete!');
 console.log('');
 console.log('Output:');
-console.log('  dist/index.js  - CLI entry point (bundled)');
-console.log('  dist/lib.js    - Library entry point');
-console.log('  dist/*.d.ts    - Type declarations');
+console.log('  dist/index.js                - CLI entry point (bundled)');
+console.log('  dist/lib.js                  - Library entry point');
+console.log('  dist/daemon/daemonProcess.js - Daemon child process');
+console.log('  dist/*.d.ts                  - Type declarations');
