@@ -235,18 +235,20 @@ export class SessionStorage {
   }
 
   /**
-   * Prunes the key cache when it exceeds the maximum size.
-   * Uses FIFO eviction (oldest entries first based on insertion order).
-   * WHY: Prevents memory growth in long-running CLI processes handling many sessions.
+   * Evicts oldest entries from key cache when size exceeds MAX_KEY_CACHE_SIZE.
+   * WHY: Prevents unbounded memory growth in long-running CLI processes.
+   * Uses FIFO eviction since Map maintains insertion order.
    */
   private pruneKeyCache(): void {
     if (this.keyCache.size > this.MAX_KEY_CACHE_SIZE) {
-      const entriesToDelete = this.keyCache.size - this.MAX_KEY_CACHE_SIZE + 10; // Remove 10 extra for headroom
-      const keysToDelete = Array.from(this.keyCache.keys()).slice(0, entriesToDelete);
-      for (const key of keysToDelete) {
-        this.keyCache.delete(key);
+      const keysToDelete = this.keyCache.size - this.MAX_KEY_CACHE_SIZE;
+      const iterator = this.keyCache.keys();
+      for (let i = 0; i < keysToDelete; i++) {
+        const key = iterator.next().value;
+        if (key !== undefined) {
+          this.keyCache.delete(key);
+        }
       }
-      this.log('Pruned key cache', { removed: keysToDelete.length, remaining: this.keyCache.size });
     }
   }
 
