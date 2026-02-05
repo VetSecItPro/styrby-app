@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { CostCharts } from './cost-charts';
 import { BudgetAlertsSummary } from './budget-alerts-summary';
 import { TIERS, type TierId } from '@/lib/polar';
+import { MODEL_PRICING, LAST_VERIFIED } from '@/lib/model-pricing';
 
 /**
  * Cost Analytics page - displays spending data, charts, and budget alert summary.
@@ -355,87 +356,24 @@ export default async function CostsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800">
-                {/* Claude models */}
-                <tr>
-                  <td className="px-4 py-3 text-sm text-zinc-100">
-                    Claude 3.5 Sonnet
-                  </td>
-                  <td className="px-4 py-3 text-sm text-zinc-400 text-right">
-                    $3.00
-                  </td>
-                  <td className="px-4 py-3 text-sm text-zinc-400 text-right">
-                    $15.00
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-4 py-3 text-sm text-zinc-100">
-                    Claude 3.5 Haiku
-                  </td>
-                  <td className="px-4 py-3 text-sm text-zinc-400 text-right">
-                    $0.80
-                  </td>
-                  <td className="px-4 py-3 text-sm text-zinc-400 text-right">
-                    $4.00
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-4 py-3 text-sm text-zinc-100">
-                    Claude 3 Opus
-                  </td>
-                  <td className="px-4 py-3 text-sm text-zinc-400 text-right">
-                    $15.00
-                  </td>
-                  <td className="px-4 py-3 text-sm text-zinc-400 text-right">
-                    $75.00
-                  </td>
-                </tr>
-                {/* OpenAI models */}
-                <tr>
-                  <td className="px-4 py-3 text-sm text-zinc-100">GPT-4o</td>
-                  <td className="px-4 py-3 text-sm text-zinc-400 text-right">
-                    $2.50
-                  </td>
-                  <td className="px-4 py-3 text-sm text-zinc-400 text-right">
-                    $10.00
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-4 py-3 text-sm text-zinc-100">o1</td>
-                  <td className="px-4 py-3 text-sm text-zinc-400 text-right">
-                    $15.00
-                  </td>
-                  <td className="px-4 py-3 text-sm text-zinc-400 text-right">
-                    $60.00
-                  </td>
-                </tr>
-                {/* Gemini models */}
-                <tr>
-                  <td className="px-4 py-3 text-sm text-zinc-100">
-                    Gemini 1.5 Pro
-                  </td>
-                  <td className="px-4 py-3 text-sm text-zinc-400 text-right">
-                    $1.25
-                  </td>
-                  <td className="px-4 py-3 text-sm text-zinc-400 text-right">
-                    $5.00
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-4 py-3 text-sm text-zinc-100">
-                    Gemini 1.5 Flash
-                  </td>
-                  <td className="px-4 py-3 text-sm text-zinc-400 text-right">
-                    $0.075
-                  </td>
-                  <td className="px-4 py-3 text-sm text-zinc-400 text-right">
-                    $0.30
-                  </td>
-                </tr>
+                {MODEL_PRICING.map((model) => (
+                  <tr key={model.name}>
+                    <td className="px-4 py-3 text-sm text-zinc-100">
+                      {model.name}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-zinc-400 text-right">
+                      ${model.inputPer1M.toFixed(model.inputPer1M < 1 ? 3 : 2)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-zinc-400 text-right">
+                      ${model.outputPer1M.toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
           <p className="text-xs text-zinc-600 mt-2">
-            Prices as of February 2026. Check provider websites for current pricing.
+            Prices last verified {LAST_VERIFIED}. Check provider websites for current pricing.
           </p>
         </section>
       </main>

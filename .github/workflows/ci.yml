@@ -341,6 +341,11 @@ jobs:
           name: nextjs-build
           path: packages/styrby-web/.next
 
+      # Bundle size thresholds (reviewed 2026-02-05):
+      #   Largest chunk: ~526KB (vendor/framework bundle), next largest: ~412KB
+      #   500KB warn / 750KB fail are appropriate — the vendor chunk naturally
+      #   triggers a warning but shouldn't fail CI. If it grows past 750KB,
+      #   investigate code-splitting or dynamic imports for heavy dependencies.
       - name: Check bundle sizes
         run: |
           echo "## Bundle Size Report" >> $GITHUB_STEP_SUMMARY
