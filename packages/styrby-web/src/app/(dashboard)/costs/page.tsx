@@ -32,7 +32,8 @@ export default async function CostsPage() {
   const { data: agentCosts } = await supabase
     .from('cost_records')
     .select('agent_type, model, cost_usd, input_tokens, output_tokens')
-    .gte('created_at', thirtyDaysAgo.toISOString());
+    .gte('created_at', thirtyDaysAgo.toISOString())
+    .limit(10000);
 
   // Calculate totals by agent
   const agentTotals = (agentCosts || []).reduce(
