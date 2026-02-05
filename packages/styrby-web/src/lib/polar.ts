@@ -171,19 +171,38 @@ export async function getCustomerPortalUrl(customerId: string) {
 }
 
 /**
- * Cancel a subscription.
- * TODO: Implement when needed - check Polar SDK docs for current API.
+ * Cancel a subscription immediately.
+ *
+ * WHY: Uses Polar's `revoke()` method which cancels the subscription immediately
+ * (not at period end). The user's access is revoked and they are downgraded to
+ * the free tier. The Polar webhook handler syncs this change to Supabase.
+ *
+ * @param subscriptionId - The Polar subscription ID to cancel
+ * @returns The revoked subscription object from Polar
+ * @throws {Error} When the subscription ID is invalid or already canceled
  */
-export async function cancelSubscription(_subscriptionId: string) {
-  // Polar SDK API may vary - check current documentation
-  // For now, redirect users to customer portal
-  throw new Error('Use customer portal for subscription management');
+export async function cancelSubscription(subscriptionId: string) {
+  const subscription = await polar.subscriptions.revoke({
+    id: subscriptionId,
+  });
+
+  return subscription;
 }
 
 /**
- * Get subscription by ID.
- * TODO: Implement when needed - check Polar SDK docs for current API.
+ * Get subscription details by ID.
+ *
+ * Used to display current plan details in the settings page and to verify
+ * subscription status before performing tier-gated operations.
+ *
+ * @param subscriptionId - The Polar subscription ID to retrieve
+ * @returns The full subscription object including status, dates, and product info
+ * @throws {Error} When the subscription ID is invalid or not found
  */
-export async function getSubscription(_subscriptionId: string) {
-  throw new Error('Use customer portal for subscription details');
+export async function getSubscription(subscriptionId: string) {
+  const subscription = await polar.subscriptions.get({
+    id: subscriptionId,
+  });
+
+  return subscription;
 }
