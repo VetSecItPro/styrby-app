@@ -8,8 +8,8 @@
  * @module styrby-cli
  *
  * @example
- * # Authenticate with Styrby
- * styrby auth
+ * # Complete setup wizard
+ * styrby onboard
  *
  * # Start a session with Claude Code
  * styrby start --agent claude
@@ -19,6 +19,7 @@
  */
 
 import { logger } from '@/ui/logger';
+import { isAuthenticated } from '@/configuration';
 
 // Re-export core types for library usage
 export type {
@@ -44,14 +45,31 @@ export const VERSION = '0.1.0';
  * Main CLI entry point.
  *
  * Parses command line arguments and dispatches to appropriate handlers.
+ * If no command is given, launches interactive mode.
  */
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0];
 
+  // Interactive mode if no command given
+  if (!command || command === undefined) {
+    const { runInteractive } = await import('@/commands/interactive');
+    await runInteractive();
+    return;
+  }
+
+  // Only show version header for non-interactive commands
   logger.info(`Styrby CLI v${VERSION}`);
 
   switch (command) {
+    case 'onboard':
+      await handleOnboard(args.slice(1));
+      break;
+
+    case 'install':
+      await handleInstall(args.slice(1));
+      break;
+
     case 'auth':
       await handleAuth();
       break;
@@ -79,7 +97,6 @@ async function main(): Promise<void> {
     case 'help':
     case '--help':
     case '-h':
-    case undefined:
       printHelp();
       break;
 
@@ -97,36 +114,67 @@ async function main(): Promise<void> {
 }
 
 /**
+ * Handle the 'onboard' command.
+ * Complete setup wizard: auth + machine registration + mobile pairing.
+ *
+ * @param args - Command arguments
+ */
+async function handleOnboard(args: string[]): Promise<void> {
+  const { runOnboard, parseOnboardArgs } = await import('@/commands/onboard');
+  const options = parseOnboardArgs(args);
+  const result = await runOnboard(options);
+
+  if (!result.success) {
+    process.exit(1);
+  }
+}
+
+/**
+ * Handle the 'install' command.
+ * Install AI coding agents (Claude Code, Codex, Gemini CLI).
+ *
+ * @param args - Command arguments
+ */
+async function handleInstall(args: string[]): Promise<void> {
+  const { handleInstallCommand } = await import('@/commands/install-agent');
+  await handleInstallCommand(args);
+}
+
+/**
  * Handle the 'auth' command.
- * Authenticates with Styrby and pairs with mobile app.
+ * Authenticates with Styrby (without mobile pairing).
  */
 async function handleAuth(): Promise<void> {
-  logger.info('Authentication flow starting...');
-  // TODO: Implement full auth flow
-  // 1. Open browser for Supabase auth
-  // 2. Wait for callback
-  // 3. Store credentials
-  logger.warn('Auth not yet implemented. Use "styrby pair" after authenticating via web.');
+  const { runOnboard } = await import('@/commands/onboard');
+
+  // Run onboard with pairing skipped
+  const result = await runOnboard({ skipPairing: true });
+
+  if (!result.success) {
+    process.exit(1);
+  }
 }
 
 /**
  * Handle the 'pair' command.
- * Generates a QR code for mobile app pairing.
+ * Generates a QR code for mobile app pairing and waits for connection.
  */
 async function handlePair(): Promise<void> {
   const qrcode = await import('qrcode-terminal');
   const os = await import('os');
   const crypto = await import('crypto');
+  const { createClient } = await import('@supabase/supabase-js');
+  const chalk = (await import('chalk')).default;
 
   // Import pairing utilities from shared package
-  const { encodePairingUrl, generatePairingToken, PAIRING_EXPIRY_MINUTES } = await import('styrby-shared');
+  const { encodePairingUrl, generatePairingToken, PAIRING_EXPIRY_MINUTES, createRelayClient } = await import('styrby-shared');
 
   // Load stored credentials
-  const { loadPersistedData } = await import('@/persistence');
+  const { loadPersistedData, savePersistedData } = await import('@/persistence');
   const data = loadPersistedData();
 
-  if (!data?.userId) {
-    logger.error('Not authenticated. Please run "styrby auth" first.');
+  if (!data?.userId || !data?.accessToken) {
+    logger.error('Not authenticated. Please run "styrby onboard" first.');
     process.exit(1);
   }
 
@@ -135,13 +183,17 @@ async function handlePair(): Promise<void> {
   const deviceName = os.hostname();
   const token = generatePairingToken();
 
+  const { config } = await import('@/env');
+  const supabaseUrl = config.supabaseUrl;
+  const supabaseAnonKey = config.supabaseAnonKey;
+
   const payload = {
     version: 1 as const,
     token,
     userId: data.userId,
     machineId,
     deviceName,
-    supabaseUrl: process.env.SUPABASE_URL || 'https://akmtmxunjhsgldjztdtt.supabase.co',
+    supabaseUrl,
     expiresAt: new Date(Date.now() + PAIRING_EXPIRY_MINUTES * 60 * 1000).toISOString(),
   };
 
@@ -161,11 +213,83 @@ async function handlePair(): Promise<void> {
   console.log('\nWaiting for mobile app to connect...');
   console.log('(Press Ctrl+C to cancel)\n');
 
-  // TODO: Wait for mobile app to scan and connect via Supabase Realtime
-  // For now, just wait and let the user manually proceed
-  await new Promise(() => {
-    // Keep process alive
+  // Create authenticated Supabase client
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { persistSession: false },
+    global: {
+      headers: { Authorization: `Bearer ${data.accessToken}` },
+    },
   });
+
+  // Create relay client and wait for mobile presence
+  const relay = createRelayClient({
+    supabase,
+    userId: data.userId,
+    deviceId: machineId,
+    deviceType: 'cli',
+    deviceName,
+    platform: process.platform,
+    debug: process.env.STYRBY_LOG_LEVEL === 'debug',
+  });
+
+  try {
+    await relay.connect();
+
+    // Wait for mobile device to join (5 minute timeout)
+    const timeoutMs = PAIRING_EXPIRY_MINUTES * 60 * 1000;
+    const paired = await new Promise<boolean>((resolve) => {
+      const timeout = setTimeout(() => {
+        resolve(false);
+      }, timeoutMs);
+
+      // Check if mobile is already connected
+      if (relay.isDeviceTypeOnline('mobile')) {
+        clearTimeout(timeout);
+        resolve(true);
+        return;
+      }
+
+      // Wait for mobile to join
+      const onJoin = (presence: { device_type: string }) => {
+        if (presence.device_type === 'mobile') {
+          clearTimeout(timeout);
+          relay.off('presence_join', onJoin);
+          resolve(true);
+        }
+      };
+
+      relay.on('presence_join', onJoin);
+
+      // Handle Ctrl+C gracefully
+      const onInterrupt = () => {
+        clearTimeout(timeout);
+        relay.off('presence_join', onJoin);
+        process.off('SIGINT', onInterrupt);
+        resolve(false);
+      };
+
+      process.on('SIGINT', onInterrupt);
+    });
+
+    if (paired) {
+      // Send test ping
+      await relay.sendCommand('ping');
+      console.log(chalk.green('\nSUCCESS! Mobile paired successfully.\n'));
+
+      // Save pairing timestamp
+      savePersistedData({
+        pairedAt: new Date().toISOString(),
+      });
+    } else {
+      console.log(chalk.yellow('\nPairing timed out or cancelled.\n'));
+      console.log('You can try again with: styrby pair\n');
+    }
+  } catch (error) {
+    logger.debug('Pairing error', { error });
+    console.log(chalk.red('\nPairing failed. Please try again.\n'));
+  } finally {
+    await relay.disconnect();
+  }
 }
 
 /**
@@ -313,51 +437,119 @@ async function handleCosts(args: string[]): Promise<void> {
  */
 function printHelp(): void {
   console.log(`
-Styrby CLI v${VERSION}
-Mobile remote control for AI coding agents.
+styrby v${VERSION}
 
-USAGE
-  styrby <command> [options]
+Usage: styrby [command] [options]
 
-COMMANDS
-  auth          Authenticate with Styrby (opens browser)
-  pair          Generate QR code to pair with mobile app
-  start         Start an agent session
-  status        Show connection and session status
-  costs         Show token usage and cost breakdown
-  doctor        Run diagnostic checks
-  help          Show this help message
-  version       Show version
+Mobile relay for AI coding agents. Control Claude Code, Codex, Gemini CLI,
+and OpenCode from your phone. Code stays local — only I/O is relayed.
 
-OPTIONS
-  --agent, -a   Agent type: claude, codex, gemini (default: claude)
-  --project, -p Project directory (default: current directory)
-  --today, -t   Show only today's costs (with 'costs' command)
-  --month, -m   Show only this month's costs (with 'costs' command)
+Commands:
 
-EXAMPLES
-  # Authenticate with Styrby
-  styrby auth
+  Setup
+    onboard                 First-time setup (auth + machine registration + pairing)
+    auth                    Authenticate only (skip pairing)
+    pair                    Generate QR code for mobile app pairing
+    install <agent>         Install an AI agent (claude, codex, gemini, opencode)
 
-  # Pair with mobile app (scan QR code)
-  styrby pair
+  Session
+    start                   Start a coding session
+    status                  Show connection and session status
+    costs                   Display token usage and cost breakdown
 
-  # Start Claude Code session
-  styrby start --agent claude
+  Diagnostics
+    doctor                  Run system health checks
+    help                    Show this help message
+    version                 Show version number
 
-  # Start Codex session in specific directory
-  styrby start --agent codex --project /path/to/project
+Options:
 
-  # Check CLI health
-  styrby doctor
+  -a, --agent <name>        Agent to use: claude (default), codex, gemini, opencode
+  -p, --project <path>      Project directory (default: cwd)
+  -f, --force               Force re-authentication
+  --skip-pairing            Skip QR code step during onboard
+  --skip-doctor             Skip health checks during onboard
+  -t, --today               Filter costs to today
+  -m, --month               Filter costs to current month
+  -h, --help                Show help
+  -v, --version             Show version
 
-  # Show all-time token costs
-  styrby costs
+Environment Variables:
 
-  # Show today's costs only
-  styrby costs --today
+  STYRBY_LOG_LEVEL          Set to "debug" for verbose output
+  ANTHROPIC_API_KEY         Required for Claude Code
+  OPENAI_API_KEY            Required for Codex, optional for OpenCode
+  GEMINI_API_KEY            Required for Gemini CLI
+  GOOGLE_API_KEY            Alternative for Gemini CLI
 
-For more info, visit: https://styrbyapp.com/docs
+Configuration:
+
+  ~/.styrby/config.json     User configuration
+  ~/.styrby/credentials     Authentication tokens (chmod 600)
+  ~/.claude/projects/       Claude Code session data (used by 'costs' command)
+
+Exit Codes:
+
+  0    Success
+  1    General error / command failed
+  2    Invalid arguments or usage
+  126  Permission denied
+  127  Command not found (agent not installed)
+  130  Interrupted (Ctrl+C)
+
+Examples:
+
+  Getting Started
+    styrby onboard                      Complete setup (~60 seconds)
+    styrby install claude               Install Claude Code agent
+    styrby install opencode             Install OpenCode agent
+    styrby doctor                       Verify everything is configured
+
+  Starting Sessions
+    styrby start                        Start with Claude (default agent)
+    styrby start -a codex               Start with Codex
+    styrby start -a gemini              Start with Gemini CLI
+    styrby start -a opencode            Start with OpenCode
+    styrby start -p ~/work/myproject    Start in specific directory
+    styrby start -a codex -p ./backend  Combine agent + project path
+
+  Cost Tracking
+    styrby costs                        Show all-time usage and costs
+    styrby costs --today                Show today's costs only
+    styrby costs --month                Show current month's costs
+
+  Status & Diagnostics
+    styrby status                       Check connection and session state
+    styrby doctor                       Run full health check
+    STYRBY_LOG_LEVEL=debug styrby start Debug mode with verbose output
+
+  Re-pairing & Re-auth
+    styrby pair                         Generate new QR code (e.g., new phone)
+    styrby auth --force                 Force re-authentication
+    styrby onboard --force              Full re-setup
+
+Troubleshooting:
+
+  Error                           Fix
+  ─────────────────────────────────────────────────────────────────────
+  "Not authenticated"             styrby onboard (or styrby auth --force)
+  "Agent not found"               styrby install <agent> && exec $SHELL
+  "Claude: ANTHROPIC_API_KEY"     export ANTHROPIC_API_KEY=sk-ant-...
+  "Codex: OPENAI_API_KEY"         export OPENAI_API_KEY=sk-...
+  "Gemini: API key"               export GEMINI_API_KEY=... (or GOOGLE_API_KEY)
+  "QR code expired"               styrby pair
+  "Mobile not connecting"         Check same account on CLI and mobile app
+  "Connection timeout"            Whitelist *.supabase.co in firewall/proxy
+  "WebSocket blocked"             Some corporate networks block WSS; try hotspot
+  "EACCES / permission denied"    mkdir -p ~/.styrby && chmod 700 ~/.styrby
+  "Node.js version"               Requires Node.js 20+; check with: node -v
+  "Agent crashes on start"        Check agent works standalone: claude --help
+
+  For verbose output, prefix any command with: STYRBY_LOG_LEVEL=debug
+
+Homepage:  https://styrbyapp.com
+Source:    https://github.com/VetSecItPro/styrby-app
+Issues:    https://github.com/VetSecItPro/styrby-app/issues
 `);
 }
 
