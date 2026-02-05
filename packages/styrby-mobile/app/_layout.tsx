@@ -219,6 +219,20 @@ export default function RootLayout() {
             gestureEnabled: false,
           }}
         />
+        <Stack.Screen
+          name="agent-config"
+          options={{
+            title: 'Agent Configuration',
+            presentation: 'card',
+          }}
+        />
+        <Stack.Screen
+          name="budget-alerts"
+          options={{
+            title: 'Budget Alerts',
+            presentation: 'card',
+          }}
+        />
       </Stack>
     </GestureHandlerRootView>
   );

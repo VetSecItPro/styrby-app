@@ -12,6 +12,9 @@ export * from './constants.js';
 // Re-export relay module
 export * from './relay/index.js';
 
+// Re-export encryption module
+export * from './encryption.js';
+
 // Re-export design system
 export * from './design/index.js';
 

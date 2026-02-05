@@ -59,6 +59,13 @@ export default function AuthLayout() {
     >
       <Stack.Screen name="login" />
       <Stack.Screen name="scan" />
+      {/* WHY: The callback screen handles OAuth/magic link redirects from
+       * `styrby://auth/callback`. gestureEnabled is false because navigating
+       * back mid-exchange would leave the auth flow in a broken state. */}
+      <Stack.Screen
+        name="callback"
+        options={{ gestureEnabled: false }}
+      />
     </Stack>
   );
 }

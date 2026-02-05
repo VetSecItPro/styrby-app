@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
+import { useRouter } from 'expo-router';
 import { supabase, signOut } from '../../src/lib/supabase';
 import { clearPairingInfo } from '../../src/services/pairing';
 
@@ -216,6 +217,7 @@ function extractUserInfo(user: { id: string; email?: string; user_metadata?: Rec
  * @returns React element
  */
 export default function SettingsScreen() {
+  const router = useRouter();
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const [pushEnabled, setPushEnabled] = useState(true);
   const [hapticEnabled, setHapticEnabled] = useState(true);
@@ -492,21 +494,21 @@ export default function SettingsScreen() {
           iconColor="#f97316"
           title="Claude Code"
           subtitle="Connected"
-          onPress={() => showComingSoonAlert('Agent configurations')}
+          onPress={() => router.push({ pathname: '/agent-config', params: { agent: 'claude' } })}
         />
         <SettingRow
           icon="terminal"
           iconColor="#22c55e"
           title="Codex"
           subtitle="Not connected"
-          onPress={() => showComingSoonAlert('Agent configurations')}
+          onPress={() => router.push({ pathname: '/agent-config', params: { agent: 'codex' } })}
         />
         <SettingRow
           icon="terminal"
           iconColor="#3b82f6"
           title="Gemini"
           subtitle="Not connected"
-          onPress={() => showComingSoonAlert('Agent configurations')}
+          onPress={() => router.push({ pathname: '/agent-config', params: { agent: 'gemini' } })}
         />
       </View>
 
