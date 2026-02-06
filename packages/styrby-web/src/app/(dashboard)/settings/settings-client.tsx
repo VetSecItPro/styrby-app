@@ -106,6 +106,16 @@ export function SettingsClient({
   // Delete account
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Data export
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportMessage, setExportMessage] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
   // Notification toggles
   const [pushEnabled, setPushEnabled] = useState(
@@ -195,6 +205,106 @@ export function SettingsClient({
     }
     setPasswordLoading(false);
   }, [supabase, user.email]);
+
+  /**
+   * Exports all user data as a JSON file download (GDPR compliance).
+   */
+  const handleExportData = useCallback(async () => {
+    setExportLoading(true);
+    setExportMessage(null);
+
+    try {
+      const response = await fetch('/api/account/export', {
+        method: 'POST',
+      });
+
+      if (response.status === 429) {
+        const data = await response.json();
+        setExportMessage({
+          type: 'error',
+          text: `Rate limited. Try again in ${Math.ceil(data.retryAfter / 60)} minutes.`,
+        });
+        return;
+      }
+
+      if (!response.ok) {
+        const data = await response.json();
+        setExportMessage({
+          type: 'error',
+          text: data.error || 'Failed to export data',
+        });
+        return;
+      }
+
+      // Trigger file download
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download =
+        response.headers.get('Content-Disposition')?.match(/filename="(.+)"/)?.[1] ||
+        'styrby-data-export.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setExportMessage({
+        type: 'success',
+        text: 'Your data has been downloaded.',
+      });
+    } catch {
+      setExportMessage({
+        type: 'error',
+        text: 'Failed to export data. Please try again.',
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  }, []);
+
+  /**
+   * Initiates account deletion via the API endpoint.
+   * Requires exact confirmation text "DELETE MY ACCOUNT".
+   */
+  const handleDeleteAccount = useCallback(async () => {
+    if (deleteConfirmText !== 'DELETE MY ACCOUNT') return;
+
+    setDeleteLoading(true);
+    setDeleteError(null);
+
+    try {
+      const response = await fetch('/api/account/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmation: 'DELETE MY ACCOUNT',
+          reason: deleteReason || undefined,
+        }),
+      });
+
+      if (response.status === 429) {
+        const data = await response.json();
+        setDeleteError(
+          `Rate limited. Try again in ${Math.ceil(data.retryAfter / 3600)} hours.`
+        );
+        return;
+      }
+
+      if (!response.ok) {
+        const data = await response.json();
+        setDeleteError(data.error || 'Failed to delete account');
+        return;
+      }
+
+      // Redirect to login after successful deletion
+      router.push('/login?deleted=true');
+    } catch {
+      setDeleteError('Failed to delete account. Please try again.');
+    } finally {
+      setDeleteLoading(false);
+    }
+  }, [deleteConfirmText, deleteReason, router]);
 
   /**
    * Toggles a notification preference (push or email) and persists it.
@@ -638,6 +748,45 @@ export function SettingsClient({
         </div>
       </section>
 
+      {/* Data & Privacy Section */}
+      <section className="mb-8">
+        <h2 className="text-lg font-semibold text-zinc-100 mb-4">
+          Data & Privacy
+        </h2>
+        <div className="rounded-xl bg-zinc-900 border border-zinc-800 divide-y divide-zinc-800">
+          {/* Export Data */}
+          <div className="px-4 py-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-zinc-100">Export Your Data</p>
+                <p className="text-sm text-zinc-500">
+                  Download all your data in JSON format (GDPR)
+                </p>
+              </div>
+              <button
+                onClick={handleExportData}
+                disabled={exportLoading}
+                className="rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-100 hover:bg-zinc-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                aria-label="Export your data"
+              >
+                {exportLoading ? 'Exporting...' : 'Export Data'}
+              </button>
+            </div>
+            {exportMessage && (
+              <p
+                className={`mt-2 text-sm ${
+                  exportMessage.type === 'success'
+                    ? 'text-green-400'
+                    : 'text-red-400'
+                }`}
+              >
+                {exportMessage.text}
+              </p>
+            )}
+          </div>
+        </div>
+      </section>
+
       {/* Danger Zone */}
       <section className="mb-8">
         <h2 className="text-lg font-semibold text-red-400 mb-4">
@@ -742,54 +891,58 @@ export function SettingsClient({
               Delete your account?
             </h3>
             <p className="text-sm text-zinc-400 mb-4">
-              This action is <span className="font-bold text-zinc-100">permanent</span> and cannot
-              be undone. All your data, sessions, configurations, and billing
-              history will be permanently deleted.
+              This will schedule your account for deletion. Your data will be
+              permanently removed in 30 days, allowing time for recovery if
+              you change your mind.
             </p>
             <p className="text-sm text-zinc-400 mb-3">
               Type{' '}
-              <span className="font-mono font-bold text-red-400">DELETE</span>{' '}
+              <span className="font-mono font-bold text-red-400">
+                DELETE MY ACCOUNT
+              </span>{' '}
               to confirm:
             </p>
             <input
               type="text"
               value={deleteConfirmText}
               onChange={(e) => setDeleteConfirmText(e.target.value)}
-              placeholder="Type DELETE"
+              placeholder="Type DELETE MY ACCOUNT"
               className="w-full rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500 mb-4"
-              aria-label="Type DELETE to confirm account deletion"
+              aria-label="Type DELETE MY ACCOUNT to confirm account deletion"
             />
-            <p className="text-xs text-zinc-500 mb-6">
-              Account deletion requires server-side processing. After
-              confirming, please contact{' '}
-              <a
-                href="mailto:support@styrby.dev"
-                className="text-orange-500 hover:underline"
-              >
-                support@styrby.dev
-              </a>{' '}
-              to complete the process.
-            </p>
+            <label className="block text-sm text-zinc-400 mb-2">
+              Why are you leaving? (optional)
+            </label>
+            <textarea
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              placeholder="Help us improve..."
+              rows={2}
+              className="w-full rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 mb-4 resize-none"
+              aria-label="Reason for leaving (optional)"
+            />
+            {deleteError && (
+              <p className="text-sm text-red-400 mb-4">{deleteError}</p>
+            )}
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => {
                   setShowDeleteDialog(false);
                   setDeleteConfirmText('');
+                  setDeleteReason('');
+                  setDeleteError(null);
                 }}
-                className="rounded-lg border border-zinc-600 px-4 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-100 transition-colors"
+                disabled={deleteLoading}
+                className="rounded-lg border border-zinc-600 px-4 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-100 transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
-                disabled={deleteConfirmText !== 'DELETE'}
-                onClick={() => {
-                  // Account deletion requires a server action with admin privileges.
-                  // For now, direct users to support.
-                  window.location.href = `mailto:support@styrby.dev?subject=Account%20Deletion%20Request&body=Please%20delete%20my%20account%20(${encodeURIComponent(user.email)}).`;
-                }}
+                disabled={deleteConfirmText !== 'DELETE MY ACCOUNT' || deleteLoading}
+                onClick={handleDeleteAccount}
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                Delete My Account
+                {deleteLoading ? 'Deleting...' : 'Delete My Account'}
               </button>
             </div>
           </div>

@@ -1,10 +1,20 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import { DashboardRealtime } from './dashboard-realtime';
 
 /**
  * Dashboard home page - shows overview of sessions, costs, and quick actions.
  * Protected route - requires authentication.
+ *
+ * WHY DashboardRealtime wrapper: The dashboard shows live statistics that
+ * should update in real-time:
+ * - Today's spend increases as AI agents are used
+ * - Active session count changes as sessions start/end
+ * - Machine online status updates as devices connect/disconnect
+ *
+ * The server component fetches initial data for fast SSR, then the client
+ * component subscribes to Supabase Realtime for live updates.
  */
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -96,138 +106,13 @@ export default async function DashboardPage() {
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
         <h1 className="text-2xl font-bold text-zinc-100 mb-8">Dashboard</h1>
 
-        {/* Stats grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          {/* Today's spend */}
-          <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-            <p className="text-sm text-zinc-500">Today&apos;s Spend</p>
-            <p className="text-2xl font-bold text-zinc-100 mt-1">
-              ${todaySpend.toFixed(2)}
-            </p>
-          </div>
-
-          {/* Active sessions */}
-          <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-            <p className="text-sm text-zinc-500">Active Sessions</p>
-            <p className="text-2xl font-bold text-zinc-100 mt-1">
-              {sessions?.filter((s) => ['running', 'idle'].includes(s.status)).length || 0}
-            </p>
-          </div>
-
-          {/* Connected machines */}
-          <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-            <p className="text-sm text-zinc-500">Connected Machines</p>
-            <p className="text-2xl font-bold text-zinc-100 mt-1">
-              {machines?.filter((m) => m.is_online).length || 0}
-            </p>
-          </div>
-
-          {/* Total machines */}
-          <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-            <p className="text-sm text-zinc-500">Total Machines</p>
-            <p className="text-2xl font-bold text-zinc-100 mt-1">
-              {machines?.length || 0}
-            </p>
-          </div>
-        </div>
-
-        {/* Recent sessions */}
-        <div className="rounded-xl bg-zinc-900 border border-zinc-800">
-          <div className="px-4 py-3 border-b border-zinc-800">
-            <h2 className="font-semibold text-zinc-100">Recent Sessions</h2>
-          </div>
-
-          {sessions && sessions.length > 0 ? (
-            <ul className="divide-y divide-zinc-800">
-              {sessions.map((session) => (
-                <li key={session.id} className="px-4 py-3 hover:bg-zinc-800/50 transition-colors">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      {/* Agent badge */}
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                          session.agent_type === 'claude'
-                            ? 'bg-orange-500/10 text-orange-400'
-                            : session.agent_type === 'codex'
-                              ? 'bg-green-500/10 text-green-400'
-                              : 'bg-blue-500/10 text-blue-400'
-                        }`}
-                      >
-                        {session.agent_type}
-                      </span>
-
-                      {/* Session title */}
-                      <span className="text-zinc-100">
-                        {session.title || 'Untitled session'}
-                      </span>
-
-                      {/* Status indicator */}
-                      <span
-                        className={`h-2 w-2 rounded-full ${
-                          session.status === 'running'
-                            ? 'bg-green-500 animate-pulse'
-                            : session.status === 'idle'
-                              ? 'bg-yellow-500'
-                              : 'bg-zinc-500'
-                        }`}
-                      />
-                    </div>
-
-                    <div className="flex items-center gap-4 text-sm text-zinc-500">
-                      <span>{session.message_count} messages</span>
-                      <span>${Number(session.total_cost_usd).toFixed(4)}</span>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="px-4 py-8 text-center text-zinc-500">
-              <p>No sessions yet.</p>
-              <p className="mt-1 text-sm">
-                Install the CLI and start a session to see it here.
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Machines list */}
-        <div className="mt-8 rounded-xl bg-zinc-900 border border-zinc-800">
-          <div className="px-4 py-3 border-b border-zinc-800">
-            <h2 className="font-semibold text-zinc-100">Your Machines</h2>
-          </div>
-
-          {machines && machines.length > 0 ? (
-            <ul className="divide-y divide-zinc-800">
-              {machines.map((machine) => (
-                <li key={machine.id} className="px-4 py-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`h-2 w-2 rounded-full ${
-                          machine.is_online ? 'bg-green-500' : 'bg-zinc-500'
-                        }`}
-                      />
-                      <span className="text-zinc-100">{machine.name}</span>
-                    </div>
-                    <span className="text-sm text-zinc-500">
-                      {machine.is_online
-                        ? 'Online'
-                        : `Last seen ${new Date(machine.last_seen_at).toLocaleDateString()}`}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="px-4 py-8 text-center text-zinc-500">
-              <p>No machines registered.</p>
-              <p className="mt-1 text-sm">
-                Run <code className="text-orange-500">styrby auth</code> on your development machine to get started.
-              </p>
-            </div>
-          )}
-        </div>
+        {/* Real-time dashboard content */}
+        <DashboardRealtime
+          initialSessions={sessions || []}
+          initialTodaySpend={todaySpend}
+          initialMachines={machines || []}
+          userId={user.id}
+        />
       </main>
     </div>
   );

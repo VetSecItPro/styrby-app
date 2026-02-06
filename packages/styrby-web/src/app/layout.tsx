@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
+import { OfflineIndicator } from '@/components/offline-indicator';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -58,6 +59,13 @@ export const metadata: Metadata = {
   },
 };
 
+/**
+ * Root layout for the Styrby web dashboard.
+ *
+ * WHY OfflineIndicator is here: It needs to be visible on every page,
+ * not just authenticated pages. Users should see offline status even
+ * on the login page or marketing pages.
+ */
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -69,6 +77,7 @@ export default function RootLayout({
         className={`${inter.variable} ${jetbrainsMono.variable} antialiased min-h-screen bg-zinc-950 text-zinc-50`}
       >
         {children}
+        <OfflineIndicator />
       </body>
     </html>
   );
