@@ -147,10 +147,7 @@ export function extractApiKeyPrefix(key: string): string | null {
     return API_KEY_PREFIX;
   }
 
-  // Future: Could support "sk_test_" for sandbox mode
-  // if (key.startsWith('sk_test_')) {
-  //   return 'sk_test_';
-  // }
+  // Future: Could support sandbox mode with "styrby_test_" prefix
 
   return null;
 }
