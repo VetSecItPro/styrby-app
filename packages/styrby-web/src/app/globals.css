@@ -2,16 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Light theme (default) */
 :root {
-  --background: #09090b;
-  --foreground: #fafafa;
+  --background: #fafafa;
+  --foreground: #09090b;
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --background: #fafafa;
-    --foreground: #09090b;
-  }
+/* Dark theme via class (from next-themes) */
+.dark {
+  --background: #09090b;
+  --foreground: #fafafa;
+  color-scheme: dark;
 }
 
 body {
@@ -20,26 +22,34 @@ body {
   font-family: var(--font-inter), system-ui, sans-serif;
 }
 
-/* Dark mode by default */
-html {
-  color-scheme: dark;
-}
-
-/* Scrollbar styling for dark theme */
+/* Scrollbar styling - light theme */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #1f1f23;
+  background: #f4f4f5;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #3f3f46;
+  background: #d4d4d8;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+}
+
+/* Scrollbar styling - dark theme */
+.dark ::-webkit-scrollbar-track {
+  background: #1f1f23;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
   background: #52525b;
 }

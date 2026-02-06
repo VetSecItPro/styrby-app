@@ -82,8 +82,25 @@ async function main(): Promise<void> {
       await handleStart(args.slice(1));
       break;
 
+    case 'stop':
+      await handleStop(args.slice(1));
+      break;
+
     case 'status':
       await handleStatus();
+      break;
+
+    case 'logs':
+      await handleLogs(args.slice(1));
+      break;
+
+    case 'upgrade':
+    case 'update':
+      await handleUpgrade(args.slice(1));
+      break;
+
+    case 'daemon':
+      await handleDaemonCommand(args.slice(1));
       break;
 
     case 'doctor':
@@ -111,6 +128,50 @@ async function main(): Promise<void> {
       printHelp();
       process.exit(1);
   }
+}
+
+/**
+ * Handle the 'stop' command.
+ * Stops the running daemon process.
+ *
+ * @param args - Command arguments
+ */
+async function handleStop(args: string[]): Promise<void> {
+  const { handleStop: stop } = await import('@/commands/stop');
+  await stop(args);
+}
+
+/**
+ * Handle the 'logs' command.
+ * View daemon logs with optional following.
+ *
+ * @param args - Command arguments (--follow, --lines N)
+ */
+async function handleLogs(args: string[]): Promise<void> {
+  const { handleLogs: logs } = await import('@/commands/logs');
+  await logs(args);
+}
+
+/**
+ * Handle the 'upgrade' command.
+ * Check for and install CLI updates from npm.
+ *
+ * @param args - Command arguments (--check to only check)
+ */
+async function handleUpgrade(args: string[]): Promise<void> {
+  const { handleUpgrade: upgrade } = await import('@/commands/upgrade');
+  await upgrade(args);
+}
+
+/**
+ * Handle the 'daemon' command.
+ * Manage daemon auto-start on boot (install/uninstall).
+ *
+ * @param args - Command arguments (install, uninstall, status)
+ */
+async function handleDaemonCommand(args: string[]): Promise<void> {
+  const { handleDaemon } = await import('@/commands/daemon');
+  await handleDaemon(args);
 }
 
 /**
@@ -850,10 +911,18 @@ Commands:
 
   Session
     start                   Start a coding session
+    stop                    Stop running daemon
     status                  Show connection and session status
+    logs                    View daemon logs (--follow, --lines N)
     costs                   Display token usage and cost breakdown
 
-  Diagnostics
+  Daemon
+    daemon install          Install daemon to start automatically on boot
+    daemon uninstall        Remove daemon from auto-start
+    daemon status           Check if daemon auto-start is configured
+
+  Maintenance
+    upgrade                 Check for and install updates
     doctor                  Run system health checks
     help                    Show this help message
     version                 Show version number
@@ -867,6 +936,9 @@ Options:
   --skip-doctor             Skip health checks during onboard
   -t, --today               Filter costs to today
   -m, --month               Filter costs to current month
+  --follow, -f              Follow daemon logs in real-time
+  --lines N, -n N           Show last N lines of logs (default: 50)
+  --check, -c               Check for updates without installing
   -h, --help                Show help
   -v, --version             Show version
 
@@ -882,6 +954,8 @@ Configuration:
 
   ~/.styrby/config.json     User configuration
   ~/.styrby/credentials     Authentication tokens (chmod 600)
+  ~/.styrby/daemon.pid      Daemon process ID
+  ~/.styrby/daemon.log      Daemon output log
   ~/.claude/projects/       Claude Code session data (used by 'costs' command)
 
 Exit Codes:
@@ -909,13 +983,28 @@ Examples:
     styrby start -p ~/work/myproject    Start in specific directory
     styrby start -a codex -p ./backend  Combine agent + project path
 
+  Session Management
+    styrby stop                         Stop running daemon
+    styrby status                       Check connection and session state
+    styrby logs                         View daemon logs (last 50 lines)
+    styrby logs -f                      Follow logs in real-time
+    styrby logs -n 100                  View last 100 lines
+
+  Daemon Auto-Start
+    styrby daemon install               Set up daemon to start on login
+    styrby daemon uninstall             Remove daemon from auto-start
+    styrby daemon status                Check if auto-start is configured
+
+  Maintenance
+    styrby upgrade                      Update to latest version
+    styrby upgrade --check              Check for updates without installing
+
   Cost Tracking
     styrby costs                        Show all-time usage and costs
     styrby costs --today                Show today's costs only
     styrby costs --month                Show current month's costs
 
-  Status & Diagnostics
-    styrby status                       Check connection and session state
+  Diagnostics
     styrby doctor                       Run full health check
     STYRBY_LOG_LEVEL=debug styrby start Debug mode with verbose output
 
@@ -929,6 +1018,7 @@ Troubleshooting:
   Error                           Fix
   ─────────────────────────────────────────────────────────────────────
   "Not authenticated"             styrby onboard (or styrby auth --force)
+  "No daemon running"             styrby start --daemon
   "Agent not found"               styrby install <agent> && exec $SHELL
   "Claude: ANTHROPIC_API_KEY"     export ANTHROPIC_API_KEY=sk-ant-...
   "Codex: OPENAI_API_KEY"         export OPENAI_API_KEY=sk-...

@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { CostCharts } from './cost-charts';
+import { CostsRealtime } from './costs-realtime';
 import { BudgetAlertsSummary } from './budget-alerts-summary';
 import { TIERS, type TierId } from '@/lib/polar';
 import { MODEL_PRICING, LAST_VERIFIED } from '@/lib/model-pricing';
@@ -12,6 +13,10 @@ import { MODEL_PRICING, LAST_VERIFIED } from '@/lib/model-pricing';
  * WHY budget alerts appear here: Users checking their costs are the most likely
  * audience for budget alerts. Surfacing the most critical alert on this page
  * drives discovery and engagement with the alerts feature.
+ *
+ * WHY CostsRealtime wrapper: The summary cards show real-time spending updates
+ * as new cost records are created. This allows users to see their spending
+ * increase live during active sessions without requiring page refresh.
  */
 export default async function CostsPage() {
   const supabase = await createClient();
@@ -71,8 +76,7 @@ export default async function CostsPage() {
     {} as Record<string, { cost: number; requests: number }>
   );
 
-  // Calculate monthly total
-  const monthlyTotal = Object.values(agentTotals).reduce((sum, a) => sum + a.cost, 0);
+  // NOTE: Monthly total is computed inside CostsRealtime from agentTotals
 
   // Prepare chart data
   const chartData = (dailyCosts || []).map((day) => ({
@@ -251,57 +255,22 @@ export default async function CostsPage() {
           </select>
         </div>
 
-        {/* Summary cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          {/* Monthly total */}
-          <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-            <p className="text-sm text-zinc-500">Monthly Total</p>
-            <p className="text-2xl font-bold text-zinc-100 mt-1">
-              ${monthlyTotal.toFixed(2)}
-            </p>
-          </div>
+        {/* Real-time summary cards with connection status */}
+        <CostsRealtime
+          initialAgentTotals={agentTotals}
+          userId={user.id}
+        >
+          {/* Budget Alerts Summary Widget */}
+          <BudgetAlertsSummary
+            mostCriticalAlert={mostCriticalAlert}
+            alertCount={budgetAlerts.length}
+            tier={userTier}
+            alertLimit={alertLimit}
+          />
 
-          {/* Per-agent cards */}
-          {(['claude', 'codex', 'gemini'] as const).map((agent) => {
-            const data = agentTotals[agent] || { cost: 0, inputTokens: 0, outputTokens: 0 };
-            return (
-              <div
-                key={agent}
-                className="rounded-xl bg-zinc-900 border border-zinc-800 p-4"
-              >
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`h-3 w-3 rounded-full ${
-                      agent === 'claude'
-                        ? 'bg-orange-500'
-                        : agent === 'codex'
-                          ? 'bg-green-500'
-                          : 'bg-blue-500'
-                    }`}
-                  />
-                  <p className="text-sm text-zinc-500 capitalize">{agent}</p>
-                </div>
-                <p className="text-2xl font-bold text-zinc-100 mt-1">
-                  ${data.cost.toFixed(2)}
-                </p>
-                <p className="text-xs text-zinc-600 mt-1">
-                  {((data.inputTokens + data.outputTokens) / 1000).toFixed(1)}K tokens
-                </p>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Budget Alerts Summary Widget */}
-        <BudgetAlertsSummary
-          mostCriticalAlert={mostCriticalAlert}
-          alertCount={budgetAlerts.length}
-          tier={userTier}
-          alertLimit={alertLimit}
-        />
-
-        {/* Charts */}
-        <CostCharts data={chartData} />
+          {/* Charts */}
+          <CostCharts data={chartData} />
+        </CostsRealtime>
 
         {/* Model breakdown */}
         <section className="mt-8">
