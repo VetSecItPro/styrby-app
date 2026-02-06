@@ -195,9 +195,6 @@ importers:
       '@types/jest':
         specifier: ^29.5.14
         version: 29.5.14
-      '@types/node':
-        specifier: ^22.15.18
-        version: 22.19.9
       '@types/react':
         specifier: ~18.3.0
         version: 18.3.28
