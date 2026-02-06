@@ -101,7 +101,7 @@ interface UseRealtimeReturn {
  *   ),
  * });
  */
-export function useRealtimeSubscription<T extends Record<string, unknown>>({
+export function useRealtimeSubscription<T extends Record<string, any>>({
   table,
   schema = 'public',
   event = '*',
