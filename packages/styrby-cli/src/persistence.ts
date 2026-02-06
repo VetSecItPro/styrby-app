@@ -94,7 +94,7 @@ export function clearPersistedData(): void {
  */
 export interface StoredSession {
   sessionId: string;
-  agentType: 'claude' | 'codex' | 'gemini';
+  agentType: 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider';
   projectPath: string;
   createdAt: string;
   lastActivityAt: string;

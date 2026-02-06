@@ -7,6 +7,7 @@
 
 // Re-export types
 export * from './types.js';
+export * from './types/context-templates.js';
 export * from './constants.js';
 
 // Re-export relay module
@@ -20,3 +21,6 @@ export * from './design/index.js';
 
 // Re-export error attribution (namespaced to avoid conflicts)
 export * as errors from './errors/index.js';
+
+// Re-export utilities
+export * from './utils/index.js';

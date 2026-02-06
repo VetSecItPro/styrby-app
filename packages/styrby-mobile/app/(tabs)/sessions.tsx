@@ -107,6 +107,12 @@ const AGENT_CHIPS: Array<{ label: string; value: AgentType | null }> = [
   { label: 'Gemini', value: 'gemini' },
 ];
 
+/** Scope filter options for personal vs team sessions. */
+const SCOPE_CHIPS: Array<{ label: string; value: 'mine' | 'team' | null }> = [
+  { label: 'My Sessions', value: 'mine' },
+  { label: 'Team Sessions', value: 'team' },
+];
+
 // ============================================================================
 // Session Card Component
 // ============================================================================
@@ -259,19 +265,33 @@ export default function SessionsScreen() {
   // ---- Navigation ----
 
   /**
-   * Navigate to the chat screen with the selected session's ID and
-   * agent type pre-filled.
+   * Navigate to the appropriate screen based on session status.
+   * - Active sessions: Go to chat for real-time interaction
+   * - Completed sessions: Go to session detail for summary and history
    *
    * @param session - The session row that was tapped
    */
   const handleSessionPress = useCallback((session: SessionRow) => {
-    router.push({
-      pathname: '/(tabs)/chat',
-      params: {
-        sessionId: session.id,
-        agent: session.agent_type,
-      },
-    });
+    const isActive = ['starting', 'running', 'idle', 'paused'].includes(session.status);
+
+    if (isActive) {
+      // Active sessions go directly to chat for real-time interaction
+      router.push({
+        pathname: '/(tabs)/chat',
+        params: {
+          sessionId: session.id,
+          agent: session.agent_type,
+        },
+      });
+    } else {
+      // Completed sessions go to detail page with summary
+      router.push({
+        pathname: '/session/[id]',
+        params: {
+          id: session.id,
+        },
+      });
+    }
   }, []);
 
   // ---- Filter handlers ----
@@ -296,6 +316,20 @@ export default function SessionsScreen() {
   const handleAgentFilterChange = useCallback(
     (agent: AgentType | null) => {
       setFilters({ ...filters, agent });
+    },
+    [filters, setFilters],
+  );
+
+  /**
+   * Update the scope filter (mine vs team sessions).
+   *
+   * @param scope - The new scope filter value
+   */
+  const handleScopeFilterChange = useCallback(
+    (scope: 'mine' | 'team' | null) => {
+      // For team scope, we would need to fetch the user's team ID
+      // For now, this just toggles the scope filter
+      setFilters({ ...filters, scope, teamId: null });
     },
     [filters, setFilters],
   );
@@ -384,6 +418,36 @@ export default function SessionsScreen() {
 
       {/* Filter Chips */}
       <View className="px-4 pb-2">
+        {/* Scope Filters (My Sessions / Team Sessions) */}
+        <View className="flex-row mb-2">
+          {SCOPE_CHIPS.map((chip) => {
+            const isSelected = filters.scope === chip.value ||
+              (chip.value === 'mine' && !filters.scope);
+            return (
+              <Pressable
+                key={chip.label}
+                onPress={() => handleScopeFilterChange(chip.value)}
+                className={`px-3 py-1.5 rounded-full mr-2 ${
+                  isSelected
+                    ? 'bg-brand'
+                    : 'bg-zinc-800'
+                }`}
+                accessibilityRole="button"
+                accessibilityLabel={`Filter by ${chip.label}`}
+                accessibilityState={{ selected: isSelected }}
+              >
+                <Text
+                  className={`text-sm font-medium ${
+                    isSelected ? 'text-white' : 'text-zinc-400'
+                  }`}
+                >
+                  {chip.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
         {/* Status Filters */}
         <View className="flex-row mb-2">
           {STATUS_CHIPS.map((chip) => {
@@ -507,7 +571,7 @@ export default function SessionsScreen() {
               <Pressable
                 onPress={() => {
                   setSearchQuery('');
-                  setFilters({ status: null, agent: null });
+                  setFilters({ status: null, agent: null, scope: null, teamId: null });
                 }}
                 className="bg-zinc-800 px-5 py-2.5 rounded-xl mt-4 active:opacity-80"
                 accessibilityRole="button"

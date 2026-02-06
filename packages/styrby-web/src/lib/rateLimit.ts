@@ -186,6 +186,13 @@ export const RATE_LIMITS = {
    * while preventing abuse.
    */
   budgetAlerts: { windowMs: 60000, maxRequests: 30 },
+
+  /**
+   * API v1 endpoints: 100 requests per minute
+   * WHY: Power tier API access has generous limits for automation.
+   * Per-key rate limiting is handled separately in the api-auth middleware.
+   */
+  apiV1: { windowMs: 60000, maxRequests: 100 },
 } as const;
 
 /**

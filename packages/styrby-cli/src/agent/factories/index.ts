@@ -15,7 +15,22 @@ export {
   type GeminiBackendResult,
 } from './gemini';
 
+// Aider factory
+export {
+  createAiderBackend,
+  registerAiderAgent,
+  type AiderBackendOptions,
+  type AiderBackendResult,
+} from './aider';
+
+// OpenCode factory
+export {
+  createOpenCodeBackend,
+  registerOpenCodeAgent,
+  type OpenCodeBackendOptions,
+  type OpenCodeBackendResult,
+} from './opencode';
+
 // Future factories:
 // export { createCodexBackend, registerCodexAgent, type CodexBackendOptions } from './codex';
 // export { createClaudeBackend, registerClaudeAgent, type ClaudeBackendOptions } from './claude';
-// export { createOpenCodeBackend, registerOpenCodeAgent, type OpenCodeBackendOptions } from './opencode';

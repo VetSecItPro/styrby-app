@@ -93,8 +93,9 @@ export const AGENT_CONFIG: Record<AgentType, AgentConfig> = {
 
 /**
  * Default list of all agents.
+ * Includes all supported AI coding agents.
  */
-const ALL_AGENTS: AgentType[] = ['claude', 'codex', 'gemini'];
+const ALL_AGENTS: AgentType[] = ['claude', 'codex', 'gemini', 'opencode', 'aider'];
 
 // ============================================================================
 // Component

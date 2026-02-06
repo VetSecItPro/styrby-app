@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { ThemeToggle } from '@/components/theme-toggle';
 
@@ -26,6 +27,7 @@ interface NotificationPrefs {
   email_enabled: boolean;
   quiet_hours_start: string | null;
   quiet_hours_end: string | null;
+  priority_threshold?: number;
   [key: string]: unknown;
 }
 
@@ -126,6 +128,15 @@ export function SettingsClient({
     notificationPrefs?.email_enabled ?? true
   );
   const [notifSaving, setNotifSaving] = useState(false);
+
+  // Priority threshold for smart notifications (1-5 scale)
+  const [priorityThreshold, setPriorityThreshold] = useState(
+    notificationPrefs?.priority_threshold ?? 3
+  );
+  const [prioritySaving, setPrioritySaving] = useState(false);
+
+  /** Whether the user is on a paid tier (Pro+ enables smart notifications) */
+  const isPaidTier = subscription?.tier === 'pro' || subscription?.tier === 'power';
 
   /* ── Handlers ────────────────────────────────────────────────── */
 
@@ -326,6 +337,29 @@ export function SettingsClient({
           { onConflict: 'user_id' }
         );
       setNotifSaving(false);
+    },
+    [supabase, profile?.id]
+  );
+
+  /**
+   * Updates the notification priority threshold for smart filtering.
+   * Priority threshold: 1 = Urgent only, 5 = All notifications
+   */
+  const handlePriorityChange = useCallback(
+    async (value: number) => {
+      setPriorityThreshold(value);
+      setPrioritySaving(true);
+
+      await supabase
+        .from('notification_preferences')
+        .upsert(
+          {
+            user_id: profile?.id,
+            priority_threshold: value,
+          },
+          { onConflict: 'user_id' }
+        );
+      setPrioritySaving(false);
     },
     [supabase, profile?.id]
   );
@@ -708,6 +742,101 @@ export function SettingsClient({
               Configure
             </button>
           </div>
+
+          {/* Smart Notifications Priority */}
+          <div className="px-4 py-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-zinc-100">
+                    Notification Sensitivity
+                  </p>
+                  {!isPaidTier && (
+                    <span className="inline-flex items-center rounded-full bg-orange-500/10 px-2 py-0.5 text-xs font-medium text-orange-400">
+                      Pro
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-zinc-500">
+                  Filter notifications by importance
+                </p>
+              </div>
+              {prioritySaving && (
+                <span className="text-xs text-zinc-500">Saving...</span>
+              )}
+            </div>
+
+            {/* Priority Slider */}
+            <div className={`${!isPaidTier ? 'opacity-50 pointer-events-none' : ''}`}>
+              <input
+                type="range"
+                min="1"
+                max="5"
+                value={priorityThreshold}
+                onChange={(e) => handlePriorityChange(parseInt(e.target.value, 10))}
+                disabled={!isPaidTier || prioritySaving}
+                className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-zinc-700 accent-orange-500"
+                aria-label="Notification sensitivity slider"
+              />
+              <div className="flex justify-between mt-2">
+                <span className="text-xs text-zinc-500">Urgent only</span>
+                <span className="text-xs text-zinc-500">All</span>
+              </div>
+
+              {/* Current level description */}
+              <div className="mt-4 p-3 rounded-lg bg-zinc-800/50 border border-zinc-700">
+                <p className="text-sm font-medium text-zinc-100 mb-1">
+                  {priorityThreshold === 1 && 'Urgent only'}
+                  {priorityThreshold === 2 && 'High priority'}
+                  {priorityThreshold === 3 && 'Medium priority'}
+                  {priorityThreshold === 4 && 'Most notifications'}
+                  {priorityThreshold === 5 && 'All notifications'}
+                </p>
+                <p className="text-xs text-zinc-400 mb-2">
+                  {priorityThreshold === 1 &&
+                    "You'll receive ~5% of notifications. Only critical alerts like budget exceeded and high-risk permission requests."}
+                  {priorityThreshold === 2 &&
+                    "You'll receive ~15% of notifications. Includes budget warnings, session errors, and permission requests."}
+                  {priorityThreshold === 3 &&
+                    "You'll receive ~50% of notifications. Balanced filtering for moderate importance."}
+                  {priorityThreshold === 4 &&
+                    "You'll receive ~85% of notifications. Most notifications except purely informational ones."}
+                  {priorityThreshold === 5 &&
+                    "You'll receive all notifications. No filtering applied."}
+                </p>
+                <div className="space-y-1 text-xs text-zinc-500">
+                  <p className="font-medium text-zinc-400">Examples at this level:</p>
+                  {priorityThreshold >= 1 && (
+                    <p>- Budget exceeded alerts, dangerous tool permissions (bash, delete)</p>
+                  )}
+                  {priorityThreshold >= 2 && (
+                    <p>- Budget warnings, session errors, medium-risk operations</p>
+                  )}
+                  {priorityThreshold >= 3 && (
+                    <p>- Session completions with significant cost (&gt;$5)</p>
+                  )}
+                  {priorityThreshold >= 4 && (
+                    <p>- Low-cost session completions, long session summaries</p>
+                  )}
+                  {priorityThreshold >= 5 && (
+                    <p>- Session started, all informational updates</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Pro upgrade CTA for free users */}
+            {!isPaidTier && (
+              <div className="mt-4 p-3 rounded-lg bg-orange-500/5 border border-orange-500/20">
+                <p className="text-sm text-orange-400 mb-2">
+                  Smart notifications help reduce notification fatigue by filtering based on importance.
+                </p>
+                <button className="text-sm font-medium text-orange-500 hover:text-orange-400">
+                  Upgrade to Pro to enable
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
@@ -766,6 +895,154 @@ export function SettingsClient({
               </div>
             );
           })}
+        </div>
+      </section>
+
+      {/* Integrations Section */}
+      <section className="mb-8">
+        <h2 className="text-lg font-semibold text-zinc-100 mb-4">
+          Integrations
+        </h2>
+        <div className="rounded-xl bg-zinc-900 border border-zinc-800 divide-y divide-zinc-800">
+          {/* API Keys */}
+          <Link
+            href="/settings/api"
+            className="px-4 py-4 flex items-center justify-between hover:bg-zinc-800/50 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                <svg
+                  className="h-4 w-4 text-orange-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
+                  />
+                </svg>
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-zinc-100">API Keys</p>
+                  <span className="inline-flex items-center rounded-full bg-orange-500/10 px-2 py-0.5 text-xs font-medium text-orange-400">
+                    Power
+                  </span>
+                </div>
+                <p className="text-sm text-zinc-500">
+                  Access your data programmatically
+                </p>
+              </div>
+            </div>
+            <svg
+              className="h-5 w-5 text-zinc-500"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
+          </Link>
+
+          {/* Webhooks */}
+          <Link
+            href="/settings/webhooks"
+            className="px-4 py-4 flex items-center justify-between hover:bg-zinc-800/50 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 rounded-lg bg-purple-500/10 flex items-center justify-center">
+                <svg
+                  className="h-4 w-4 text-purple-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+                  />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-zinc-100">Webhooks</p>
+                <p className="text-sm text-zinc-500">
+                  Send events to Slack, Discord, or custom endpoints
+                </p>
+              </div>
+            </div>
+            <svg
+              className="h-5 w-5 text-zinc-500"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
+          </Link>
+
+          {/* Templates */}
+          <Link
+            href="/settings/templates"
+            className="px-4 py-4 flex items-center justify-between hover:bg-zinc-800/50 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 rounded-lg bg-cyan-500/10 flex items-center justify-center">
+                <svg
+                  className="h-4 w-4 text-cyan-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2"
+                  />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-zinc-100">Prompt Templates</p>
+                <p className="text-sm text-zinc-500">
+                  Reusable prompts for common tasks
+                </p>
+              </div>
+            </div>
+            <svg
+              className="h-5 w-5 text-zinc-500"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
+          </Link>
         </div>
       </section>
 
