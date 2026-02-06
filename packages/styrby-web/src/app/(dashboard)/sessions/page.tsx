@@ -1,14 +1,19 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { SessionsFilter } from './sessions-filter';
+import { SessionsRealtime } from './sessions-realtime';
 
 /**
  * Sessions page - lists all user sessions with filtering and search.
  *
  * Server component that fetches session data from Supabase.
- * Delegates the interactive search, filter, and list rendering
- * to the SessionsFilter client component.
+ * Delegates the interactive search, filter, real-time updates, and list
+ * rendering to the SessionsRealtime client component wrapper.
+ *
+ * WHY SessionsRealtime wrapper: We need real-time updates for sessions
+ * (new sessions appearing, status changes, cost updates) without requiring
+ * a page refresh. The server component fetches initial data for fast SSR,
+ * then the client component subscribes to live updates.
  */
 export default async function SessionsPage() {
   const supabase = await createClient();
@@ -80,7 +85,7 @@ export default async function SessionsPage() {
 
       {/* Main content */}
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
-        <SessionsFilter sessions={sessions || []} />
+        <SessionsRealtime initialSessions={sessions || []} userId={user.id} />
       </main>
     </div>
   );

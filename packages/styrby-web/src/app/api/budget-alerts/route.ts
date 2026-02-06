@@ -9,12 +9,15 @@
  * POST   /api/budget-alerts - Create a new budget alert
  * PATCH  /api/budget-alerts - Update an existing budget alert
  * DELETE /api/budget-alerts - Delete a budget alert
+ *
+ * @rateLimit 30 requests per minute for POST, PATCH, DELETE
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { TIERS, type TierId } from '@/lib/polar';
 import { z } from 'zod';
+import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 
 // ---------------------------------------------------------------------------
 // Zod Schemas
@@ -301,6 +304,12 @@ export async function GET() {
  * @error 500 { error: 'Failed to create budget alert' }
  */
 export async function POST(request: NextRequest) {
+  // Rate limit check - 30 requests per minute
+  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.budgetAlerts, 'budget-alerts');
+  if (!allowed) {
+    return rateLimitResponse(retryAfter!);
+  }
+
   try {
     const supabase = await createClient();
 
@@ -419,6 +428,12 @@ export async function POST(request: NextRequest) {
  * @error 500 { error: 'Failed to update budget alert' }
  */
 export async function PATCH(request: NextRequest) {
+  // Rate limit check - 30 requests per minute
+  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.budgetAlerts, 'budget-alerts');
+  if (!allowed) {
+    return rateLimitResponse(retryAfter!);
+  }
+
   try {
     const supabase = await createClient();
 
@@ -517,6 +532,12 @@ export async function PATCH(request: NextRequest) {
  * @error 500 { error: 'Failed to delete budget alert' }
  */
 export async function DELETE(request: NextRequest) {
+  // Rate limit check - 30 requests per minute
+  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.budgetAlerts, 'budget-alerts');
+  if (!allowed) {
+    return rateLimitResponse(retryAfter!);
+  }
+
   try {
     const supabase = await createClient();
 

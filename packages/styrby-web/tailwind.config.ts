@@ -53,6 +53,17 @@ const config: Config = {
         sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
         mono: ['var(--font-mono)', 'ui-monospace', 'monospace'],
       },
+      keyframes: {
+        'fade-in-out': {
+          '0%': { opacity: '0', transform: 'translateY(10px)' },
+          '20%': { opacity: '1', transform: 'translateY(0)' },
+          '80%': { opacity: '1', transform: 'translateY(0)' },
+          '100%': { opacity: '0', transform: 'translateY(-10px)' },
+        },
+      },
+      animation: {
+        'fade-in-out': 'fade-in-out 2s ease-in-out forwards',
+      },
     },
   },
   plugins: [forms],

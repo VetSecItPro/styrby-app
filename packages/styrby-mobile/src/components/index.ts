@@ -41,3 +41,5 @@ export type { StopButtonProps } from './StopButton';
 
 export { TypingIndicator, TypingIndicatorInline, TypingIndicatorMinimal } from './TypingIndicator';
 export type { TypingIndicatorProps, AgentState } from './TypingIndicator';
+
+export { OnboardingProgress } from './OnboardingProgress';

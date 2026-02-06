@@ -5,7 +5,7 @@
  * 1. Decodes and validates the pairing payload
  * 2. Persists pairing info to secure storage
  * 3. Connects to the relay channel for real-time CLI communication
- * 4. Navigates to the main dashboard on success
+ * 4. Navigates to the notifications permission screen (onboarding step 4)
  *
  * Error states handled:
  * - Camera permission denied
@@ -122,7 +122,7 @@ export default function ScanScreen() {
 
   /**
    * Completes the pairing flow: executes the pairing service, saves to relay hook,
-   * connects to the relay channel, and navigates to the dashboard.
+   * connects to the relay channel, and navigates to the notifications screen.
    *
    * @param qrData - Raw QR code string data
    */
@@ -154,9 +154,10 @@ export default function ScanScreen() {
 
     setPairingState('success');
 
-    // Navigate to the main app after a brief delay for visual feedback
+    // Navigate to the notifications permission screen (onboarding step 4)
+    // after a brief delay for visual feedback on pairing success.
     setTimeout(() => {
-      router.replace('/(tabs)');
+      router.replace('/onboarding/notifications');
     }, 500);
   };
 
