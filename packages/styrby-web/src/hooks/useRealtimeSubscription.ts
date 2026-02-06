@@ -101,8 +101,7 @@ interface UseRealtimeReturn {
  *   ),
  * });
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function useRealtimeSubscription<T extends Record<string, any>>({
+export function useRealtimeSubscription<T extends Record<string, unknown>>({
   table,
   schema = 'public',
   event = '*',

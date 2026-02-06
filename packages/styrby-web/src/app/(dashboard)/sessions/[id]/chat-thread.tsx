@@ -124,7 +124,7 @@ function CheckIcon({ className }: { className?: string }) {
  */
 export function ChatThread({
   sessionId,
-  userId,
+  userId: _userId,
   initialMessages,
   isSessionActive,
 }: ChatThreadProps) {

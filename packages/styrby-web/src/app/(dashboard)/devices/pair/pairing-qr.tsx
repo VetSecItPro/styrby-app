@@ -152,7 +152,10 @@ export function PairingQR({ userId }: PairingQRProps) {
   }, [userId]);
 
   // Generate on mount
+  // Note: generatePairingData sets initial state and must run once on mount.
+  // This is intentional initialization, not a cascading render issue.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional one-time initialization on mount
     generatePairingData();
   }, [generatePairingData]);
 

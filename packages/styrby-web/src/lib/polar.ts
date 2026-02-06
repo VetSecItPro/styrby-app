@@ -147,7 +147,7 @@ export async function createCheckoutSession(
   productId: string,
   customerId: string,
   successUrl: string,
-  cancelUrl?: string
+  _cancelUrl?: string
 ) {
   const checkout = await polar.checkouts.create({
     productId,
@@ -177,7 +177,7 @@ export async function createCheckoutSession(
  * portal URL instead of this generic link. Track:
  * https://github.com/polarsource/polar/issues
  */
-export async function getCustomerPortalUrl(customerId: string) {
+export async function getCustomerPortalUrl(_customerId: string) {
   return `https://polar.sh/purchases/subscriptions`;
 }
 

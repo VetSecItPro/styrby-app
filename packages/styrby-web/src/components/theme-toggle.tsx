@@ -27,7 +27,9 @@ export function ThemeToggle() {
   // next-themes reads from localStorage on the client, so the server
   // render won't know the user's preference. We show a placeholder
   // until the client has mounted to prevent a flash/mismatch.
+  // Note: This is a standard SSR hydration pattern for next-themes.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Standard SSR hydration pattern for next-themes
     setMounted(true);
   }, []);
 
