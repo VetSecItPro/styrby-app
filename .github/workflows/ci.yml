@@ -12,6 +12,7 @@ concurrency:
 
 env:
   NODE_VERSION: '22'
+  PNPM_VERSION: '10'
   # Placeholder env vars for build (real values in Vercel/runtime)
   NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
   NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
@@ -49,32 +50,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Lint (if configured)
-        run: npm run lint --if-present
+        run: pnpm run lint --if-present
 
       # Build shared first so its type declarations are available for CLI typecheck
       - name: Build shared (type declarations)
-        run: npm run build -w @styrby/shared --if-present
+        run: pnpm --filter @styrby/shared build
 
       - name: Type check shared
-        run: npm run typecheck -w @styrby/shared --if-present
+        run: pnpm --filter @styrby/shared typecheck --if-present
 
       - name: Type check CLI
-        run: npm run typecheck -w styrby-cli --if-present
+        run: pnpm --filter styrby-cli typecheck --if-present
 
       - name: Type check web
-        run: npm run typecheck -w styrby-web --if-present
+        run: pnpm --filter styrby-web typecheck --if-present
 
       - name: Type check mobile
-        run: npm run typecheck -w styrby-mobile --if-present
+        run: pnpm --filter styrby-mobile typecheck --if-present
 
   # ─── CLI unit tests ───
   test-cli:
@@ -83,23 +88,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Build shared (dependency)
-        run: npm run build -w @styrby/shared --if-present
+        run: pnpm --filter @styrby/shared build
 
       - name: Run CLI tests
         # TODO: add --coverage flag back once @vitest/coverage-v8 is installed in styrby-cli
         # 9 tests in ripgrep/difftastic modules require tool binaries not available in CI.
         # 252/261 tests pass. Remove continue-on-error once CI installs ripgrep + difftastic.
         continue-on-error: true
-        run: npm run test -w styrby-cli --if-present
+        run: pnpm --filter styrby-cli test --if-present
 
   # ─── Security scanning ───
   security:
@@ -108,13 +117,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Dependency audit
         # continue-on-error: allowed because these are UPSTREAM unpatched CVEs we cannot fix:
@@ -124,9 +137,9 @@ jobs:
         #     - GHSA-8qq5-rm4j-mr97 (arbitrary file creation via symlink)
         #     - GHSA-r6q2-hw4h-h46w (path traversal in tar extraction)
         #     - GHSA-34x7-hfp2-rc4v (denial of service via crafted tar)
-        # Re-evaluate when these packages release patches. Check with: npm audit
+        # Re-evaluate when these packages release patches. Check with: pnpm audit
         continue-on-error: true
-        run: npm audit --audit-level=high
+        run: pnpm audit --audit-level=high
 
       - name: Secret pattern scan
         run: |
@@ -164,16 +177,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Build shared
-        run: npm run build -w @styrby/shared --if-present
+        run: pnpm --filter @styrby/shared build
 
       - name: Upload shared build
         uses: actions/upload-artifact@v4
@@ -191,13 +208,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Download shared build
         uses: actions/download-artifact@v4
@@ -206,7 +227,7 @@ jobs:
           path: packages/styrby-shared/dist/
 
       - name: Build CLI
-        run: npm run build -w styrby-cli --if-present
+        run: pnpm --filter styrby-cli build --if-present
 
       - name: Test CLI entry point
         run: |
@@ -221,13 +242,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Download shared build
         uses: actions/download-artifact@v4
@@ -236,7 +261,7 @@ jobs:
           path: packages/styrby-shared/dist/
 
       - name: Build web
-        run: npm run build -w styrby-web
+        run: pnpm --filter styrby-web build
 
       # Turbopack creates files with colons in names which can't be uploaded
       # Rename them before uploading
@@ -267,19 +292,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Lint mobile
-        run: npm run lint -w styrby-mobile --if-present
+        run: pnpm --filter styrby-mobile lint --if-present
 
       - name: Export web bundle (build check)
-        run: npx -w styrby-mobile expo export --platform web --output-dir /tmp/expo-export 2>&1 || echo "Expo export check completed"
+        run: pnpm --filter styrby-mobile exec expo export --platform web --output-dir /tmp/expo-export 2>&1 || echo "Expo export check completed"
 
   # ─── E2E tests ───
   e2e:
@@ -289,13 +318,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Download shared build
         uses: actions/download-artifact@v4
@@ -313,13 +346,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install Playwright
-        run: npx playwright install chromium --with-deps
+        run: pnpm exec playwright install chromium --with-deps
 
       - name: Run E2E tests
-        run: npm run test:e2e -w styrby-web --if-present
+        run: pnpm --filter styrby-web test:e2e --if-present
 
       - name: Upload failure artifacts
         uses: actions/upload-artifact@v4
