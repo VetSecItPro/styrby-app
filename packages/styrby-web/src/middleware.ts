@@ -14,7 +14,7 @@ export async function middleware(request: NextRequest) {
   const response = await updateSession(request);
 
   // Protected routes that require authentication
-  const protectedPaths = ['/dashboard', '/settings', '/sessions'];
+  const protectedPaths = ['/dashboard'];
   const isProtectedPath = protectedPaths.some((path) =>
     request.nextUrl.pathname.startsWith(path)
   );
