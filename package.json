@@ -6,16 +6,17 @@
     "packages/*"
   ],
   "scripts": {
-    "cli": "npm -w styrby-cli",
-    "mobile": "npm -w styrby-mobile",
-    "web": "npm -w styrby-web",
-    "lint": "npm run lint --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "cli": "pnpm --filter styrby-cli",
+    "mobile": "pnpm --filter styrby-mobile",
+    "web": "pnpm --filter styrby-web",
+    "lint": "pnpm -r run lint --if-present",
+    "typecheck": "pnpm -r run typecheck --if-present",
+    "build": "pnpm -r run build --if-present",
+    "test": "pnpm -r run test --if-present",
     "clean": "rm -rf node_modules packages/*/node_modules packages/*/dist"
   },
   "engines": {
     "node": ">=20.0.0"
-  }
+  },
+  "packageManager": "pnpm@10.28.0"
 }
