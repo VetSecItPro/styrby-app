@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -613,9 +614,29 @@ export function SettingsClient({
         </div>
       </section>
 
+      {/* Appearance Section */}
+      <section className="mb-8">
+        <h2 className="text-lg font-semibold text-zinc-100 dark:text-zinc-100 mb-4">
+          Appearance
+        </h2>
+        <div className="rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+          <div className="px-4 py-4 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                Theme
+              </p>
+              <p className="text-sm text-zinc-500 dark:text-zinc-500">
+                Choose your preferred color scheme
+              </p>
+            </div>
+            <ThemeToggle />
+          </div>
+        </div>
+      </section>
+
       {/* Notifications Section */}
       <section className="mb-8">
-        <h2 className="text-lg font-semibold text-zinc-100 mb-4">
+        <h2 className="text-lg font-semibold text-zinc-100 dark:text-zinc-100 mb-4">
           Notifications
         </h2>
         <div className="rounded-xl bg-zinc-900 border border-zinc-800 divide-y divide-zinc-800">

@@ -3,6 +3,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 import { ConnectionStatus } from '@/components/connection-status';
+import { CostTicker } from '@/components/cost-ticker';
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -128,12 +129,15 @@ export function CostsRealtime({
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-        {/* Monthly total */}
+        {/* Monthly total - with real-time ticker */}
         <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-          <p className="text-sm text-zinc-500">Monthly Total</p>
-          <p className="text-2xl font-bold text-zinc-100 mt-1">
-            ${currentMonthlyTotal.toFixed(2)}
-          </p>
+          <p className="text-sm text-zinc-500 mb-1">Monthly Total</p>
+          <CostTicker
+            userId={userId}
+            initialTotal={currentMonthlyTotal}
+            dateFilter={new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()}
+            className="text-zinc-100"
+          />
         </div>
 
         {/* Per-agent cards */}

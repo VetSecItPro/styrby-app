@@ -1,17 +1,28 @@
 /**
  * Onboarding Flow
  *
- * 3-step onboarding: Welcome → Install CLI → Scan QR → Success
+ * 5-step onboarding flow:
+ * 1. Welcome (pager step 1)
+ * 2. Install CLI (pager step 2)
+ * 3. Scan QR (pager step 3 -> navigates to scan screen)
+ * 4. Notifications (separate screen after scan)
+ * 5. Complete (final screen)
+ *
+ * This screen handles the first 3 steps via a swipeable pager.
+ * The remaining steps are separate screens for focused user interaction.
  */
 
-import { View, Text, Pressable, Dimensions } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
 import { useState, useRef, useCallback } from 'react';
 import { router } from 'expo-router';
 import PagerView from 'react-native-pager-view';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
+import { OnboardingProgress } from '../../src/components/OnboardingProgress';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+/** Total number of steps in the complete onboarding flow */
+const TOTAL_ONBOARDING_STEPS = 5;
 
 interface OnboardingStep {
   title: string;
@@ -76,28 +87,53 @@ export default function OnboardingScreen() {
     setTimeout(() => setCopiedCommand(null), 2000);
   }, []);
 
-  const handleNext = () => {
+  /**
+   * Advances to the next pager step, or navigates to the scan screen
+   * when the last pager step is reached.
+   */
+  const handleNext = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
     if (currentPage < STEPS.length - 1) {
       pagerRef.current?.setPage(currentPage + 1);
     } else {
-      // Go to scan screen
-      router.replace('/(auth)/scan');
+      // Go to scan screen (step 3 completion leads to camera scanner)
+      router.push('/(auth)/scan');
     }
   };
 
-  const handleSkip = () => {
+  /**
+   * Skips onboarding and goes directly to the dashboard.
+   * Only available for users who are already paired.
+   */
+  const handleSkip = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.replace('/(tabs)');
   };
 
   const isLastStep = currentPage === STEPS.length - 1;
 
+  /** Calculate the current step in the overall flow (1-indexed for display) */
+  const currentOverallStep = currentPage + 1;
+
   return (
     <View className="flex-1 bg-background">
-      {/* Skip button */}
-      <View className="absolute top-16 right-4 z-10">
-        <Pressable onPress={handleSkip} className="px-4 py-2">
-          <Text className="text-zinc-400 text-base">Skip</Text>
-        </Pressable>
+      {/* Header with skip button and progress indicator */}
+      <View className="pt-16 px-4">
+        <View className="flex-row justify-end mb-2">
+          <Pressable
+            onPress={handleSkip}
+            className="px-4 py-2"
+            accessibilityLabel="Skip onboarding"
+            accessibilityRole="button"
+          >
+            <Text className="text-zinc-400 text-base">Skip</Text>
+          </Pressable>
+        </View>
+        <OnboardingProgress
+          currentStep={currentOverallStep}
+          totalSteps={TOTAL_ONBOARDING_STEPS}
+        />
       </View>
 
       {/* Pager */}
@@ -188,18 +224,6 @@ export default function OnboardingScreen() {
 
       {/* Bottom section */}
       <View className="px-8 pb-12">
-        {/* Page indicators */}
-        <View className="flex-row justify-center mb-8">
-          {STEPS.map((_, index) => (
-            <View
-              key={index}
-              className={`w-2 h-2 rounded-full mx-1 ${
-                index === currentPage ? 'bg-brand w-6' : 'bg-zinc-700'
-              }`}
-            />
-          ))}
-        </View>
-
         {/* Action button */}
         <Pressable
           onPress={handleNext}

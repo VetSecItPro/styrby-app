@@ -3,6 +3,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 import { ConnectionStatus } from '@/components/connection-status';
+import { CostTicker } from '@/components/cost-ticker';
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -198,12 +199,15 @@ export function DashboardRealtime({
 
       {/* Stats grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {/* Today's spend */}
+        {/* Today's spend - with real-time ticker */}
         <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-          <p className="text-sm text-zinc-500">Today&apos;s Spend</p>
-          <p className="text-2xl font-bold text-zinc-100 mt-1">
-            ${todaySpend.toFixed(2)}
-          </p>
+          <p className="text-sm text-zinc-500 mb-1">Today&apos;s Spend</p>
+          <CostTicker
+            userId={userId}
+            initialTotal={todaySpend}
+            dateFilter={new Date().toISOString().split('T')[0]}
+            className="text-zinc-100"
+          />
         </div>
 
         {/* Active sessions */}

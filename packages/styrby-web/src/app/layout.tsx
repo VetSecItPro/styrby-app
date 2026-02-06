@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import { OfflineIndicator } from '@/components/offline-indicator';
+import { ThemeProvider } from '@/components/theme-provider';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -72,12 +73,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" suppressHydrationWarning>
       <body
-        className={`${inter.variable} ${jetbrainsMono.variable} antialiased min-h-screen bg-zinc-950 text-zinc-50`}
+        className={`${inter.variable} ${jetbrainsMono.variable} antialiased min-h-screen bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50`}
       >
-        {children}
-        <OfflineIndicator />
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem
+          disableTransitionOnChange
+        >
+          {children}
+          <OfflineIndicator />
+        </ThemeProvider>
       </body>
     </html>
   );
