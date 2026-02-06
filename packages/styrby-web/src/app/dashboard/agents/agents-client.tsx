@@ -72,7 +72,7 @@ interface AgentsClientProps {
  * @param todayCosts - Today's cost records for cost-per-agent display
  * @param activeSessions - Currently active sessions for status indicator
  */
-export function AgentsClient({ machines, agentConfigs, todayCosts, activeSessions }: AgentsClientProps) {
+export function AgentsClient({ machines, agentConfigs: _agentConfigs, todayCosts, activeSessions }: AgentsClientProps) {
   // Aggregate cost per agent type
   const costByAgent = todayCosts.reduce<Record<string, number>>((acc, r) => {
     acc[r.agent_type] = (acc[r.agent_type] || 0) + Number(r.cost_usd);
@@ -84,9 +84,6 @@ export function AgentsClient({ machines, agentConfigs, todayCosts, activeSession
     acc[s.agent_type] = (acc[s.agent_type] || 0) + 1;
     return acc;
   }, {});
-
-  // Get unique agent types from machines
-  const agentTypes = [...new Set(machines.map((m) => m.agent_type))] as AgentType[];
 
   // Build agent cards data
   const agentCards = (Object.keys(AGENT_META) as AgentType[]).map((type) => {
@@ -114,9 +111,11 @@ export function AgentsClient({ machines, agentConfigs, todayCosts, activeSession
   /**
    * Formats a timestamp to a human-readable "time ago" string.
    */
+  const now = Date.now();
+
   function timeAgo(dateStr: string | undefined): string {
     if (!dateStr) return 'Never';
-    const diff = Date.now() - new Date(dateStr).getTime();
+    const diff = now - new Date(dateStr).getTime();
     const seconds = Math.floor(diff / 1000);
     if (seconds < 60) return `${seconds}s ago`;
     const minutes = Math.floor(seconds / 60);
