@@ -1,5 +1,6 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
+import { Toaster } from 'sonner';
 import './globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
 
@@ -10,16 +11,16 @@ const inter = Inter({
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin'],
-  variable: '--font-mono',
+  variable: '--font-jetbrains',
 });
 
 export const metadata: Metadata = {
   title: {
-    default: 'Styrby - Mobile Remote for AI Coding Agents',
+    default: 'Styrby - Your AI Agents, In Your Pocket',
     template: '%s | Styrby',
   },
   description:
-    'Control Claude Code, Codex, and Gemini CLI from your phone. Track costs, approve permissions, manage sessions — all from your pocket.',
+    'Monitor costs, approve permissions, and control Claude Code, Codex, Gemini CLI, OpenCode, and Aider from one premium dashboard.',
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_APP_URL || 'https://styrbyapp.com'
   ),
@@ -35,17 +36,17 @@ export const metadata: Metadata = {
   },
   manifest: '/manifest.json',
   openGraph: {
-    title: 'Styrby - Mobile Remote for AI Coding Agents',
+    title: 'Styrby - Your AI Agents, In Your Pocket',
     description:
-      'Control Claude Code, Codex, and Gemini CLI from your phone. Track costs, approve permissions, manage sessions.',
+      'Monitor costs, approve permissions, and control Claude Code, Codex, Gemini CLI, OpenCode, and Aider from one premium dashboard.',
     type: 'website',
     images: [{ url: '/logo-full.png', width: 1200, height: 630 }],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Styrby - Mobile Remote for AI Coding Agents',
+    title: 'Styrby - Your AI Agents, In Your Pocket',
     description:
-      'Control Claude Code, Codex, and Gemini CLI from your phone.',
+      'Monitor costs, approve permissions, and control your AI coding agents from your phone.',
     images: ['/logo-full.png'],
   },
   robots: {
@@ -59,12 +60,19 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  themeColor: '#09090b',
+};
+
 /**
  * Root layout for the Styrby web application.
  *
- * NOTE: OfflineIndicator was moved to the dashboard layout. Visitors on
- * the public landing page don't need to see connection status - that's
- * only relevant for authenticated users in the dashboard.
+ * WHY: Uses a dark-first design with the `dark` class on <html>.
+ * The noise-bg class on <body> adds a subtle grain texture from globals.css.
+ * Sonner Toaster is styled to match the dark card palette.
+ *
+ * NOTE: OfflineIndicator lives in the dashboard layout, not here.
+ * Public visitors don't need connection status.
  */
 export default function RootLayout({
   children,
@@ -72,9 +80,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className="dark" suppressHydrationWarning>
       <body
-        className={`${inter.variable} ${jetbrainsMono.variable} antialiased min-h-screen bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50`}
+        className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased noise-bg`}
       >
         <ThemeProvider
           attribute="class"
@@ -84,6 +92,16 @@ export default function RootLayout({
         >
           {children}
         </ThemeProvider>
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            style: {
+              background: 'hsl(240 5% 7%)',
+              border: '1px solid hsl(240 4% 16%)',
+              color: 'hsl(0 0% 98%)',
+            },
+          }}
+        />
       </body>
     </html>
   );

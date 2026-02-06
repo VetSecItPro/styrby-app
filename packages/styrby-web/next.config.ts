@@ -31,7 +31,7 @@ const nextConfig: NextConfig = {
 
   // Optimize package imports for smaller bundles
   experimental: {
-    optimizePackageImports: ['recharts', '@supabase/supabase-js'],
+    optimizePackageImports: ['recharts', '@supabase/supabase-js', 'lucide-react'],
   },
 
   // Image optimization
