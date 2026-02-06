@@ -6,6 +6,7 @@
  * Creates a Polar checkout session for subscription upgrade.
  *
  * @auth Required - Supabase Auth JWT
+ * @rateLimit 5 requests per minute
  *
  * @body {
  *   tierId: 'pro' | 'power',
@@ -16,6 +17,7 @@
  *
  * @error 400 { error: string }
  * @error 401 { error: 'Unauthorized' }
+ * @error 429 { error: 'RATE_LIMITED', retryAfter: number }
  * @error 500 { error: 'Failed to create checkout session' }
  */
 
@@ -24,6 +26,7 @@ import { createClient } from '@/lib/supabase/server';
 import { TIERS, type TierId, type BillingCycle } from '@/lib/polar';
 import { Polar } from '@polar-sh/sdk';
 import { z } from 'zod';
+import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 
 /**
  * Zod schema for checkout request validation.
@@ -39,6 +42,12 @@ const polar = new Polar({
 });
 
 export async function POST(request: NextRequest) {
+  // Rate limit check - 5 checkout attempts per minute
+  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.checkout, 'checkout');
+  if (!allowed) {
+    return rateLimitResponse(retryAfter!);
+  }
+
   try {
     const supabase = await createClient();
 

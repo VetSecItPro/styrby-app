@@ -1,7 +1,11 @@
 /**
  * Onboarding Layout
  *
- * Navigation stack for the onboarding flow.
+ * Navigation stack for the 5-step onboarding flow:
+ * 1-3. index (pager with Welcome, Install CLI, Scan QR info)
+ * 4. notifications (push permission request)
+ * 5. complete (success screen with tips)
+ *
  * Exports an ErrorBoundary so rendering errors during onboarding
  * display a recovery UI instead of crashing the app.
  */
@@ -59,6 +63,24 @@ export default function OnboardingLayout() {
       }}
     >
       <Stack.Screen name="index" />
+      <Stack.Screen
+        name="notifications"
+        options={{
+          // WHY: Allow swipe back from notifications to pager if user
+          // wants to review CLI install instructions before continuing.
+          gestureEnabled: true,
+          animation: 'slide_from_right',
+        }}
+      />
+      <Stack.Screen
+        name="complete"
+        options={{
+          // WHY: Disable gesture on complete screen to prevent accidental
+          // back navigation after successfully completing onboarding.
+          gestureEnabled: false,
+          animation: 'slide_from_right',
+        }}
+      />
     </Stack>
   );
 }
