@@ -14,7 +14,7 @@
   "dependencies": {
     "@polar-sh/sdk": "^0.29.3",
     "@react-email/components": "^1.0.6",
-    "@styrby/shared": "*",
+    "@styrby/shared": "workspace:*",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.47.10",
     "bcrypt": "^6.0.0",
