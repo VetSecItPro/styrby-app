@@ -108,6 +108,22 @@ export const agent = {
     subtle: 'rgba(59, 130, 246, 0.1)',
     border: 'rgba(59, 130, 246, 0.3)',
   },
+  /** OpenCode - violet (open source) */
+  opencode: {
+    DEFAULT: '#8b5cf6',
+    light: '#a78bfa',
+    dark: '#7c3aed',
+    subtle: 'rgba(139, 92, 246, 0.1)',
+    border: 'rgba(139, 92, 246, 0.3)',
+  },
+  /** Aider - pink (pair programming) */
+  aider: {
+    DEFAULT: '#ec4899',
+    light: '#f472b6',
+    dark: '#db2777',
+    subtle: 'rgba(236, 72, 153, 0.1)',
+    border: 'rgba(236, 72, 153, 0.3)',
+  },
 } as const;
 
 // ============================================================================
@@ -249,6 +265,12 @@ export const tailwindColors = {
     gemini: agent.gemini.DEFAULT,
     'gemini-light': agent.gemini.light,
     'gemini-dark': agent.gemini.dark,
+    opencode: agent.opencode.DEFAULT,
+    'opencode-light': agent.opencode.light,
+    'opencode-dark': agent.opencode.dark,
+    aider: agent.aider.DEFAULT,
+    'aider-light': agent.aider.light,
+    'aider-dark': agent.aider.dark,
   },
   error: {
     styrby: errorSource.styrby.DEFAULT,

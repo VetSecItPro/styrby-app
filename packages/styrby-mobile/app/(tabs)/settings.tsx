@@ -75,6 +75,8 @@ interface NotificationPreferences {
   quiet_hours_start: string | null;
   /** Quiet hours end time (HH:MM:SS format) */
   quiet_hours_end: string | null;
+  /** Priority threshold for smart notifications (1-5, default 3) */
+  priority_threshold: number;
 }
 
 /**
@@ -306,6 +308,23 @@ export default function SettingsScreen() {
   /** Whether quiet hours are enabled from notification_preferences */
   const [quietHoursEnabled, setQuietHoursEnabled] = useState(false);
 
+  /**
+   * Priority threshold for smart notifications (1-5).
+   * Lower values = fewer notifications (more filtering).
+   * WHY: Pro+ users can filter notifications by importance to reduce fatigue.
+   */
+  const [priorityThreshold, setPriorityThreshold] = useState(3);
+
+  /**
+   * Whether the priority threshold is currently being saved.
+   */
+  const [prioritySaving, setPrioritySaving] = useState(false);
+
+  /**
+   * Whether the user is on a paid tier (Pro/Power) that enables smart notifications.
+   */
+  const isPaidTier = subscriptionTier === 'pro' || subscriptionTier === 'power';
+
   // --------------------------------------------------------------------------
   // Mount: Load user data and preferences
   // --------------------------------------------------------------------------
@@ -341,7 +360,7 @@ export default function SettingsScreen() {
       // Fetch notification preferences
       const { data: notifPrefs, error: notifError } = await supabase
         .from('notification_preferences')
-        .select('id, user_id, push_enabled, email_enabled, quiet_hours_enabled, quiet_hours_start, quiet_hours_end')
+        .select('id, user_id, push_enabled, email_enabled, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, priority_threshold')
         .eq('user_id', user.id)
         .single();
 
@@ -351,8 +370,8 @@ export default function SettingsScreen() {
         // We create one with sensible defaults.
         const { data: newPrefs, error: insertError } = await supabase
           .from('notification_preferences')
-          .insert({ user_id: user.id, push_enabled: true })
-          .select('id, user_id, push_enabled, email_enabled, quiet_hours_enabled, quiet_hours_start, quiet_hours_end')
+          .insert({ user_id: user.id, push_enabled: true, priority_threshold: 3 })
+          .select('id, user_id, push_enabled, email_enabled, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, priority_threshold')
           .single();
 
         if (!insertError && newPrefs) {
@@ -361,6 +380,7 @@ export default function SettingsScreen() {
           setQuietHoursEnabled(newPrefs.quiet_hours_enabled);
           setQuietHoursStart(newPrefs.quiet_hours_start);
           setQuietHoursEnd(newPrefs.quiet_hours_end);
+          setPriorityThreshold(newPrefs.priority_threshold ?? 3);
         }
       } else if (!notifError && notifPrefs) {
         setNotifPrefId(notifPrefs.id);
@@ -368,6 +388,7 @@ export default function SettingsScreen() {
         setQuietHoursEnabled(notifPrefs.quiet_hours_enabled);
         setQuietHoursStart(notifPrefs.quiet_hours_start);
         setQuietHoursEnd(notifPrefs.quiet_hours_end);
+        setPriorityThreshold(notifPrefs.priority_threshold ?? 3);
       }
 
       // Fetch auto-approve setting from default agent config
@@ -631,6 +652,75 @@ export default function SettingsScreen() {
   }, [notifPrefId, quietHoursStart]);
 
   // --------------------------------------------------------------------------
+  // Priority Threshold Handler
+  // --------------------------------------------------------------------------
+
+  /**
+   * Returns the label text for a priority threshold level.
+   */
+  const getPriorityLabel = (value: number): string => {
+    switch (value) {
+      case 1: return 'Urgent only';
+      case 2: return 'High priority';
+      case 3: return 'Medium priority';
+      case 4: return 'Most notifications';
+      case 5: return 'All notifications';
+      default: return 'Medium priority';
+    }
+  };
+
+  /**
+   * Returns an estimated percentage of notifications at a given threshold.
+   */
+  const getPriorityPercentage = (value: number): number => {
+    switch (value) {
+      case 1: return 5;
+      case 2: return 15;
+      case 3: return 50;
+      case 4: return 85;
+      case 5: return 100;
+      default: return 50;
+    }
+  };
+
+  /**
+   * Updates the notification priority threshold and persists to Supabase.
+   *
+   * WHY: Smart notifications filter by importance to reduce notification fatigue.
+   * Pro+ users can set their threshold; free users receive all notifications.
+   *
+   * @param value - New priority threshold (1-5)
+   */
+  const handlePriorityChange = useCallback(async (value: number) => {
+    setPriorityThreshold(value);
+    setPrioritySaving(true);
+
+    try {
+      if (!notifPrefId) return;
+
+      const { error } = await supabase
+        .from('notification_preferences')
+        .update({ priority_threshold: value })
+        .eq('id', notifPrefId);
+
+      if (error) {
+        // Revert on failure
+        setPriorityThreshold(priorityThreshold);
+        if (__DEV__) {
+          console.error('[Settings] Failed to update priority threshold:', error);
+        }
+      }
+    } catch (error) {
+      setPriorityThreshold(priorityThreshold);
+      if (__DEV__) {
+        console.error('[Settings] Priority threshold update error:', error);
+      }
+    } finally {
+      setPrioritySaving(false);
+    }
+  }, [notifPrefId, priorityThreshold]);
+
+  // --------------------------------------------------------------------------
   // Feedback Handler
   // --------------------------------------------------------------------------
 
@@ -794,6 +884,13 @@ export default function SettingsScreen() {
           subtitle="Not connected"
           onPress={() => router.push({ pathname: '/agent-config', params: { agent: 'gemini' } })}
         />
+        <SettingRow
+          icon="document-text"
+          iconColor="#a855f7"
+          title="Context Templates"
+          subtitle="Reusable project context"
+          onPress={() => router.push('/templates')}
+        />
       </View>
 
       {/* Preferences Section */}
@@ -863,6 +960,103 @@ export default function SettingsScreen() {
             />
           }
         />
+      </View>
+
+      {/* Smart Notifications Section */}
+      <SectionHeader title="Smart Notifications" />
+      <View className="bg-background-secondary px-4 py-4">
+        {/* Header with Pro badge */}
+        <View className="flex-row items-center justify-between mb-3">
+          <View className="flex-row items-center">
+            <Ionicons name="funnel" size={18} color="#f97316" />
+            <Text className="text-white font-medium ml-2">Notification Sensitivity</Text>
+            {!isPaidTier && (
+              <View className="ml-2 px-2 py-0.5 rounded-full bg-orange-500/10">
+                <Text className="text-xs font-medium text-orange-400">Pro</Text>
+              </View>
+            )}
+          </View>
+          {prioritySaving && (
+            <Text className="text-xs text-zinc-500">Saving...</Text>
+          )}
+        </View>
+
+        {/* Priority Slider - disabled for free users */}
+        <View style={{ opacity: isPaidTier ? 1 : 0.5 }} pointerEvents={isPaidTier ? 'auto' : 'none'}>
+          {/* Slider buttons for each level */}
+          <View className="flex-row justify-between mb-2">
+            {[1, 2, 3, 4, 5].map((level) => (
+              <Pressable
+                key={level}
+                onPress={() => handlePriorityChange(level)}
+                disabled={!isPaidTier || prioritySaving}
+                className={`flex-1 mx-0.5 py-3 rounded-lg items-center ${
+                  priorityThreshold === level ? 'bg-orange-500' : 'bg-zinc-800'
+                }`}
+                accessibilityRole="button"
+                accessibilityLabel={`Set priority to ${getPriorityLabel(level)}`}
+              >
+                <Text
+                  className={`text-xs font-medium ${
+                    priorityThreshold === level ? 'text-white' : 'text-zinc-400'
+                  }`}
+                >
+                  {level}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <View className="flex-row justify-between">
+            <Text className="text-xs text-zinc-500">Urgent only</Text>
+            <Text className="text-xs text-zinc-500">All</Text>
+          </View>
+
+          {/* Current level description */}
+          <View className="mt-4 p-3 rounded-lg bg-zinc-800/50 border border-zinc-700">
+            <Text className="text-sm font-medium text-white mb-1">
+              {getPriorityLabel(priorityThreshold)}
+            </Text>
+            <Text className="text-xs text-zinc-400 mb-2">
+              You will receive approximately {getPriorityPercentage(priorityThreshold)}% of notifications.
+            </Text>
+            <View className="space-y-1">
+              <Text className="text-xs text-zinc-500 font-medium">Examples at this level:</Text>
+              {priorityThreshold >= 1 && (
+                <Text className="text-xs text-zinc-500">- Budget exceeded, dangerous tool permissions</Text>
+              )}
+              {priorityThreshold >= 2 && (
+                <Text className="text-xs text-zinc-500">- Budget warnings, session errors</Text>
+              )}
+              {priorityThreshold >= 3 && (
+                <Text className="text-xs text-zinc-500">- Session completions with significant cost</Text>
+              )}
+              {priorityThreshold >= 4 && (
+                <Text className="text-xs text-zinc-500">- Low-cost session completions</Text>
+              )}
+              {priorityThreshold >= 5 && (
+                <Text className="text-xs text-zinc-500">- Session started, all updates</Text>
+              )}
+            </View>
+          </View>
+        </View>
+
+        {/* Pro upgrade CTA for free users */}
+        {!isPaidTier && (
+          <View className="mt-4 p-3 rounded-lg bg-orange-500/5 border border-orange-500/20">
+            <Text className="text-sm text-orange-400 mb-2">
+              Smart notifications filter by importance to reduce notification fatigue.
+            </Text>
+            <Pressable
+              onPress={() => Linking.openURL(POLAR_CUSTOMER_PORTAL_URL)}
+              accessibilityRole="link"
+              accessibilityLabel="Upgrade to Pro"
+            >
+              <Text className="text-sm font-medium text-orange-500">
+                Upgrade to Pro to enable
+              </Text>
+            </Pressable>
+          </View>
+        )}
       </View>
 
       {/* Support Section */}

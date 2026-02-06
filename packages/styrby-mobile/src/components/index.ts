@@ -43,3 +43,6 @@ export { TypingIndicator, TypingIndicatorInline, TypingIndicatorMinimal } from '
 export type { TypingIndicatorProps, AgentState } from './TypingIndicator';
 
 export { OnboardingProgress } from './OnboardingProgress';
+
+export { SessionSummary } from './SessionSummary';
+export type { SessionSummaryProps } from './SessionSummary';

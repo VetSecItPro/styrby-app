@@ -60,6 +60,8 @@ export interface SessionRow {
   updated_at: string;
   /** Number of messages exchanged */
   message_count: number;
+  /** Team ID if this is a team session (null for personal sessions) */
+  team_id: string | null;
 }
 
 /**
@@ -70,6 +72,10 @@ export interface SessionFilters {
   status: 'active' | 'completed' | null;
   /** Agent filter: null means "all agents" */
   agent: AgentType | null;
+  /** Scope filter: 'mine' for personal sessions, 'team' for team sessions */
+  scope: 'mine' | 'team' | null;
+  /** Team ID to filter by (only used when scope is 'team') */
+  teamId: string | null;
 }
 
 /**
@@ -136,6 +142,8 @@ export function useSessions(): UseSessionsReturn {
   const [filters, setFiltersState] = useState<SessionFilters>({
     status: null,
     agent: null,
+    scope: null,
+    teamId: null,
   });
 
   // WHY: We keep a ref to the latest debounced search term so that the
@@ -184,12 +192,25 @@ export function useSessions(): UseSessionsReturn {
         .select(
           'id, user_id, machine_id, agent_type, status, title, summary, ' +
           'total_input_tokens, total_output_tokens, total_cost_usd, ' +
-          'started_at, ended_at, tags, updated_at, message_count',
+          'started_at, ended_at, tags, updated_at, message_count, team_id',
         )
-        .eq('user_id', user.id)
         .is('deleted_at', null)
         .order('updated_at', { ascending: false })
         .range(offset, offset + PAGE_SIZE - 1);
+
+      // ---- Scope filter (mine vs team) ----
+      // WHY: RLS handles access control, but we filter here to show either
+      // personal sessions (owned by user) or team sessions (team_id is set).
+      if (currentFilters.scope === 'mine' || !currentFilters.scope) {
+        // Show only user's personal sessions
+        query = query.eq('user_id', user.id);
+      } else if (currentFilters.scope === 'team' && currentFilters.teamId) {
+        // Show only team sessions for the specified team
+        query = query.eq('team_id', currentFilters.teamId);
+      } else {
+        // Default: user's own sessions
+        query = query.eq('user_id', user.id);
+      }
 
       // ---- Status filter ----
       if (currentFilters.status === 'active') {

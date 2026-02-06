@@ -14,8 +14,10 @@
   "dependencies": {
     "@polar-sh/sdk": "^0.29.3",
     "@react-email/components": "^1.0.6",
+    "@styrby/shared": "*",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.47.10",
+    "bcrypt": "^6.0.0",
     "idb": "^8.0.3",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
@@ -30,6 +32,7 @@
   "devDependencies": {
     "@playwright/test": "^1.50.1",
     "@tailwindcss/forms": "^0.5.10",
+    "@types/bcrypt": "^6.0.0",
     "@types/node": "^22.10.7",
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",

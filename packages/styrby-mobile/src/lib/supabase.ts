@@ -4,7 +4,10 @@
  * Uses expo-secure-store for secure token storage.
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+
+// Re-export for components that need to create their own client
+export { createSupabaseClient as createClient };
 import * as SecureStore from 'expo-secure-store';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
@@ -29,7 +32,7 @@ const secureStoreAdapter = {
 /**
  * Supabase client configured for mobile with secure storage.
  */
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = createSupabaseClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: secureStoreAdapter,
     autoRefreshToken: true,
