@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "cd ../.. && pnpm install",
+  "buildCommand": "cd ../.. && pnpm --filter @styrby/shared build && pnpm --filter styrby-web build",
+  "outputDirectory": ".next",
+  "framework": "nextjs"
+}
