@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Settings, Plus, Wifi, WifiOff, Clock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -111,7 +112,7 @@ export function AgentsClient({ machines, agentConfigs: _agentConfigs, todayCosts
   /**
    * Formats a timestamp to a human-readable "time ago" string.
    */
-  const now = Date.now();
+  const [now] = useState(() => Date.now());
 
   function timeAgo(dateStr: string | undefined): string {
     if (!dateStr) return 'Never';
