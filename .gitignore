@@ -37,6 +37,9 @@ notes/
 *.plan
 *.draft
 
+# MDMP planning docs (NEVER push to public repo)
+.mdmp/
+
 # Security audit reports (contain vulnerability details)
 .security-audit.json
 .security-reports/
