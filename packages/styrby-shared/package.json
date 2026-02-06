@@ -1,5 +1,5 @@
 {
-  "name": "styrby-shared",
+  "name": "@styrby/shared",
   "version": "0.1.0",
   "description": "Shared types and utilities for Styrby",
   "author": "Steel Motion LLC",

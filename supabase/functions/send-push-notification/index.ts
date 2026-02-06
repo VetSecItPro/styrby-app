@@ -70,6 +70,15 @@ interface NotificationEventData {
 
   /** Type of permission being requested (e.g., "write files") */
   permissionType?: string;
+
+  /** Risk level for permission requests (low, medium, high) */
+  riskLevel?: 'low' | 'medium' | 'high';
+
+  /** Tool name for permission requests (e.g., "bash", "write") */
+  toolName?: string;
+
+  /** Session duration in milliseconds (for session completion events) */
+  sessionDurationMs?: number;
 }
 
 /**
@@ -127,6 +136,17 @@ interface NotificationPreferences {
   quiet_hours_start: string | null;
   quiet_hours_end: string | null;
   quiet_hours_timezone: string;
+  /** Priority threshold for smart notifications (1-5, lower = more restrictive) */
+  priority_threshold: number;
+}
+
+/**
+ * Row shape from the subscriptions table.
+ * Used to determine if the user has access to smart notification filtering.
+ */
+interface SubscriptionInfo {
+  tier: 'free' | 'pro' | 'power';
+  status: 'active' | 'trialing' | 'past_due' | 'canceled' | 'paused';
 }
 
 /**
@@ -175,6 +195,47 @@ const VALID_EVENT_TYPES: NotificationEventType[] = [
   'budget_warning',
   'budget_exceeded',
 ];
+
+/**
+ * Base priority scores by event type.
+ * Scale: 1 (most urgent) to 5 (informational only).
+ */
+const BASE_PRIORITY_BY_EVENT: Record<NotificationEventType, number> = {
+  permission_request: 2,
+  session_started: 5,
+  session_completed: 4,
+  session_error: 2,
+  budget_warning: 2,
+  budget_exceeded: 1,
+};
+
+/**
+ * Risk level adjustments for permission requests.
+ */
+const RISK_LEVEL_ADJUSTMENT: Record<string, number> = {
+  high: -1,
+  medium: 0,
+  low: 1,
+};
+
+/**
+ * Tools considered dangerous that increase notification priority.
+ */
+const DANGEROUS_TOOLS = new Set([
+  'bash', 'execute', 'run_command', 'write', 'write_file',
+  'edit', 'edit_file', 'delete', 'delete_file', 'rm', 'mv',
+  'git', 'npm', 'pip', 'curl', 'wget',
+]);
+
+/**
+ * Cost thresholds in USD for priority adjustments.
+ */
+const COST_THRESHOLDS = { HIGH: 10.0, MEDIUM: 5.0, LOW: 1.0 };
+
+/**
+ * Session duration threshold (1 hour) for priority adjustment.
+ */
+const LONG_SESSION_THRESHOLD_MS = 60 * 60 * 1000;
 
 // ============================================================================
 // Validation
@@ -330,6 +391,21 @@ async function checkRateLimit(
 // ============================================================================
 
 /**
+ * Result from checking notification preferences.
+ * Includes whether to send and the user's priority threshold.
+ */
+interface PreferenceCheckResult {
+  /** Whether the notification should be sent based on basic preferences */
+  shouldSend: boolean;
+  /** Reason for suppression if shouldSend is false */
+  suppressionReason: string | null;
+  /** User's priority threshold (1-5), defaults to 3 if not set */
+  priorityThreshold: number;
+  /** Whether currently in quiet hours */
+  isQuietHours: boolean;
+}
+
+/**
  * Fetches and evaluates the user's notification preferences.
  *
  * Checks three layers of preferences:
@@ -347,52 +423,91 @@ async function checkRateLimit(
  * @param supabase - Supabase client with service role privileges
  * @param userId - The user ID to check preferences for
  * @param eventType - The notification event type to check against per-type prefs
- * @returns True if the user should receive this notification
+ * @returns PreferenceCheckResult with send decision and priority threshold
  */
-async function shouldSendNotification(
+async function checkNotificationPreferences(
   supabase: ReturnType<typeof createClient>,
   userId: string,
   eventType: NotificationEventType
-): Promise<boolean> {
+): Promise<PreferenceCheckResult> {
   const { data: prefs, error } = await supabase
     .from('notification_preferences')
     .select(
-      'push_enabled, push_permission_requests, push_session_errors, push_budget_alerts, push_session_complete, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone'
+      'push_enabled, push_permission_requests, push_session_errors, push_budget_alerts, push_session_complete, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone, priority_threshold'
     )
     .eq('user_id', userId)
     .single();
 
+  // Default result for users with no preferences
   if (error || !prefs) {
-    // No preferences set — default to sending
-    return true;
+    return {
+      shouldSend: true,
+      suppressionReason: null,
+      priorityThreshold: 3, // Default threshold
+      isQuietHours: false,
+    };
   }
 
   const preferences = prefs as NotificationPreferences;
 
   // Check master push toggle
   if (!preferences.push_enabled) {
-    return false;
+    return {
+      shouldSend: false,
+      suppressionReason: 'push_disabled',
+      priorityThreshold: preferences.priority_threshold ?? 3,
+      isQuietHours: false,
+    };
   }
 
   // Check per-type preferences
   const typeAllowed = isTypeAllowed(preferences, eventType);
   if (!typeAllowed) {
-    return false;
+    return {
+      shouldSend: false,
+      suppressionReason: 'type_disabled',
+      priorityThreshold: preferences.priority_threshold ?? 3,
+      isQuietHours: false,
+    };
   }
 
   // Check quiet hours
+  let inQuietHours = false;
   if (preferences.quiet_hours_enabled) {
-    const inQuietHours = isInQuietHours(
+    inQuietHours = isInQuietHours(
       preferences.quiet_hours_start,
       preferences.quiet_hours_end,
       preferences.quiet_hours_timezone
     );
     if (inQuietHours) {
-      return false;
+      return {
+        shouldSend: false,
+        suppressionReason: 'quiet_hours',
+        priorityThreshold: preferences.priority_threshold ?? 3,
+        isQuietHours: true,
+      };
     }
   }
 
-  return true;
+  return {
+    shouldSend: true,
+    suppressionReason: null,
+    priorityThreshold: preferences.priority_threshold ?? 3,
+    isQuietHours: false,
+  };
+}
+
+/**
+ * Legacy wrapper for backward compatibility.
+ * @deprecated Use checkNotificationPreferences instead
+ */
+async function shouldSendNotification(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  eventType: NotificationEventType
+): Promise<boolean> {
+  const result = await checkNotificationPreferences(supabase, userId, eventType);
+  return result.shouldSend;
 }
 
 /**
@@ -771,6 +886,194 @@ async function logNotificationDelivery(
 }
 
 // ============================================================================
+// Priority Scoring
+// ============================================================================
+
+/**
+ * Calculates the notification priority score (1-5) for an event.
+ *
+ * Priority scale:
+ * 1 = Critical/Urgent (budget exceeded, high-risk dangerous tools)
+ * 2 = High (permission requests, budget warnings, errors)
+ * 3 = Medium (medium-risk operations, significant costs)
+ * 4 = Normal (low-risk operations, low cost completions)
+ * 5 = Informational (session started, routine updates)
+ *
+ * @param type - The notification event type
+ * @param data - Event-specific data for priority calculation
+ * @returns Priority score between 1 (most urgent) and 5 (least urgent)
+ */
+function calculatePriority(
+  type: NotificationEventType,
+  data: NotificationEventData
+): number {
+  let priority = BASE_PRIORITY_BY_EVENT[type] ?? 3;
+
+  // Risk level adjustment for permission requests
+  if (type === 'permission_request' && data.riskLevel) {
+    const adjustment = RISK_LEVEL_ADJUSTMENT[data.riskLevel] ?? 0;
+    priority += adjustment;
+  }
+
+  // Cost impact adjustment
+  if (data.costUsd !== undefined && data.costUsd > 0) {
+    if (data.costUsd > COST_THRESHOLDS.HIGH) {
+      priority -= 2; // Very high cost = more urgent
+    } else if (data.costUsd > COST_THRESHOLDS.MEDIUM) {
+      priority -= 1; // Notable cost = more important
+    } else if (data.costUsd <= COST_THRESHOLDS.LOW) {
+      priority += 1; // Low cost = less urgent
+    }
+  }
+
+  // Session duration adjustment for completion events
+  if (type === 'session_completed' && data.sessionDurationMs !== undefined) {
+    if (data.sessionDurationMs > LONG_SESSION_THRESHOLD_MS) {
+      priority -= 1; // Long sessions are more valuable
+    } else if (data.sessionDurationMs < 5 * 60 * 1000) {
+      priority += 1; // Very short sessions are less important
+    }
+  }
+
+  // Dangerous tool adjustment for permission requests
+  if (type === 'permission_request' && data.toolName) {
+    const toolLower = data.toolName.toLowerCase();
+    const isDangerous =
+      DANGEROUS_TOOLS.has(toolLower) ||
+      toolLower.includes('bash') ||
+      toolLower.includes('execute') ||
+      toolLower.includes('write') ||
+      toolLower.includes('delete');
+
+    if (isDangerous) {
+      priority -= 1; // Dangerous tools need more attention
+    }
+  }
+
+  // Clamp to valid range
+  return Math.max(1, Math.min(5, priority));
+}
+
+/**
+ * Fetches the user's subscription tier to determine if they have access
+ * to smart notification filtering.
+ *
+ * WHY tier gating: Smart notifications is a Pro+ feature. Free users
+ * receive all notifications to ensure they don't miss anything important.
+ * This encourages upgrades while providing value to paying customers.
+ *
+ * @param supabase - Supabase client with service role privileges
+ * @param userId - The user ID to check
+ * @returns Subscription info or null if no subscription found
+ */
+async function getUserSubscription(
+  supabase: ReturnType<typeof createClient>,
+  userId: string
+): Promise<SubscriptionInfo | null> {
+  const { data, error } = await supabase
+    .from('subscriptions')
+    .select('tier, status')
+    .eq('user_id', userId)
+    .single();
+
+  if (error || !data) {
+    // No subscription = free tier
+    return null;
+  }
+
+  return data as SubscriptionInfo;
+}
+
+/**
+ * Checks if smart notification filtering should be applied based on
+ * subscription tier and priority threshold.
+ *
+ * @param calculatedPriority - The notification's calculated priority (1-5)
+ * @param userThreshold - User's priority threshold setting (1-5)
+ * @param subscription - User's subscription info
+ * @returns True if notification should be sent, false if filtered
+ */
+function shouldSendBasedOnPriority(
+  calculatedPriority: number,
+  userThreshold: number,
+  subscription: SubscriptionInfo | null
+): boolean {
+  // Free users get all notifications (no filtering)
+  // Tier gating: only Pro and Power users have smart filtering
+  if (!subscription || subscription.tier === 'free') {
+    return true;
+  }
+
+  // Inactive subscriptions also get all notifications
+  if (subscription.status !== 'active' && subscription.status !== 'trialing') {
+    return true;
+  }
+
+  // For paid tiers, send only if priority is urgent enough
+  // Lower priority number = more urgent = should get through
+  return calculatedPriority <= userThreshold;
+}
+
+// ============================================================================
+// Notification Logging
+// ============================================================================
+
+/**
+ * Logs a notification event to the notification_logs table for analytics.
+ *
+ * This table tracks both sent and suppressed notifications, enabling:
+ * - Analytics on notification volume and filtering effectiveness
+ * - User-facing stats ("you've saved X% notification noise")
+ * - Debugging notification delivery issues
+ *
+ * @param supabase - Supabase client with service role privileges
+ * @param userId - The user who would receive the notification
+ * @param eventType - The notification event type
+ * @param title - Notification title
+ * @param body - Notification body
+ * @param calculatedPriority - The calculated priority score
+ * @param userThreshold - User's priority threshold setting
+ * @param wasSent - Whether the notification was actually sent
+ * @param suppressionReason - Why it was suppressed (if applicable)
+ * @param data - Additional event data
+ */
+async function logNotificationEvent(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  eventType: NotificationEventType,
+  title: string,
+  body: string,
+  calculatedPriority: number,
+  userThreshold: number,
+  wasSent: boolean,
+  suppressionReason: string | null,
+  data: NotificationEventData
+): Promise<void> {
+  const { error } = await supabase.from('notification_logs').insert({
+    user_id: userId,
+    event_type: eventType,
+    notification_title: title,
+    notification_body: body,
+    calculated_priority: calculatedPriority,
+    user_threshold: userThreshold,
+    was_sent: wasSent,
+    suppression_reason: suppressionReason,
+    session_id: data.sessionId || null,
+    cost_usd: data.costUsd || null,
+    metadata: {
+      agent_type: data.agentType,
+      risk_level: data.riskLevel,
+      tool_name: data.toolName,
+    },
+  });
+
+  if (error) {
+    // Non-fatal: don't fail the notification send if logging fails
+    console.error('Failed to log notification event:', error);
+  }
+}
+
+// ============================================================================
 // Response Helpers
 // ============================================================================
 
@@ -876,12 +1179,34 @@ Deno.serve(async (req: Request) => {
     // ──────────────────────────────────────────
     // Check notification preferences
     // ──────────────────────────────────────────
-    const shouldSend = await shouldSendNotification(supabase, userId, type);
-    if (!shouldSend) {
+    const prefResult = await checkNotificationPreferences(supabase, userId, type);
+
+    // Build payload early (needed for logging even if suppressed)
+    const payload = buildNotificationPayload(type, data);
+
+    // Calculate priority score for smart filtering
+    const calculatedPriority = calculatePriority(type, data);
+
+    // Check basic preferences first (push disabled, type disabled, quiet hours)
+    if (!prefResult.shouldSend) {
+      // Log suppressed notification for analytics
+      await logNotificationEvent(
+        supabase,
+        userId,
+        type,
+        payload.title,
+        payload.body,
+        calculatedPriority,
+        prefResult.priorityThreshold,
+        false,
+        prefResult.suppressionReason,
+        data
+      );
+
       return jsonResponse(
         {
           success: false,
-          message: 'Notification blocked by user preferences or quiet hours',
+          message: `Notification blocked: ${prefResult.suppressionReason || 'user preferences'}`,
           deviceCount: tokens.length,
           successCount: 0,
           failureCount: 0,
@@ -891,9 +1216,44 @@ Deno.serve(async (req: Request) => {
     }
 
     // ──────────────────────────────────────────
-    // Build notification payload
+    // Smart priority filtering (Pro+ only)
     // ──────────────────────────────────────────
-    const payload = buildNotificationPayload(type, data);
+    const subscription = await getUserSubscription(supabase, userId);
+    const passedPriorityFilter = shouldSendBasedOnPriority(
+      calculatedPriority,
+      prefResult.priorityThreshold,
+      subscription
+    );
+
+    if (!passedPriorityFilter) {
+      // Log suppressed notification for analytics
+      await logNotificationEvent(
+        supabase,
+        userId,
+        type,
+        payload.title,
+        payload.body,
+        calculatedPriority,
+        prefResult.priorityThreshold,
+        false,
+        'priority_threshold',
+        data
+      );
+
+      return jsonResponse(
+        {
+          success: false,
+          message: `Notification filtered by priority (${calculatedPriority} > threshold ${prefResult.priorityThreshold})`,
+          deviceCount: tokens.length,
+          successCount: 0,
+          failureCount: 0,
+          filtered: true,
+          priority: calculatedPriority,
+          threshold: prefResult.priorityThreshold,
+        } as unknown as NotificationResponse,
+        200
+      );
+    }
 
     // ──────────────────────────────────────────
     // Send via Expo Push API
@@ -915,9 +1275,23 @@ Deno.serve(async (req: Request) => {
     }
 
     // ──────────────────────────────────────────
-    // Log delivery to audit_log
+    // Log delivery to audit_log and notification_logs
     // ──────────────────────────────────────────
     await logNotificationDelivery(supabase, userId, type, result);
+
+    // Log successful send to notification_logs for analytics
+    await logNotificationEvent(
+      supabase,
+      userId,
+      type,
+      payload.title,
+      payload.body,
+      calculatedPriority,
+      prefResult.priorityThreshold,
+      true,
+      null,
+      data
+    );
 
     // ──────────────────────────────────────────
     // Update last_used_at on device tokens

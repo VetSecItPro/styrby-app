@@ -111,6 +111,11 @@ async function main(): Promise<void> {
       await handleCosts(args.slice(1));
       break;
 
+    case 'template':
+    case 'templates':
+      await handleTemplateCommand(args.slice(1));
+      break;
+
     case 'help':
     case '--help':
     case '-h':
@@ -523,7 +528,7 @@ async function handleStart(args: string[]): Promise<void> {
   const { saveSession } = await import('@/persistence');
   saveSession({
     sessionId: activeSession.sessionId,
-    agentType: agentType as 'claude' | 'codex' | 'gemini',
+    agentType: agentType as 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider',
     projectPath,
     createdAt: new Date().toISOString(),
     lastActivityAt: new Date().toISOString(),
@@ -577,7 +582,7 @@ async function handleStart(args: string[]): Promise<void> {
   // Update local session record
   saveSession({
     sessionId: activeSession.sessionId,
-    agentType: agentType as 'claude' | 'codex' | 'gemini',
+    agentType: agentType as 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider',
     projectPath,
     createdAt: new Date().toISOString(),
     lastActivityAt: new Date().toISOString(),
@@ -801,6 +806,17 @@ async function handleDoctor(): Promise<void> {
 }
 
 /**
+ * Handle the 'template' command.
+ * Manages context templates stored in Supabase.
+ *
+ * @param args - Command arguments (subcommand: list, create, show, use, delete)
+ */
+async function handleTemplateCommand(args: string[]): Promise<void> {
+  const { handleTemplate } = await import('@/commands/template');
+  await handleTemplate(args);
+}
+
+/**
  * Handle the 'costs' command.
  * Shows token usage and cost breakdown from Claude Code JSONL files.
  *
@@ -899,7 +915,7 @@ styrby v${VERSION}
 Usage: styrby [command] [options]
 
 Mobile relay for AI coding agents. Control Claude Code, Codex, Gemini CLI,
-and OpenCode from your phone. Code stays local — only I/O is relayed.
+OpenCode, and Aider from your phone. Code stays local — only I/O is relayed.
 
 Commands:
 
@@ -907,7 +923,7 @@ Commands:
     onboard                 First-time setup (auth + machine registration + pairing)
     auth                    Authenticate only (skip pairing)
     pair                    Generate QR code for mobile app pairing
-    install <agent>         Install an AI agent (claude, codex, gemini, opencode)
+    install <agent>         Install an AI agent (claude, codex, gemini, opencode, aider)
 
   Session
     start                   Start a coding session
@@ -915,6 +931,13 @@ Commands:
     status                  Show connection and session status
     logs                    View daemon logs (--follow, --lines N)
     costs                   Display token usage and cost breakdown
+
+  Templates
+    template list           List all your context templates
+    template create <name>  Create a new template interactively
+    template show <name>    Display template details and content
+    template use <name>     Render template with variable substitution
+    template delete <name>  Delete a template (with confirmation)
 
   Daemon
     daemon install          Install daemon to start automatically on boot
@@ -929,7 +952,7 @@ Commands:
 
 Options:
 
-  -a, --agent <name>        Agent to use: claude (default), codex, gemini, opencode
+  -a, --agent <name>        Agent to use: claude (default), codex, gemini, opencode, aider
   -p, --project <path>      Project directory (default: cwd)
   -f, --force               Force re-authentication
   --skip-pairing            Skip QR code step during onboard
@@ -980,6 +1003,7 @@ Examples:
     styrby start -a codex               Start with Codex
     styrby start -a gemini              Start with Gemini CLI
     styrby start -a opencode            Start with OpenCode
+    styrby start -a aider               Start with Aider
     styrby start -p ~/work/myproject    Start in specific directory
     styrby start -a codex -p ./backend  Combine agent + project path
 

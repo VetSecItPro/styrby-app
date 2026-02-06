@@ -3,6 +3,8 @@
  *
  * Server component that fetches session data and messages from Supabase,
  * then delegates real-time updates and interaction to client components.
+ * Supports both live chat mode for active sessions and replay mode for
+ * completed sessions (Pro+ users only).
  *
  * @route GET /sessions/:id
  * @auth Required - redirects to /login if not authenticated
@@ -11,8 +13,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
-import { ChatThread } from './chat-thread';
-import { ChatInput } from './chat-input';
+import { SessionView } from './session-view';
 
 /**
  * Props for the session detail page.
@@ -62,6 +63,16 @@ export default async function SessionPage({ params }: SessionPageProps) {
     .eq('session_id', id)
     .order('sequence_number', { ascending: true });
 
+  // Fetch user's subscription tier for feature gating
+  const { data: subscription } = await supabase
+    .from('subscriptions')
+    .select('tier')
+    .eq('user_id', user.id)
+    .single();
+
+  const userTier = (subscription?.tier as 'free' | 'pro' | 'power') || 'free';
+
+  // Determine if session is active for the header status display
   const isSessionActive = ['starting', 'running', 'idle', 'paused'].includes(
     session.status
   );
@@ -153,31 +164,13 @@ export default async function SessionPage({ params }: SessionPageProps) {
         </div>
       </header>
 
-      {/* Chat thread with real-time updates */}
-      <ChatThread
-        sessionId={id}
+      {/* Session content with view mode switching */}
+      <SessionView
+        session={session}
+        messages={messages || []}
         userId={user.id}
-        initialMessages={messages || []}
-        isSessionActive={isSessionActive}
+        userTier={userTier}
       />
-
-      {/* Input (only shown for active sessions) */}
-      {isSessionActive && <ChatInput sessionId={id} />}
-
-      {/* Ended session footer */}
-      {!isSessionActive && (
-        <div className="border-t border-zinc-800 bg-zinc-900/50 px-6 py-4 text-center text-sm text-zinc-500">
-          Session ended{' '}
-          {session.ended_at
-            ? new Date(session.ended_at).toLocaleString()
-            : 'at unknown time'}
-          {session.error_message && (
-            <span className="ml-2 text-red-400">
-              Error: {session.error_message}
-            </span>
-          )}
-        </div>
-      )}
     </div>
   );
 }

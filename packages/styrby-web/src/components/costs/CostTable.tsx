@@ -43,6 +43,8 @@ function getAgentBadgeClass(agent: AgentType): string {
       return 'bg-blue-500/10 text-blue-400';
     case 'opencode':
       return 'bg-purple-500/10 text-purple-400';
+    case 'aider':
+      return 'bg-pink-500/10 text-pink-400';
     default:
       return 'bg-zinc-500/10 text-zinc-400';
   }
