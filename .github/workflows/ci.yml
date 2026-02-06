@@ -336,7 +336,7 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install Playwright
-        run: pnpm exec playwright install chromium --with-deps
+        run: pnpm --filter styrby-web exec playwright install chromium --with-deps
 
       - name: Run E2E tests
         run: pnpm --filter styrby-web run test:e2e
