@@ -17,9 +17,9 @@ test.describe('Smoke Tests', () => {
     await page.goto('/login');
 
     // Check for login form elements
-    await expect(page.getByRole('heading', { name: /welcome to styrby/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /welcome back/i })).toBeVisible();
     await expect(page.getByLabel(/email/i)).toBeVisible();
-    await expect(page.getByRole('button', { name: /magic link/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /continue with email/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /github/i })).toBeVisible();
   });
 
