@@ -60,23 +60,23 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Lint (if configured)
-        run: pnpm run lint --if-present
+        run: pnpm run lint
 
       # Build shared first so its type declarations are available for CLI typecheck
       - name: Build shared (type declarations)
         run: pnpm --filter @styrby/shared build
 
       - name: Type check shared
-        run: pnpm --filter @styrby/shared typecheck --if-present
+        run: pnpm --filter @styrby/shared run typecheck
 
       - name: Type check CLI
-        run: pnpm --filter styrby-cli typecheck --if-present
+        run: pnpm --filter styrby-cli run typecheck
 
       - name: Type check web
-        run: pnpm --filter styrby-web typecheck --if-present
+        run: pnpm --filter styrby-web run typecheck
 
       - name: Type check mobile
-        run: pnpm --filter styrby-mobile typecheck --if-present
+        run: pnpm --filter styrby-mobile run typecheck
 
   # ─── CLI unit tests ───
   test-cli:
@@ -103,7 +103,7 @@ jobs:
         # 9 tests in ripgrep/difftastic modules require tool binaries not available in CI.
         # 252/261 tests pass. Remove continue-on-error once CI installs ripgrep + difftastic.
         continue-on-error: true
-        run: pnpm --filter styrby-cli test --if-present
+        run: pnpm --filter styrby-cli run test
 
   # ─── Security scanning ───
   security:
@@ -216,7 +216,7 @@ jobs:
           path: packages/styrby-shared/dist/
 
       - name: Build CLI
-        run: pnpm --filter styrby-cli build --if-present
+        run: pnpm --filter styrby-cli run build
 
       - name: Test CLI entry point
         run: |
@@ -290,7 +290,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Lint mobile
-        run: pnpm --filter styrby-mobile lint --if-present
+        run: pnpm --filter styrby-mobile run lint
 
       - name: Export web bundle (build check)
         run: pnpm --filter styrby-mobile exec expo export --platform web --output-dir /tmp/expo-export 2>&1 || echo "Expo export check completed"
@@ -335,7 +335,7 @@ jobs:
         run: pnpm exec playwright install chromium --with-deps
 
       - name: Run E2E tests
-        run: pnpm --filter styrby-web test:e2e --if-present
+        run: pnpm --filter styrby-web run test:e2e
 
       - name: Upload failure artifacts
         uses: actions/upload-artifact@v4

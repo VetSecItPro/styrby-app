@@ -9,7 +9,7 @@
     "cli": "pnpm --filter styrby-cli",
     "mobile": "pnpm --filter styrby-mobile",
     "web": "pnpm --filter styrby-web",
-    "lint": "pnpm -r run lint --if-present",
+    "lint": "pnpm -r --if-present run lint",
     "typecheck": "pnpm -r run typecheck --if-present",
     "build": "pnpm -r run build --if-present",
     "test": "pnpm -r run test --if-present",
