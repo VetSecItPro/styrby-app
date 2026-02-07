@@ -28,10 +28,16 @@ import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 
 /**
  * Request body schema for message sending.
+ *
+ * WHY (FIX-004): Requires `content_encrypted` and `encryption_nonce` instead of
+ * plaintext `content`. This enforces E2E encryption at the API boundary — the
+ * web client must encrypt with the session's public key before sending.
+ * Legacy plaintext `content` field is no longer accepted.
  */
 const sendMessageSchema = z.object({
   sessionId: z.string().uuid('Invalid session ID'),
-  content: z.string().min(1, 'Message cannot be empty').max(100000, 'Message too long'),
+  content_encrypted: z.string().min(1, 'Encrypted content is required').max(200000, 'Message too long'),
+  encryption_nonce: z.string().min(1, 'Encryption nonce is required').max(200, 'Invalid nonce'),
 });
 
 export async function POST(request: Request) {
@@ -71,13 +77,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const { sessionId, content } = parseResult.data;
+    const { sessionId, content_encrypted, encryption_nonce } = parseResult.data;
 
-    // Verify session exists and belongs to user (RLS will enforce this)
+    // Verify session exists and belongs to user
+    // WHY (FIX-025): Explicit user_id filter instead of relying solely on RLS
     const { data: session, error: sessionError } = await supabase
       .from('sessions')
-      .select('id, status')
+      .select('id, status, user_id')
       .eq('id', sessionId)
+      .eq('user_id', user.id)
       .single();
 
     if (sessionError || !session) {
@@ -95,42 +103,71 @@ export async function POST(request: Request) {
       );
     }
 
-    // Get the next sequence number
-    const { data: lastMessage } = await supabase
-      .from('session_messages')
-      .select('sequence_number')
-      .eq('session_id', sessionId)
-      .order('sequence_number', { ascending: false })
-      .limit(1)
-      .single();
+    // FIX-034: Check for active hard_stop budget alerts before allowing message
+    const { data: hardStopAlerts } = await supabase
+      .from('budget_alerts')
+      .select('id, threshold_usd, period')
+      .eq('user_id', user.id)
+      .eq('action', 'hard_stop')
+      .eq('is_enabled', true)
+      .limit(10);
 
-    const nextSequence = (lastMessage?.sequence_number ?? 0) + 1;
+    if (hardStopAlerts && hardStopAlerts.length > 0) {
+      // Check if any hard_stop threshold is exceeded
+      for (const alert of hardStopAlerts) {
+        const periodStart = new Date();
+        if (alert.period === 'daily') periodStart.setUTCHours(0, 0, 0, 0);
+        else if (alert.period === 'weekly') {
+          const day = periodStart.getUTCDay();
+          periodStart.setUTCDate(periodStart.getUTCDate() - (day === 0 ? 6 : day - 1));
+          periodStart.setUTCHours(0, 0, 0, 0);
+        } else {
+          periodStart.setUTCDate(1);
+          periodStart.setUTCHours(0, 0, 0, 0);
+        }
 
-    // Insert the message
-    // WHY: We store content in content_encrypted for E2E encryption support.
-    // In production, the client would encrypt before sending.
-    const { error: insertError } = await supabase.from('session_messages').insert({
-      session_id: sessionId,
-      sequence_number: nextSequence,
-      message_type: 'user_prompt',
-      content_encrypted: content,
-      metadata: {
+        const { data: costs } = await supabase
+          .from('cost_records')
+          .select('cost_usd')
+          .eq('user_id', user.id)
+          .gte('recorded_at', periodStart.toISOString())
+          .limit(10000);
+
+        const totalSpend = (costs || []).reduce((sum, r) => sum + (Number(r.cost_usd) || 0), 0);
+        if (totalSpend >= Number(alert.threshold_usd)) {
+          return NextResponse.json(
+            { error: 'BUDGET_EXCEEDED', message: 'Budget hard stop limit reached. Disable the alert or increase the threshold to continue.' },
+            { status: 403 }
+          );
+        }
+      }
+    }
+
+    // FIX-008: Use atomic RPC function for insertion (advisory lock + ownership check)
+    const { data: insertResult, error: insertError } = await supabase.rpc('insert_session_message', {
+      p_session_id: sessionId,
+      p_message_type: 'user_prompt',
+      p_content_encrypted: content_encrypted,
+      p_encryption_nonce: encryption_nonce,
+      p_metadata: {
         source: 'web',
         timestamp: new Date().toISOString(),
       },
     });
 
     if (insertError) {
-      console.error('Failed to insert message:', insertError);
+      const isDev = process.env.NODE_ENV === 'development';
+      console.error('Failed to insert message:', isDev ? insertError : insertError.message);
       return NextResponse.json(
         { error: 'INTERNAL_ERROR', message: 'Failed to send message' },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, id: insertResult?.[0]?.id });
   } catch (error) {
-    console.error('Unexpected error in send-message:', error);
+    const isDev = process.env.NODE_ENV === 'development';
+    console.error('Unexpected error in send-message:', isDev ? error : (error instanceof Error ? error.message : 'Unknown'));
     return NextResponse.json(
       { error: 'INTERNAL_ERROR', message: 'An unexpected error occurred' },
       { status: 500 }

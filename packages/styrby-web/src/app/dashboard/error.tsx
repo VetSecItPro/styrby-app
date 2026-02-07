@@ -42,11 +42,18 @@ export default function DashboardError({
           Dashboard Error
         </h1>
         <p className="text-zinc-400 mb-6">
-          {error.message || 'Something went wrong loading the dashboard.'}
+          Something went wrong loading the dashboard.
         </p>
 
         {error.digest && (
           <p className="text-xs text-zinc-600 mb-6">Error ID: {error.digest}</p>
+        )}
+
+        {process.env.NODE_ENV === 'development' && error.message && (
+          <div className="mb-6 p-3 rounded-lg bg-zinc-900 border border-zinc-800 text-left">
+            <p className="text-xs text-zinc-500 mb-1">Dev only:</p>
+            <pre className="text-xs text-red-400 whitespace-pre-wrap break-words">{error.message}</pre>
+          </div>
         )}
 
         <div className="flex flex-col gap-3">

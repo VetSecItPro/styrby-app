@@ -93,11 +93,14 @@ async function handler(
   const supabase = createApiAdminClient();
 
   // Get cost records grouped by agent type
+  // WHY: .limit(10000) prevents unbounded memory usage on serverless functions.
+  // A heavy user with 365-day window could have tens of thousands of records.
   const { data: costRecords, error: costError } = await supabase
     .from('cost_records')
     .select('agent_type, cost_usd, input_tokens, output_tokens, cache_read_tokens, session_id')
     .eq('user_id', userId)
-    .gte('record_date', startDate.toISOString().split('T')[0]);
+    .gte('record_date', startDate.toISOString().split('T')[0])
+    .limit(10000);
 
   if (costError) {
     console.error('Failed to fetch cost records:', costError.message);

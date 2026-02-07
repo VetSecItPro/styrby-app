@@ -50,7 +50,7 @@ export default function SessionError({ error, reset }: ErrorProps) {
           Failed to load session
         </h2>
         <p className="text-zinc-400 mb-6">
-          {error.message || 'An unexpected error occurred while loading the session.'}
+          An unexpected error occurred while loading the session.
         </p>
 
         {/* Error digest for support */}
@@ -58,6 +58,13 @@ export default function SessionError({ error, reset }: ErrorProps) {
           <p className="text-xs text-zinc-500 mb-6 font-mono">
             Error ID: {error.digest}
           </p>
+        )}
+
+        {process.env.NODE_ENV === 'development' && error.message && (
+          <div className="mb-6 p-3 rounded-lg bg-zinc-900 border border-zinc-800 text-left">
+            <p className="text-xs text-zinc-500 mb-1">Dev only:</p>
+            <pre className="text-xs text-red-400 whitespace-pre-wrap break-words">{error.message}</pre>
+          </div>
         )}
 
         {/* Action buttons */}

@@ -28,6 +28,24 @@ export default function SignUpPage() {
   const supabase = createClient();
 
   /**
+   * Validates password strength beyond the HTML minLength=8 attribute.
+   *
+   * WHY: Supabase Auth accepts any 8+ char password, but weak passwords
+   * (all lowercase, no digits) are trivially brute-forced. Checking
+   * client-side gives instant feedback without a server round-trip.
+   *
+   * @param pw - The password to validate
+   * @returns Error message if invalid, or null if valid
+   */
+  function validatePassword(pw: string): string | null {
+    if (pw.length < 8) return 'Password must be at least 8 characters.';
+    if (!/[A-Z]/.test(pw)) return 'Password must include an uppercase letter.';
+    if (!/[a-z]/.test(pw)) return 'Password must include a lowercase letter.';
+    if (!/[0-9]/.test(pw)) return 'Password must include a number.';
+    return null;
+  }
+
+  /**
    * Creates a new account with email and password.
    *
    * @param e - Form submit event
@@ -37,6 +55,12 @@ export default function SignUpPage() {
 
     if (!agreed) {
       setMessage({ type: 'error', text: 'Please agree to the Terms of Service and Privacy Policy.' });
+      return;
+    }
+
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      setMessage({ type: 'error', text: passwordError });
       return;
     }
 
@@ -134,6 +158,7 @@ export default function SignUpPage() {
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Jane Smith"
                   required
+                  autoComplete="name"
                   className="bg-secondary/60 border-border/60 text-foreground placeholder:text-muted-foreground focus-visible:ring-amber-500"
                 />
               </div>
@@ -146,6 +171,7 @@ export default function SignUpPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
                   required
+                  autoComplete="email"
                   className="bg-secondary/60 border-border/60 text-foreground placeholder:text-muted-foreground focus-visible:ring-amber-500"
                 />
               </div>
@@ -159,6 +185,7 @@ export default function SignUpPage() {
                   placeholder="Create a strong password"
                   required
                   minLength={8}
+                  autoComplete="new-password"
                   className="bg-secondary/60 border-border/60 text-foreground placeholder:text-muted-foreground focus-visible:ring-amber-500"
                 />
               </div>
