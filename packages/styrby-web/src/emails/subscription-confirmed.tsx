@@ -31,7 +31,7 @@ const tierFeatures = {
   ],
   power: [
     'Everything in Pro',
-    'Team collaboration (coming soon)',
+    'Team collaboration',
     'API access',
     'Custom integrations',
     'Priority support',

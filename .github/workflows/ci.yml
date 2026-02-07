@@ -82,6 +82,26 @@ jobs:
         continue-on-error: true
         run: pnpm --filter styrby-mobile run typecheck
 
+  # ─── Shared unit tests ───
+  test-shared:
+    name: Shared Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run shared tests
+        run: pnpm --filter @styrby/shared run test
+
   # ─── CLI unit tests ───
   test-cli:
     name: CLI Unit Tests
@@ -102,12 +122,57 @@ jobs:
       - name: Build shared (dependency)
         run: pnpm --filter @styrby/shared build
 
+      # Install CLI tool binaries needed by ripgrep/difftastic test modules.
+      # The forked Happy Coder code expects difft at tools/unpacked/difft
+      # and ripgrep via scripts/ripgrep_launcher.cjs — symlink system binaries.
+      - name: Install ripgrep and difftastic
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ripgrep
+          DIFFT_VERSION="0.63.0"
+          curl -fsSL "https://github.com/Wilfred/difftastic/releases/download/${DIFFT_VERSION}/difft-x86_64-unknown-linux-gnu.tar.gz" | sudo tar -xz -C /usr/local/bin
+          # Symlink difft into expected tools/unpacked/ path
+          mkdir -p packages/styrby-cli/tools/unpacked
+          ln -sf "$(which difft)" packages/styrby-cli/tools/unpacked/difft
+          # Create ripgrep launcher script that delegates to system rg
+          mkdir -p packages/styrby-cli/scripts
+          cat > packages/styrby-cli/scripts/ripgrep_launcher.cjs << 'SCRIPT'
+          const { spawn } = require('child_process');
+          const args = JSON.parse(process.argv[2] || '[]');
+          const child = spawn('rg', args, { stdio: 'inherit' });
+          child.on('close', (code) => process.exit(code || 0));
+          child.on('error', () => process.exit(1));
+          SCRIPT
+
       - name: Run CLI tests
-        # TODO: add --coverage flag back once @vitest/coverage-v8 is installed in styrby-cli
-        # 9 tests in ripgrep/difftastic modules require tool binaries not available in CI.
-        # 252/261 tests pass. Remove continue-on-error once CI installs ripgrep + difftastic.
-        continue-on-error: true
-        run: pnpm --filter styrby-cli run test
+        run: pnpm --filter styrby-cli run test -- --coverage
+
+  # ─── Web unit tests ───
+  test-web:
+    name: Web Unit Tests
+    runs-on: ubuntu-latest
+    needs: build-shared
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download shared build
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-build
+          path: packages/styrby-shared/dist/
+
+      - name: Run web unit tests
+        run: pnpm --filter styrby-web run test
 
   # ─── Security scanning ───
   security:
@@ -405,7 +470,7 @@ jobs:
   summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [quality, test-cli, security, build-shared, build-cli, build-web, build-mobile, e2e, bundle-size]
+    needs: [quality, test-shared, test-cli, test-web, security, build-shared, build-cli, build-web, build-mobile, e2e, bundle-size]
     if: always()
     steps:
       - name: Evaluate results
@@ -430,7 +495,9 @@ jobs:
           }
 
           check_job "Quality" "${{ needs.quality.result }}"
+          check_job "Shared Tests" "${{ needs.test-shared.result }}"
           check_job "CLI Tests" "${{ needs.test-cli.result }}"
+          check_job "Web Tests" "${{ needs.test-web.result }}"
           check_job "Security" "${{ needs.security.result }}"
           check_job "Build Shared" "${{ needs.build-shared.result }}"
           check_job "Build CLI" "${{ needs.build-cli.result }}"

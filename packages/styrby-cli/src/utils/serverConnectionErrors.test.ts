@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { startOfflineReconnection, printOfflineWarning, connectionState, isNetworkError, NETWORK_ERROR_CODES } from './serverConnectionErrors';
+import { startOfflineReconnection, connectionState, isNetworkError, NETWORK_ERROR_CODES } from './serverConnectionErrors';
 
 // Mock axios - only isAxiosError needed for error type detection
 vi.mock('axios', () => ({
@@ -503,47 +503,6 @@ describe('startOfflineReconnection', () => {
             // Should not throw when cancelling without onCleanup
             expect(() => handle.cancel()).not.toThrow();
         });
-    });
-});
-
-// ============================================================================
-// printOfflineWarning Tests
-// ============================================================================
-
-describe('printOfflineWarning', () => {
-    beforeEach(() => {
-        connectionState.reset(); // Reset singleton state between tests
-    });
-
-    it('should print offline warning with unified format', () => {
-        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
-        printOfflineWarning();
-
-        // New unified format via connectionState.fail()
-        expect(consoleSpy).toHaveBeenCalledWith(
-            expect.stringContaining('⚠️  Happy server unreachable, offline mode with auto-reconnect enabled')
-        );
-        expect(consoleSpy).toHaveBeenCalledWith(
-            expect.stringContaining('Server connection failed')
-        );
-
-        consoleSpy.mockRestore();
-    });
-
-    it('should deduplicate repeated calls', () => {
-        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
-        printOfflineWarning('Claude');
-        const callCountAfterFirst = consoleSpy.mock.calls.length;
-
-        printOfflineWarning('Claude'); // Second call should be deduplicated
-        const callCountAfterSecond = consoleSpy.mock.calls.length;
-
-        // Should not print again (same call count)
-        expect(callCountAfterSecond).toBe(callCountAfterFirst);
-
-        consoleSpy.mockRestore();
     });
 });
 
