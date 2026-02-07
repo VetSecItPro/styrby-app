@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useSyncExternalStore, useCallback } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -19,20 +19,29 @@ import { Button } from '@/components/ui/button';
 
 const COOKIE_CONSENT_KEY = 'styrby-cookie-notice-dismissed';
 
-export function CookieConsent() {
-  const [visible, setVisible] = useState(false);
+/**
+ * Read localStorage outside of React render to avoid setState-in-effect.
+ * WHY: React's react-hooks/set-state-in-effect rule prohibits calling
+ * setState synchronously inside useEffect. useSyncExternalStore with
+ * getSnapshot avoids this by reading the value during render.
+ */
+function subscribeToStorage(callback: () => void) {
+  window.addEventListener('storage', callback);
+  return () => window.removeEventListener('storage', callback);
+}
 
-  useEffect(() => {
-    // Only show if user hasn't dismissed before
-    const dismissed = localStorage.getItem(COOKIE_CONSENT_KEY);
-    if (!dismissed) {
-      setVisible(true);
-    }
-  }, []);
+export function CookieConsent() {
+  const dismissed = useSyncExternalStore(
+    subscribeToStorage,
+    () => localStorage.getItem(COOKIE_CONSENT_KEY),
+    () => 'true' // SSR: assume dismissed to avoid hydration flash
+  );
+  const [manuallyDismissed, setManuallyDismissed] = useState(false);
+  const visible = !dismissed && !manuallyDismissed;
 
   function handleDismiss() {
     localStorage.setItem(COOKIE_CONSENT_KEY, 'true');
-    setVisible(false);
+    setManuallyDismissed(true);
   }
 
   if (!visible) return null;

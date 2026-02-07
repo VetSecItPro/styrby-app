@@ -67,7 +67,7 @@ function createWebhookRequest(
   options?: { signature?: string; ip?: string }
 ): Request {
   const payload = JSON.stringify(body);
-  const signature = options?.signature ?? signPayload(payload);
+  const _signature = options?.signature ?? signPayload(payload);
   const ip = options?.ip ?? '10.0.0.1';
 
   return new Request('http://localhost:3000/api/webhooks/polar', {

@@ -41,17 +41,14 @@ describe('api-keys', () => {
     });
 
     it('throws on null input', async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await expect(hashApiKey(null as any)).rejects.toThrow('Invalid API key: must be a non-empty string');
     });
 
     it('throws on undefined input', async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await expect(hashApiKey(undefined as any)).rejects.toThrow('Invalid API key: must be a non-empty string');
     });
 
     it('throws on non-string input', async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await expect(hashApiKey(12345 as any)).rejects.toThrow('Invalid API key: must be a non-empty string');
     });
   });
@@ -73,14 +70,12 @@ describe('api-keys', () => {
 
     it('returns false for empty key', async () => {
       const hash = await hashApiKey(TEST_KEY);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isValid = await verifyApiKey('' as any, hash);
 
       expect(isValid).toBe(false);
     }, 10000);
 
     it('returns false for empty hash', async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isValid = await verifyApiKey(TEST_KEY, '' as any);
 
       expect(isValid).toBe(false);
@@ -88,14 +83,12 @@ describe('api-keys', () => {
 
     it('returns false for null key', async () => {
       const hash = await hashApiKey(TEST_KEY);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isValid = await verifyApiKey(null as any, hash);
 
       expect(isValid).toBe(false);
     }, 10000);
 
     it('returns false for null hash', async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isValid = await verifyApiKey(TEST_KEY, null as any);
 
       expect(isValid).toBe(false);
@@ -103,14 +96,12 @@ describe('api-keys', () => {
 
     it('returns false for undefined key', async () => {
       const hash = await hashApiKey(TEST_KEY);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isValid = await verifyApiKey(undefined as any, hash);
 
       expect(isValid).toBe(false);
     }, 10000);
 
     it('returns false for undefined hash', async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isValid = await verifyApiKey(TEST_KEY, undefined as any);
 
       expect(isValid).toBe(false);
@@ -148,17 +139,14 @@ describe('api-keys', () => {
     });
 
     it('throws on null input', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect(() => hashApiKeySync(null as any)).toThrow('Invalid API key: must be a non-empty string');
     });
 
     it('throws on undefined input', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect(() => hashApiKeySync(undefined as any)).toThrow('Invalid API key: must be a non-empty string');
     });
 
     it('throws on non-string input', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect(() => hashApiKeySync(12345 as any)).toThrow('Invalid API key: must be a non-empty string');
     });
   });
@@ -180,14 +168,12 @@ describe('api-keys', () => {
 
     it('returns false for empty key', () => {
       const hash = hashApiKeySync(TEST_KEY);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isValid = verifyApiKeySync('' as any, hash);
 
       expect(isValid).toBe(false);
     }, 10000);
 
     it('returns false for empty hash', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isValid = verifyApiKeySync(TEST_KEY, '' as any);
 
       expect(isValid).toBe(false);
@@ -195,14 +181,12 @@ describe('api-keys', () => {
 
     it('returns false for null key', () => {
       const hash = hashApiKeySync(TEST_KEY);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isValid = verifyApiKeySync(null as any, hash);
 
       expect(isValid).toBe(false);
     }, 10000);
 
     it('returns false for null hash', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isValid = verifyApiKeySync(TEST_KEY, null as any);
 
       expect(isValid).toBe(false);
@@ -210,14 +194,12 @@ describe('api-keys', () => {
 
     it('returns false for undefined key', () => {
       const hash = hashApiKeySync(TEST_KEY);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isValid = verifyApiKeySync(undefined as any, hash);
 
       expect(isValid).toBe(false);
     }, 10000);
 
     it('returns false for undefined hash', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isValid = verifyApiKeySync(TEST_KEY, undefined as any);
 
       expect(isValid).toBe(false);
