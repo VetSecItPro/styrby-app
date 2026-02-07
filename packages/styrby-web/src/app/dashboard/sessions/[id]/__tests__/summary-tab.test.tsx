@@ -13,7 +13,7 @@
  * Bugs here could leak Pro-only content to free users or show wrong states.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SummaryTab } from '../summary-tab';
 
