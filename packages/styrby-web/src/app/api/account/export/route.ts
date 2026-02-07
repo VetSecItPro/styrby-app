@@ -4,7 +4,7 @@
  * POST /api/account/export
  *
  * Allows users to download all their data in JSON format for GDPR compliance.
- * Fetches data from all user-related tables in parallel and returns a
+ * Fetches data from all 20 user-related tables in parallel and returns a
  * downloadable JSON file.
  *
  * @auth Required - Supabase Auth JWT via cookie
@@ -53,6 +53,19 @@ export async function POST(request: Request) {
   try {
     // Fetch all user data in parallel for performance
     // WHY: Each table is independent, so parallel fetches are safe and faster
+    // Covers all 20 user-related tables for full GDPR Art. 20 compliance
+    //
+    // Step 1: Fetch user's session IDs first so we can query session_messages
+    // WHY: session_messages has no user_id column; it's linked via session_id
+    const { data: userSessions } = await supabase
+      .from('sessions')
+      .select('id')
+      .eq('user_id', user.id)
+      .limit(10000);
+
+    const sessionIds = (userSessions || []).map((s) => s.id);
+
+    // Step 2: Fetch all tables in parallel with limits to prevent OOM
     const [
       profileResult,
       sessionsResult,
@@ -66,19 +79,44 @@ export async function POST(request: Request) {
       subscriptionsResult,
       preferencesResult,
       bookmarksResult,
+      teamsResult,
+      teamMembersResult,
+      teamInvitationsResult,
+      webhooksResult,
+      apiKeysResult,
+      auditLogResult,
+      promptTemplatesResult,
+      offlineQueueResult,
     ] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', user.id).single(),
-      supabase.from('sessions').select('*').eq('user_id', user.id),
-      supabase.from('session_messages').select('*').eq('user_id', user.id),
-      supabase.from('cost_records').select('*').eq('user_id', user.id),
-      supabase.from('budget_alerts').select('*').eq('user_id', user.id),
-      supabase.from('agent_configs').select('*').eq('user_id', user.id),
-      supabase.from('device_tokens').select('*').eq('user_id', user.id),
-      supabase.from('user_feedback').select('*').eq('user_id', user.id),
-      supabase.from('machines').select('*').eq('user_id', user.id),
-      supabase.from('subscriptions').select('*').eq('user_id', user.id),
-      supabase.from('notification_preferences').select('*').eq('user_id', user.id),
-      supabase.from('session_bookmarks').select('*').eq('user_id', user.id),
+      supabase.from('sessions').select('*').eq('user_id', user.id).limit(10000),
+      // WHY: session_messages has no user_id column — query via session_id IN
+      sessionIds.length > 0
+        ? supabase.from('session_messages').select('*').in('session_id', sessionIds).limit(50000)
+        : Promise.resolve({ data: [], error: null }),
+      supabase.from('cost_records').select('*').eq('user_id', user.id).limit(50000),
+      supabase.from('budget_alerts').select('*').eq('user_id', user.id).limit(1000),
+      supabase.from('agent_configs').select('*').eq('user_id', user.id).limit(1000),
+      supabase.from('device_tokens').select('*').eq('user_id', user.id).limit(1000),
+      supabase.from('user_feedback').select('*').eq('user_id', user.id).limit(1000),
+      supabase.from('machines').select('*').eq('user_id', user.id).limit(1000),
+      supabase.from('subscriptions').select('*').eq('user_id', user.id).limit(100),
+      supabase.from('notification_preferences').select('*').eq('user_id', user.id).limit(100),
+      supabase.from('session_bookmarks').select('*').eq('user_id', user.id).limit(10000),
+      // Teams & collaboration (migration 006)
+      supabase.from('teams').select('*').eq('owner_id', user.id).limit(100),
+      supabase.from('team_members').select('*').eq('user_id', user.id).limit(1000),
+      supabase.from('team_invitations').select('*').eq('invited_user_id', user.id).limit(1000),
+      // Webhooks (migration 004)
+      supabase.from('webhooks').select('*').eq('user_id', user.id).limit(1000),
+      // API keys — exclude key_hash for security
+      supabase.from('api_keys').select('id, user_id, name, key_prefix, scopes, last_used_at, last_used_ip, request_count, expires_at, revoked_at, revoked_reason, created_at').eq('user_id', user.id).limit(1000),
+      // Audit log — contains IP addresses and user agents (personal data)
+      supabase.from('audit_log').select('*').eq('user_id', user.id).limit(10000),
+      // User's custom prompt templates (not system templates)
+      supabase.from('prompt_templates').select('*').eq('user_id', user.id).limit(1000),
+      // Offline command queue
+      supabase.from('offline_command_queue').select('*').eq('user_id', user.id).limit(1000),
     ]);
 
     // Compile export data with clear structure
@@ -99,6 +137,14 @@ export async function POST(request: Request) {
       subscriptions: subscriptionsResult.data || [],
       notificationPreferences: preferencesResult.data || [],
       bookmarks: bookmarksResult.data || [],
+      teams: teamsResult.data || [],
+      teamMemberships: teamMembersResult.data || [],
+      teamInvitations: teamInvitationsResult.data || [],
+      webhooks: webhooksResult.data || [],
+      apiKeys: apiKeysResult.data || [],
+      auditLog: auditLogResult.data || [],
+      promptTemplates: promptTemplatesResult.data || [],
+      offlineCommandQueue: offlineQueueResult.data || [],
     };
 
     // Calculate record counts for audit
@@ -113,7 +159,7 @@ export async function POST(request: Request) {
       user_id: user.id,
       action: 'export_requested',
       details: {
-        tables_exported: 12,
+        tables_exported: 20,
         total_records: totalRecords,
         ip_address: request.headers.get('x-forwarded-for') || 'unknown',
       },

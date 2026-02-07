@@ -111,8 +111,15 @@ export default function PrivacyPolicyPage() {
               notifications to your mobile device
             </li>
             <li>
-              <strong>Machine identifiers</strong> -- anonymized machine
-              registration data for CLI instances connected to your account
+              <strong>Machine identifiers</strong> -- machine registration data
+              for CLI instances connected to your account, including hostname,
+              platform, and a client-generated fingerprint
+            </li>
+            <li>
+              <strong>IP addresses</strong> -- collected when your CLI connects
+              and during security-relevant actions (login, API key operations).
+              Used for security monitoring, abuse prevention, and audit logging.
+              Retained in accordance with our data retention policy.
             </li>
             <li>
               <strong>Public keys</strong> -- cryptographic public keys used for
@@ -256,6 +263,20 @@ export default function PrivacyPolicyPage() {
               </strong>{' '}
               -- web application hosting. May collect standard web analytics
               data such as IP address and request metadata.
+            </li>
+            <li>
+              <strong>
+                <a
+                  href="https://resend.com/legal/privacy-policy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Resend
+                </a>
+              </strong>{' '}
+              -- transactional email delivery. Receives your email address to
+              send service communications such as welcome emails, team
+              invitations, and security alerts.
             </li>
           </ul>
 

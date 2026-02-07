@@ -117,13 +117,16 @@ async function handler(
   const supabase = createApiAdminClient();
 
   // Get cost records for the period
+  // WHY: .limit(10000) prevents unbounded memory on serverless functions.
+  // 12-month 'monthly' period could return tens of thousands of rows.
   const { data: costRecords, error: costError } = await supabase
     .from('cost_records')
     .select('record_date, cost_usd, input_tokens, output_tokens, cache_read_tokens')
     .eq('user_id', userId)
     .gte('record_date', startDate.toISOString().split('T')[0])
     .lte('record_date', endDate.toISOString().split('T')[0])
-    .order('record_date', { ascending: true });
+    .order('record_date', { ascending: true })
+    .limit(10000);
 
   if (costError) {
     console.error('Failed to fetch cost records:', costError.message);

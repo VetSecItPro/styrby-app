@@ -78,10 +78,12 @@ export async function POST(request: Request) {
     const { sessionId, requestId, approved } = parseResult.data;
 
     // Verify session exists and belongs to user
+    // WHY (FIX-026): Explicit user_id filter instead of relying solely on RLS
     const { data: session, error: sessionError } = await supabase
       .from('sessions')
-      .select('id, status')
+      .select('id, status, user_id')
       .eq('id', sessionId)
+      .eq('user_id', user.id)
       .single();
 
     if (sessionError || !session) {
@@ -102,7 +104,7 @@ export async function POST(request: Request) {
     // Verify the permission request exists and belongs to this session
     const { data: permissionRequest, error: requestError } = await supabase
       .from('session_messages')
-      .select('id, message_type, permission_granted')
+      .select('id, message_type, permission_granted, metadata')
       .eq('id', requestId)
       .eq('session_id', sessionId)
       .single();
@@ -130,47 +132,44 @@ export async function POST(request: Request) {
       );
     }
 
+    // FIX-036: Merge with existing metadata instead of replacing
+    // WHY: The permission_request message may already have metadata from the CLI
+    // (e.g., tool name, command, risk level). Replacing it loses that context.
+    const existingMetadata = (permissionRequest as { metadata?: Record<string, unknown> }).metadata || {};
+    const mergedMetadata = {
+      ...existingMetadata,
+      responded_at: new Date().toISOString(),
+      response_source: 'web',
+    };
+
     // Update the permission request message
     const { error: updateError } = await supabase
       .from('session_messages')
       .update({
         permission_granted: approved,
-        metadata: {
-          responded_at: new Date().toISOString(),
-          response_source: 'web',
-        },
+        metadata: mergedMetadata,
       })
       .eq('id', requestId);
 
     if (updateError) {
-      console.error('Failed to update permission request:', updateError);
+      const isDev = process.env.NODE_ENV === 'development';
+      console.error('Failed to update permission request:', isDev ? updateError : updateError.message);
       return NextResponse.json(
         { error: 'INTERNAL_ERROR', message: 'Failed to record response' },
         { status: 500 }
       );
     }
 
-    // Get next sequence number for the response message
-    const { data: lastMessage } = await supabase
-      .from('session_messages')
-      .select('sequence_number')
-      .eq('session_id', sessionId)
-      .order('sequence_number', { ascending: false })
-      .limit(1)
-      .single();
-
-    const nextSequence = (lastMessage?.sequence_number ?? 0) + 1;
-
-    // Insert a permission_response message
-    // WHY: This creates an audit trail and allows the CLI to pick up the response
-    const { error: insertError } = await supabase.from('session_messages').insert({
-      session_id: sessionId,
-      sequence_number: nextSequence,
-      message_type: 'permission_response',
-      parent_message_id: requestId,
-      content_encrypted: approved ? 'Permission granted' : 'Permission denied',
-      permission_granted: approved,
-      metadata: {
+    // FIX-008: Use atomic RPC function for insertion (advisory lock + ownership check)
+    // WHY: Permission responses are server-generated audit messages, so we use
+    // null encryption_nonce to indicate they are not E2E encrypted.
+    const { error: insertError } = await supabase.rpc('insert_session_message', {
+      p_session_id: sessionId,
+      p_message_type: 'permission_response',
+      p_content_encrypted: approved ? 'Permission granted' : 'Permission denied',
+      p_parent_message_id: requestId,
+      p_permission_granted: approved,
+      p_metadata: {
         request_id: requestId,
         source: 'web',
         timestamp: new Date().toISOString(),
@@ -178,14 +177,16 @@ export async function POST(request: Request) {
     });
 
     if (insertError) {
-      console.error('Failed to insert permission response:', insertError);
+      const isDev = process.env.NODE_ENV === 'development';
+      console.error('Failed to insert permission response:', isDev ? insertError : insertError.message);
       // The update already succeeded, so we don't roll back
       // The CLI can still pick up the permission_granted field update
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Unexpected error in permission-response:', error);
+    const isDev = process.env.NODE_ENV === 'development';
+    console.error('Unexpected error in permission-response:', isDev ? error : (error instanceof Error ? error.message : 'Unknown'));
     return NextResponse.json(
       { error: 'INTERNAL_ERROR', message: 'An unexpected error occurred' },
       { status: 500 }

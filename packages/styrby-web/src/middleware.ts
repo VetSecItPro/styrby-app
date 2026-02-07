@@ -36,10 +36,15 @@ export async function middleware(request: NextRequest) {
     const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1] ?? '';
     const cookieName = `sb-${projectRef}-auth-token`;
 
-    // Check if user is authenticated by looking for session cookie
+    // FIX-052: Check both cookie presence AND updateSession result
+    // WHY: Cookie presence alone doesn't guarantee the JWT is valid —
+    // it could be expired or tampered. updateSession already refreshes
+    // the token, but we also check if the response indicates auth failure
+    // (e.g., redirect to login means the session refresh failed).
     const hasSession = request.cookies.has(cookieName);
+    const isAuthRedirect = response.headers.get('location')?.includes('/login');
 
-    if (!hasSession) {
+    if (!hasSession || isAuthRedirect) {
       // Redirect to login with return URL
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', request.nextUrl.pathname);
@@ -59,7 +64,8 @@ export const config = {
      * - favicon.ico (favicon file)
      * - public folder
      * - api/webhooks (webhook endpoints don't need auth refresh)
+     * - api/cron (cron endpoints use secret-based auth, not session)
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$|api/webhooks).*)',
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$|api/webhooks|api/cron).*)',
   ],
 };

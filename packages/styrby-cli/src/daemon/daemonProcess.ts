@@ -116,8 +116,16 @@ async function connectToRelay(): Promise<void> {
       return;
     }
 
-    const supabaseUrl = process.env.SUPABASE_URL || 'https://akmtmxunjhsgldjztdtt.supabase.co';
+    // FIX-019: No hardcoded fallback — URL must come from environment
+    const supabaseUrl = process.env.SUPABASE_URL || '';
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
+
+    if (!supabaseUrl) {
+      errorMessage = 'SUPABASE_URL not set. Cannot connect to relay.';
+      connectionState = 'error';
+      log('Cannot connect: no Supabase URL');
+      return;
+    }
 
     if (!supabaseAnonKey) {
       // WHY: Without the anon key, Supabase client cannot authenticate.

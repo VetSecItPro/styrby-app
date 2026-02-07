@@ -23,7 +23,7 @@
  * @error 500 { error: 'Failed to delete account' }
  */
 
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
@@ -118,6 +118,15 @@ export async function DELETE(request: Request) {
         hard_delete_scheduled: '30 days',
         ip_address: request.headers.get('x-forwarded-for') || 'unknown',
       },
+    });
+
+    // FIX-012: Ban the user in auth.users to prevent login during grace period
+    // WHY: Soft-deleting the profile doesn't prevent re-authentication.
+    // The user could log back in and see their (partially deleted) data.
+    // Banning via admin API ensures the JWT is invalidated immediately.
+    const adminClient = createAdminClient();
+    await adminClient.auth.admin.updateUserById(user.id, {
+      ban_duration: '720h', // 30 days — matches hard-delete grace period
     });
 
     // Sign out the user

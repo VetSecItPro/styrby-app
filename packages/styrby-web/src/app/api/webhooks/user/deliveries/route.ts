@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { z } from 'zod';
+import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 
 // ---------------------------------------------------------------------------
 // Zod Schemas
@@ -48,6 +49,12 @@ const GetDeliveriesSchema = z.object({
  * @error 500 { error: 'Failed to fetch deliveries' }
  */
 export async function GET(request: NextRequest) {
+  // FIX-048: Add rate limiting to webhook deliveries endpoint
+  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.standard, 'webhook-deliveries');
+  if (!allowed) {
+    return rateLimitResponse(retryAfter!);
+  }
+
   try {
     const supabase = await createClient();
 
