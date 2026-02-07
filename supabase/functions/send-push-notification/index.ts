@@ -498,19 +498,6 @@ async function checkNotificationPreferences(
 }
 
 /**
- * Legacy wrapper for backward compatibility.
- * @deprecated Use checkNotificationPreferences instead
- */
-async function shouldSendNotification(
-  supabase: ReturnType<typeof createClient>,
-  userId: string,
-  eventType: NotificationEventType
-): Promise<boolean> {
-  const result = await checkNotificationPreferences(supabase, userId, eventType);
-  return result.shouldSend;
-}
-
-/**
  * Checks whether a specific notification type is enabled in user preferences.
  *
  * Maps each event type to its corresponding preference column.
