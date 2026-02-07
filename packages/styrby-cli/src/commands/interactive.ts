@@ -124,7 +124,7 @@ async function showMainMenu(state: UserState): Promise<MainMenuOption> {
 
   const options: MenuOption<MainMenuOption>[] = [
     { value: 'start', label: 'Start session' },
-    { value: 'recent', label: 'Recent sessions', hint: '(coming soon)', disabled: true },
+    { value: 'recent', label: 'Recent sessions' },
     { value: 'costs', label: 'Costs & usage' },
   ];
 
@@ -143,7 +143,7 @@ async function showMainMenu(state: UserState): Promise<MainMenuOption> {
   }
 
   options.push(
-    { value: 'settings', label: 'Settings', hint: '(coming soon)', disabled: true },
+    { value: 'settings', label: 'Settings' },
     { value: 'help', label: 'Help' },
     { value: 'quit', label: 'Quit' }
   );
@@ -631,6 +631,141 @@ async function showInstallAgentsScreen(): Promise<void> {
   await waitForKey();
 }
 
+/**
+ * Show recent sessions screen with session history.
+ *
+ * Displays the user's recent CLI sessions with cost and duration info.
+ */
+async function showRecentSessionsScreen(): Promise<void> {
+  clearScreen();
+
+  try {
+    const { aggregateCosts } = await import('@/costs/index');
+    const summary = await aggregateCosts();
+
+    console.log('');
+    console.log(`  ${colors.brandBold('Recent Sessions')}`);
+    console.log('');
+
+    if (summary.sessionCount === 0) {
+      console.log(`  ${colors.muted('No sessions found.')}`);
+      console.log(`  ${colors.muted('Start a session to see history here.')}`);
+    } else {
+      console.log(`  ${colors.muted('Total sessions:')}   ${summary.sessionCount}`);
+      console.log(`  ${colors.muted('Total cost:')}       ${colors.success(`$${summary.totalCostUsd.toFixed(4)}`)}`);
+      console.log('');
+
+      const models = Object.entries(summary.byModel);
+      if (models.length > 0) {
+        console.log(`  ${colors.muted('Sessions by model:')}`);
+        for (const [model, modelData] of models) {
+          const data = modelData as { costUsd: number; sessionCount?: number };
+          const count = data.sessionCount ?? '-';
+          console.log(`    ${model}: ${count} sessions, $${data.costUsd.toFixed(4)}`);
+        }
+      }
+
+      console.log('');
+      console.log(`  ${colors.muted('For detailed history, visit the web dashboard:')}`);
+      console.log(`  ${chalk.cyan('https://styrbyapp.com/dashboard/sessions')}`);
+    }
+  } catch {
+    console.log('');
+    console.log(`  ${colors.muted('Could not load session history.')}`);
+  }
+
+  console.log('');
+  console.log(`  ${colors.muted('Press any key to go back...')}`);
+  await waitForKey();
+}
+
+/**
+ * Show the settings screen.
+ *
+ * Displays current configuration and provides links to manage settings.
+ */
+async function showSettingsScreen(): Promise<void> {
+  clearScreen();
+
+  console.log('');
+  console.log(`  ${colors.brandBold('Settings')}`);
+  console.log('');
+
+  // Display current auth state
+  const data = loadPersistedData();
+
+  if (data?.userId) {
+    console.log(`  ${colors.muted('User ID:')}        ${data.userId.slice(0, 8)}...`);
+  }
+  if (data?.machineId) {
+    console.log(`  ${colors.muted('Machine ID:')}     ${data.machineId.slice(0, 8)}...`);
+  }
+  if (data?.machineName) {
+    console.log(`  ${colors.muted('Machine name:')}   ${data.machineName}`);
+  }
+
+  // Display agent status
+  console.log('');
+  console.log(`  ${colors.muted('Agent Status:')}`);
+  const statuses = await getAllAgentStatus();
+  for (const agent of Object.values(statuses)) {
+    const agentColor = chalk.hex(agent.color);
+    const status = agent.installed
+      ? agent.configured ? colors.success('✓ ready') : colors.warning('○ needs setup')
+      : colors.muted('○ not installed');
+    console.log(`    ${agentColor(agent.name.padEnd(14))} ${status}`);
+  }
+
+  console.log('');
+  console.log(`  ${colors.muted('Manage full settings at:')}`);
+  console.log(`  ${chalk.cyan('https://styrbyapp.com/dashboard/settings')}`);
+  console.log('');
+
+  const options: MenuOption<'agents' | 'pair' | 'doctor' | 'back'>[] = [
+    { value: 'agents', label: 'Install/configure agents' },
+    { value: 'pair', label: 'Pair mobile device' },
+    { value: 'doctor', label: 'Run health check' },
+    { value: 'back', label: 'Back' },
+  ];
+
+  const result = await showMenu({
+    options,
+    clearOnRender: false,
+    render: (selectedIndex) => {
+      displayMenu(
+        options.map((o) => ({ label: o.label, hint: o.hint })),
+        selectedIndex
+      );
+      displayControls([
+        ['↑↓', 'Navigate'],
+        ['Enter', 'Select'],
+        ['Esc', 'Back'],
+      ]);
+    },
+  });
+
+  if (result.cancelled || result.value === 'back') {
+    return;
+  }
+
+  if (result.value === 'agents') {
+    await showInstallAgentsScreen();
+  } else if (result.value === 'pair') {
+    await showPairingScreen();
+  } else if (result.value === 'doctor') {
+    clearScreen();
+    try {
+      const { runDoctor } = await import('@/commands/doctor');
+      await runDoctor();
+    } catch {
+      console.log(`  ${colors.muted('Doctor command not available.')}`);
+    }
+    console.log('');
+    console.log(`  ${colors.muted('Press any key to continue...')}`);
+    await waitForKey();
+  }
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -784,6 +919,16 @@ export async function runInteractive(): Promise<void> {
 
       case 'pair': {
         await showPairingScreen();
+        break;
+      }
+
+      case 'recent': {
+        await showRecentSessionsScreen();
+        break;
+      }
+
+      case 'settings': {
+        await showSettingsScreen();
         break;
       }
 
