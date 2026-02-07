@@ -141,10 +141,10 @@ jobs:
       - name: Secret pattern scan
         run: |
           echo "Scanning for leaked secrets in source..."
-          # Patterns for: Stripe live keys, AWS access keys, private keys, GitHub tokens, Supabase service keys, Polar tokens
-          # Note: We only scan for sk_live_ (production Stripe keys), not sk_test_ (test keys are safe)
-          # Supabase service role keys start with 'eyJ...' but we need context to avoid false positives on docs
-          PATTERNS='sk_live_[a-zA-Z0-9]{24,}|AKIA[0-9A-Z]{16}|-----BEGIN (RSA |EC )?PRIVATE KEY|ghp_[a-zA-Z0-9]{36}|glpat-[a-zA-Z0-9\-]{20}|sbp_[a-zA-Z0-9]{40}|polar_at_[a-zA-Z0-9]+'
+          # FIX-057: Comprehensive secret patterns covering all services in use
+          # Stripe live keys, AWS access keys, private keys, GitHub tokens,
+          # Supabase service keys, Polar tokens, Resend keys, Expo tokens
+          PATTERNS='sk_live_[a-zA-Z0-9]{24,}|AKIA[0-9A-Z]{16}|-----BEGIN (RSA |EC )?PRIVATE KEY|ghp_[a-zA-Z0-9]{36}|glpat-[a-zA-Z0-9\-]{20}|sbp_[a-zA-Z0-9]{40}|polar_at_[a-zA-Z0-9]+|re_[a-zA-Z0-9]{20,}|eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.[a-zA-Z0-9_-]{50,}|expo_[a-zA-Z0-9]{20,}'
 
           MATCHES=$(grep -rn --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.json" -E "$PATTERNS" . \
             --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=dist \

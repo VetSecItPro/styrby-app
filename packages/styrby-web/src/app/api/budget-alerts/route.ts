@@ -202,11 +202,13 @@ export async function GET() {
 
     // Fetch alerts and subscription tier in parallel
     const [alertsResult, tier] = await Promise.all([
+      // FIX-056: Add .limit() to prevent unbounded queries
       supabase
         .from('budget_alerts')
         .select('*')
         .eq('user_id', user.id)
-        .order('created_at', { ascending: false }),
+        .order('created_at', { ascending: false })
+        .limit(100),
       getUserTier(supabase, user.id),
     ]);
 
@@ -227,11 +229,13 @@ export async function GET() {
       alerts.map(async (alert) => {
         const periodStart = getPeriodStartDate(alert.period);
 
+        // FIX-046: Add .limit() to prevent unbounded queries
         let query = supabase
           .from('cost_records')
           .select('cost_usd')
           .eq('user_id', user.id)
-          .gte('recorded_at', periodStart);
+          .gte('recorded_at', periodStart)
+          .limit(10000);
 
         // Scope to specific agent if configured
         if (alert.agent_type) {

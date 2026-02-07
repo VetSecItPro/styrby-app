@@ -44,6 +44,9 @@ notes/
 .security-audit.json
 .security-reports/
 
+# Compliance audit reports
+.compliance/
+
 # Claude Code project memory
 CLAUDE.md
 
@@ -83,3 +86,8 @@ next-env.d.ts
 *.pid.lock
 .cache/
 .env*.local
+.test-reports/
+.test-ship-state.json
+.test-ship-history.json
+.test-ship-quarantine.json
+.test-audit.json

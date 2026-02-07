@@ -41,8 +41,6 @@ interface PairingPayload {
   token: string;
   /** ISO 8601 timestamp when the token expires */
   expiresAt: string;
-  /** Supabase project URL for the mobile app to connect */
-  supabaseUrl: string | undefined;
 }
 
 /* ──────────────────────────── Icons ──────────────────────────── */
@@ -133,12 +131,15 @@ export function PairingQR({ userId }: PairingQRProps) {
     // Set expiry to 5 minutes from now
     const expiry = new Date(Date.now() + 5 * 60 * 1000);
 
+    // FIX-065: Removed supabaseUrl from QR payload
+    // WHY: The Supabase URL is a public configuration value that the mobile
+    // app should have built-in. Including it in the QR payload leaks
+    // infrastructure details to anyone who screenshots the QR code.
     const payload: PairingPayload = {
       version: 1,
       userId,
       token,
       expiresAt: expiry.toISOString(),
-      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
     };
 
     // Encode as base64 for compact QR code

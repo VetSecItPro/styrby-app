@@ -6,8 +6,15 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 
 export async function GET(request: NextRequest) {
+  // FIX-047: Add rate limiting to billing portal redirect
+  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.standard, 'billing-portal');
+  if (!allowed) {
+    return rateLimitResponse(retryAfter!);
+  }
+
   try {
     const supabase = await createClient();
 
@@ -39,7 +46,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.redirect(portalUrl);
   } catch (error) {
-    console.error('Portal error:', error);
+    const isDev = process.env.NODE_ENV === 'development';
+    console.error('Portal error:', isDev ? error : (error instanceof Error ? error.message : 'Unknown error'));
     return NextResponse.redirect(new URL('/settings', request.url));
   }
 }

@@ -39,6 +39,55 @@ const WebhookEventEnum = z.enum([
  * WHY: Validates all fields before insertion to prevent malformed data
  * from reaching Supabase and to give users clear error messages.
  */
+/**
+ * Validates that a URL is not targeting internal/private networks.
+ *
+ * WHY (FIX-027 + FIX-042): Webhook URLs must point to public HTTPS endpoints.
+ * Without this check, an attacker could register a webhook targeting
+ * localhost, cloud metadata services (169.254.169.254), or RFC 1918
+ * private IPs to perform SSRF attacks against our infrastructure.
+ *
+ * @param url - The URL to validate
+ * @returns True if the URL is safe for external requests
+ */
+function isSafeWebhookUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+
+    // FIX-042: Must be HTTPS in production
+    if (parsed.protocol !== 'https:') return false;
+
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Block localhost
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0') {
+      return false;
+    }
+
+    // Block cloud metadata services
+    if (hostname === '169.254.169.254' || hostname === 'metadata.google.internal') {
+      return false;
+    }
+
+    // Block RFC 1918 private IPs
+    const ipMatch = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (ipMatch) {
+      const [, a, b] = ipMatch.map(Number);
+      if (a === 10) return false;                    // 10.0.0.0/8
+      if (a === 172 && b >= 16 && b <= 31) return false; // 172.16.0.0/12
+      if (a === 192 && b === 168) return false;      // 192.168.0.0/16
+      if (a === 169 && b === 254) return false;      // Link-local
+    }
+
+    // Block IPv6-mapped IPv4 private addresses
+    if (hostname.startsWith('::ffff:')) return false;
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const CreateWebhookSchema = z.object({
   name: z
     .string()
@@ -48,12 +97,16 @@ const CreateWebhookSchema = z.object({
     .string()
     .url('Invalid URL format')
     .refine(
-      (url) => url.startsWith('https://') || url.startsWith('http://'),
-      'URL must start with http:// or https://'
+      (url) => url.startsWith('https://'),
+      'URL must use HTTPS'
     )
     .refine(
       (url) => url.length <= 2048,
       'URL must be 2048 characters or less'
+    )
+    .refine(
+      (url) => isSafeWebhookUrl(url),
+      'URL must not target internal or private networks'
     ),
   events: z
     .array(WebhookEventEnum)
@@ -76,12 +129,16 @@ const UpdateWebhookSchema = z.object({
     .string()
     .url('Invalid URL format')
     .refine(
-      (url) => url.startsWith('https://') || url.startsWith('http://'),
-      'URL must start with http:// or https://'
+      (url) => url.startsWith('https://'),
+      'URL must use HTTPS'
     )
     .refine(
       (url) => url.length <= 2048,
       'URL must be 2048 characters or less'
+    )
+    .refine(
+      (url) => isSafeWebhookUrl(url),
+      'URL must not target internal or private networks'
     )
     .optional(),
   events: z

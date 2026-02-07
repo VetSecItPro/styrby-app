@@ -17,34 +17,71 @@ import { Footer } from '@/components/landing/footer';
  * WHY magic link + GitHub: Passwordless auth reduces friction for developers
  * who already have GitHub accounts. Magic link is the fallback for email-only users.
  */
+/**
+ * Validates a redirect path to prevent open redirect attacks.
+ *
+ * WHY (FIX-003): Without validation, an attacker could craft a URL like
+ * `/login?redirect=https://evil.com` and after successful auth the victim
+ * would be sent to the attacker's site via the magic link callback.
+ *
+ * @param path - The redirect path from the query string
+ * @returns A safe, relative redirect path (defaults to /dashboard)
+ */
+function sanitizeRedirect(path: string | null): string {
+  if (!path) return '/dashboard';
+  if (!path.startsWith('/') || path.includes('//') || path.includes('\\')) {
+    return '/dashboard';
+  }
+  return path;
+}
+
+/**
+ * Minimum milliseconds between magic link requests (FIX-049).
+ * WHY: Prevents rapid-fire magic link sends that could abuse the email
+ * provider quota and spam the user's inbox.
+ */
+const MAGIC_LINK_COOLDOWN_MS = 10_000;
+
 function LoginForm() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [lastSentAt, setLastSentAt] = useState(0);
 
   const searchParams = useSearchParams();
-  const redirect = searchParams.get('redirect') || '/dashboard';
+  const redirect = sanitizeRedirect(searchParams.get('redirect'));
 
   const supabase = createClient();
 
   /**
    * Sends a magic link to the user's email.
+   * Includes client-side throttle (FIX-049).
    */
   async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault();
+
+    // Client-side throttle (FIX-049)
+    const now = Date.now();
+    if (now - lastSentAt < MAGIC_LINK_COOLDOWN_MS) {
+      const secsLeft = Math.ceil((MAGIC_LINK_COOLDOWN_MS - (now - lastSentAt)) / 1000);
+      setMessage({ type: 'error', text: `Please wait ${secsLeft}s before requesting another link.` });
+      return;
+    }
+
     setLoading(true);
     setMessage(null);
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?redirect=${redirect}`,
+        emailRedirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}`,
       },
     });
 
     if (error) {
       setMessage({ type: 'error', text: error.message });
     } else {
+      setLastSentAt(Date.now());
       setMessage({
         type: 'success',
         text: 'Check your email for the login link!',
@@ -64,7 +101,7 @@ function LoginForm() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?redirect=${redirect}`,
+        redirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}`,
       },
     });
 

@@ -97,9 +97,14 @@ function detectEnvironment(): Environment {
 
 /**
  * Production Supabase configuration.
+ *
+ * WHY (FIX-019): Supabase URL is loaded from environment variable only.
+ * Hardcoding the URL was a security risk — if the project ref leaked,
+ * attackers could target the specific Supabase instance. It also made
+ * it impossible to switch projects without a code change.
  */
 const PROD_SUPABASE = {
-  url: 'https://akmtmxunjhsgldjztdtt.supabase.co',
+  url: process.env.SUPABASE_URL || '',
   anonKey: process.env.SUPABASE_ANON_KEY || '',
 };
 
@@ -108,9 +113,8 @@ const PROD_SUPABASE = {
  * Can use local Supabase or same prod instance with dev flag.
  */
 const DEV_SUPABASE = {
-  // Use local Supabase if available, otherwise fall back to prod
-  url: process.env.SUPABASE_URL || PROD_SUPABASE.url,
-  anonKey: process.env.SUPABASE_ANON_KEY || PROD_SUPABASE.anonKey,
+  url: process.env.SUPABASE_URL || '',
+  anonKey: process.env.SUPABASE_ANON_KEY || '',
 };
 
 /**

@@ -113,8 +113,16 @@ function verifySignature(
 /**
  * Maps Polar product IDs to subscription tiers.
  * Handles both monthly and annual product variants.
+ *
+ * WHY: Returns null for unrecognized product IDs instead of defaulting to 'free'.
+ * This prevents accidental tier downgrades when Polar sends an unexpected
+ * product_id (new product, format change, null value). Callers must handle
+ * the null case explicitly rather than silently overwriting a paid tier.
+ *
+ * @param productId - The Polar product ID from the webhook payload
+ * @returns The tier name, or null if the product ID is unrecognized
  */
-function getTierFromProductId(productId: string): 'free' | 'pro' | 'power' {
+function getTierFromProductId(productId: string): 'pro' | 'power' | null {
   // Pro tier (monthly or annual)
   if (
     productId === process.env.POLAR_PRO_MONTHLY_PRODUCT_ID ||
@@ -129,7 +137,7 @@ function getTierFromProductId(productId: string): 'free' | 'pro' | 'power' {
   ) {
     return 'power';
   }
-  return 'free';
+  return null;
 }
 
 /**
@@ -292,31 +300,81 @@ export async function POST(request: Request) {
       case 'subscription.created':
       case 'subscription.updated': {
         const { data } = event;
+        const isDev = process.env.NODE_ENV === 'development';
 
-        // Find user by email (Polar sends customer email)
-        // In production, you'd use Polar customer metadata to link to Supabase user
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('id', data.user_id || '')
+        // FIX-005: Try user_id first, fall back to customer_id lookup
+        // WHY: Polar's user_id field is optional and may change format.
+        // Falling back to customer_id-based lookup ensures we can still
+        // map subscriptions from existing records when user_id is absent.
+        let profileId: string | null = null;
+
+        if (data.user_id) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('id', data.user_id)
+            .single();
+          profileId = profile?.id || null;
+        }
+
+        // Fallback: look up by existing polar_customer_id in subscriptions
+        if (!profileId && data.customer_id) {
+          const { data: existingByCustomer } = await supabase
+            .from('subscriptions')
+            .select('user_id')
+            .eq('polar_customer_id', data.customer_id)
+            .single();
+          if (existingByCustomer) {
+            profileId = existingByCustomer.user_id;
+          }
+        }
+
+        if (!profileId) {
+          if (isDev) console.log('No user found for subscription event — Polar may be ahead of signup');
+          return NextResponse.json({ received: true });
+        }
+
+        // WHY: Reject events with unrecognized product IDs rather than
+        // defaulting to 'free' which would silently downgrade paying users.
+        const productId = data.product_id || '';
+        const tier = getTierFromProductId(productId);
+        if (!tier) {
+          console.error(`Unrecognized Polar product_id: ${productId} — skipping upsert to prevent tier corruption`);
+          return NextResponse.json({ received: true });
+        }
+
+        // FIX-007: Downgrade protection — don't silently downgrade paid users
+        // WHY: If a user is on 'power' and this event says 'pro', it may be
+        // a stale webhook or Polar issue. Log a warning and skip the downgrade.
+        const tierRank: Record<string, number> = { free: 0, pro: 1, power: 2 };
+        const { data: existingSub } = await supabase
+          .from('subscriptions')
+          .select('tier, status')
+          .eq('user_id', profileId)
           .single();
 
-        if (!profile) {
-          console.log(`No user found for subscription ${data.id}`);
-          // Don't fail - Polar might be ahead of user signup
+        if (
+          existingSub &&
+          existingSub.status === 'active' &&
+          (tierRank[tier] ?? 0) < (tierRank[existingSub.tier] ?? 0)
+        ) {
+          console.warn(
+            `Downgrade detected: user ${profileId} is on '${existingSub.tier}' but event has '${tier}'. ` +
+            'Skipping upsert to prevent accidental downgrade. Process manually if intentional.'
+          );
           return NextResponse.json({ received: true });
         }
 
         // Upsert subscription
-        const productId = data.product_id || '';
+        // WHY: is_annual boolean matches the actual subscriptions table schema
         await supabase.from('subscriptions').upsert(
           {
-            user_id: profile.id,
+            user_id: profileId,
             polar_subscription_id: data.id,
             polar_customer_id: data.customer_id,
             polar_product_id: productId,
-            tier: getTierFromProductId(productId),
-            billing_cycle: getBillingCycleFromProductId(productId),
+            tier,
+            is_annual: getBillingCycleFromProductId(productId) === 'annual',
             status: data.status === 'active' ? 'active' : 'canceled',
             current_period_start: data.current_period_start,
             current_period_end: data.current_period_end,
@@ -327,12 +385,13 @@ export async function POST(request: Request) {
           }
         );
 
-        console.log(`Updated subscription for user ${profile.id}`);
+        if (isDev) console.log('Subscription upserted successfully');
         break;
       }
 
       case 'subscription.canceled': {
         const { data } = event;
+        const isDev = process.env.NODE_ENV === 'development';
 
         // Update subscription status
         await supabase
@@ -343,23 +402,25 @@ export async function POST(request: Request) {
           })
           .eq('polar_subscription_id', data.id);
 
-        console.log(`Canceled subscription ${data.id}`);
+        if (isDev) console.log('Subscription canceled successfully');
         break;
       }
 
       case 'order.created': {
-        // Handle one-time purchases if we add them
-        console.log(`Order created: ${event.data.id}`);
+        const isDev = process.env.NODE_ENV === 'development';
+        if (isDev) console.log('Order created event received');
         break;
       }
 
-      default:
-        console.log(`Unhandled event type: ${event.type}`);
+      default: {
+        const isDev = process.env.NODE_ENV === 'development';
+        if (isDev) console.log(`Unhandled event type: ${event.type}`);
+      }
     }
 
     return NextResponse.json({ received: true });
   } catch (error) {
-    console.error('Webhook processing error:', error);
+    console.error('Webhook processing error:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json(
       { error: 'Processing failed' },
       { status: 500 }
