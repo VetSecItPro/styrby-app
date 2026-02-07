@@ -122,14 +122,27 @@ jobs:
       - name: Build shared (dependency)
         run: pnpm --filter @styrby/shared build
 
-      # Install CLI tool binaries needed by ripgrep/difftastic test modules
+      # Install CLI tool binaries needed by ripgrep/difftastic test modules.
+      # The forked Happy Coder code expects difft at tools/unpacked/difft
+      # and ripgrep via scripts/ripgrep_launcher.cjs — symlink system binaries.
       - name: Install ripgrep and difftastic
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ripgrep
-          # difftastic is not in apt — install from GitHub release
           DIFFT_VERSION="0.63.0"
           curl -fsSL "https://github.com/Wilfred/difftastic/releases/download/${DIFFT_VERSION}/difft-x86_64-unknown-linux-gnu.tar.gz" | sudo tar -xz -C /usr/local/bin
+          # Symlink difft into expected tools/unpacked/ path
+          mkdir -p packages/styrby-cli/tools/unpacked
+          ln -sf "$(which difft)" packages/styrby-cli/tools/unpacked/difft
+          # Create ripgrep launcher script that delegates to system rg
+          mkdir -p packages/styrby-cli/scripts
+          cat > packages/styrby-cli/scripts/ripgrep_launcher.cjs << 'SCRIPT'
+          const { spawn } = require('child_process');
+          const args = JSON.parse(process.argv[2] || '[]');
+          const child = spawn('rg', args, { stdio: 'inherit' });
+          child.on('close', (code) => process.exit(code || 0));
+          child.on('error', () => process.exit(1));
+          SCRIPT
 
       - name: Run CLI tests
         run: pnpm --filter styrby-cli run test -- --coverage
