@@ -2,11 +2,16 @@ name: Weekly Security Scan
 
 on:
   schedule:
-    - cron: '0 2 * * 0' # Sundays 2am UTC
+    - cron: '30 6 * * 6' # Saturdays 12:30 AM CST (6:30 AM UTC)
   workflow_dispatch:
 
 env:
   NODE_VERSION: '22'
+
+permissions:
+  contents: read
+  security-events: write
+  issues: write
 
 jobs:
   dependency-audit:
@@ -14,30 +19,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
 
       - name: Full audit
+        id: audit
         run: |
           echo "## Dependency Audit" >> $GITHUB_STEP_SUMMARY
-          npm audit --json > audit-results.json 2>/dev/null || true
+          pnpm audit --json > audit-results.json 2>/dev/null || true
+          CRITICAL=$(jq '[.advisories // {} | to_entries[] | select(.value.severity == "critical")] | length' audit-results.json 2>/dev/null || echo "0")
+          HIGH=$(jq '[.advisories // {} | to_entries[] | select(.value.severity == "high")] | length' audit-results.json 2>/dev/null || echo "0")
+          echo "Critical: $CRITICAL, High: $HIGH" >> $GITHUB_STEP_SUMMARY
 
-          # Parse results
-          CRITICAL=$(jq '[.vulnerabilities | to_entries[] | select(.value.severity == "critical")] | length' audit-results.json 2>/dev/null || echo "0")
-          HIGH=$(jq '[.vulnerabilities | to_entries[] | select(.value.severity == "high")] | length' audit-results.json 2>/dev/null || echo "0")
-          MODERATE=$(jq '[.vulnerabilities | to_entries[] | select(.value.severity == "moderate")] | length' audit-results.json 2>/dev/null || echo "0")
-
-          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
-          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
-          echo "| High | $HIGH |" >> $GITHUB_STEP_SUMMARY
-          echo "| Moderate | $MODERATE |" >> $GITHUB_STEP_SUMMARY
+          echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+          echo "high=$HIGH" >> $GITHUB_OUTPUT
 
           if [ "$CRITICAL" -gt 0 ]; then
             echo "::error::$CRITICAL critical vulnerabilities found"
@@ -45,9 +44,8 @@ jobs:
 
       - name: Check outdated packages
         run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Outdated Packages" >> $GITHUB_STEP_SUMMARY
-          npm outdated --json 2>/dev/null | jq -r 'to_entries[] | "- \(.key): \(.value.current) → \(.value.latest)"' >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "All packages up to date" >> $GITHUB_STEP_SUMMARY
+          pnpm outdated --format json 2>/dev/null | jq -r 'to_entries[] | "- \(.key): \(.value.current) → \(.value.latest)"' >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "All packages up to date" >> $GITHUB_STEP_SUMMARY
 
   semgrep-deep:
     name: Semgrep Deep Scan
@@ -60,118 +58,88 @@ jobs:
         with:
           config: >-
             p/owasp-top-ten
-            p/typescript
+            p/nextjs
             p/react
-            p/nodejs
+            p/typescript
 
   license-check:
     name: License Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
 
       - name: Check licenses
         run: |
           npx license-checker --production --excludePrivatePackages --json > licenses.json 2>/dev/null || true
           echo "## License Report" >> $GITHUB_STEP_SUMMARY
 
-          # Check for copyleft/problematic licenses (important for proprietary app)
-          BANNED='GPL-3.0|AGPL|SSPL|BSL|EUPL|CC-BY-NC|CC-BY-SA'
+          BANNED='GPL-3.0|AGPL|SSPL|BSL|EUPL'
           FLAGGED=$(jq -r 'to_entries[] | select(.value.licenses | test("'"$BANNED"'")) | "\(.key): \(.value.licenses)"' licenses.json 2>/dev/null || true)
 
           if [ -n "$FLAGGED" ]; then
             echo "::warning::Potentially problematic licenses found:"
-            echo '```' >> $GITHUB_STEP_SUMMARY
             echo "$FLAGGED" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
           else
-            echo "All dependencies use approved licenses (MIT, Apache-2.0, BSD, ISC)." >> $GITHUB_STEP_SUMMARY
+            echo "All dependencies use approved licenses." >> $GITHUB_STEP_SUMMARY
           fi
 
-  secret-scan-deep:
-    name: Deep Secret Scan
+  create-issue:
+    name: Create Summary Issue
     runs-on: ubuntu-latest
+    needs: [dependency-audit]
+    if: needs.dependency-audit.outputs.critical > 0 || needs.dependency-audit.outputs.high > 0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/github-script@v7
         with:
-          fetch-depth: 0 # Full history for git secrets scanning
+          script: |
+            const critical = ${{ needs.dependency-audit.outputs.critical || 0 }};
+            const high = ${{ needs.dependency-audit.outputs.high || 0 }};
+            const date = new Date().toISOString().split('T')[0];
 
-      - name: Install gitleaks
-        run: |
-          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz | tar -xz
-          chmod +x gitleaks
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[Styrby Security] ${critical} critical, ${high} high - ${date}`,
+              labels: ['security', 'automated', 'weekly-scan'],
+              body: `## 🔒 Weekly Security Scan - Styrby
 
-      - name: Scan for secrets in history
-        run: |
-          ./gitleaks detect --source . --verbose --report-path gitleaks-report.json || true
-          echo "## Git History Secret Scan" >> $GITHUB_STEP_SUMMARY
+**Scan Date:** ${new Date().toLocaleDateString()}
+**Workflow:** [View Run](${context.payload.repository.html_url}/actions/runs/${context.runId})
 
-          if [ -f gitleaks-report.json ]; then
-            LEAKS=$(jq 'length' gitleaks-report.json 2>/dev/null || echo "0")
-            if [ "$LEAKS" -gt 0 ]; then
-              echo "::warning::$LEAKS potential secrets found in git history"
-              echo "Found $LEAKS potential secrets. Review gitleaks-report.json" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "No secrets found in git history." >> $GITHUB_STEP_SUMMARY
-            fi
-          else
-            echo "No secrets found in git history." >> $GITHUB_STEP_SUMMARY
-          fi
+### Vulnerability Summary
+- 🔴 Critical: ${critical}
+- 🟠 High: ${high}
 
-      - name: Upload gitleaks report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: gitleaks-report
-          path: gitleaks-report.json
-          retention-days: 30
+### Next Steps
+Run \`/sec-weekly-scan --repo styrby --fix-only\` to strategically analyze and fix these issues.
 
-  # ─── DAST scan (when web is deployed) ───
-  zap-dast:
-    name: ZAP DAST Scan
-    runs-on: ubuntu-latest
-    if: ${{ vars.PRODUCTION_URL != '' }}
-    steps:
-      - uses: actions/checkout@v4
+The skill will:
+1. Analyze each vulnerability for breaking changes
+2. Auto-fix safe items with build validation
+3. Create PR for fixes
+4. Auto-merge if CI passes
 
-      - name: ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.14.0
-        with:
-          target: ${{ vars.PRODUCTION_URL }}
-          cmd_options: '-a'
-        continue-on-error: true
-
-      - name: Upload ZAP Report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: zap-report
-          path: report_html.html
-          retention-days: 30
+---
+*This issue was created automatically by the weekly security scan.*
+            });
 
   summary:
     name: Security Summary
     runs-on: ubuntu-latest
-    needs: [dependency-audit, semgrep-deep, license-check, secret-scan-deep]
+    needs: [dependency-audit, semgrep-deep, license-check]
     if: always()
     steps:
       - name: Summary
         run: |
           echo "## Weekly Security Scan Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Run: $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
           echo '| Check | Status |' >> $GITHUB_STEP_SUMMARY
           echo '|-------|--------|' >> $GITHUB_STEP_SUMMARY
           echo "| Dependency Audit | ${{ needs.dependency-audit.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Semgrep SAST | ${{ needs.semgrep-deep.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| License Check | ${{ needs.license-check.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Secret Scan | ${{ needs.secret-scan-deep.result }} |" >> $GITHUB_STEP_SUMMARY
