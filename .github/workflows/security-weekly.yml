@@ -3,7 +3,7 @@ name: Weekly Security Scan
 on:
   schedule:
     - cron: '30 6 * * 6' # Saturdays 12:30 AM CST (6:30 AM UTC)
-  workflow_dispatch:
+  workflow_dispatch: # Manual trigger support
 
 env:
   NODE_VERSION: '22'
