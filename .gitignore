@@ -47,6 +47,9 @@ notes/
 # Compliance audit reports
 .compliance/
 
+# Dependency audit reports
+.deps-reports/
+
 # Claude Code project memory
 CLAUDE.md
 
@@ -91,3 +94,17 @@ next-env.d.ts
 .test-ship-history.json
 .test-ship-quarantine.json
 .test-audit.json
+
+# ============================================
+# ALL INTERNAL DOCUMENTATION - KEEP PRIVATE
+# ============================================
+CLAUDE.md
+ARCHITECTURE.md
+docs/
+
+# All markdown files (notes, plans, strategy)
+*.md
+
+# EXCEPTIONS: Public-facing files
+\!README.md
+\!.github/pull_request_template.md
