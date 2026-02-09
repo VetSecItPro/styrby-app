@@ -1,0 +1,17 @@
+name: TestID Scanner
+
+on:
+  schedule:
+    - cron: '0 0 * * 1' # Weekly on Monday midnight UTC
+  workflow_dispatch:     # Manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  scan:
+    uses: VetSecItPro/e2e-intelligence/.github/workflows/testid-scanner-template.yml@main
+    with:
+      repo-name: styrby
+      min-priority: high  # Only auto-fix high-priority items

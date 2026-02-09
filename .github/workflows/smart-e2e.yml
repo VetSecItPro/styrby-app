@@ -1,0 +1,25 @@
+name: Smart E2E Tests
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  e2e:
+    uses: VetSecItPro/e2e-intelligence/.github/workflows/smart-e2e-template.yml@main
+    with:
+      repo-name: styrby
+      node-version: '20'
+      base-url: 'http://localhost:3000'
+    secrets:
+      SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
