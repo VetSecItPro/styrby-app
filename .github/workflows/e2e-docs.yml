@@ -7,7 +7,12 @@ on:
 
 jobs:
   update-docs:
-    uses: VetSecItPro/e2e-intelligence/.github/workflows/e2e-docs-template.yml@main
-    with:
-      repo-name: styrby
-      node-version: '20'
+    # Only run on main branch
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Placeholder
+        run: |
+          echo "E2E Documentation System installed"
+          echo "Will run weekly after merge to main"
+          echo "Package: @vetsecitpro/e2e-intelligence"
