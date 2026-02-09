@@ -1,0 +1,13 @@
+name: E2E Documentation Updates
+
+on:
+  schedule:
+    - cron: '0 0 * * 1' # Weekly on Monday midnight UTC
+  workflow_dispatch:     # Manual trigger
+
+jobs:
+  update-docs:
+    uses: VetSecItPro/e2e-intelligence/.github/workflows/e2e-docs.yml@main
+    with:
+      repo-name: styrby
+    secrets: inherit

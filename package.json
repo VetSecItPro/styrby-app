@@ -23,5 +23,8 @@
     "overrides": {
       "tar": ">=6.2.1"
     }
+  },
+  "dependencies": {
+    "@vetsecitpro/e2e-intelligence": "git+https://github.com/VetSecItPro/e2e-intelligence.git"
   }
 }
