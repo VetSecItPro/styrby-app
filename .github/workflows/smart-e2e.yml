@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   e2e:
-    uses: VetSecItPro/e2e-intelligence/.github/workflows/smart-e2e.yml@main
+    uses: VetSecItPro/e2e-intelligence/.github/workflows/smart-e2e-template.yml@main
     with:
       repo-name: styrby
     secrets: inherit
