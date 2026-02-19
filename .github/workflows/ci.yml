@@ -59,6 +59,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Cache TypeScript build info
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/styrby-web/tsconfig.tsbuildinfo
+            packages/styrby-shared/tsconfig.tsbuildinfo
+            packages/styrby-cli/tsconfig.tsbuildinfo
+          key: tsbuildinfo-${{ runner.os }}-${{ hashFiles('**/tsconfig.json', 'pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            tsbuildinfo-${{ runner.os }}-${{ hashFiles('**/tsconfig.json', 'pnpm-lock.yaml') }}-
+
       - name: Lint (if configured)
         run: pnpm run lint
 
@@ -315,6 +326,14 @@ jobs:
         with:
           name: shared-build
           path: packages/styrby-shared/dist/
+
+      - name: Cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: packages/styrby-web/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('packages/styrby-web/**/*.ts', 'packages/styrby-web/**/*.tsx') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
 
       - name: Build web
         run: pnpm --filter styrby-web build
