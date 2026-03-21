@@ -2,6 +2,7 @@ import { Navbar } from '@/components/landing/navbar';
 import { Hero } from '@/components/landing/hero';
 import { SocialProof } from '@/components/landing/social-proof';
 import { ProblemSection } from '@/components/landing/problem-section';
+import { UseCases } from '@/components/landing/use-cases';
 import { FeaturesSection } from '@/components/landing/features-section';
 import { HowItWorks } from '@/components/landing/how-it-works';
 import { CostSavings } from '@/components/landing/cost-savings';
@@ -15,6 +16,10 @@ import { Footer } from '@/components/landing/footer';
  * WHY composable sections: Each section (hero, features, pricing, etc.) is
  * independently maintained in components/landing/. This avoids the previous
  * 500+ line monolithic page and makes A/B testing individual sections trivial.
+ *
+ * Section order follows Atlas's recommended conversion funnel:
+ * Hero → Social Proof → Problem → Use Cases → Features → How It Works →
+ * Cost Savings → Pricing → CTA
  */
 export default function LandingPage() {
   return (
@@ -23,6 +28,7 @@ export default function LandingPage() {
       <Hero />
       <SocialProof />
       <ProblemSection />
+      <UseCases />
       <FeaturesSection />
       <HowItWorks />
       <CostSavings />

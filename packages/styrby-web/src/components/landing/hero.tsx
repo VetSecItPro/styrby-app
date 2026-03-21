@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { ChevronDown, Shield, Zap } from "lucide-react"
+import { ChevronDown, Lock, Shield, Smartphone, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 function DashboardMockup() {
@@ -80,13 +80,17 @@ export function Hero() {
       <div className="absolute left-1/2 top-0 h-[500px] w-[800px] -translate-x-1/2 rounded-full bg-amber-500/5 blur-[120px]" />
 
       <div className="relative mx-auto max-w-7xl px-6 text-center">
+        {/* WHY this headline: Atlas strategy recommends leading with control + multi-agent.
+             Anthropic launched Channels (Claude-only via Telegram) and Dispatch (Claude-only
+             via their app). Our moat is 5 agents in one encrypted app. The headline must
+             communicate that immediately. */}
         <h1 className="mx-auto max-w-4xl text-balance text-5xl font-bold tracking-tight text-foreground md:text-7xl">
-          Your AI Agents{" "}
-          <span className="text-amber-500">In Your Pocket</span>
+          One App to Control{" "}
+          <span className="text-amber-500">All Your AI Agents</span>
         </h1>
 
         <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground md:text-xl">
-          Monitor costs, approve permissions, and control Claude Code, Codex, Gemini CLI, OpenCode, and Aider — all from one dashboard.
+          Track spend, approve risky actions, and monitor sessions across Claude Code, Codex, Gemini CLI, OpenCode, and Aider — from your phone or browser. End-to-end encrypted.
         </p>
 
         <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
@@ -101,10 +105,15 @@ export function Hero() {
           </Button>
         </div>
 
-        {/* Trust badges */}
+        {/* Trust badges — WHY these 4: Each addresses a key buyer objection.
+             E2E Encrypted = security concern. Zero Knowledge = privacy concern.
+             5 Agents = multi-agent moat vs Anthropic's Claude-only tools.
+             Free Tier = lowers barrier to trial. */}
         <div className="mt-8 flex flex-wrap items-center justify-center gap-6">
           {[
-            { icon: Shield, text: "E2E Encrypted" },
+            { icon: Lock, text: "E2E Encrypted" },
+            { icon: Shield, text: "Zero-Knowledge Architecture" },
+            { icon: Smartphone, text: "5 AI Agents, 1 App" },
             { icon: Zap, text: "Free Tier Available" },
           ].map(({ icon: Icon, text }) => (
             <div key={text} className="flex items-center gap-2 text-xs text-muted-foreground">
