@@ -172,9 +172,9 @@ export async function registerMachine(
     // Check if machine with this fingerprint already exists for this user
     const { data: existing, error: selectError } = await supabase
       .from('machines')
-      .select('id, fingerprint, name, platform, created_at')
+      .select('id, machine_fingerprint, name, platform, created_at')
       .eq('user_id', userId)
-      .eq('fingerprint', fingerprint)
+      .eq('machine_fingerprint', fingerprint)
       .single();
 
     if (selectError && selectError.code !== 'PGRST116') {
@@ -207,7 +207,7 @@ export async function registerMachine(
         isNew: false,
         machine: {
           machineId: existing.id,
-          fingerprint: existing.fingerprint,
+          fingerprint: existing.machine_fingerprint,
           machineName: existing.name || machineName,
           platform: existing.platform || platform,
           platformVersion,
@@ -225,7 +225,7 @@ export async function registerMachine(
       .insert({
         id: machineId,
         user_id: userId,
-        fingerprint,
+        machine_fingerprint: fingerprint,
         name: machineName,
         platform,
         platform_version: platformVersion,
@@ -233,7 +233,7 @@ export async function registerMachine(
         last_seen_at: now,
         created_at: now,
       })
-      .select('id, fingerprint, name, platform, created_at')
+      .select('id, machine_fingerprint, name, platform, created_at')
       .single();
 
     if (insertError) {
@@ -254,7 +254,7 @@ export async function registerMachine(
       isNew: true,
       machine: {
         machineId: inserted.id,
-        fingerprint: inserted.fingerprint,
+        fingerprint: inserted.machine_fingerprint,
         machineName: inserted.name || machineName,
         platform: inserted.platform || platform,
         platformVersion,
@@ -310,7 +310,7 @@ export async function getMachine(
 ): Promise<MachineInfo | null> {
   const { data, error } = await supabase
     .from('machines')
-    .select('id, fingerprint, name, platform, platform_version')
+    .select('id, machine_fingerprint, name, platform, platform_version')
     .eq('id', machineId)
     .single();
 
@@ -320,7 +320,7 @@ export async function getMachine(
 
   return {
     machineId: data.id,
-    fingerprint: data.fingerprint,
+    fingerprint: data.machine_fingerprint,
     machineName: data.name,
     platform: data.platform,
     platformVersion: data.platform_version,
