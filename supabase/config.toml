@@ -149,7 +149,25 @@ enabled = true
 # in emails.
 site_url = "http://127.0.0.1:3000"
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["https://127.0.0.1:3000"]
+# WHY these URLs: The CLI runs a temporary localhost server on ports 52280-52290
+# to receive OAuth callbacks. The web app uses localhost:3000 for dev and the
+# production domain for deployed builds. All must be whitelisted here.
+additional_redirect_urls = [
+  "https://127.0.0.1:3000",
+  "http://127.0.0.1:52280/callback",
+  "http://127.0.0.1:52281/callback",
+  "http://127.0.0.1:52282/callback",
+  "http://127.0.0.1:52283/callback",
+  "http://127.0.0.1:52284/callback",
+  "http://127.0.0.1:52285/callback",
+  "http://127.0.0.1:52286/callback",
+  "http://127.0.0.1:52287/callback",
+  "http://127.0.0.1:52288/callback",
+  "http://127.0.0.1:52289/callback",
+  "http://127.0.0.1:52290/callback",
+  "https://styrbyapp.com/auth/callback",
+  "https://www.styrbyapp.com/auth/callback",
+]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to the local API URL (http://127.0.0.1:<port>/auth/v1).

@@ -38,7 +38,7 @@ export type {
 /**
  * Version of the Styrby CLI
  */
-export const VERSION = '0.1.0-beta.2';
+export const VERSION = '0.1.0-beta.3';
 
 /**
  * Check if running in development mode

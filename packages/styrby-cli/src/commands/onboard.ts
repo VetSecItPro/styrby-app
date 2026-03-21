@@ -181,12 +181,13 @@ async function runAuthentication(
   userEmail?: string;
 }> {
   console.log(chalk.bold('\n  [2/6] Opening browser for authentication...'));
-  console.log('        Please sign in with your Styrby account.');
+  console.log('        Sign in with GitHub to create your account.');
   console.log(chalk.dim('        Waiting for authentication...'));
 
   try {
     const result = await startBrowserAuth({
       supabaseUrl: SUPABASE_URL,
+      supabaseAnonKey: SUPABASE_ANON_KEY,
       provider: 'github',
       timeout: options.timeout || 120000,
     });
