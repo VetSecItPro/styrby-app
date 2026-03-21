@@ -111,7 +111,7 @@ function collectTsxFiles(dir: string, ignoreDirs: Set<string>): string[] {
   const results: string[] = [];
   let entries: string[];
   try {
-    entries = readdirSync(dir).map(e => typeof e === 'string' ? e : e.name);
+    entries = readdirSync(dir).map(String);
   } catch {
     return results;
   }
