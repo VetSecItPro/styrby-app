@@ -39,7 +39,7 @@ export { AgentRegistry } from './agent/core/AgentRegistry';
 /**
  * CLI version
  */
-export const VERSION = '0.1.0-beta.4';
+export const VERSION = '0.1.0-beta.5';
 
 /**
  * Main CLI entry point.
@@ -55,11 +55,19 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0];
 
-  // No command → start a coding session (auto-onboard if needed)
-  if (!command || command === undefined) {
-    const { isAuthenticated } = await import('@/configuration');
+  // Agent shorthand: `styrby codex` → `styrby start --agent codex`
+  // WHY: Typing `styrby codex` is faster than `styrby start --agent codex`.
+  // We detect known agent names and treat them as start commands.
+  const KNOWN_AGENTS = ['claude', 'codex', 'gemini', 'opencode', 'aider'];
+
+  // No command → start with default agent (auto-onboard if needed)
+  // Agent name as command → start with that agent
+  const isAgentShorthand = command && KNOWN_AGENTS.includes(command);
+  const isBareCommand = !command || command === undefined;
+
+  if (isBareCommand || isAgentShorthand) {
+    const { isAuthenticated, getConfigValue } = await import('@/configuration');
     if (!isAuthenticated()) {
-      // First-time user — run onboard, then start session
       logger.info(`Styrby CLI v${VERSION}`);
       const { runOnboard } = await import('@/commands/onboard');
       const result = await runOnboard({ skipPairing: true });
@@ -67,8 +75,17 @@ async function main(): Promise<void> {
         process.exit(1);
       }
     }
-    // Start session with default agent (claude)
-    await handleStart(args);
+
+    // Determine agent: shorthand > --agent flag > config default > claude
+    const agentFromShorthand = isAgentShorthand ? command : null;
+    const configDefault = getConfigValue('defaultAgent');
+    const startArgs = agentFromShorthand
+      ? ['--agent', agentFromShorthand, ...args.slice(1)]
+      : configDefault
+        ? ['--agent', configDefault, ...args]
+        : args;
+
+    await handleStart(startArgs);
     return;
   }
 
