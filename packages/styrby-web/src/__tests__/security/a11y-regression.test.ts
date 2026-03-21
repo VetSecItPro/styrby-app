@@ -109,9 +109,9 @@ describe('useFocusTrap hook', () => {
  */
 function collectTsxFiles(dir: string, ignoreDirs: Set<string>): string[] {
   const results: string[] = [];
-  let entries: ReturnType<typeof readdirSync>;
+  let entries: string[];
   try {
-    entries = readdirSync(dir, { encoding: 'utf-8' }) as string[];
+    entries = readdirSync(dir).map(e => typeof e === 'string' ? e : e.name);
   } catch {
     return results;
   }
