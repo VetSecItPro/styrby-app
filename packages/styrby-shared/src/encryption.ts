@@ -109,7 +109,7 @@ export function generateKeyPair(): NaClKeyPair {
  *
  * @example
  * const result = encrypt('Hello from mobile!', cliPublicKey, mobileSecretKey);
- * // Store result.encrypted and result.nonce in session_messages
+ * // Store result.encrypted as content_encrypted, result.nonce as encryption_nonce
  */
 export function encrypt(
   message: string,
@@ -232,9 +232,8 @@ export function decodeBase64(base64: string): Uint8Array {
  * @example
  * const { encrypted, nonce } = encryptForStorage('Hello!', cliPublicKey, mobileSecretKey);
  * await supabase.from('session_messages').insert({
- *   encrypted_content: encrypted,
- *   nonce: nonce,
- *   content: null,
+ *   content_encrypted: encrypted,
+ *   encryption_nonce: nonce,
  * });
  */
 export function encryptForStorage(
@@ -262,8 +261,8 @@ export function encryptForStorage(
  *
  * @example
  * const plaintext = decryptFromStorage(
- *   row.encrypted_content,
- *   row.nonce,
+ *   row.content_encrypted,
+ *   row.encryption_nonce,
  *   cliPublicKey,
  *   mobileSecretKey
  * );

@@ -422,18 +422,6 @@ export class BudgetActions {
    */
   private async queueEmailNotification(result: BudgetCheckResult): Promise<boolean> {
     try {
-      // Get user's email from profile
-      const { data: profile, error: profileError } = await this.config.supabase
-        .from('profiles')
-        .select('email')
-        .eq('id', this.config.userId)
-        .single();
-
-      if (profileError || !profile?.email) {
-        this.log('Could not get user email for notification:', profileError?.message);
-        return false;
-      }
-
       // Check if user has email budget alerts enabled
       const { data: prefs } = await this.config.supabase
         .from('notification_preferences')
@@ -446,25 +434,27 @@ export class BudgetActions {
         return false;
       }
 
-      // Instead of queueing, we'll rely on the web API to send emails
-      // The CLI should call the web API endpoint to trigger the email
-      // For now, log that email would be sent
-      // WHY: Do not log PII (email addresses) - use generic message instead
-      this.log(`Email notification queued for user - alert: ${result.alert.name}`);
+      // WHY: Email is on auth.users, not profiles. The CLI can't access
+      // auth.users directly (RLS). Instead, we log an audit_log entry that
+      // the send-push-notification Edge Function picks up. The Edge Function
+      // has service role access and can read the user's email from auth.users.
+      this.log(`Budget alert triggered - alert: ${result.alert.name}`);
 
-      // Store the pending notification for the web API to pick up
-      // This is a simplified approach - in production, use a proper queue
-      await this.config.supabase.from('offline_command_queue').insert({
+      // Record the alert in audit_log for the Edge Function to process
+      // WHY: audit_log uses `action` (audit_action enum), not `event_type`.
+      // 'settings_updated' is the closest valid enum value for budget alerts.
+      await this.config.supabase.from('audit_log').insert({
         user_id: this.config.userId,
-        command: JSON.stringify({
-          type: 'send_budget_alert_email',
-          email: profile.email,
-          alertName: result.alert.name,
-          threshold: result.alert.threshold_usd.toFixed(2),
-          currentSpend: result.currentSpendUsd.toFixed(2),
+        action: 'settings_updated',
+        resource_type: 'budget_alert',
+        metadata: {
+          alert_name: result.alert.name,
+          threshold_usd: result.alert.threshold_usd.toFixed(2),
+          current_spend_usd: result.currentSpendUsd.toFixed(2),
           period: result.alert.period,
-          percentUsed: Math.round(result.percentUsed),
-        }),
+          percent_used: Math.round(result.percentUsed),
+          alert_action: result.alert.action,
+        },
       });
 
       return true;

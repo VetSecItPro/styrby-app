@@ -334,12 +334,17 @@ describe('POST /api/webhooks/polar', () => {
     }
 
     it('upserts subscription for valid subscription.created event', async () => {
-      // Profile lookup succeeds
+      // Mock 1: Profile lookup succeeds
       mockSingle.mockResolvedValueOnce({
         data: { id: 'user-uuid-123' },
         error: null,
       });
-      // Existing sub check (no existing)
+      // Mock 2: Customer ID lookup (parallel)
+      mockSingle.mockResolvedValueOnce({
+        data: { user_id: 'user-uuid-123' },
+        error: null,
+      });
+      // Mock 3: Existing sub check (no existing)
       mockSingle.mockResolvedValueOnce({
         data: null,
         error: null,
@@ -353,12 +358,17 @@ describe('POST /api/webhooks/polar', () => {
     });
 
     it('handles subscription.updated event', async () => {
-      // Profile lookup succeeds
+      // Mock 1: Profile lookup succeeds
       mockSingle.mockResolvedValueOnce({
         data: { id: 'user-uuid-123' },
         error: null,
       });
-      // Existing sub check
+      // Mock 2: Customer ID lookup (parallel)
+      mockSingle.mockResolvedValueOnce({
+        data: { user_id: 'user-uuid-123' },
+        error: null,
+      });
+      // Mock 3: Existing sub check
       mockSingle.mockResolvedValueOnce({
         data: { tier: 'pro', status: 'active' },
         error: null,
@@ -396,8 +406,14 @@ describe('POST /api/webhooks/polar', () => {
     });
 
     it('skips upsert for unrecognized product_id (prevents tier corruption)', async () => {
+      // Mock 1: Profile lookup
       mockSingle.mockResolvedValueOnce({
         data: { id: 'user-uuid-123' },
+        error: null,
+      });
+      // Mock 2: Customer ID lookup (parallel)
+      mockSingle.mockResolvedValueOnce({
+        data: { user_id: 'user-uuid-123' },
         error: null,
       });
 
@@ -411,12 +427,19 @@ describe('POST /api/webhooks/polar', () => {
     });
 
     it('prevents downgrade from power to pro (FIX-007)', async () => {
-      // Profile lookup succeeds
+      // WHY: Promise.all fires profile + customer lookups concurrently (2 mocks),
+      // then tier check runs (1 mock). We return combined data objects so the
+      // result works regardless of which query consumes which mock.
+      // Mock 1 & 2: both return data valid for either profile or customer lookup
       mockSingle.mockResolvedValueOnce({
-        data: { id: 'user-uuid-123' },
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'power', status: 'active' },
         error: null,
       });
-      // Existing sub is power tier
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'power', status: 'active' },
+        error: null,
+      });
+      // Mock 3: existing subscription tier check
       mockSingle.mockResolvedValueOnce({
         data: { tier: 'power', status: 'active' },
         error: null,
@@ -433,12 +456,16 @@ describe('POST /api/webhooks/polar', () => {
     });
 
     it('allows upgrade from pro to power', async () => {
-      // Profile lookup succeeds
+      // Mock 1 & 2: parallel profile + customer lookups (order non-deterministic)
       mockSingle.mockResolvedValueOnce({
-        data: { id: 'user-uuid-123' },
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'pro', status: 'active' },
         error: null,
       });
-      // Existing sub is pro tier
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'pro', status: 'active' },
+        error: null,
+      });
+      // Mock 3: existing subscription tier check
       mockSingle.mockResolvedValueOnce({
         data: { tier: 'pro', status: 'active' },
         error: null,

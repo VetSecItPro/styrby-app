@@ -160,17 +160,17 @@ async function handleSubscriptionCreated(
     return;
   }
 
-  // Look up user by email
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('email', email)
-    .single();
+  // WHY: Email is on auth.users, not profiles. Edge Functions have service
+  // role access and can query auth.users via the admin API.
+  const { data: authData, error: authError } = await supabase.auth.admin.listUsers();
+  const matchedUser = authData?.users?.find((u) => u.email === email);
 
-  if (!profile) {
+  if (!matchedUser) {
     console.error('No user found for email:', email);
     return;
   }
+
+  const profile = { id: matchedUser.id };
 
   const tier = getTierFromProductId(subscription.product_id);
 
@@ -196,11 +196,8 @@ async function handleSubscriptionCreated(
     throw error;
   }
 
-  // Update user's tier in profile
-  await supabase
-    .from('profiles')
-    .update({ tier })
-    .eq('id', profile.id);
+  // WHY: Tier is stored on the subscriptions table (upserted above), not profiles.
+  // The profiles table has no `tier` column.
 
   console.log('Subscription created:', subscription.id, 'tier:', tier);
 }
@@ -234,12 +231,7 @@ async function handleSubscriptionUpdated(
   }
 
   // Update user's tier in profile
-  if (data?.user_id) {
-    await supabase
-      .from('profiles')
-      .update({ tier })
-      .eq('id', data.user_id);
-  }
+  // WHY: Tier is on subscriptions table (updated above), not profiles.
 
   console.log('Subscription updated:', subscription.id, 'status:', subscription.status);
 }
@@ -268,12 +260,8 @@ async function handleSubscriptionCanceled(
   }
 
   // Downgrade user to free tier (they keep access until period end)
-  if (data?.user_id && subscription.ended_at) {
-    await supabase
-      .from('profiles')
-      .update({ tier: 'free' })
-      .eq('id', data.user_id);
-  }
+  // WHY: Tier is on subscriptions table (updated above), not profiles.
+  // Cancellation with ended_at is handled by the subscription status update.
 
   console.log('Subscription canceled:', subscription.id);
 }
@@ -296,23 +284,24 @@ async function handleOrderCreated(
     return;
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('email', email)
-    .single();
+  // WHY: Email is on auth.users, not profiles.
+  const { data: authData } = await supabase.auth.admin.listUsers();
+  const matchedUser = authData?.users?.find((u) => u.email === email);
 
-  if (!profile) {
+  if (!matchedUser) {
     console.warn('No user found for order email:', email);
     return;
   }
 
   // Log to audit trail
+  // WHY: audit_log uses `action` (audit_action enum), `resource_type`, `resource_id`
+  // — not `target_type`/`target_id`. And 'subscription.payment' is not a valid enum
+  // value — use 'subscription_changed'.
   await supabase.from('audit_log').insert({
-    user_id: profile.id,
-    action: 'subscription.payment',
-    target_type: 'order',
-    target_id: order.id,
+    user_id: matchedUser.id,
+    action: 'subscription_changed',
+    resource_type: 'order',
+    resource_id: order.id,
     metadata: {
       amount: order.amount,
       currency: order.currency,

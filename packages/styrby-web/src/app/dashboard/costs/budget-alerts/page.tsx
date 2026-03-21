@@ -108,10 +108,19 @@ export default async function BudgetAlertsPage() {
 
   // WHY: Calculate current spend for each alert's period. We do this server-side
   // so the progress bars render immediately without a second client-side fetch.
-  // Each alert may have a different period and agent scope.
-  const alertsWithSpend = await Promise.all(
-    alerts.map(async (alert) => {
-      const periodStart = getPeriodStartDate(alert.period);
+  // Queries are deduplicated by (period, agent_type) composite key to eliminate
+  // the N+1 pattern — one query per unique combination instead of one per alert.
+  const uniqueKeys = [...new Set(
+    alerts.map((a) => `${a.period}:${a.agent_type ?? 'null'}`)
+  )];
+
+  const spendByKey: Record<string, number> = {};
+
+  await Promise.all(
+    uniqueKeys.map(async (key) => {
+      const [period, agentTypeRaw] = key.split(':') as [string, string];
+      const agentType = agentTypeRaw === 'null' ? null : agentTypeRaw;
+      const periodStart = getPeriodStartDate(period as 'daily' | 'weekly' | 'monthly');
 
       let query = supabase
         .from('cost_records')
@@ -119,31 +128,35 @@ export default async function BudgetAlertsPage() {
         .eq('user_id', user.id)
         .gte('recorded_at', periodStart);
 
-      if (alert.agent_type) {
-        query = query.eq('agent_type', alert.agent_type);
+      if (agentType) {
+        query = query.eq('agent_type', agentType);
       }
 
       const { data: costData } = await query;
-
-      const currentSpend = (costData || []).reduce(
+      spendByKey[key] = (costData || []).reduce(
         (sum, record) => sum + (Number(record.cost_usd) || 0),
         0
       );
-
-      return {
-        ...alert,
-        // WHY: Supabase returns notification_channels as string[], but the
-        // client component expects the narrower NotificationChannel[] type.
-        // The CHECK constraint on the DB ensures only valid values exist.
-        notification_channels: alert.notification_channels as ('push' | 'in_app' | 'email')[],
-        current_spend_usd: currentSpend,
-        percentage_used:
-          Number(alert.threshold_usd) > 0
-            ? (currentSpend / Number(alert.threshold_usd)) * 100
-            : 0,
-      };
     })
   );
+
+  const alertsWithSpend = alerts.map((alert) => {
+    const key = `${alert.period}:${alert.agent_type ?? 'null'}`;
+    const currentSpend = spendByKey[key] ?? 0;
+
+    return {
+      ...alert,
+      // WHY: Supabase returns notification_channels as string[], but the
+      // client component expects the narrower NotificationChannel[] type.
+      // The CHECK constraint on the DB ensures only valid values exist.
+      notification_channels: alert.notification_channels as ('push' | 'in_app' | 'email')[],
+      current_spend_usd: currentSpend,
+      percentage_used:
+        Number(alert.threshold_usd) > 0
+          ? (currentSpend / Number(alert.threshold_usd)) * 100
+          : 0,
+    };
+  });
 
   return (
     <div className="min-h-screen bg-zinc-950">

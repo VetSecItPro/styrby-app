@@ -69,6 +69,7 @@ export class MessageBuffer {
       error: '❌',
     }[message.type];
 
+    // Terminal UI output — intentional console.log for Ink rendering
     console.log(`${prefix} ${message.content}`);
   }
 

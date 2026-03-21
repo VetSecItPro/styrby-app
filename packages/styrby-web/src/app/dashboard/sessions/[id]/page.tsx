@@ -57,11 +57,14 @@ export default async function SessionPage({ params }: SessionPageProps) {
   }
 
   // Fetch messages in chronological order
+  // WHY: .limit(500) prevents unbounded memory usage on sessions with thousands of messages.
+  // 500 messages covers the vast majority of sessions without hitting serverless limits.
   const { data: messages } = await supabase
     .from('session_messages')
     .select('*')
     .eq('session_id', id)
-    .order('sequence_number', { ascending: true });
+    .order('sequence_number', { ascending: true })
+    .limit(500);
 
   // Fetch user's subscription tier for feature gating
   const { data: subscription } = await supabase

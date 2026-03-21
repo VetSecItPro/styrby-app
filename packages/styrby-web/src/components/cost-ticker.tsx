@@ -4,6 +4,24 @@ import { useState, useCallback } from 'react';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 import { cn } from '@/lib/utils';
 
+// WHY: Intl.NumberFormat construction is expensive — hoisting these to module level
+// ensures they are created once at module load time rather than on every render.
+// Two formatters cover the two display cases: normal amounts ($0.01+) and
+// micro amounts (sub-cent) that need 4 decimal places for meaningful display.
+const COST_FORMATTER_NORMAL = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const COST_FORMATTER_MICRO = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});
+
 /* ──────────────────────────── Types ──────────────────────────── */
 
 /**
@@ -129,12 +147,9 @@ export function CostTicker({
    * @returns Formatted currency string
    */
   const formatCost = (amount: number): string => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: amount < 0.01 ? 4 : 2,
-    }).format(amount);
+    // WHY: Use pre-allocated module-level formatters (see top of file).
+    // Sub-cent amounts use 4 decimal places for meaningful precision.
+    return (amount < 0.01 ? COST_FORMATTER_MICRO : COST_FORMATTER_NORMAL).format(amount);
   };
 
   return (

@@ -302,31 +302,42 @@ export async function POST(request: Request) {
         const { data } = event;
         const isDev = process.env.NODE_ENV === 'development';
 
-        // FIX-005: Try user_id first, fall back to customer_id lookup
-        // WHY: Polar's user_id field is optional and may change format.
-        // Falling back to customer_id-based lookup ensures we can still
-        // map subscriptions from existing records when user_id is absent.
+        // FIX-005 / PERF-009: Resolve profileId via user_id and customer_id lookups.
+        //
+        // WHY parallel strategy: when both identifiers are present we fire both
+        // queries concurrently and pick the first that returns a valid ID.
+        // This shaves one full round-trip in the common case where user_id is set
+        // and the profile exists — the customer_id result is simply discarded.
+        // When only one identifier is available we fall through to the single
+        // query path without wasting an unnecessary network call.
         let profileId: string | null = null;
 
-        if (data.user_id) {
+        if (data.user_id && data.customer_id) {
+          // Both identifiers present — fire in parallel, use first non-null result
+          const [profileResult, customerResult] = await Promise.all([
+            supabase.from('profiles').select('id').eq('id', data.user_id).single(),
+            supabase
+              .from('subscriptions')
+              .select('user_id')
+              .eq('polar_customer_id', data.customer_id)
+              .single(),
+          ]);
+          profileId = profileResult.data?.id || customerResult.data?.user_id || null;
+        } else if (data.user_id) {
           const { data: profile } = await supabase
             .from('profiles')
             .select('id')
             .eq('id', data.user_id)
             .single();
           profileId = profile?.id || null;
-        }
-
-        // Fallback: look up by existing polar_customer_id in subscriptions
-        if (!profileId && data.customer_id) {
+        } else if (data.customer_id) {
+          // Fallback: look up by existing polar_customer_id in subscriptions
           const { data: existingByCustomer } = await supabase
             .from('subscriptions')
             .select('user_id')
             .eq('polar_customer_id', data.customer_id)
             .single();
-          if (existingByCustomer) {
-            profileId = existingByCustomer.user_id;
-          }
+          profileId = existingByCustomer?.user_id || null;
         }
 
         if (!profileId) {

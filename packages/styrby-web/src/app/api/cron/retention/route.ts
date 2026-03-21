@@ -103,19 +103,23 @@ export async function POST(request: NextRequest) {
       } else {
         accountsDeleted = deletedCount ?? 0;
 
-        // Also delete from auth.users via Supabase Admin API
+        // Also delete from auth.users via Supabase Admin API.
         // WHY: profiles CASCADE only covers public tables. The auth.users
         // record must be deleted separately to fully remove the account.
-        for (const profileId of expiredIds) {
-          const { error: authDeleteError } =
-            await supabase.auth.admin.deleteUser(profileId);
-          if (authDeleteError) {
-            console.error(
-              `Failed to delete auth.users record ${profileId}:`,
-              authDeleteError.message
-            );
-          }
-        }
+        // WHY allSettled: one failed deletion must not block the others —
+        // partial progress is better than a full abort on a transient error.
+        await Promise.allSettled(
+          expiredIds.map(async (profileId) => {
+            const { error: authDeleteError } =
+              await supabase.auth.admin.deleteUser(profileId);
+            if (authDeleteError) {
+              console.error(
+                `Failed to delete auth.users record ${profileId}:`,
+                authDeleteError.message
+              );
+            }
+          })
+        );
       }
     }
 

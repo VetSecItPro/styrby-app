@@ -30,7 +30,7 @@ import {
   type AgentType,
   type AgentStatus,
 } from '@/auth/agent-credentials';
-import { AgentSession, createAgentSession } from '@/session/agent-session';
+import { AgentSession } from '@/session/agent-session';
 import {
   runInstallWithUI,
   runBatchInstallWithUI,

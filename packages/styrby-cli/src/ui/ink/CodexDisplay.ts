@@ -36,6 +36,7 @@ export class CodexDisplay {
       error: '❌',
     }[this.state.status];
 
+    // Terminal UI output — intentional console.log for Ink rendering
     if (this.state.currentTask) {
       console.log(`${statusIcon} ${this.state.currentTask}`);
     }

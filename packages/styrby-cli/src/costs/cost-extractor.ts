@@ -17,7 +17,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { EventEmitter } from 'node:events';
 import type { AgentType } from '@/auth/agent-credentials';
-import { calculateCost, MODEL_PRICING, type TokenUsage } from './jsonl-parser.js';
+import { calculateCost, type TokenUsage } from './jsonl-parser.js';
 
 // ============================================================================
 // Types

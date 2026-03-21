@@ -145,15 +145,21 @@ async function handler(request: NextRequest, context: ApiAuthContext): Promise<N
   const total = count ?? 0;
   const hasMore = offset + limit < total;
 
-  const response = NextResponse.json({
-    sessions: sessions || [],
-    pagination: {
-      total,
-      limit,
-      offset,
-      hasMore,
+  // WHY: no-store prevents CDN/proxy caching of user-specific session data.
+  // Session lists contain private data and change frequently — a cached
+  // response would surface stale status and cost data to the API caller.
+  const response = NextResponse.json(
+    {
+      sessions: sessions || [],
+      pagination: {
+        total,
+        limit,
+        offset,
+        hasMore,
+      },
     },
-  });
+    { headers: { 'Cache-Control': 'no-store' } }
+  );
 
   return addRateLimitHeaders(response, keyId);
 }

@@ -21,6 +21,17 @@ const PAGE_SIZE = 20;
 /** Debounce delay in milliseconds for search input. */
 const SEARCH_DEBOUNCE_MS = 300;
 
+/**
+ * Short month name abbreviations for relative date formatting.
+ *
+ * WHY: Hoisted to module level so this array is allocated once at import time
+ * rather than on every formatRelativeTime() call.
+ */
+const MONTH_NAMES = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+] as const;
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -464,12 +475,9 @@ export function formatRelativeTime(isoTimestamp: string): string {
   if (diffMs < DAY * 2) return 'yesterday';
 
   // Older than 2 days: show "Jan 15" format
+  // WHY: MONTH_NAMES is a module-level constant — no allocation per call.
   const date = new Date(isoTimestamp);
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-  return `${months[date.getMonth()]} ${date.getDate()}`;
+  return `${MONTH_NAMES[date.getMonth()]} ${date.getDate()}`;
 }
 
 /**

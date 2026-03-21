@@ -109,14 +109,17 @@ export async function DELETE(request: Request) {
 
     // Log deletion in audit_log (before signing out user)
     // WHY: Compliance requirement - track account lifecycle events
+    // WHY: 'account_deleted' is not in audit_action enum. Use 'settings_updated'
+    // with resource_type to indicate it was a deletion. Column is 'metadata', not 'details'.
     await supabase.from('audit_log').insert({
       user_id: user.id,
-      action: 'account_deleted',
-      details: {
+      action: 'settings_updated',
+      resource_type: 'account_deletion',
+      ip_address: request.headers.get('x-forwarded-for') || 'unknown',
+      metadata: {
         soft_delete: true,
         reason: validation.data.reason || 'Not provided',
         hard_delete_scheduled: '30 days',
-        ip_address: request.headers.get('x-forwarded-for') || 'unknown',
       },
     });
 

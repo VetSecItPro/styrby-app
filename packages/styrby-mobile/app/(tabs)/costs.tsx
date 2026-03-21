@@ -8,13 +8,13 @@
 import { View, Text, ScrollView, RefreshControl, ActivityIndicator, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useCosts, formatCost, formatTokens } from '../../src/hooks/useCosts';
+import { useCosts, formatTokens } from '../../src/hooks/useCosts';
 import { useBudgetAlerts, getAlertProgressColor, getPeriodLabel } from '../../src/hooks/useBudgetAlerts';
 import type { BudgetAlert } from '../../src/hooks/useBudgetAlerts';
 import type { SubscriptionTier } from 'styrby-shared';
 import { CostCard } from '../../src/components/CostCard';
 import { AgentCostBar, AgentCostBarEmpty } from '../../src/components/AgentCostBar';
-import { DailyMiniChart, DailyMiniChartEmpty, DailyMiniChartSkeleton } from '../../src/components/DailyMiniChart';
+import { DailyMiniChart, DailyMiniChartEmpty } from '../../src/components/DailyMiniChart';
 
 // ============================================================================
 // Budget Alerts Summary (inline component for costs screen)

@@ -170,21 +170,29 @@ export default function SessionDetailScreen() {
         // Fetch messages for replay if session is completed
         const isSessionComplete = ['stopped', 'error', 'expired'].includes(sessionData.status);
         if (isSessionComplete && sessionData.message_count > 0) {
+          // WHY: session_messages has message_type (not role) and no cost_usd
+          // (costs live in cost_records table). Use actual column names.
           const { data: messages } = await supabase
             .from('session_messages')
-            .select('id, role, content_encrypted, created_at, cost_usd, duration_ms')
+            .select('id, message_type, content_encrypted, created_at, duration_ms')
             .eq('session_id', id)
-            .order('created_at', { ascending: true });
+            .order('sequence_number', { ascending: true });
 
           if (messages && messages.length > 0) {
-            // Convert to ReplayMessageData format
+            // Convert message_type to role for the replay viewer
+            const typeToRole = (type: string): 'user' | 'assistant' | 'system' => {
+              if (type === 'user-input' || type === 'user') return 'user';
+              if (type === 'tool-call' || type === 'tool-result') return 'system';
+              return 'assistant';
+            };
+
             const replayData: ReplayMessageData[] = messages.map((msg) => ({
               id: msg.id,
-              role: msg.role === 'tool' ? 'system' : (msg.role as 'user' | 'assistant' | 'system'),
+              role: typeToRole(msg.message_type),
               agentType: sessionData.agent_type as 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider',
               content: msg.content_encrypted || '[Encrypted message]',
               createdAt: msg.created_at,
-              costUsd: msg.cost_usd ?? undefined,
+              costUsd: undefined, // Costs are in cost_records, not session_messages
               durationMs: msg.duration_ms ?? undefined,
             }));
             setReplayMessages(replayData);

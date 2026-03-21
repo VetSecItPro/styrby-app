@@ -5,7 +5,7 @@
 
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import { logger } from '@/ui/logger'

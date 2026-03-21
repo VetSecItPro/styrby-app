@@ -16,7 +16,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ApiConnectionState, ApiSession, ApiMessage } from './types';
-import type { RelayClient, RelayClientConfig } from 'styrby-shared';
+import type { RelayClient } from 'styrby-shared';
 import type { RelayMessage, AgentType as SharedAgentType } from 'styrby-shared';
 import { logger } from '@/ui/logger';
 
