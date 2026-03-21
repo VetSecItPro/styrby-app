@@ -39,7 +39,7 @@ export { AgentRegistry } from './agent/core/AgentRegistry';
 /**
  * CLI version
  */
-export const VERSION = '0.1.0-beta.1';
+export const VERSION = '0.1.0-beta.2';
 
 /**
  * Main CLI entry point.
