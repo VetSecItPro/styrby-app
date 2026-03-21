@@ -542,8 +542,8 @@ export async function runOnboard(options: OnboardOptions = {}): Promise<OnboardR
   console.log(chalk.green("  You're all set!"));
   console.log('');
   console.log('  Try these commands:');
-  console.log(chalk.cyan('    styrby              ') + chalk.dim('Interactive mode'));
-  console.log(chalk.cyan('    styrby start        ') + chalk.dim('Start a coding session'));
+  console.log(chalk.cyan('    styrby              ') + chalk.dim('Start a coding session'));
+  console.log(chalk.cyan('    styrby costs        ') + chalk.dim('See token spend'));
   console.log(chalk.cyan('    styrby doctor       ') + chalk.dim('Check system health'));
   console.log('');
 

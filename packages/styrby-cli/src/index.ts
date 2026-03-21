@@ -39,22 +39,36 @@ export { AgentRegistry } from './agent/core/AgentRegistry';
 /**
  * CLI version
  */
-export const VERSION = '0.1.0-beta.3';
+export const VERSION = '0.1.0-beta.4';
 
 /**
  * Main CLI entry point.
  *
  * Parses command line arguments and dispatches to appropriate handlers.
- * If no command is given, launches interactive mode.
+ *
+ * WHY bare command starts a session: Every AI coding agent CLI follows
+ * this pattern — `claude`, `codex`, `gemini`, `aider` all start a session
+ * when you type the bare command. Users expect `styrby` to do something
+ * immediately, not show a menu. If not authenticated, we auto-onboard first.
  */
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0];
 
-  // Interactive mode if no command given
+  // No command → start a coding session (auto-onboard if needed)
   if (!command || command === undefined) {
-    const { runInteractive } = await import('@/commands/interactive');
-    await runInteractive();
+    const { isAuthenticated } = await import('@/configuration');
+    if (!isAuthenticated()) {
+      // First-time user — run onboard, then start session
+      logger.info(`Styrby CLI v${VERSION}`);
+      const { runOnboard } = await import('@/commands/onboard');
+      const result = await runOnboard({ skipPairing: true });
+      if (!result.success) {
+        process.exit(1);
+      }
+    }
+    // Start session with default agent (claude)
+    await handleStart(args);
     return;
   }
 
@@ -917,16 +931,18 @@ Usage: styrby [command] [options]
 Mobile relay for AI coding agents. Control Claude Code, Codex, Gemini CLI,
 OpenCode, and Aider from your phone. Code stays local — only I/O is relayed.
 
+  styrby                    Start a coding session (auto-setup on first run)
+
 Commands:
 
   Setup
-    onboard                 First-time setup (auth + machine registration + pairing)
-    auth                    Authenticate only (skip pairing)
+    onboard                 Re-run setup wizard (auth + machine registration + pairing)
+    auth                    Re-authenticate only
     pair                    Generate QR code for mobile app pairing
     install <agent>         Install an AI agent (claude, codex, gemini, opencode, aider)
 
   Session
-    start                   Start a coding session
+    start                   Start a coding session (same as bare styrby)
     stop                    Stop running daemon
     status                  Show connection and session status
     logs                    View daemon logs (--follow, --lines N)
