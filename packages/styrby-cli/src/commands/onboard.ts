@@ -518,8 +518,28 @@ export async function runOnboard(options: OnboardOptions = {}): Promise<OnboardR
 
   setConfigValue('machineId', machineId);
 
-  // Step 5: Agent detection
-  await runAgentDetection();
+  // Step 5: Agent detection + default agent selection
+  const agents = await runAgentDetection();
+
+  // Pick default agent from installed agents
+  const installedAgents = Object.entries(agents)
+    .filter(([, a]) => a.installed)
+    .map(([key]) => key);
+
+  if (installedAgents.length > 0) {
+    // WHY: Auto-select the first ready agent as default so `styrby` (bare command)
+    // starts a session immediately without needing --agent. Users can override
+    // anytime with `styrby codex` or `styrby --agent gemini`.
+    const readyAgents = Object.entries(agents)
+      .filter(([, a]) => a.installed && a.configured)
+      .map(([key]) => key);
+
+    // Prefer a ready (configured) agent, fall back to first installed
+    const defaultAgent = readyAgents[0] || installedAgents[0] || 'claude';
+    setConfigValue('defaultAgent', defaultAgent as 'claude' | 'codex' | 'gemini');
+    console.log(chalk.dim(`\n        Default agent: ${chalk.cyan(defaultAgent)}`));
+    console.log(chalk.dim(`        Change anytime: styrby codex, styrby gemini, etc.`));
+  }
 
   // Step 6: Mobile pairing (optional)
   let mobilePaired = false;
