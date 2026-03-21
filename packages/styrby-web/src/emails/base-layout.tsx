@@ -77,7 +77,7 @@ export function BaseLayout({ preview, children }: BaseLayoutProps) {
               <Text className="text-xs text-zinc-500">
                 Styrby - Mobile Remote for AI Coding Agents
               </Text>
-              <Text className="mt-2 text-xs text-zinc-600">
+              <Text className="mt-2 text-xs text-zinc-500">
                 <Link
                   href="https://www.styrbyapp.com/settings"
                   className="text-zinc-500 underline"
@@ -99,7 +99,7 @@ export function BaseLayout({ preview, children }: BaseLayoutProps) {
                   Terms
                 </Link>
               </Text>
-              <Text className="mt-4 text-xs text-zinc-600">
+              <Text className="mt-4 text-xs text-zinc-500">
                 © {new Date().getFullYear()} Styrby. All rights reserved.
               </Text>
             </Section>

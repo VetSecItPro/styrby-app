@@ -418,6 +418,8 @@ export function ChatThread({
       className="flex-1 overflow-y-auto p-6 space-y-4"
       role="log"
       aria-label="Chat messages"
+      aria-live="polite"
+      aria-relevant="additions"
     >
       {messages.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-full text-zinc-500">

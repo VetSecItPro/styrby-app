@@ -155,6 +155,8 @@ export function CostTicker({
   return (
     <div className={cn('relative inline-flex items-center gap-2', className)}>
       <span
+        aria-live="polite"
+        aria-atomic="true"
         className={cn(
           'font-mono text-2xl font-bold transition-all duration-300',
           isAnimating && 'text-green-400 scale-105'

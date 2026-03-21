@@ -15,6 +15,7 @@
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -276,6 +277,11 @@ export function BudgetAlertsClient({
     setError(null);
   }, []);
 
+  // WHY: WCAG 2.1.2 requires focus to not be trapped unless the trap is intentional
+  // (i.e., a modal dialog). The focus trap keeps keyboard users inside the modal
+  // and restores focus to the trigger element when the modal closes.
+  const focusTrapRef = useFocusTrap<HTMLDivElement>(showModal, handleCloseModal);
+
   // -------------------------------------------------------------------------
   // CRUD Operations
   // -------------------------------------------------------------------------
@@ -417,7 +423,7 @@ export function BudgetAlertsClient({
         <div>
           <p className="text-sm text-zinc-400">
             {alertCount} / {alertLimit} alerts used
-            <span className="text-zinc-600 ml-2">({tier} plan)</span>
+            <span className="text-zinc-500 ml-2">({tier} plan)</span>
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -641,7 +647,7 @@ export function BudgetAlertsClient({
 
                 {/* Last triggered */}
                 {alert.last_triggered_at && (
-                  <p className="text-xs text-zinc-600 mt-2">
+                  <p className="text-xs text-zinc-500 mt-2">
                     Last triggered:{' '}
                     {new Date(alert.last_triggered_at).toLocaleDateString('en-US', {
                       month: 'short',
@@ -673,14 +679,14 @@ export function BudgetAlertsClient({
           />
 
           {/* Modal content */}
-          <div className="relative w-full max-w-lg rounded-xl bg-zinc-900 border border-zinc-800 p-6 shadow-xl">
+          <div ref={focusTrapRef} className="relative w-full max-w-lg rounded-xl bg-zinc-900 border border-zinc-800 p-6 shadow-xl">
             <h2 className="text-lg font-semibold text-zinc-100 mb-6">
               {editingAlert ? 'Edit Budget Alert' : 'Create Budget Alert'}
             </h2>
 
             {/* Error message */}
             {error && (
-              <div className="mb-4 rounded-lg bg-red-500/10 border border-red-500/30 px-4 py-3">
+              <div role="alert" className="mb-4 rounded-lg bg-red-500/10 border border-red-500/30 px-4 py-3">
                 <p className="text-sm text-red-400">{error}</p>
               </div>
             )}
@@ -736,10 +742,10 @@ export function BudgetAlertsClient({
               </div>
 
               {/* Period selector */}
-              <div>
-                <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+              <fieldset className="border-0 p-0 m-0">
+                <legend className="block text-sm font-medium text-zinc-300 mb-1.5">
                   Period
-                </label>
+                </legend>
                 <div className="grid grid-cols-3 gap-2">
                   {(['daily', 'weekly', 'monthly'] as AlertPeriod[]).map(
                     (period) => (
@@ -759,14 +765,14 @@ export function BudgetAlertsClient({
                     )
                   )}
                 </div>
-              </div>
+              </fieldset>
 
               {/* Agent filter */}
-              <div>
-                <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+              <fieldset className="border-0 p-0 m-0">
+                <legend className="block text-sm font-medium text-zinc-300 mb-1.5">
                   Agent Filter
                   <span className="text-zinc-500 font-normal ml-1">(optional)</span>
-                </label>
+                </legend>
                 <div className="grid grid-cols-4 gap-2">
                   <button
                     type="button"
@@ -796,13 +802,13 @@ export function BudgetAlertsClient({
                     </button>
                   ))}
                 </div>
-              </div>
+              </fieldset>
 
               {/* Action selector */}
-              <div>
-                <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+              <fieldset className="border-0 p-0 m-0">
+                <legend className="block text-sm font-medium text-zinc-300 mb-1.5">
                   Action When Triggered
-                </label>
+                </legend>
                 <div className="space-y-2">
                   {(
                     ['notify', 'warn_and_slowdown', 'hard_stop'] as AlertAction[]
@@ -853,7 +859,7 @@ export function BudgetAlertsClient({
                     );
                   })}
                 </div>
-              </div>
+              </fieldset>
             </div>
 
             {/* Modal actions */}

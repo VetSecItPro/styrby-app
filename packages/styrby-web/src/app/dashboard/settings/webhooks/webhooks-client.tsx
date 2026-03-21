@@ -337,7 +337,7 @@ export function WebhooksClient({
         <div className="flex items-center gap-4">
           <p className="text-sm text-zinc-400">
             {webhookCount} / {webhookLimit} webhooks used
-            <span className="text-zinc-600 ml-2">({tier} plan)</span>
+            <span className="text-zinc-500 ml-2">({tier} plan)</span>
           </p>
           <Link
             href="/dashboard/settings/webhooks/docs"
@@ -864,7 +864,7 @@ function DeliveryLogModal({ webhook, onClose }: DeliveryLogModalProps) {
           {!loading && !error && deliveries.length === 0 && (
             <div className="text-center py-8">
               <p className="text-zinc-500">No deliveries yet</p>
-              <p className="text-sm text-zinc-600 mt-1">
+              <p className="text-sm text-zinc-500 mt-1">
                 Deliveries will appear here once events are triggered
               </p>
             </div>

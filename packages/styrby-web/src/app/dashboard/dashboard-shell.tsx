@@ -25,6 +25,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <CommandPalette />
 
       <main
+        id="main-content"
         className={cn(
           'pt-16 pb-20 transition-all duration-200 md:pb-0',
           collapsed ? 'md:pl-16' : 'md:pl-60'

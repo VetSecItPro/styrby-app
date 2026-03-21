@@ -163,7 +163,7 @@ export function CostsRealtime({
               <p className="text-2xl font-bold text-zinc-100 mt-1">
                 ${data.cost.toFixed(2)}
               </p>
-              <p className="text-xs text-zinc-600 mt-1">
+              <p className="text-xs text-zinc-500 mt-1">
                 {((data.inputTokens + data.outputTokens) / 1000).toFixed(1)}K tokens
               </p>
             </div>

@@ -192,6 +192,10 @@ export function DashboardRealtime({
 
   return (
     <>
+      {/* WHY: WCAG 2.4.6 requires a descriptive heading. sr-only makes it
+          visible only to screen readers without affecting the visual layout. */}
+      <h1 className="sr-only">Dashboard</h1>
+
       {/* Connection status indicator */}
       <div className="flex items-center justify-end mb-4">
         <ConnectionStatus isConnected={isConnected} />

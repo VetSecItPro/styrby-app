@@ -11,6 +11,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
+/**
+ * Placeholder notification count.
+ * WHY: Hardcoded until the notifications feature is wired to a real data source.
+ * Replace with a prop or hook when the notification system is implemented.
+ */
+const NOTIFICATION_COUNT = 3;
+
 export function DashboardTopNav() {
   return (
     <header className="fixed left-0 right-0 top-0 z-40 flex h-16 items-center justify-between border-b border-border/40 bg-card/80 px-6 backdrop-blur-md">
@@ -21,11 +28,23 @@ export function DashboardTopNav() {
 
       <div className="flex items-center gap-3">
         {/* Notification bell */}
-        <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground" aria-label="Notifications">
+        {/* WHY: WCAG 1.3.1 — include the count in aria-label so screen readers
+            announce "Notifications, 3 unread" rather than just "Notifications". */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative text-muted-foreground hover:text-foreground"
+          aria-label={NOTIFICATION_COUNT > 0 ? `Notifications, ${NOTIFICATION_COUNT} unread` : 'Notifications'}
+        >
           <Bell className="h-5 w-5" />
-          <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-background">
-            3
-          </span>
+          {NOTIFICATION_COUNT > 0 && (
+            <span
+              className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-background"
+              aria-hidden="true"
+            >
+              {NOTIFICATION_COUNT}
+            </span>
+          )}
         </Button>
 
         {/* User dropdown */}

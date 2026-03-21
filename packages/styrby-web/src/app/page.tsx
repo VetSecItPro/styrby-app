@@ -23,7 +23,7 @@ import { Footer } from '@/components/landing/footer';
  */
 export default function LandingPage() {
   return (
-    <main className="min-h-screen">
+    <main id="main-content" className="min-h-screen">
       <Navbar />
       <Hero />
       <SocialProof />

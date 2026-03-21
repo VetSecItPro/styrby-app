@@ -40,7 +40,7 @@ export function DashboardSidebar({
           {collapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
         </button>
 
-        <nav className="flex flex-1 flex-col gap-1">
+        <nav aria-label="Dashboard navigation" className="flex flex-1 flex-col gap-1">
           {navItems.map((item) => {
             const isActive = pathname === item.href
             return (

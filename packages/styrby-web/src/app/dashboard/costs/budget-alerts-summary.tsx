@@ -281,7 +281,7 @@ export function BudgetAlertsSummary({
 
         {/* Alert count indicator */}
         {alertCount > 1 && (
-          <p className="text-xs text-zinc-600 mt-2">
+          <p className="text-xs text-zinc-500 mt-2">
             Showing most critical of {alertCount} active alert{alertCount !== 1 ? 's' : ''}
           </p>
         )}

@@ -144,7 +144,7 @@ export function ChatInput({ sessionId }: ChatInputProps) {
     <div className="border-t border-zinc-800 bg-zinc-900/50 p-4">
       {/* Error message */}
       {error && (
-        <div className="mb-3 text-sm text-red-400 flex items-center justify-between">
+        <div role="alert" className="mb-3 text-sm text-red-400 flex items-center justify-between">
           <span>{error}</span>
           <button
             onClick={() => setError(null)}

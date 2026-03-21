@@ -283,7 +283,7 @@ export function TemplatesClient({ initialTemplates, userId }: TemplatesClientPro
       {/* Templates grid */}
       {templates.length === 0 ? (
         <div className="rounded-xl border border-dashed border-zinc-700 bg-zinc-900/50 p-12 text-center">
-          <DocumentTextIcon className="h-12 w-12 mx-auto text-zinc-600 mb-4" />
+          <DocumentTextIcon className="h-12 w-12 mx-auto text-zinc-500 mb-4" />
           <h3 className="text-lg font-medium text-zinc-300 mb-2">No templates yet</h3>
           <p className="text-sm text-zinc-500 mb-6 max-w-md mx-auto">
             Context templates let you define reusable project context with variables

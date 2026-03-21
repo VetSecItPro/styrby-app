@@ -197,7 +197,7 @@ export default async function PairDevicePage() {
                           <span className="mr-2">{machine.hostname}</span>
                         )}
                         {machine.cli_version && (
-                          <span className="text-zinc-600">
+                          <span className="text-zinc-500">
                             v{machine.cli_version}
                           </span>
                         )}

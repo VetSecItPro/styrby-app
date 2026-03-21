@@ -426,7 +426,14 @@ export default function DashboardScreen() {
                   <View className="flex-row items-center">
                     <Text className="text-zinc-100 font-semibold text-base">{agent.name}</Text>
                     {status?.online && (
-                      <View className="ml-2 w-2 h-2 rounded-full bg-green-500" />
+                      // WHY: The parent Pressable already announces the full status via
+                      // accessibilityLabel. Hide the decorative dot from screen readers
+                      // to avoid a redundant "online" announcement.
+                      <View
+                        className="ml-2 w-2 h-2 rounded-full bg-green-500"
+                        accessibilityElementsHidden={true}
+                        importantForAccessibility="no-hide-descendants"
+                      />
                     )}
                   </View>
                   <Text className="text-zinc-500 text-sm mt-0.5">

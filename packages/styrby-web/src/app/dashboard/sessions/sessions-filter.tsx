@@ -204,7 +204,7 @@ export function SessionsFilter({ sessions }: SessionsFilterProps) {
 
       {/* Active filter indicator */}
       {hasActiveFilters && (
-        <div className="mb-4 flex items-center gap-3 text-sm text-zinc-400">
+        <div aria-live="polite" className="mb-4 flex items-center gap-3 text-sm text-zinc-400">
           <span>
             Showing {filteredSessions.length} of {sessions.length} sessions
           </span>
@@ -250,6 +250,7 @@ export function SessionsFilter({ sessions }: SessionsFilterProps) {
 
                           {/* Status indicator */}
                           <span
+                            aria-hidden="true"
                             className={`h-2 w-2 rounded-full ${
                               session.status === 'running'
                                 ? 'bg-green-500 animate-pulse'
@@ -258,6 +259,13 @@ export function SessionsFilter({ sessions }: SessionsFilterProps) {
                                   : 'bg-zinc-500'
                             }`}
                           />
+                          <span className="sr-only">
+                            {session.status === 'running'
+                              ? 'Running'
+                              : session.status === 'idle'
+                                ? 'Idle'
+                                : 'Ended'}
+                          </span>
 
                           {/* Tags */}
                           {session.tags &&
@@ -361,7 +369,7 @@ export function SessionsFilter({ sessions }: SessionsFilterProps) {
           <p className="mt-2 text-zinc-500">
             Start a session with your AI coding agent to see it here.
           </p>
-          <p className="mt-1 text-sm text-zinc-600">
+          <p className="mt-1 text-sm text-zinc-500">
             Run <code className="text-orange-500">styrby chat</code> to get
             started.
           </p>

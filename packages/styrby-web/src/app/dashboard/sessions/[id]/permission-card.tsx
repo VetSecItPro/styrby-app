@@ -254,7 +254,8 @@ export function PermissionCard({ message, sessionId, isActive }: PermissionCardP
             )}
           </div>
 
-          {/* Action buttons */}
+          {/* Action buttons and status (aria-live for screen reader announcements) */}
+          <div aria-live="polite">
           {isActive && status === 'pending' && (
             <div className="flex gap-3 mt-4">
               <button
@@ -312,6 +313,7 @@ export function PermissionCard({ message, sessionId, isActive }: PermissionCardP
               </button>
             </div>
           )}
+          </div>
         </div>
       </div>
     </div>

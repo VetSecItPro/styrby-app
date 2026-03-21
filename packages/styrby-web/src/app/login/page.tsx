@@ -133,6 +133,7 @@ function LoginForm() {
             {/* Message display */}
             {message && (
               <div
+                role="alert"
                 className={`mb-6 rounded-lg border p-4 text-sm ${
                   message.type === 'success'
                     ? 'border-green-500/20 bg-green-500/10 text-green-400'
@@ -154,6 +155,7 @@ function LoginForm() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
                   required
+                  autoComplete="email"
                   className="bg-secondary/60 border-border/60 text-foreground placeholder:text-muted-foreground focus-visible:ring-amber-500"
                 />
               </div>
