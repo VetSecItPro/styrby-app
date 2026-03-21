@@ -60,81 +60,81 @@ describe('rateLimit', () => {
     vi.useRealTimers();
   });
 
-  it('allows requests under the limit', () => {
+  it('allows requests under the limit', async () => {
     const config = { windowMs: 60000, maxRequests: 5 };
     const req = createMockRequest('10.1.0.1');
 
-    const result = rateLimit(req, config, 'test-allow');
+    const result = await rateLimit(req, config, 'test-allow');
     expect(result.allowed).toBe(true);
     expect(result.remaining).toBe(4);
     expect(result.retryAfter).toBeUndefined();
   });
 
-  it('blocks requests over the limit', () => {
+  it('blocks requests over the limit', async () => {
     const config = { windowMs: 60000, maxRequests: 3 };
     const uniqueIp = `10.2.0.${Date.now() % 255}`;
     const req = createMockRequest(uniqueIp);
     const prefix = `test-block-${Date.now()}`;
 
     // Make 3 allowed requests
-    rateLimit(req, config, prefix);
-    rateLimit(req, config, prefix);
-    rateLimit(req, config, prefix);
+    await rateLimit(req, config, prefix);
+    await rateLimit(req, config, prefix);
+    await rateLimit(req, config, prefix);
 
     // 4th should be blocked
-    const result = rateLimit(req, config, prefix);
+    const result = await rateLimit(req, config, prefix);
     expect(result.allowed).toBe(false);
     expect(result.remaining).toBe(0);
     expect(result.retryAfter).toBeGreaterThan(0);
   });
 
-  it('uses separate windows for different key prefixes', () => {
+  it('uses separate windows for different key prefixes', async () => {
     const config = { windowMs: 60000, maxRequests: 1 };
     const req = createMockRequest('10.3.0.1');
     const prefix1 = `test-sep1-${Date.now()}`;
     const prefix2 = `test-sep2-${Date.now()}`;
 
-    rateLimit(req, config, prefix1);
-    const result = rateLimit(req, config, prefix2);
+    await rateLimit(req, config, prefix1);
+    const result = await rateLimit(req, config, prefix2);
     expect(result.allowed).toBe(true);
   });
 
-  it('uses separate windows for different IPs', () => {
+  it('uses separate windows for different IPs', async () => {
     const config = { windowMs: 60000, maxRequests: 1 };
     const prefix = `test-ip-${Date.now()}`;
 
-    rateLimit(createMockRequest('10.4.0.1'), config, prefix);
-    const result = rateLimit(createMockRequest('10.4.0.2'), config, prefix);
+    await rateLimit(createMockRequest('10.4.0.1'), config, prefix);
+    const result = await rateLimit(createMockRequest('10.4.0.2'), config, prefix);
     expect(result.allowed).toBe(true);
   });
 
-  it('resets window after expiration', () => {
+  it('resets window after expiration', async () => {
     vi.useFakeTimers();
     const config = { windowMs: 1000, maxRequests: 1 };
     const req = createMockRequest('10.5.0.1');
     const prefix = `test-reset-${Date.now()}`;
 
-    rateLimit(req, config, prefix);
+    await rateLimit(req, config, prefix);
 
     // Advance past the window
     vi.advanceTimersByTime(1500);
 
-    const result = rateLimit(req, config, prefix);
+    const result = await rateLimit(req, config, prefix);
     expect(result.allowed).toBe(true);
   });
 
-  it('returns correct remaining count', () => {
+  it('returns correct remaining count', async () => {
     const config = { windowMs: 60000, maxRequests: 5 };
     const req = createMockRequest('10.6.0.1');
     const prefix = `test-remaining-${Date.now()}`;
 
-    expect(rateLimit(req, config, prefix).remaining).toBe(4);
-    expect(rateLimit(req, config, prefix).remaining).toBe(3);
-    expect(rateLimit(req, config, prefix).remaining).toBe(2);
-    expect(rateLimit(req, config, prefix).remaining).toBe(1);
-    expect(rateLimit(req, config, prefix).remaining).toBe(0);
+    expect((await rateLimit(req, config, prefix)).remaining).toBe(4);
+    expect((await rateLimit(req, config, prefix)).remaining).toBe(3);
+    expect((await rateLimit(req, config, prefix)).remaining).toBe(2);
+    expect((await rateLimit(req, config, prefix)).remaining).toBe(1);
+    expect((await rateLimit(req, config, prefix)).remaining).toBe(0);
     // Over limit — remaining stays at 0
-    expect(rateLimit(req, config, prefix).remaining).toBe(0);
+    expect((await rateLimit(req, config, prefix)).remaining).toBe(0);
   });
 });
 

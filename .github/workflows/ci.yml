@@ -33,9 +33,7 @@ jobs:
       # REQUIRED: Dependency Graph must be enabled in repo settings
       # (Settings > Code security > Dependency graph > Enable)
       # Without it, this step will fail on PRs.
-      # TODO: Remove continue-on-error once Dependency Graph is enabled.
       - uses: actions/dependency-review-action@v4
-        continue-on-error: true
         with:
           fail-on-severity: high
           allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, 0BSD, CC0-1.0, Unlicense
@@ -201,15 +199,16 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Dependency audit
-        # continue-on-error: allowed because these are UPSTREAM unpatched CVEs we cannot fix:
+        # WHY: continue-on-error was removed (SEC-013-002) so CVEs fail CI.
+        # Known upstream unpatched CVEs to track until patches are released:
         #   @modelcontextprotocol/sdk:
         #     - GHSA-345p-7cg4-v4c7 (SSRF via fetch in MCP SDK)
         #   tar via expo -> cacache -> tar:
         #     - GHSA-8qq5-rm4j-mr97 (arbitrary file creation via symlink)
         #     - GHSA-r6q2-hw4h-h46w (path traversal in tar extraction)
         #     - GHSA-34x7-hfp2-rc4v (denial of service via crafted tar)
-        # Re-evaluate when these packages release patches. Check with: pnpm audit
-        continue-on-error: true
+        # If CI fails due to these, add --ignore-path overrides or upgrade deps.
+        # Check current state with: pnpm audit
         run: pnpm audit --audit-level=high
 
       - name: Secret pattern scan
@@ -232,7 +231,13 @@ jobs:
           echo "No secrets detected."
 
       - name: Semgrep SAST
-        uses: returntocorp/semgrep-action@v1
+        # WHY: Pinned to a specific SHA (SEC-013-001) rather than the mutable
+        # @v1 tag. Mutable tags can be silently updated by the upstream repo
+        # to point to different (potentially malicious) code, making the CI
+        # pipeline a supply-chain attack vector. SHA pinning guarantees the
+        # exact commit that was reviewed is what runs.
+        # SHA corresponds to returntocorp/semgrep-action v1.108.0
+        uses: returntocorp/semgrep-action@713efdd6086a9e82cee6671a4e46fe0cb2a817dc
         with:
           config: >-
             p/owasp-top-ten

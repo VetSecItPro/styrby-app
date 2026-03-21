@@ -316,26 +316,18 @@ describe('Offline Queue Utilities', () => {
       expect(ids.size).toBe(50);
     });
 
-    it('contains a timestamp component', () => {
-      const before = Date.now();
+    it('has queue_ prefix followed by a UUID', () => {
       const id = generateQueueId();
-      const after = Date.now();
 
-      // Extract the timestamp part (between first and second underscore)
-      const parts = id.split('_');
-      expect(parts.length).toBe(3);
-
-      const timestamp = parseInt(parts[1], 10);
-      expect(timestamp).toBeGreaterThanOrEqual(before);
-      expect(timestamp).toBeLessThanOrEqual(after);
+      // Format: queue_<uuid-v4>
+      expect(id).toMatch(/^queue_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     });
 
-    it('contains a random suffix component', () => {
-      const id = generateQueueId();
-      const parts = id.split('_');
-      // The random suffix should be alphanumeric
-      expect(parts[2]).toMatch(/^[a-z0-9]+$/);
-      expect(parts[2].length).toBeGreaterThan(0);
+    it('uses cryptographically random UUIDs', () => {
+      const id1 = generateQueueId();
+      const id2 = generateQueueId();
+      // UUIDs from crypto.randomUUID() should never collide
+      expect(id1).not.toBe(id2);
     });
   });
 

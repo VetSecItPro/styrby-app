@@ -139,20 +139,23 @@ function getDevicePlatform(): string {
 // ============================================================================
 
 /**
- * Generates a random string using multiple entropy sources.
- * WHY: Single Math.random() is predictable; combined sources improve uniqueness.
- * Note: For security tokens, use expo-crypto. Device IDs are identifiers, not secrets.
+ * Generates a cryptographically secure random ID for device identification.
  *
- * @returns A 16-character pseudorandom string
+ * WHY: Math.random() is a pseudorandom number generator seeded from a
+ * predictable source — it must never be used for IDs that need to be
+ * unguessable. Device IDs are used in presence channels and stored in
+ * Supabase; collision or prediction could allow session hijacking.
+ * crypto.randomUUID() is available in React Native's JS runtime (Hermes/JSI)
+ * and produces a v4 UUID backed by OS-level CSPRNG.
+ *
+ * @returns A cryptographically random UUID string (v4)
  */
 function generateSecureId(): string {
-  const timestamp = Date.now().toString(36);
-  const randomPart1 = Math.random().toString(36).substring(2, 8);
-  const randomPart2 = Math.random().toString(36).substring(2, 8);
-  const performanceNow = (typeof performance !== 'undefined' && performance.now)
-    ? Math.floor(performance.now() * 1000).toString(36)
-    : Math.random().toString(36).substring(2, 6);
-  return `${timestamp}${randomPart1}${randomPart2}${performanceNow}`.substring(0, 16);
+  // WHY: crypto.randomUUID() is available in React Native (Hermes engine)
+  // and Expo environments since RN 0.71+. It uses the platform CSPRNG
+  // (SecRandomCopyBytes on iOS, /dev/urandom on Android) — unlike
+  // Math.random() which is deterministic and predictable.
+  return crypto.randomUUID();
 }
 
 /**

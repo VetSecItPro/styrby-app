@@ -76,7 +76,7 @@ export async function PATCH(
   context: RouteContext
 ) {
   // Rate limit check
-  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.budgetAlerts, 'team-members');
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.budgetAlerts, 'team-members');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
   }
@@ -213,7 +213,7 @@ export async function DELETE(
   context: RouteContext
 ) {
   // Rate limit check
-  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.budgetAlerts, 'team-members');
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.budgetAlerts, 'team-members');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
   }

@@ -648,7 +648,9 @@ export default function ChatScreen() {
     if (!inputText.trim() || !isConnected) return;
 
     const content = inputText.trim();
-    const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    // WHY: crypto.randomUUID() is available in Hermes (React Native) and
+    // provides cryptographic uniqueness — Math.random() is not CSPRNG.
+    const messageId = `msg_${crypto.randomUUID()}`;
 
     const userMessage: ChatMessageData = {
       id: messageId,

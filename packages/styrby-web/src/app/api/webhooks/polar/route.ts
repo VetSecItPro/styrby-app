@@ -366,7 +366,15 @@ export async function POST(request: Request) {
         }
 
         // Upsert subscription
-        // WHY: is_annual boolean matches the actual subscriptions table schema
+        // WHY: is_annual boolean matches the actual subscriptions table schema.
+        // WHY onConflict: 'polar_subscription_id' — webhooks must be idempotent.
+        // Polar may deliver the same subscription.created event more than once
+        // (retries, network issues). Conflicting on polar_subscription_id ensures
+        // that a duplicate event updates the existing row rather than creating a
+        // second subscription for the user, which would corrupt billing state.
+        // Using user_id here was wrong — a user can have multiple historical
+        // subscriptions and the conflict target must uniquely identify THIS
+        // subscription, not the user.
         await supabase.from('subscriptions').upsert(
           {
             user_id: profileId,
@@ -381,7 +389,7 @@ export async function POST(request: Request) {
             cancel_at_period_end: data.cancel_at_period_end || false,
           },
           {
-            onConflict: 'user_id',
+            onConflict: 'polar_subscription_id',
           }
         );
 
@@ -393,12 +401,38 @@ export async function POST(request: Request) {
         const { data } = event;
         const isDev = process.env.NODE_ENV === 'development';
 
-        // Update subscription status
+        // WHY: When a subscription is canceled, access should continue until the
+        // end of the paid billing period — not cut off immediately. We record
+        // current_period_end (or ended_at as a fallback) so the scheduled cron
+        // job can check this timestamp and downgrade the user's tier to 'free'
+        // only after the period expires. Downgrading the tier here immediately
+        // would be a billing violation — the user paid for the full period.
+        //
+        // CRON JOB REQUIRED: A scheduled job must run daily and execute:
+        //   UPDATE subscriptions
+        //   SET tier = 'free'
+        //   WHERE status = 'canceled'
+        //     AND current_period_end < NOW()
+        //     AND tier != 'free';
+        // This enforces the grace period and prevents unauthorized access after
+        // the subscription truly ends.
+        // WHY: Polar's webhook payload includes current_period_end for active
+        // subscriptions. We also check ended_at via a safe cast in case the
+        // payload schema evolves — defensive coding against provider changes.
+        const periodEnd =
+          data.current_period_end ||
+          (data as Record<string, unknown>).ended_at as string | undefined ||
+          null;
+
         await supabase
           .from('subscriptions')
           .update({
             status: 'canceled',
             canceled_at: data.canceled_at || new Date().toISOString(),
+            // Preserve the paid-through date so the cron job knows when to
+            // actually downgrade the tier. Do not null this out — it is the
+            // authoritative "access until" timestamp.
+            ...(periodEnd ? { current_period_end: periodEnd } : {}),
           })
           .eq('polar_subscription_id', data.id);
 

@@ -50,7 +50,7 @@ const GetDeliveriesSchema = z.object({
  */
 export async function GET(request: NextRequest) {
   // FIX-048: Add rate limiting to webhook deliveries endpoint
-  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.standard, 'webhook-deliveries');
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.standard, 'webhook-deliveries');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
   }

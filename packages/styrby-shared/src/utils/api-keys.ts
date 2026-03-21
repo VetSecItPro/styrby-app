@@ -38,31 +38,24 @@ export const API_KEY_RANDOM_LENGTH = 32;
 /**
  * Generates a cryptographically secure random string.
  *
- * Uses crypto.getRandomValues() for cryptographic randomness.
- * Falls back to a less secure method if not available (shouldn't happen
- * in any modern runtime - Node.js, browsers, Deno, Bun all support it).
+ * Uses crypto.getRandomValues() which is available in all supported runtimes:
+ * Node.js 20+, modern browsers, Deno, Bun, and React Native (Hermes).
  *
  * @param length - The desired length of the random string
  * @returns A random alphanumeric string
+ * @throws {Error} If crypto.getRandomValues is unavailable (should never happen in production)
  *
  * @example
  * const randomPart = generateRandomString(32);
  * // Returns something like "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
  */
 export function generateRandomString(length: number): string {
-  // Use crypto.getRandomValues for cryptographic randomness
+  // WHY: crypto.getRandomValues() is guaranteed available in Node.js 20+,
+  // modern browsers, Deno, Bun, and Hermes (React Native). No fallback is
+  // provided because a Math.random() fallback would silently produce
+  // cryptographically weak API keys — it is safer to throw.
   const array = new Uint8Array(length);
-
-  // Check if we're in a context with crypto available
-  if (typeof globalThis.crypto !== 'undefined' && globalThis.crypto.getRandomValues) {
-    globalThis.crypto.getRandomValues(array);
-  } else {
-    // Fallback for edge cases (shouldn't happen in production)
-    // WHY: This is a fallback only - all modern runtimes support crypto
-    for (let i = 0; i < length; i++) {
-      array[i] = Math.floor(Math.random() * 256);
-    }
-  }
+  globalThis.crypto.getRandomValues(array);
 
   // Map random bytes to alphabet characters
   let result = '';

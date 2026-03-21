@@ -191,10 +191,15 @@ export function getMessagePriority(message: RelayMessage): number {
 // ============================================================================
 
 /**
- * Generate a unique queue item ID
+ * Generate a unique queue item ID.
+ *
+ * Uses crypto.randomUUID() for cryptographic uniqueness.
+ * Available in Node.js 20+, modern browsers, Deno, Bun, and Hermes (React Native).
+ *
+ * @returns A unique queue ID string
  */
 export function generateQueueId(): string {
-  return `queue_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  return `queue_${crypto.randomUUID()}`;
 }
 
 /**

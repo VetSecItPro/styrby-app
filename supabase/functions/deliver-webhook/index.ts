@@ -69,6 +69,72 @@ const MAX_RESPONSE_BODY_LENGTH = 10_240; // 10KB
 // ============================================================================
 
 /**
+ * Validates that a resolved IP address is not private, loopback, or link-local.
+ *
+ * WHY — DNS Rebinding Protection (SEC-SSRF-001):
+ * The initial `validateWebhookUrl()` check inspects the hostname as written
+ * in the URL. This is insufficient against DNS rebinding attacks:
+ *
+ *   1. Attacker registers attacker.com with a short TTL.
+ *   2. First resolution (during validateWebhookUrl) returns a public IP → passes.
+ *   3. DNS TTL expires; attacker changes DNS to 169.254.169.254 (cloud metadata)
+ *      or 10.0.0.1 (internal service).
+ *   4. fetch() resolves again → connects to the internal target.
+ *
+ * Fix: we resolve the hostname explicitly via Deno.resolveDns() BEFORE fetch()
+ * and validate every resolved IP against the same blocklist. The fetch is then
+ * made with confidence that the hostname pointed to a safe IP at call time.
+ * Note: this does not eliminate all TOCTOU risk (fetch may re-resolve), but
+ * it raises the bar significantly and catches the common rebinding pattern.
+ *
+ * @param ip - A resolved IP address string (IPv4 or IPv6)
+ * @throws Error if the IP is private, loopback, link-local, or otherwise blocked
+ */
+function validateResolvedIp(ip: string): void {
+  const trimmed = ip.trim().toLowerCase();
+
+  // IPv4 check
+  const ipv4Match = trimmed.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4Match) {
+    const octets = ipv4Match.slice(1).map(Number);
+    if (octets[0] === 10) {
+      throw new Error(`Resolved IP ${ip} is in private range 10.0.0.0/8`);
+    }
+    if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) {
+      throw new Error(`Resolved IP ${ip} is in private range 172.16.0.0/12`);
+    }
+    if (octets[0] === 192 && octets[1] === 168) {
+      throw new Error(`Resolved IP ${ip} is in private range 192.168.0.0/16`);
+    }
+    if (octets[0] === 127) {
+      throw new Error(`Resolved IP ${ip} is a loopback address`);
+    }
+    if (octets[0] === 169 && octets[1] === 254) {
+      throw new Error(`Resolved IP ${ip} is a link-local/metadata address`);
+    }
+    if (octets.every((o) => o === 255)) {
+      throw new Error(`Resolved IP ${ip} is a broadcast address`);
+    }
+    return;
+  }
+
+  // IPv6 check (simplified — covers the most dangerous cases)
+  if (trimmed === '::1') {
+    throw new Error(`Resolved IP ${ip} is IPv6 loopback`);
+  }
+  if (trimmed.startsWith('fe80:')) {
+    throw new Error(`Resolved IP ${ip} is IPv6 link-local`);
+  }
+  if (/^f[cd]/i.test(trimmed)) {
+    throw new Error(`Resolved IP ${ip} is in IPv6 unique-local range`);
+  }
+  // IPv4-mapped IPv6 (::ffff:x.x.x.x)
+  if (trimmed.startsWith('::ffff:')) {
+    validateResolvedIp(trimmed.slice(7));
+  }
+}
+
+/**
  * Validates that a webhook URL is safe to call (no SSRF attacks).
  *
  * Blocks:
@@ -241,8 +307,48 @@ async function deliverWebhook(
   const startTime = Date.now();
 
   try {
-    // Validate URL for SSRF
+    // Step 1: Static URL validation — blocks obviously private hostnames and IPs
     validateWebhookUrl(webhook.url);
+
+    // Step 2: DNS rebinding protection (SEC-SSRF-001) — resolve the hostname NOW
+    // and validate the resulting IPs before fetch() makes its own resolution.
+    // WHY: fetch() resolves DNS internally and may get a different answer than
+    // the one validateWebhookUrl() saw, especially if the attacker uses a short
+    // TTL to swap a public IP for a private one between the validation and
+    // the actual connection (DNS rebinding). By resolving here and checking
+    // each returned IP, we close that window.
+    const parsed = new URL(webhook.url);
+    try {
+      // Deno.resolveDns is available in Deno Deploy (Supabase Edge Functions).
+      // We request A (IPv4) and AAAA (IPv6) records separately.
+      const [aRecords, aaaaRecords] = await Promise.allSettled([
+        Deno.resolveDns(parsed.hostname, 'A'),
+        Deno.resolveDns(parsed.hostname, 'AAAA'),
+      ]);
+
+      const resolvedIps: string[] = [];
+      if (aRecords.status === 'fulfilled') resolvedIps.push(...aRecords.value);
+      if (aaaaRecords.status === 'fulfilled') resolvedIps.push(...aaaaRecords.value);
+
+      if (resolvedIps.length === 0) {
+        throw new Error(`Hostname ${parsed.hostname} did not resolve to any IP addresses`);
+      }
+
+      // Every resolved IP must pass the private-range check
+      for (const ip of resolvedIps) {
+        validateResolvedIp(ip);
+      }
+    } catch (dnsError) {
+      // Re-throw validation errors as-is; wrap DNS resolution failures
+      if (dnsError instanceof Error && dnsError.message.startsWith('Resolved IP')) {
+        throw dnsError;
+      }
+      if (dnsError instanceof Error && dnsError.message.includes('did not resolve')) {
+        throw dnsError;
+      }
+      // DNS lookup failed (NXDOMAIN, timeout, etc.) — treat as delivery failure
+      throw new Error(`DNS resolution failed for ${parsed.hostname}: ${dnsError instanceof Error ? dnsError.message : String(dnsError)}`);
+    }
 
     // Prepare payload
     const payload = JSON.stringify(delivery.payload);
@@ -354,6 +460,45 @@ Deno.serve(async (req: Request) => {
   // Only accept POST requests
   if (req.method !== 'POST') {
     return new Response('Method not allowed', { status: 405 });
+  }
+
+  // ──────────────────────────────────────────
+  // Authorization — service role key required
+  // ──────────────────────────────────────────
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+  if (!serviceRoleKey) {
+    console.error('Missing SUPABASE_SERVICE_ROLE_KEY');
+    return new Response(JSON.stringify({ error: 'Server configuration error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const authHeader = req.headers.get('Authorization');
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+
+  // WHY constant-time comparison: Prevents timing attacks that could leak
+  // the key length or contents via response-time differences.
+  if (!token || token.length !== serviceRoleKey.length) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  let isAuthorized = true;
+  for (let i = 0; i < token.length; i++) {
+    if (token.charCodeAt(i) !== serviceRoleKey.charCodeAt(i)) {
+      isAuthorized = false;
+    }
+  }
+
+  if (!isAuthorized) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   try {

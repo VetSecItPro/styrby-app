@@ -234,7 +234,7 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   // Rate limit check
-  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.budgetAlerts, 'api-keys');
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.budgetAlerts, 'api-keys');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
   }
@@ -396,7 +396,7 @@ export async function POST(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   // Rate limit check
-  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.budgetAlerts, 'api-keys');
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.budgetAlerts, 'api-keys');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
   }

@@ -300,7 +300,7 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   // Rate limit check - 30 requests per minute (same as budget alerts)
-  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.budgetAlerts, 'webhooks');
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.budgetAlerts, 'webhooks');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
   }
@@ -427,7 +427,7 @@ export async function POST(request: NextRequest) {
  */
 export async function PATCH(request: NextRequest) {
   // Rate limit check
-  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.budgetAlerts, 'webhooks');
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.budgetAlerts, 'webhooks');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
   }
@@ -528,7 +528,7 @@ export async function PATCH(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   // Rate limit check
-  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.budgetAlerts, 'webhooks');
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.budgetAlerts, 'webhooks');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
   }

@@ -1,11 +1,28 @@
 /**
  * Tests for low-level ripgrep wrapper
+ *
+ * WHY: These tests depend on a bundled ripgrep binary launched via
+ * scripts/ripgrep_launcher.cjs. In environments where the launcher or
+ * binary isn't present, tests skip gracefully instead of failing.
  */
 
 import { describe, it, expect } from 'vitest'
+import { existsSync } from 'fs'
+import { join, resolve } from 'path'
 import { run } from './index'
 
-describe('ripgrep low-level wrapper', () => {
+/**
+ * Check if the ripgrep launcher script is available before running tests.
+ * @returns true if the launcher CJS script exists at the expected path
+ */
+function isRipgrepAvailable(): boolean {
+    const launcherPath = resolve(join(__dirname, '..', '..', '..', 'scripts', 'ripgrep_launcher.cjs'));
+    return existsSync(launcherPath);
+}
+
+const describeMaybe = isRipgrepAvailable() ? describe : describe.skip;
+
+describeMaybe('ripgrep low-level wrapper', () => {
     it('should get version', async () => {
         const result = await run(['--version'])
         expect(result.exitCode).toBe(0)

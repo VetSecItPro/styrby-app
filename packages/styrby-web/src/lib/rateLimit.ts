@@ -1,17 +1,27 @@
 /**
- * Rate Limiting Utility
+ * Distributed Rate Limiting with Upstash Redis
  *
- * Provides in-memory rate limiting for API endpoints. Uses a sliding window
- * approach with configurable time windows and request limits.
+ * Provides rate limiting that works across all Vercel serverless instances.
+ * Uses Upstash Redis (serverless-native) with sliding window algorithm.
  *
- * WHY: Protects against abuse, prevents resource exhaustion, and ensures fair
- * usage across all users. Different endpoints have different limits based on
- * their cost and sensitivity.
+ * WHY: The previous in-memory Map-based rate limiter was per-instance only.
+ * On Vercel's serverless platform, each function invocation can run on a
+ * different instance, so an attacker could bypass limits by hitting different
+ * instances. Upstash Redis provides a shared state that all instances read/write.
  *
- * Note: For production at scale, consider Redis for distributed rate limiting.
- * The in-memory approach works well for single-instance deployments and
- * serverless with low concurrency.
+ * FALLBACK: If UPSTASH_REDIS_REST_URL is not configured, falls back to
+ * in-memory rate limiting (better than no rate limiting at all). This allows
+ * local development without requiring an Upstash account.
+ *
+ * @module rateLimit
  */
+
+import { Ratelimit } from '@upstash/ratelimit';
+import { Redis } from '@upstash/redis';
+
+// ============================================================================
+// Types
+// ============================================================================
 
 /**
  * Configuration for a rate limit rule.
@@ -24,38 +34,143 @@ type RateLimitConfig = {
 };
 
 /**
- * Internal tracking entry for a single IP/key combination.
+ * Result of a rate limit check.
  */
-type RateLimitEntry = {
-  /** Number of requests made in current window */
-  count: number;
+type RateLimitResult = {
+  /** Whether the request is allowed to proceed */
+  allowed: boolean;
+  /** Number of requests remaining in the current window */
+  remaining: number;
   /** Timestamp when the window resets */
+  resetAt: number;
+  /** Seconds until the client can retry (only present if rate limited) */
+  retryAfter?: number;
+};
+
+// ============================================================================
+// Redis Client
+// ============================================================================
+
+/**
+ * Detect whether Upstash Redis is configured.
+ *
+ * WHY: In local development and CI, Redis env vars may not be set.
+ * We fall back to in-memory rather than crashing at import time.
+ */
+const isRedisConfigured =
+  !!process.env.UPSTASH_REDIS_REST_URL &&
+  !!process.env.UPSTASH_REDIS_REST_TOKEN;
+
+/**
+ * Shared Redis client instance (singleton).
+ * Only created if Upstash credentials are available.
+ */
+const redis = isRedisConfigured
+  ? new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL!,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    })
+  : null;
+
+// ============================================================================
+// Rate Limiter Instances (cached per config)
+// ============================================================================
+
+/**
+ * Cache of Ratelimit instances keyed by prefix.
+ *
+ * WHY: Creating a new Ratelimit instance per request is wasteful. We cache
+ * one instance per prefix (endpoint category) and reuse it across requests.
+ */
+const limiters = new Map<string, Ratelimit>();
+
+/**
+ * Get or create a Ratelimit instance for a given prefix and config.
+ *
+ * @param prefix - Namespace for this rate limit
+ * @param config - Window size and max requests
+ * @returns Ratelimit instance configured for this endpoint
+ */
+function getLimiter(prefix: string, config: RateLimitConfig): Ratelimit {
+  const key = `${prefix}:${config.windowMs}:${config.maxRequests}`;
+  let limiter = limiters.get(key);
+  if (!limiter) {
+    // WHY: slidingWindow provides smoother rate limiting than fixedWindow.
+    // It prevents burst-at-boundary attacks where a user sends maxRequests
+    // at the end of window N and maxRequests at the start of window N+1.
+    const windowSeconds = Math.ceil(config.windowMs / 1000);
+    const duration = `${windowSeconds} s` as `${number} s`;
+
+    limiter = new Ratelimit({
+      redis: redis ?? Redis.fromEnv(),
+      limiter: Ratelimit.slidingWindow(config.maxRequests, duration),
+      prefix: `styrby:ratelimit:${prefix}`,
+      analytics: false, // Disable analytics to reduce Redis commands
+    });
+    limiters.set(key, limiter);
+  }
+  return limiter;
+}
+
+// ============================================================================
+// In-Memory Fallback (for local dev / CI without Redis)
+// ============================================================================
+
+type InMemoryEntry = {
+  count: number;
   resetAt: number;
 };
 
-/**
- * In-memory store for rate limit tracking.
- * WHY: Simple Map-based storage is efficient for serverless functions
- * where each instance maintains its own state. For distributed systems,
- * replace with Redis or similar.
- */
-const rateLimitStore = new Map<string, RateLimitEntry>();
+const inMemoryStore = new Map<string, InMemoryEntry>();
 
 /**
- * Periodic cleanup of expired entries to prevent memory leaks.
- * WHY: Without cleanup, the Map would grow unbounded as new IPs make requests.
- * Runs every 60 seconds to remove entries that have expired.
+ * Fallback in-memory rate limiter for environments without Redis.
+ *
+ * WHY: Local development and CI don't need distributed rate limiting.
+ * This provides the same API surface so callers don't need to check.
  */
-if (typeof setInterval !== 'undefined') {
+function inMemoryRateLimit(
+  ip: string,
+  config: RateLimitConfig,
+  prefix: string
+): RateLimitResult {
+  const key = `${prefix}:${ip}`;
+  const now = Date.now();
+
+  let entry = inMemoryStore.get(key);
+  if (!entry || entry.resetAt < now) {
+    entry = { count: 0, resetAt: now + config.windowMs };
+  }
+
+  entry.count++;
+  inMemoryStore.set(key, entry);
+
+  const remaining = Math.max(0, config.maxRequests - entry.count);
+  const allowed = entry.count <= config.maxRequests;
+
+  return {
+    allowed,
+    remaining,
+    resetAt: entry.resetAt,
+    retryAfter: allowed ? undefined : Math.ceil((entry.resetAt - now) / 1000),
+  };
+}
+
+// Periodic cleanup for in-memory fallback
+if (typeof setInterval !== 'undefined' && !isRedisConfigured) {
   setInterval(() => {
     const now = Date.now();
-    for (const [key, entry] of rateLimitStore.entries()) {
+    for (const [key, entry] of inMemoryStore.entries()) {
       if (entry.resetAt < now) {
-        rateLimitStore.delete(key);
+        inMemoryStore.delete(key);
       }
     }
-  }, 60000); // Clean up every minute
+  }, 60000);
 }
+
+// ============================================================================
+// Public API
+// ============================================================================
 
 /**
  * Extracts the client IP address from a request.
@@ -75,24 +190,10 @@ export function getClientIp(request: Request): string {
 }
 
 /**
- * Result of a rate limit check.
- */
-type RateLimitResult = {
-  /** Whether the request is allowed to proceed */
-  allowed: boolean;
-  /** Number of requests remaining in the current window */
-  remaining: number;
-  /** Timestamp when the window resets */
-  resetAt: number;
-  /** Seconds until the client can retry (only present if rate limited) */
-  retryAfter?: number;
-};
-
-/**
  * Checks and updates rate limit for a request.
  *
- * WHY: Central function for consistent rate limiting across all endpoints.
- * Each endpoint can specify its own config while sharing the same logic.
+ * Uses Upstash Redis when configured (production), falls back to in-memory
+ * for local development and CI.
  *
  * @param request - The incoming HTTP request
  * @param config - Rate limit configuration (window size and max requests)
@@ -100,43 +201,46 @@ type RateLimitResult = {
  * @returns Rate limit result including whether the request is allowed
  *
  * @example
- * const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.checkout, 'checkout');
+ * const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.checkout, 'checkout');
  * if (!allowed) {
  *   return rateLimitResponse(retryAfter!);
  * }
  */
-export function rateLimit(
+export async function rateLimit(
   request: Request,
   config: RateLimitConfig,
   keyPrefix: string = 'default'
-): RateLimitResult {
+): Promise<RateLimitResult> {
   const ip = getClientIp(request);
-  const key = `${keyPrefix}:${ip}`;
-  const now = Date.now();
 
-  let entry = rateLimitStore.get(key);
-
-  // Create new entry if doesn't exist or expired
-  if (!entry || entry.resetAt < now) {
-    entry = {
-      count: 0,
-      resetAt: now + config.windowMs,
-    };
+  // Fallback to in-memory if Redis is not configured
+  if (!isRedisConfigured) {
+    return inMemoryRateLimit(ip, config, keyPrefix);
   }
 
-  // Increment count
-  entry.count++;
-  rateLimitStore.set(key, entry);
+  try {
+    const limiter = getLimiter(keyPrefix, config);
+    const result = await limiter.limit(ip);
 
-  const remaining = Math.max(0, config.maxRequests - entry.count);
-  const allowed = entry.count <= config.maxRequests;
-
-  return {
-    allowed,
-    remaining,
-    resetAt: entry.resetAt,
-    retryAfter: allowed ? undefined : Math.ceil((entry.resetAt - now) / 1000),
-  };
+    return {
+      allowed: result.success,
+      remaining: result.remaining,
+      resetAt: result.reset,
+      retryAfter: result.success
+        ? undefined
+        : Math.ceil((result.reset - Date.now()) / 1000),
+    };
+  } catch (error) {
+    // WHY: If Redis is temporarily unreachable, allow the request rather
+    // than blocking all users. Rate limiting is a safeguard, not a gate.
+    // Log the error for monitoring but don't break the user experience.
+    console.error('Rate limit Redis error (allowing request):', error);
+    return {
+      allowed: true,
+      remaining: config.maxRequests,
+      resetAt: Date.now() + config.windowMs,
+    };
+  }
 }
 
 /**

@@ -40,7 +40,7 @@ const permissionResponseSchema = z.object({
 
 export async function POST(request: Request) {
   // Rate limit check - standard limit for relay messages
-  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.standard, 'relay-permission');
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.standard, 'relay-permission');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
   }

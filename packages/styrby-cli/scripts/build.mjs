@@ -47,8 +47,12 @@ console.log('📦 Bundling with esbuild...');
  * - Packages with native bindings
  */
 const external = [
-  // Native modules
+  // Native Node.js modules that use CommonJS require() internally.
+  // WHY: TweetNaCl calls require('crypto') at runtime. When bundled as ESM,
+  // dynamic require() isn't supported. Marking these external lets Node.js
+  // resolve them natively at runtime, which always works.
   'fsevents',
+  'crypto',
   // React (ink uses it, better to keep external for deduplication)
   'react',
   'react-dom',
@@ -96,7 +100,13 @@ await esbuild.build({
     },
   }],
 
-  // Note: Shebang comes from src/index.ts, no need to add via banner
+  // WHY: TweetNaCl (and other CJS deps) use require('crypto') at runtime.
+  // In ESM bundles, `require` doesn't exist. We inject `createRequire` from
+  // Node's module API so CJS require() calls work inside our ESM bundle.
+  // The shebang is already in src/index.ts so we append after it.
+  banner: {
+    js: `import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);`,
+  },
 
   // Define environment
   define: {
@@ -117,6 +127,9 @@ await esbuild.build({
   sourcemap: true,
   minify: false,
   keepNames: true,
+  banner: {
+    js: `import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);`,
+  },
   alias: {
     'styrby-shared': join(ROOT, '..', 'styrby-shared', 'src', 'index.ts'),
   },
@@ -169,6 +182,9 @@ await esbuild.build({
       });
     },
   }],
+  banner: {
+    js: `import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);`,
+  },
   define: { 'process.env.NODE_ENV': '"production"' },
 });
 
