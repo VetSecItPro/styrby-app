@@ -111,13 +111,14 @@ function collectTsxFiles(dir: string, ignoreDirs: Set<string>): string[] {
   const results: string[] = [];
   let entries: ReturnType<typeof readdirSync>;
   try {
-    entries = readdirSync(dir);
+    entries = readdirSync(dir, { encoding: 'utf-8' }) as string[];
   } catch {
     return results;
   }
   for (const entry of entries) {
-    if (ignoreDirs.has(entry)) continue;
-    const full = join(dir, entry);
+    const name = typeof entry === 'string' ? entry : String(entry);
+    if (ignoreDirs.has(name)) continue;
+    const full = join(dir, name);
     let stat: ReturnType<typeof statSync>;
     try {
       stat = statSync(full);
@@ -126,7 +127,7 @@ function collectTsxFiles(dir: string, ignoreDirs: Set<string>): string[] {
     }
     if (stat.isDirectory()) {
       results.push(...collectTsxFiles(full, ignoreDirs));
-    } else if (entry.endsWith('.tsx')) {
+    } else if (name.endsWith('.tsx')) {
       results.push(full);
     }
   }
