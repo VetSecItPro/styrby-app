@@ -242,7 +242,7 @@ jobs:
         # pipeline a supply-chain attack vector. SHA pinning guarantees the
         # exact commit that was reviewed is what runs.
         # SHA corresponds to returntocorp/semgrep-action v1.108.0
-        uses: returntocorp/semgrep-action@713efdd6086a9e82cee6671a4e46fe0cb2a817dc
+        uses: returntocorp/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d
         with:
           config: >-
             p/owasp-top-ten
