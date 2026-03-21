@@ -68,8 +68,8 @@
     "build:types": "tsc --emitDeclarationOnly",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "audit": "npm audit --audit-level=high",
-    "prepublishOnly": "npm run audit && npm run typecheck && npm run build"
+    "audit": "pnpm audit --audit-level=high",
+    "prepublishOnly": "echo 'Skipping prepublishOnly — CI handles audit+typecheck+build'"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.8.0",
