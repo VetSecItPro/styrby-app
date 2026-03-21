@@ -98,23 +98,29 @@ function detectEnvironment(): Environment {
 /**
  * Production Supabase configuration.
  *
- * WHY (FIX-019): Supabase URL is loaded from environment variable only.
- * Hardcoding the URL was a security risk — if the project ref leaked,
- * attackers could target the specific Supabase instance. It also made
- * it impossible to switch projects without a code change.
+ * WHY: The anon key is a PUBLIC client key — Supabase designed it to be
+ * embedded in client-side code. It is NOT a secret. RLS policies protect
+ * data, not the anon key. Embedding it here means `npm install -g styrby-cli`
+ * works immediately without any environment setup.
+ *
+ * The URL is also public (it's just the project hostname). Both values are
+ * visible in the browser network tab of any Supabase-powered web app.
+ *
+ * Users CAN override with env vars for self-hosted or dev Supabase instances.
  */
 const PROD_SUPABASE = {
-  url: process.env.SUPABASE_URL || '',
-  anonKey: process.env.SUPABASE_ANON_KEY || '',
+  url: 'https://akmtmxunjhsgldjztdtt.supabase.co',
+  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFrbXRteHVuamhzZ2xkanp0ZHR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxMzkzMTYsImV4cCI6MjA4NTcxNTMxNn0.1ke6RMS0fOb_OGMQ_GSBj_vhDtN7R3K7U-du2BCsnOU',
 };
 
 /**
  * Development Supabase configuration.
- * Can use local Supabase or same prod instance with dev flag.
+ * Override with SUPABASE_URL / SUPABASE_ANON_KEY env vars to use a local
+ * or dev Supabase instance.
  */
 const DEV_SUPABASE = {
-  url: process.env.SUPABASE_URL || '',
-  anonKey: process.env.SUPABASE_ANON_KEY || '',
+  url: process.env.SUPABASE_URL || PROD_SUPABASE.url,
+  anonKey: process.env.SUPABASE_ANON_KEY || PROD_SUPABASE.anonKey,
 };
 
 /**
@@ -134,8 +140,8 @@ function buildConfig(env: Environment): EnvConfig {
     env,
     isDev,
     isProd,
-    supabaseUrl: process.env.SUPABASE_URL || supabase.url,
-    supabaseAnonKey: process.env.SUPABASE_ANON_KEY || supabase.anonKey,
+    supabaseUrl: process.env.SUPABASE_URL || supabase.url || PROD_SUPABASE.url,
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY || supabase.anonKey || PROD_SUPABASE.anonKey,
     apiUrl: process.env.STYRBY_API_URL || (isDev ? 'http://localhost:3000/api' : 'https://api.styrbyapp.com'),
     webUrl: process.env.STYRBY_WEB_URL || (isDev ? 'http://localhost:3000' : 'https://styrbyapp.com'),
     debug: process.env.STYRBY_DEBUG === 'true' || process.env.DEBUG === 'true' || isDev,
