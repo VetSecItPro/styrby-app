@@ -306,10 +306,15 @@ export function getChannelName(userId: string): RelayChannelName {
 }
 
 /**
- * Generate a unique message ID
+ * Generate a unique message ID.
+ *
+ * Uses crypto.randomUUID() for cryptographic uniqueness.
+ * Available in Node.js 20+, modern browsers, Deno, Bun, and Hermes (React Native).
+ *
+ * @returns A unique message ID string
  */
 export function generateMessageId(): string {
-  return `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  return `msg_${crypto.randomUUID()}`;
 }
 
 /**

@@ -1,14 +1,30 @@
 /**
  * Tests for difftastic module
+ *
+ * WHY: These tests depend on a bundled `difft` binary in tools/unpacked/.
+ * In environments where the binary isn't present (CI without asset download,
+ * fresh clones), they skip gracefully instead of failing the entire suite.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { run } from './index';
-import { writeFileSync, mkdirSync, rmSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
+import { writeFileSync, mkdirSync, rmSync, existsSync } from 'fs';
+import { join, resolve } from 'path';
+import { tmpdir, platform } from 'os';
 
-describe('difftastic', () => {
+/**
+ * Check if the difftastic binary is available before running tests.
+ * @returns true if the difft binary exists at the expected path
+ */
+function isDifftAvailable(): boolean {
+    const binaryName = platform() === 'win32' ? 'difft.exe' : 'difft';
+    const binaryPath = resolve(join(__dirname, '..', '..', '..', 'tools', 'unpacked', binaryName));
+    return existsSync(binaryPath);
+}
+
+const describeMaybe = isDifftAvailable() ? describe : describe.skip;
+
+describeMaybe('difftastic', () => {
     let testDir: string;
     let file1Path: string;
     let file2Path: string;

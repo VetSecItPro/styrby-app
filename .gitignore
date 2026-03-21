@@ -106,5 +106,5 @@ docs/
 *.md
 
 # EXCEPTIONS: Public-facing files
-\!README.md
-\!.github/pull_request_template.md
+!README.md
+!.github/pull_request_template.md

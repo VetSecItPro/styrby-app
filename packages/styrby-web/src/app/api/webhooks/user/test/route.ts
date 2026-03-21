@@ -45,7 +45,7 @@ const TestWebhookSchema = z.object({
  */
 export async function POST(request: NextRequest) {
   // Rate limit check - 10 requests per minute (sensitive)
-  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.sensitive, 'webhook-test');
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.sensitive, 'webhook-test');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
   }

@@ -10,7 +10,7 @@ import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 
 export async function GET(request: NextRequest) {
   // FIX-047: Add rate limiting to billing portal redirect
-  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.standard, 'billing-portal');
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.standard, 'billing-portal');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
   }

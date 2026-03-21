@@ -33,7 +33,7 @@ import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
  */
 export async function POST(request: Request) {
   // Rate limit check - 1 export per hour
-  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.export, 'export');
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.export, 'export');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
   }

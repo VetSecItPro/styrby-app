@@ -50,7 +50,7 @@ const DeleteRequestSchema = z.object({
 export async function DELETE(request: Request) {
   // Rate limit check - 1 deletion attempt per day
   // WHY: Prevents abuse and accidental rapid clicks
-  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.delete, 'delete');
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.delete, 'delete');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
   }

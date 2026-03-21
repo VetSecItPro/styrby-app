@@ -231,7 +231,7 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   // Rate limit check
-  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.budgetAlerts, 'teams');
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.budgetAlerts, 'teams');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
   }

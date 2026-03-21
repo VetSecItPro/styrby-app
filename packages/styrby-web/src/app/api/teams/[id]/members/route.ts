@@ -119,7 +119,7 @@ export async function POST(
   context: RouteContext
 ) {
   // Rate limit check
-  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.budgetAlerts, 'team-invite');
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.budgetAlerts, 'team-invite');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
   }

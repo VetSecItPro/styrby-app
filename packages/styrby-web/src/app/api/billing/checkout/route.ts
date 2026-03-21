@@ -43,7 +43,7 @@ const polar = new Polar({
 
 export async function POST(request: NextRequest) {
   // Rate limit check - 5 checkout attempts per minute
-  const { allowed, retryAfter } = rateLimit(request, RATE_LIMITS.checkout, 'checkout');
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.checkout, 'checkout');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
   }
