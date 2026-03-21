@@ -335,6 +335,9 @@ export async function startBrowserAuth(options: BrowserAuthOptions): Promise<Aut
 
   logger.debug('Starting browser auth', { provider, supabaseUrl });
 
+  // Generate CSRF state token for callback validation
+  const state = generateState();
+
   // Start local callback server
   const server = await startAuthCallbackServer({ timeout });
   const redirectUri = server.callbackUrl;
@@ -361,6 +364,7 @@ export async function startBrowserAuth(options: BrowserAuthOptions): Promise<Aut
     options: {
       redirectTo: redirectUri,
       skipBrowserRedirect: true, // We handle browser opening ourselves
+      queryParams: { state },    // CSRF protection — validated on callback
     },
   });
 
@@ -408,6 +412,17 @@ export async function startBrowserAuth(options: BrowserAuthOptions): Promise<Aut
 
   if (!callbackResult.code) {
     throw new AuthError('server_error', 'No authorization code received');
+  }
+
+  // WHY: Validate the state parameter to prevent CSRF. Without this, a
+  // network-adjacent attacker who can inject a crafted callback request to
+  // the localhost server during the auth window could substitute their own
+  // authorization code. The state is generated per-auth-flow and must match.
+  if (callbackResult.state && callbackResult.state !== state) {
+    throw new AuthError(
+      'server_error',
+      'State mismatch — possible CSRF attack or stale auth flow. Please try again.'
+    );
   }
 
   logger.debug('Received authorization code, exchanging for session');

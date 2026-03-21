@@ -39,7 +39,7 @@ export { AgentRegistry } from './agent/core/AgentRegistry';
 /**
  * CLI version
  */
-export const VERSION = '0.1.0-beta.5';
+export const VERSION = '0.1.0-beta.6';
 
 /**
  * Main CLI entry point.
@@ -416,12 +416,23 @@ async function handleStart(args: string[]): Promise<void> {
   let agentType = 'claude';
   let projectPath = process.cwd();
 
+  // WHY: Validate agent type early to prevent unvalidated strings from
+  // reaching the logger and Supabase session records. Without this gate,
+  // `styrby start --agent "$(malicious)"` would pass through to DB insert.
+  const VALID_AGENTS = ['claude', 'codex', 'gemini', 'opencode', 'aider'];
+
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--agent' || args[i] === '-a') {
       agentType = args[++i] || 'claude';
     } else if (args[i] === '--project' || args[i] === '-p') {
       projectPath = args[++i] || process.cwd();
     }
+  }
+
+  if (!VALID_AGENTS.includes(agentType)) {
+    console.log(chalk.red(`\nUnknown agent: ${agentType}`));
+    console.log(`Supported agents: ${VALID_AGENTS.join(', ')}\n`);
+    process.exit(2);
   }
 
   // Resolve relative paths to absolute so the agent runs in the right directory
