@@ -132,26 +132,25 @@ function formatDateString(date: Date): string {
   return date.toISOString().split('T')[0];
 }
 
+// WHY: Raw record shape returned by the single 30-day Supabase fetch.
+// Selecting all columns needed by every downstream aggregation avoids
+// additional round-trips for agent breakdown and daily chart data.
+interface RawCostRecord {
+  record_date: string;
+  agent_type: string | null;
+  cost_usd: string | number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+}
+
 /**
- * Fetch cost summary for a specific time period.
+ * Aggregate a filtered set of raw records into a CostSummary.
  *
- * @param period - Time period to fetch
- * @returns Cost summary for the period
+ * @param records - Pre-filtered subset of raw cost records
+ * @returns Aggregated cost summary for the period
  */
-async function fetchCostSummary(period: 'today' | 'week' | 'month'): Promise<CostSummary> {
-  const startDate = getPeriodStartDate(period);
-
-  const { data, error } = await supabase
-    .from('cost_records')
-    .select('cost_usd, input_tokens, output_tokens')
-    .gte('record_date', formatDateString(startDate));
-
-  if (error) {
-    console.error(`Error fetching ${period} cost summary:`, error);
-    return { totalCost: 0, inputTokens: 0, outputTokens: 0, requestCount: 0 };
-  }
-
-  return (data || []).reduce(
+function aggregateSummary(records: RawCostRecord[]): CostSummary {
+  return records.reduce(
     (acc, record) => ({
       totalCost: acc.totalCost + (Number(record.cost_usd) || 0),
       inputTokens: acc.inputTokens + (record.input_tokens || 0),
@@ -163,27 +162,15 @@ async function fetchCostSummary(period: 'today' | 'week' | 'month'): Promise<Cos
 }
 
 /**
- * Fetch cost breakdown by agent for the last 30 days.
+ * Derive agent cost breakdown from raw 30-day records.
  *
+ * @param records - Full 30-day raw records
  * @returns Array of agent cost breakdowns sorted by cost descending
  */
-async function fetchCostsByAgent(): Promise<AgentCostBreakdown[]> {
-  const startDate = getPeriodStartDate('month');
-
-  const { data, error } = await supabase
-    .from('cost_records')
-    .select('agent_type, cost_usd, input_tokens, output_tokens')
-    .gte('record_date', formatDateString(startDate));
-
-  if (error) {
-    console.error('Error fetching costs by agent:', error);
-    return [];
-  }
-
-  // Aggregate by agent
+function deriveAgentBreakdown(records: RawCostRecord[]): AgentCostBreakdown[] {
   const agentMap = new Map<string, Omit<AgentCostBreakdown, 'percentage'>>();
 
-  for (const record of data || []) {
+  for (const record of records) {
     const agent = (record.agent_type || 'unknown') as AgentType;
     const existing = agentMap.get(agent) || {
       agent,
@@ -202,7 +189,6 @@ async function fetchCostsByAgent(): Promise<AgentCostBreakdown[]> {
     });
   }
 
-  // Calculate percentages and sort by cost
   const totalCost = Array.from(agentMap.values()).reduce((sum, a) => sum + a.cost, 0);
   return Array.from(agentMap.values())
     .map((a) => ({
@@ -213,28 +199,16 @@ async function fetchCostsByAgent(): Promise<AgentCostBreakdown[]> {
 }
 
 /**
- * Fetch daily cost data for the last 7 days.
+ * Derive daily cost chart data from raw 30-day records.
  *
+ * @param records - Full 30-day raw records (superset — only last 7 days are used)
  * @returns Array of daily cost data points sorted by date ascending
  */
-async function fetchDailyCosts(): Promise<DailyCostDataPoint[]> {
-  const startDate = getPeriodStartDate('week');
-
-  const { data, error } = await supabase
-    .from('cost_records')
-    .select('record_date, agent_type, cost_usd')
-    .gte('record_date', formatDateString(startDate))
-    .order('record_date', { ascending: true });
-
-  if (error) {
-    console.error('Error fetching daily costs:', error);
-    return [];
-  }
-
-  // Aggregate by date and agent
-  const dateMap = new Map<string, DailyCostDataPoint>();
+function deriveDailyCosts(records: RawCostRecord[]): DailyCostDataPoint[] {
+  const weekStart = formatDateString(getPeriodStartDate('week'));
 
   // Pre-populate all 7 days with zeros for consistent chart display
+  const dateMap = new Map<string, DailyCostDataPoint>();
   for (let i = 6; i >= 0; i--) {
     const date = new Date();
     date.setDate(date.getDate() - i);
@@ -249,11 +223,11 @@ async function fetchDailyCosts(): Promise<DailyCostDataPoint[]> {
     });
   }
 
-  // Aggregate actual data
-  for (const record of data || []) {
-    const date = record.record_date;
-    const existing = dateMap.get(date);
-    if (!existing) continue; // Skip dates outside our 7-day window
+  // Aggregate actual data — filter to last 7 days from the already-fetched 30-day set
+  for (const record of records) {
+    if (record.record_date < weekStart) continue;
+    const existing = dateMap.get(record.record_date);
+    if (!existing) continue;
 
     const cost = Number(record.cost_usd) || 0;
     existing.total += cost;
@@ -272,12 +246,38 @@ async function fetchDailyCosts(): Promise<DailyCostDataPoint[]> {
         existing.opencode += cost;
     }
 
-    dateMap.set(date, existing);
+    dateMap.set(record.record_date, existing);
   }
 
   return Array.from(dateMap.values()).sort(
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
   );
+}
+
+/**
+ * Fetch all cost_records for the last 30 days in a single query.
+ *
+ * WHY: The 30-day window is a superset of the 7-day and 1-day windows.
+ * Fetching once and aggregating client-side eliminates two redundant
+ * Supabase round-trips on every load and refresh cycle (PERF-008).
+ *
+ * @returns Raw cost records for the last 30 days, or empty array on error
+ */
+async function fetchMonthRecords(): Promise<RawCostRecord[]> {
+  const startDate = getPeriodStartDate('month');
+
+  const { data, error } = await supabase
+    .from('cost_records')
+    .select('record_date, agent_type, cost_usd, input_tokens, output_tokens')
+    .gte('record_date', formatDateString(startDate))
+    .order('record_date', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching 30-day cost records:', error);
+    return [];
+  }
+
+  return data || [];
 }
 
 // ============================================================================
@@ -311,17 +311,27 @@ export function useCosts(): UseCostsReturn {
   const [error, setError] = useState<string | null>(null);
 
   /**
-   * Fetch all cost data in parallel.
+   * Fetch all cost data with a single Supabase query, then derive all
+   * summaries and chart data client-side.
+   *
+   * WHY: The 30-day window is a superset of the 7-day and 1-day windows.
+   * One query replaces three, cutting network round-trips by 67% per refresh
+   * (PERF-008). Client-side filtering of an already-fetched array is O(n) and
+   * negligible compared to the eliminated network latency.
    */
   const fetchAllData = useCallback(async () => {
     try {
-      const [today, week, month, byAgent, dailyCosts] = await Promise.all([
-        fetchCostSummary('today'),
-        fetchCostSummary('week'),
-        fetchCostSummary('month'),
-        fetchCostsByAgent(),
-        fetchDailyCosts(),
-      ]);
+      const monthRecords = await fetchMonthRecords();
+
+      // Derive each period's summary by filtering the 30-day dataset in memory
+      const todayStart = formatDateString(getPeriodStartDate('today'));
+      const weekStart = formatDateString(getPeriodStartDate('week'));
+
+      const today = aggregateSummary(monthRecords.filter((r) => r.record_date >= todayStart));
+      const week = aggregateSummary(monthRecords.filter((r) => r.record_date >= weekStart));
+      const month = aggregateSummary(monthRecords);
+      const byAgent = deriveAgentBreakdown(monthRecords);
+      const dailyCosts = deriveDailyCosts(monthRecords);
 
       setData({ today, week, month, byAgent, dailyCosts });
       setError(null);

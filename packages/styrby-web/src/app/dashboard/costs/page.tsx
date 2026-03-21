@@ -1,3 +1,8 @@
+// WHY: force-dynamic ensures this page is always server-rendered at request time.
+// Cost analytics are user-specific and update continuously during active sessions —
+// a cached response would show incorrect spend totals and stale budget alert state.
+export const dynamic = 'force-dynamic';
+
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
@@ -6,6 +11,35 @@ import { CostsRealtime } from './costs-realtime';
 import { BudgetAlertsSummary } from './budget-alerts-summary';
 import { TIERS, type TierId } from '@/lib/polar';
 import { MODEL_PRICING, LAST_VERIFIED } from '@/lib/model-pricing';
+
+/**
+ * Calculates the start of the current period for spend aggregation.
+ *
+ * WHY: Hoisted to module level so this pure function is not re-declared on every
+ * server render. It has no component-level dependencies, so it belongs here.
+ *
+ * @param period - Budget period type
+ * @returns ISO date string for the period start
+ */
+function getPeriodStartDate(period: string): string {
+  const now = new Date();
+  switch (period) {
+    case 'daily': {
+      return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+    }
+    case 'weekly': {
+      const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const day = start.getUTCDay();
+      start.setUTCDate(start.getUTCDate() - (day === 0 ? 6 : day - 1));
+      return start.toISOString();
+    }
+    case 'monthly': {
+      return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+    }
+    default:
+      return new Date().toISOString();
+  }
+}
 
 /**
  * NOTE: Navigation chrome (sidebar, topnav) is handled by dashboard/layout.tsx.
@@ -34,62 +68,79 @@ export default async function CostsPage() {
     redirect('/login');
   }
 
-  // Fetch daily cost summary (last 30 days)
+  // Fetch daily cost summary (last 30 days) — includes agent_type and model dimensions.
+  // WHY: After migration 010, mv_daily_cost_summary groups by (user_id, record_date,
+  // agent_type, model). A single MV query now provides all data needed for the daily
+  // trend chart, per-agent breakdown, and per-model breakdown — eliminating the
+  // separate raw cost_records table scan that previously fetched up to 10,000 rows.
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const thirtyDaysAgoDate = thirtyDaysAgo.toISOString().split('T')[0];
 
-  const { data: dailyCosts } = await supabase
+  const { data: mvRows } = await supabase
     .from('mv_daily_cost_summary')
-    .select('*')
-    .gte('date', thirtyDaysAgo.toISOString().split('T')[0])
-    .order('date', { ascending: true });
+    .select('record_date, agent_type, model, total_cost_usd, total_input_tokens, total_output_tokens, record_count')
+    .gte('record_date', thirtyDaysAgoDate)
+    .order('record_date', { ascending: true });
 
-  // Fetch cost records for per-agent breakdown
-  const { data: agentCosts } = await supabase
-    .from('cost_records')
-    .select('agent_type, model, cost_usd, input_tokens, output_tokens')
-    .gte('created_at', thirtyDaysAgo.toISOString())
-    .limit(10000);
+  // Derive agent totals, model totals, and chart data from a single pass over the MV rows.
+  // WHY single pass: the MV is already grouped, so we aggregate the pre-summed column
+  // values rather than re-scanning individual cost_records rows. This is O(MV rows)
+  // instead of O(raw rows), and the MV is orders of magnitude smaller.
+  type AgentTotal = { cost: number; inputTokens: number; outputTokens: number };
+  type ModelTotal = { cost: number; requests: number };
+  type DayBucket = { total: number; claude: number; codex: number; gemini: number };
 
-  // Calculate totals by agent
-  const agentTotals = (agentCosts || []).reduce(
-    (acc, record) => {
-      const agent = record.agent_type || 'unknown';
-      if (!acc[agent]) {
-        acc[agent] = { cost: 0, inputTokens: 0, outputTokens: 0 };
-      }
-      acc[agent].cost += Number(record.cost_usd) || 0;
-      acc[agent].inputTokens += record.input_tokens || 0;
-      acc[agent].outputTokens += record.output_tokens || 0;
-      return acc;
-    },
-    {} as Record<string, { cost: number; inputTokens: number; outputTokens: number }>
-  );
+  const agentTotals: Record<string, AgentTotal> = {};
+  const modelTotals: Record<string, ModelTotal> = {};
+  const dayBuckets: Record<string, DayBucket> = {};
 
-  // Calculate totals by model
-  const modelTotals = (agentCosts || []).reduce(
-    (acc, record) => {
-      const model = record.model || 'unknown';
-      if (!acc[model]) {
-        acc[model] = { cost: 0, requests: 0 };
-      }
-      acc[model].cost += Number(record.cost_usd) || 0;
-      acc[model].requests += 1;
-      return acc;
-    },
-    {} as Record<string, { cost: number; requests: number }>
-  );
+  for (const row of mvRows ?? []) {
+    const cost = Number(row.total_cost_usd) || 0;
+    const inputTokens = Number(row.total_input_tokens) || 0;
+    const outputTokens = Number(row.total_output_tokens) || 0;
+    const recordCount = Number(row.record_count) || 0;
+    const agent = row.agent_type || 'unknown';
+    const model = row.model || 'unknown';
+    const date = row.record_date as string;
 
-  // NOTE: Monthly total is computed inside CostsRealtime from agentTotals
+    // --- Agent totals ---
+    if (!agentTotals[agent]) {
+      agentTotals[agent] = { cost: 0, inputTokens: 0, outputTokens: 0 };
+    }
+    agentTotals[agent].cost += cost;
+    agentTotals[agent].inputTokens += inputTokens;
+    agentTotals[agent].outputTokens += outputTokens;
 
-  // Prepare chart data
-  const chartData = (dailyCosts || []).map((day) => ({
-    date: day.date,
-    total: Number(day.total_cost_usd) || 0,
-    claude: Number(day.claude_cost_usd) || 0,
-    codex: Number(day.codex_cost_usd) || 0,
-    gemini: Number(day.gemini_cost_usd) || 0,
-  }));
+    // --- Model totals ---
+    // WHY record_count: the MV pre-counts rows per (date, agent, model) group,
+    // so we sum record_count instead of incrementing by 1 per raw record.
+    if (!modelTotals[model]) {
+      modelTotals[model] = { cost: 0, requests: 0 };
+    }
+    modelTotals[model].cost += cost;
+    modelTotals[model].requests += recordCount;
+
+    // --- Daily chart buckets ---
+    if (!dayBuckets[date]) {
+      dayBuckets[date] = { total: 0, claude: 0, codex: 0, gemini: 0 };
+    }
+    dayBuckets[date].total += cost;
+    if (agent === 'claude') dayBuckets[date].claude += cost;
+    else if (agent === 'codex') dayBuckets[date].codex += cost;
+    else if (agent === 'gemini') dayBuckets[date].gemini += cost;
+  }
+
+  // Build chart data array sorted ascending by date (MV is ordered DESC, buckets need ASC).
+  const chartData = Object.entries(dayBuckets)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, bucket]) => ({
+      date,
+      total: bucket.total,
+      claude: bucket.claude,
+      codex: bucket.codex,
+      gemini: bucket.gemini,
+    }));
 
   // Fetch budget alerts summary data for the widget
   // WHY: We fetch alerts here instead of in a separate component because
@@ -113,34 +164,9 @@ export default async function CostsPage() {
   const userTier = (subscriptionResult.data?.tier as TierId) || 'free';
   const alertLimit = TIERS[userTier]?.limits.budgetAlerts ?? 0;
 
-  /**
-   * Calculates the start of the current period for spend aggregation.
-   *
-   * @param period - Budget period type
-   * @returns ISO date string for the period start
-   */
-  function getPeriodStartDate(period: string): string {
-    const now = new Date();
-    switch (period) {
-      case 'daily': {
-        return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
-      }
-      case 'weekly': {
-        const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-        const day = start.getUTCDay();
-        start.setUTCDate(start.getUTCDate() - (day === 0 ? 6 : day - 1));
-        return start.toISOString();
-      }
-      case 'monthly': {
-        return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
-      }
-      default:
-        return new Date().toISOString();
-    }
-  }
-
   // WHY: We compute the "most critical" alert (highest % used) to show in the
   // summary widget. This gives users an at-a-glance view of their closest alert.
+  // getPeriodStartDate is defined at module level (above) for performance.
   let mostCriticalAlert: {
     name: string;
     threshold_usd: number;
@@ -152,37 +178,57 @@ export default async function CostsPage() {
   } | null = null;
 
   if (budgetAlerts.length > 0) {
-    const alertsWithSpend = await Promise.all(
-      budgetAlerts.map(async (alert) => {
-        const periodStart = getPeriodStartDate(alert.period);
+    // WHY: Deduplicate spend queries by (period, agent_type) pair to avoid an
+    // N+1 pattern where each alert triggers its own DB query. With 10 alerts on
+    // 3 periods + 3 agents, we reduce up to 10 queries down to at most 12
+    // (4 periods × 3 agent slots), but typically far fewer in practice.
+    // The composite key encodes both dimensions so null agent_type (all-agents)
+    // is correctly distinguished from agent-scoped alerts.
+    const uniqueKeys = [...new Set(
+      budgetAlerts.map((a) => `${a.period}:${a.agent_type ?? 'null'}`)
+    )];
+
+    const spendByKey: Record<string, number> = {};
+
+    await Promise.all(
+      uniqueKeys.map(async (key) => {
+        const [period, agentTypeRaw] = key.split(':') as [string, string];
+        const agentType = agentTypeRaw === 'null' ? null : agentTypeRaw;
+        const periodStart = getPeriodStartDate(period);
+
         let query = supabase
           .from('cost_records')
           .select('cost_usd')
           .eq('user_id', user.id)
           .gte('recorded_at', periodStart);
 
-        if (alert.agent_type) {
-          query = query.eq('agent_type', alert.agent_type);
+        if (agentType) {
+          query = query.eq('agent_type', agentType);
         }
 
         const { data: costData } = await query;
-        const currentSpend = (costData || []).reduce(
+        spendByKey[key] = (costData || []).reduce(
           (sum, r) => sum + (Number(r.cost_usd) || 0),
           0
         );
-        const threshold = Number(alert.threshold_usd);
-
-        return {
-          name: alert.name,
-          threshold_usd: threshold,
-          current_spend_usd: currentSpend,
-          percentage_used: threshold > 0 ? (currentSpend / threshold) * 100 : 0,
-          period: alert.period,
-          action: alert.action,
-          agent_type: alert.agent_type,
-        };
       })
     );
+
+    const alertsWithSpend = budgetAlerts.map((alert) => {
+      const key = `${alert.period}:${alert.agent_type ?? 'null'}`;
+      const currentSpend = spendByKey[key] ?? 0;
+      const threshold = Number(alert.threshold_usd);
+
+      return {
+        name: alert.name,
+        threshold_usd: threshold,
+        current_spend_usd: currentSpend,
+        percentage_used: threshold > 0 ? (currentSpend / threshold) * 100 : 0,
+        period: alert.period,
+        action: alert.action,
+        agent_type: alert.agent_type,
+      };
+    });
 
     // Sort by percentage used descending, pick the most critical
     alertsWithSpend.sort((a, b) => b.percentage_used - a.percentage_used);

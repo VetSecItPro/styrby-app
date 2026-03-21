@@ -9,24 +9,20 @@ import { randomUUID } from 'node:crypto';
 import { logger } from '@/ui/logger';
 import { Credentials, readSettings } from '@/persistence';
 import { initialMachineMetadata } from '@/daemon/run';
-import { configuration } from '@/configuration';
-import packageJson from '../../package.json';
 import os from 'node:os';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
 import { hashObject } from '@/utils/deterministicJson';
 import { projectPath } from '@/projectPath';
-import { resolve, join } from 'node:path';
+import { join } from 'node:path';
 import { createSessionMetadata } from '@/utils/createSessionMetadata';
 import fs from 'node:fs';
 import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { MessageBuffer } from "@/ui/ink/messageBuffer";
 import { CodexDisplay } from "@/ui/ink/CodexDisplay";
-import { trimIdent } from "@/utils/trimIdent";
 import type { CodexSessionConfig } from './types';
 import { CHANGE_TITLE_INSTRUCTION } from '@/gemini/constants';
 import { notifyDaemonSessionStarted } from "@/daemon/controlClient";
 import { registerKillSessionHandler } from "@/claude/registerKillSessionHandler";
-import { delay } from "@/utils/time";
 import { stopCaffeinate } from "@/utils/caffeinate";
 import { connectionState } from '@/utils/serverConnectionErrors';
 import { setupOfflineReconnection } from '@/utils/setupOfflineReconnection';
@@ -218,7 +214,7 @@ export async function runCodex(opts: {
         try {
             const kinds = handles.map((h: any) => (h && h.constructor ? h.constructor.name : typeof h));
             logger.debug(`[codex][handles] kinds=${JSON.stringify(kinds)}`);
-        } catch { }
+        } catch { /* Intentional: JSON.stringify may fail on circular refs */ }
     }
 
     //
@@ -779,12 +775,12 @@ export async function runCodex(opts: {
         // Clean up ink UI
         if (process.stdin.isTTY) {
             logger.debug('[codex]: setRawMode(false)');
-            try { process.stdin.setRawMode(false); } catch { }
+            try { process.stdin.setRawMode(false); } catch { /* Intentional: stdin cleanup may fail if process already exited */ }
         }
         // Stop reading from stdin so the process can exit
         if (hasTTY) {
             logger.debug('[codex]: stdin.pause()');
-            try { process.stdin.pause(); } catch { }
+            try { process.stdin.pause(); } catch { /* Intentional: stdin cleanup may fail if process already exited */ }
         }
         // Clear periodic keep-alive to avoid keeping event loop alive
         logger.debug('[codex]: clearInterval(keepAlive)');

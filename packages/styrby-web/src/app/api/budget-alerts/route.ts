@@ -222,12 +222,22 @@ export async function GET() {
 
     const alerts = alertsResult.data || [];
 
-    // WHY: We calculate current spend for each alert to show progress bars.
-    // We batch the spend queries by period to avoid N+1 queries. Each unique
-    // (period, agent_type) combination needs one aggregation query.
-    const alertsWithSpend = await Promise.all(
-      alerts.map(async (alert) => {
-        const periodStart = getPeriodStartDate(alert.period);
+    // WHY: Deduplicate spend queries by (period, agent_type) pair to eliminate
+    // the N+1 pattern where each alert triggers its own cost_records query.
+    // A user with 10 alerts across 3 periods and 2 agents runs at most 6 queries
+    // instead of 10, and typical cases reduce to 2-3. The composite key ensures
+    // null agent_type (all-agents totals) is distinguished from agent-scoped alerts.
+    const uniqueKeys = [...new Set(
+      alerts.map((a) => `${a.period}:${a.agent_type ?? 'null'}`)
+    )];
+
+    const spendByKey: Record<string, number> = {};
+
+    await Promise.all(
+      uniqueKeys.map(async (key) => {
+        const [period, agentTypeRaw] = key.split(':') as [string, string];
+        const agentType = agentTypeRaw === 'null' ? null : agentTypeRaw;
+        const periodStart = getPeriodStartDate(period as 'daily' | 'weekly' | 'monthly');
 
         // FIX-046: Add .limit() to prevent unbounded queries
         let query = supabase
@@ -238,35 +248,45 @@ export async function GET() {
           .limit(10000);
 
         // Scope to specific agent if configured
-        if (alert.agent_type) {
-          query = query.eq('agent_type', alert.agent_type);
+        if (agentType) {
+          query = query.eq('agent_type', agentType);
         }
 
         const { data: costData } = await query;
-
-        const currentSpend = (costData || []).reduce(
+        spendByKey[key] = (costData || []).reduce(
           (sum, record) => sum + (Number(record.cost_usd) || 0),
           0
         );
-
-        return {
-          ...alert,
-          current_spend_usd: currentSpend,
-          percentage_used: alert.threshold_usd > 0
-            ? (currentSpend / Number(alert.threshold_usd)) * 100
-            : 0,
-        };
       })
     );
 
+    const alertsWithSpend = alerts.map((alert) => {
+      const key = `${alert.period}:${alert.agent_type ?? 'null'}`;
+      const currentSpend = spendByKey[key] ?? 0;
+
+      return {
+        ...alert,
+        current_spend_usd: currentSpend,
+        percentage_used: alert.threshold_usd > 0
+          ? (currentSpend / Number(alert.threshold_usd)) * 100
+          : 0,
+      };
+    });
+
     const alertLimit = TIERS[tier]?.limits.budgetAlerts ?? 0;
 
-    return NextResponse.json({
-      alerts: alertsWithSpend,
-      tier,
-      alertLimit,
-      alertCount: alerts.length,
-    });
+    // WHY: no-store prevents CDN/proxy caching of user-specific alert data.
+    // Budget alert spend calculations contain private financial data that must
+    // never be served from a shared cache.
+    return NextResponse.json(
+      {
+        alerts: alertsWithSpend,
+        tier,
+        alertLimit,
+        alertCount: alerts.length,
+      },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
   } catch (error) {
     const isDev = process.env.NODE_ENV === 'development';
     console.error(

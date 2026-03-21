@@ -22,10 +22,11 @@ export default async function AgentsPage() {
     redirect('/login');
   }
 
-  // Fetch user's machines with their agent types
+  // WHY: machines table has platform/platform_version/hostname, not agent_type/os_info.
+  // Agent type is on sessions, not machines. Machines are hardware registrations.
   const { data: machines } = await supabase
     .from('machines')
-    .select('id, name, agent_type, is_online, last_seen_at, os_info')
+    .select('id, name, platform, platform_version, hostname, is_online, last_seen_at')
     .order('last_seen_at', { ascending: false });
 
   // Fetch agent configurations
@@ -45,7 +46,7 @@ export default async function AgentsPage() {
   const { data: activeSessions } = await supabase
     .from('sessions')
     .select('id, agent_type, title, status, created_at')
-    .eq('status', 'active');
+    .in('status', ['starting', 'running', 'idle', 'paused']);
 
   return (
     <AgentsClient

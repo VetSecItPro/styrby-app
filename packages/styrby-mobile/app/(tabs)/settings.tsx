@@ -291,7 +291,7 @@ export default function SettingsScreen() {
 
   /**
    * Whether auto-approve for low-risk operations is enabled.
-   * WHY: This maps to the `auto_approve_read` field on the user's default
+   * WHY: This maps to the `auto_approve_low_risk` field on the user's default
    * agent_configs row. Low-risk operations (read-only file access, etc.)
    * can be approved automatically to reduce notification noise.
    */
@@ -394,13 +394,13 @@ export default function SettingsScreen() {
       // Fetch auto-approve setting from default agent config
       const { data: agentConfig } = await supabase
         .from('agent_configs')
-        .select('auto_approve_read')
+        .select('auto_approve_low_risk')
         .eq('user_id', user.id)
         .limit(1)
         .single();
 
       if (agentConfig) {
-        setAutoApproveEnabled(agentConfig.auto_approve_read ?? false);
+        setAutoApproveEnabled(agentConfig.auto_approve_low_risk ?? false);
       }
     } catch (error) {
       // Non-fatal: UI will show fallback values
@@ -585,7 +585,7 @@ export default function SettingsScreen() {
 
       const { error } = await supabase
         .from('agent_configs')
-        .update({ auto_approve_read: value })
+        .update({ auto_approve_low_risk: value })
         .eq('user_id', userInfo.id);
 
       if (error) {
@@ -735,12 +735,15 @@ export default function SettingsScreen() {
 
     setIsSubmittingFeedback(true);
     try {
+      // WHY: user_feedback uses `message` (not feedback), `platform` (not source),
+      // and requires `feedback_type` (NOT NULL enum).
       const { error } = await supabase
         .from('user_feedback')
         .insert({
           user_id: userInfo.id,
-          feedback: trimmed,
-          source: 'mobile_settings',
+          feedback_type: 'general',
+          message: trimmed,
+          platform: 'ios',
         });
 
       if (error) {

@@ -1,3 +1,8 @@
+// WHY: force-dynamic ensures this page is always server-rendered at request time.
+// Session lists are user-specific and change frequently — caching would show
+// stale session status and costs to the user.
+export const dynamic = 'force-dynamic';
+
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { SessionsRealtime } from './sessions-realtime';

@@ -345,7 +345,7 @@ export class CodexMcpClient {
                 logger.debug('[CodexMCP] transport.close begin');
                 await this.transport?.close?.(); 
                 logger.debug('[CodexMCP] transport.close done');
-            } catch {}
+            } catch { /* Intentional: transport close may fail if already disconnected */ }
         }
 
         // As a last resort, if child still exists, send SIGKILL

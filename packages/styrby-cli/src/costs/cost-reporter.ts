@@ -24,9 +24,9 @@
 
 import { EventEmitter } from 'node:events';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { RelayClient, CostUpdateMessage } from 'styrby-shared';
+import type { RelayClient } from 'styrby-shared';
 import type { AgentType } from '@/auth/agent-credentials';
-import type { CostRecord, SessionCostSummary } from './cost-extractor.js';
+import type { CostRecord } from './cost-extractor.js';
 
 // ============================================================================
 // Types
@@ -86,6 +86,22 @@ export interface CostReporterEvents {
   /** Mobile was notified of cost update */
   mobileBroadcast: { costUsd: number; sessionTotalUsd: number };
 }
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/**
+ * Maximum number of records allowed in the pending buffer at any time.
+ *
+ * WHY: Under sustained network failure flush() keeps re-queuing records on
+ * every batch interval. Without a cap, pendingRecords grows without bound,
+ * causing unbounded memory growth in long CLI sessions with a dead network.
+ * When the cap is reached we drop the oldest records (already the least
+ * actionable data) and log a warning so the operator knows records were lost
+ * (PERF-024). 500 records × ~200 bytes each ≈ 100 KB max buffer footprint.
+ */
+const MAX_PENDING = 500;
 
 // ============================================================================
 // Cost Reporter Class
@@ -174,6 +190,20 @@ export class CostReporter extends EventEmitter {
    * @param record - Cost record to report
    */
   addRecord(record: CostRecord): void {
+    // WHY: Cap the pending buffer to prevent unbounded memory growth when
+    // flush() keeps failing (e.g. sustained network outage). Drop the oldest
+    // record (index 0) before pushing the new one so the buffer never exceeds
+    // MAX_PENDING entries. The oldest records are the least actionable —
+    // they describe cost events far in the past that would be stale by the
+    // time the network recovers (PERF-024).
+    if (this.pendingRecords.length >= MAX_PENDING) {
+      this.pendingRecords.shift();
+      console.warn(
+        `[CostReporter] pendingRecords exceeded MAX_PENDING (${MAX_PENDING}). ` +
+          'Oldest record dropped. Check network connectivity.'
+      );
+    }
+
     this.pendingRecords.push(record);
     this.sessionTotalCostUsd += record.costUsd;
 
@@ -296,7 +326,16 @@ export class CostReporter extends EventEmitter {
 
       return true;
     } catch (error) {
-      // On failure, add to pending batch for retry
+      // On failure, add to pending batch for retry.
+      // Apply the same MAX_PENDING cap as addRecord() to prevent buffer
+      // growth when reportImmediate() is called repeatedly during an outage.
+      if (this.pendingRecords.length >= MAX_PENDING) {
+        this.pendingRecords.shift();
+        console.warn(
+          `[CostReporter] pendingRecords exceeded MAX_PENDING (${MAX_PENDING}) ` +
+            'during immediate-report retry. Oldest record dropped.'
+        );
+      }
       this.pendingRecords.push(record);
       this.emit('error', {
         message: 'Immediate report failed, queued for retry',

@@ -1,3 +1,8 @@
+// WHY: force-dynamic ensures this page is always server-rendered at request time.
+// The dashboard shows live user-specific data (sessions, spend, machines) that
+// must never be statically cached — stale data would show wrong costs and status.
+export const dynamic = 'force-dynamic';
+
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { DashboardRealtime } from './dashboard-realtime';
@@ -35,11 +40,14 @@ export default async function DashboardPage() {
     .limit(5);
 
   // Fetch today's spend
+  // WHY: .limit(1000) prevents unbounded memory on high-volume users with many records today.
+  // 1000 records per day is well above typical usage and safe for serverless functions.
   const today = new Date().toISOString().split('T')[0];
   const { data: todayCosts } = await supabase
     .from('cost_records')
     .select('cost_usd')
-    .gte('record_date', today);
+    .gte('record_date', today)
+    .limit(1000);
 
   const todaySpend = todayCosts?.reduce((sum, r) => sum + Number(r.cost_usd), 0) || 0;
 

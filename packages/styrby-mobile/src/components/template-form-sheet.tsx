@@ -29,7 +29,7 @@ import type {
   UpdateContextTemplateInput,
   ContextTemplateVariable,
 } from 'styrby-shared';
-import { extractVariableNames, validateTemplateVariables } from 'styrby-shared';
+import { extractVariableNames } from 'styrby-shared';
 
 // ============================================================================
 // Types

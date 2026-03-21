@@ -8,7 +8,7 @@
  * implementations are in styrby-mobile and styrby-web.
  */
 
-import type { RelayMessage, AgentType } from './types.js';
+import type { RelayMessage } from './types.js';
 
 // ============================================================================
 // Queue Item Types

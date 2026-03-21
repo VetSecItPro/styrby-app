@@ -43,27 +43,29 @@ import type { AgentType } from 'styrby-shared';
  * - When E2E encryption is active: content=null, encrypted_content + nonce are populated
  * - Backward compatibility: if encrypted_content is null, fall back to plaintext content
  */
+/**
+ * Maps to the actual session_messages table schema.
+ * WHY: Column names must match exactly — Supabase returns actual DB column
+ * names, not aliases. Previous bugs were caused by using `role`, `content`,
+ * `encrypted_content`, `nonce` instead of the real column names.
+ */
 interface SessionMessageRow {
   /** UUID primary key */
   id: string;
   /** Foreign key to sessions.id */
   session_id: string;
-  /** Message role: user, assistant, system, or tool */
-  role: 'user' | 'assistant' | 'system' | 'tool';
-  /** Plaintext content (null when E2E encryption is active) */
-  content: string | null;
-  /** Base64-encoded NaCl box ciphertext (null for legacy plaintext messages) */
-  encrypted_content: string | null;
+  /** Message type enum: user_prompt, agent_response, tool_use, etc. */
+  message_type: string;
+  /** Base64-encoded NaCl box ciphertext (or plaintext for unencrypted messages) */
+  content_encrypted: string | null;
   /** Base64-encoded NaCl nonce used for encryption (null for plaintext) */
-  nonce: string | null;
+  encryption_nonce: string | null;
   /** Input tokens consumed by this message */
   input_tokens: number | null;
   /** Output tokens produced by this message */
   output_tokens: number | null;
-  /** Cost in USD for this message */
-  cost_usd: number | null;
-  /** Model used for this message */
-  model: string | null;
+  /** Duration in milliseconds */
+  duration_ms: number | null;
   /** When the message was created */
   created_at: string;
 }
@@ -212,9 +214,9 @@ export default function ChatScreen() {
       if (!targetSessionId) {
         const { data: recentSession, error: sessionError } = await supabase
           .from('sessions')
-          .select('id, agent, status')
+          .select('id, agent_type, status')
           .eq('user_id', user.id)
-          .eq('status', 'active')
+          .in('status', ['starting', 'running', 'idle', 'paused'])
           .order('updated_at', { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -230,8 +232,8 @@ export default function ChatScreen() {
 
           // WHY: Restore the agent selection to match the resumed session
           // so the UI is consistent with what the user last used.
-          if (recentSession.agent && recentSession.agent in AGENT_CONFIG) {
-            setSelectedAgent(recentSession.agent as AgentType);
+          if (recentSession.agent_type && recentSession.agent_type in AGENT_CONFIG) {
+            setSelectedAgent(recentSession.agent_type as AgentType);
           }
 
           logger.log('Resuming active session:', recentSession.id);
@@ -280,19 +282,19 @@ export default function ChatScreen() {
         (messageRows as SessionMessageRow[]).map(async (row) => {
           let messageContent: string;
 
-          if (row.encrypted_content && row.nonce && machineId) {
+          if (row.content_encrypted && row.encryption_nonce && machineId) {
             // WHY: Message is E2E encrypted. Attempt decryption using the
             // paired CLI machine's public key and our secret key.
             try {
-              messageContent = await decryptMessage(row.encrypted_content, row.nonce, machineId);
+              messageContent = await decryptMessage(row.content_encrypted, row.encryption_nonce, machineId);
             } catch (decryptError) {
               logger.error(`Failed to decrypt message ${row.id}:`, decryptError);
               messageContent = DECRYPTION_FAILED_PLACEHOLDER;
             }
-          } else if (row.content !== null) {
-            // WHY: Backward compatibility -- message was stored as plaintext
-            // (before E2E encryption was enabled, or encryption was unavailable).
-            messageContent = row.content;
+          } else if (row.content_encrypted !== null) {
+            // WHY: content_encrypted may contain plaintext if encryption
+            // was unavailable at send time.
+            messageContent = row.content_encrypted;
           } else {
             // WHY: Neither encrypted nor plaintext content available.
             // This should not happen in normal operation but we handle it
@@ -300,12 +302,18 @@ export default function ChatScreen() {
             messageContent = DECRYPTION_FAILED_PLACEHOLDER;
           }
 
+          // Map message_type to role for the chat UI
+          const uiRole = (['user_prompt'].includes(row.message_type))
+            ? 'user' as const
+            : (['tool_use', 'tool_result', 'system', 'permission_request', 'permission_response'].includes(row.message_type))
+              ? 'system' as const
+              : 'assistant' as const;
+
           return {
             id: row.id,
-            role: row.role === 'tool' ? 'system' : row.role as ChatMessageData['role'],
+            role: uiRole,
             content: [{ type: 'text' as const, content: messageContent }],
             timestamp: row.created_at,
-            costUsd: row.cost_usd ?? undefined,
           };
         })
       );
@@ -370,8 +378,8 @@ export default function ChatScreen() {
         .insert({
           user_id: user.id,
           machine_id: pairingInfo?.machineId ?? null,
-          agent: agent ?? 'claude',
-          status: 'active',
+          agent_type: agent ?? 'claude',
+          status: 'running',
           title,
           total_input_tokens: 0,
           total_output_tokens: 0,
@@ -451,19 +459,19 @@ export default function ChatScreen() {
       }
     }
 
+    // WHY: session_messages uses message_type (not role), content_encrypted
+    // (not content/encrypted_content), and encryption_nonce (not nonce).
+    // cost_usd and model belong on cost_records and sessions respectively.
     const { error } = await supabase
       .from('session_messages')
       .insert({
         id: messageId,
         session_id: targetSessionId,
-        role,
-        content: plaintextContent,
-        encrypted_content: encryptedContent,
-        nonce: encryptionNonce,
+        message_type: role === 'user' ? 'user_prompt' : 'agent_response',
+        content_encrypted: encryptedContent || plaintextContent,
+        encryption_nonce: encryptionNonce,
         input_tokens: tokenData?.inputTokens ?? null,
         output_tokens: tokenData?.outputTokens ?? null,
-        cost_usd: tokenData?.costUsd ?? null,
-        model: tokenData?.model ?? null,
       });
 
     if (error) {

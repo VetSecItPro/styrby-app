@@ -18,7 +18,7 @@ import chalk from 'chalk';
 import qrcode from 'qrcode-terminal';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '@/ui/logger';
-import { isAuthenticated, setConfigValue, loadConfig } from '@/configuration';
+import { isAuthenticated, setConfigValue } from '@/configuration';
 import { savePersistedData, loadPersistedData } from '@/persistence';
 import { startBrowserAuth, AuthError } from '@/auth/browser-auth';
 import { registerMachine, getMachineName } from '@/auth/machine-registration';

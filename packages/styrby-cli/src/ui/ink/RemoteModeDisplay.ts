@@ -46,6 +46,7 @@ export class RemoteModeDisplay {
       disconnected: '🔴',
     }[this.state.connectionState];
 
+    // Terminal UI output — intentional console.log for Ink rendering
     console.clear();
     console.log('━'.repeat(50));
     console.log(`${statusIcon} Styrby Remote Mode`);

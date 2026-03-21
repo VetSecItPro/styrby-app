@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Settings, Plus, Wifi, WifiOff, Clock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,29 @@ import Link from 'next/link';
  * Agent type definition matching the Supabase agent_type column.
  */
 type AgentType = 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider';
+
+/**
+ * Formats a timestamp to a human-readable "time ago" string.
+ *
+ * WHY: Defined at module level (not inside the component) so it is not
+ * re-created on every render. Accepts `now` as a parameter so the component
+ * can control the reference time from stable state.
+ *
+ * @param dateStr - ISO 8601 timestamp string, or undefined if never seen
+ * @param now - Current time in milliseconds (from Date.now())
+ * @returns Human-readable relative time string
+ */
+function timeAgo(dateStr: string | undefined, now: number): string {
+  if (!dateStr) return 'Never';
+  const diff = now - new Date(dateStr).getTime();
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
 
 /**
  * Agent display configuration - brand colors and labels.
@@ -27,16 +50,17 @@ const AGENT_META: Record<AgentType, { label: string; color: string }> = {
 interface Machine {
   id: string;
   name: string;
-  agent_type: string;
+  platform: string | null;
+  platform_version: string | null;
+  hostname: string | null;
   is_online: boolean;
   last_seen_at: string;
-  os_info: string | null;
 }
 
 interface AgentConfig {
   id: string;
   agent_type: string;
-  auto_approve_reads: boolean;
+  auto_approve_low_risk: boolean;
   blocked_tools: string[];
 }
 
@@ -86,10 +110,14 @@ export function AgentsClient({ machines, agentConfigs: _agentConfigs, todayCosts
     return acc;
   }, {});
 
-  // Build agent cards data
-  const agentCards = (Object.keys(AGENT_META) as AgentType[]).map((type) => {
+  // Build agent cards data — memoized so it only recomputes when props change.
+  // WHY: agentCards derives from machines, costByAgent, and activeByAgent. Without
+  // memoization it recomputes on every render even when none of those changed.
+  const agentCards = useMemo(() => (Object.keys(AGENT_META) as AgentType[]).map((type) => {
     const meta = AGENT_META[type];
-    const agentMachines = machines.filter((m) => m.agent_type === type);
+    // WHY: Machines don't have agent_type — agents run in sessions, not machines.
+    // Show all machines for each agent type (a machine can run any agent).
+    const agentMachines = machines;
     const onlineMachines = agentMachines.filter((m) => m.is_online);
     const isOnline = onlineMachines.length > 0;
     const activeSess = activeByAgent[type] || 0;
@@ -107,24 +135,11 @@ export function AgentsClient({ machines, agentConfigs: _agentConfigs, todayCosts
       lastSeen,
       machineName: agentMachines[0]?.name || 'No machine connected',
     };
-  });
+  }), [machines, costByAgent, activeByAgent]);
 
-  /**
-   * Formats a timestamp to a human-readable "time ago" string.
-   */
+  // Capture mount time once. timeAgo() is defined at module level and accepts
+  // `now` as a parameter — see the function definition above the component.
   const [now] = useState(() => Date.now());
-
-  function timeAgo(dateStr: string | undefined): string {
-    if (!dateStr) return 'Never';
-    const diff = now - new Date(dateStr).getTime();
-    const seconds = Math.floor(diff / 1000);
-    if (seconds < 60) return `${seconds}s ago`;
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
-  }
 
   return (
     <div className="space-y-6">
@@ -222,7 +237,7 @@ export function AgentsClient({ machines, agentConfigs: _agentConfigs, todayCosts
               {/* Last heartbeat */}
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Clock className="h-3 w-3" />
-                Last seen: {timeAgo(agent.lastSeen)}
+                Last seen: {timeAgo(agent.lastSeen, now)}
               </div>
             </CardContent>
           </Card>
@@ -260,14 +275,12 @@ export function AgentsClient({ machines, agentConfigs: _agentConfigs, todayCosts
                 </thead>
                 <tbody>
                   {machines.map((machine) => {
-                    const agentType = machine.agent_type as AgentType;
-                    const meta = AGENT_META[agentType];
                     return (
                       <tr key={machine.id} className="border-b border-border/20">
                         <td className="py-3 text-sm font-medium text-foreground">{machine.name}</td>
-                        <td className="py-3 text-sm text-muted-foreground">{machine.os_info || 'Unknown'}</td>
-                        <td className="py-3 text-sm text-muted-foreground">{timeAgo(machine.last_seen_at)}</td>
-                        <td className="py-3 text-sm text-muted-foreground">{meta?.label || machine.agent_type}</td>
+                        <td className="py-3 text-sm text-muted-foreground">{machine.platform || 'Unknown'}{machine.hostname ? ` (${machine.hostname})` : ''}</td>
+                        <td className="py-3 text-sm text-muted-foreground">{timeAgo(machine.last_seen_at, now)}</td>
+                        <td className="py-3 text-sm text-muted-foreground">—</td>
                         <td className="py-3">
                           <Badge
                             variant="secondary"

@@ -260,27 +260,32 @@ export class BudgetMonitor {
       return [];
     }
 
-    // Pre-fetch costs for each unique (period, agentType) combination to avoid
-    // duplicate queries. The cache key encodes both dimensions.
+    // Pre-fetch costs for each unique (period, agentType) combination in parallel.
     // WHY: Alerts can filter by agent type (e.g., "claude daily $10" vs "all agents
-    // monthly $50"). We need separate cost queries for each agent filter.
-    const costCache: Map<string, CostSummary> = new Map();
+    // monthly $50"). We need separate cost queries for each agent filter. By fetching
+    // all unique combinations concurrently we cut total latency from O(n) to O(1).
+    const uniqueKeys = [...new Set(alerts.map((a) => `${a.period}:${a.agent_type ?? 'all'}`))];
+    const costCache: Map<string, CostSummary> = new Map(
+      await Promise.all(
+        uniqueKeys.map(async (key) => {
+          const [period, agentType] = key.split(':') as [string, string];
+          const cost = await this.getCostsForPeriod(
+            period as Parameters<typeof this.getCostsForPeriod>[0],
+            agentType === 'all' ? undefined : (agentType as AgentType)
+          );
+          return [key, cost] as [string, CostSummary];
+        })
+      )
+    );
 
-    const results: BudgetCheckResult[] = [];
-
-    for (const alert of alerts) {
-      const cacheKey = `${alert.period}:${alert.agent_type ?? 'all'}`;
-
-      if (!costCache.has(cacheKey)) {
-        costCache.set(
-          cacheKey,
-          await this.getCostsForPeriod(alert.period, alert.agent_type ?? undefined)
-        );
-      }
-
-      const result = await this.checkAlert(alert, costCache.get(cacheKey)!);
-      results.push(result);
-    }
+    // WHY: checkAlert calls are independent once the cost cache is populated —
+    // run them in parallel to avoid sequential round-trips.
+    const results = await Promise.all(
+      alerts.map((alert) => {
+        const cacheKey = `${alert.period}:${alert.agent_type ?? 'all'}`;
+        return this.checkAlert(alert, costCache.get(cacheKey)!);
+      })
+    );
 
     // Sort by severity: exceeded > critical > warning > ok
     const levelOrder: Record<AlertLevel, number> = {

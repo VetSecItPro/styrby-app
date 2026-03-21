@@ -156,8 +156,12 @@ function inMemoryRateLimit(
   };
 }
 
-// Periodic cleanup for in-memory fallback
-if (typeof setInterval !== 'undefined' && !isRedisConfigured) {
+// Periodic cleanup for in-memory fallback.
+// WHY: The NODE_ENV !== 'test' guard prevents setInterval from leaking into
+// Jest/Vitest environments. Test runners flag open handles and warn about
+// unresolved timers after test suites complete. In tests the inMemoryStore is
+// small and short-lived so eviction is unnecessary (PERF-022).
+if (typeof setInterval !== 'undefined' && !isRedisConfigured && process.env.NODE_ENV !== 'test') {
   setInterval(() => {
     const now = Date.now();
     for (const [key, entry] of inMemoryStore.entries()) {

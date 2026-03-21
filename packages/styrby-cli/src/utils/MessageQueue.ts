@@ -1,4 +1,4 @@
-import { SDKMessage, SDKUserMessage } from "@/claude/sdk";
+import { SDKUserMessage } from "@/claude/sdk";
 import { logger } from "@/ui/logger";
 
 /**

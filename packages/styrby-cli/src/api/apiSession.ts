@@ -130,7 +130,7 @@ export class ApiSessionManager {
         id: sessionId,
         user_id: userId,
         machine_id: machineId,
-        agent: agentType,
+        agent_type: agentType,
         status: 'starting',
         project_path: projectPath,
         started_at: now,

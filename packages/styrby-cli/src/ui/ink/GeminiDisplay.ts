@@ -37,6 +37,7 @@ export class GeminiDisplay {
       error: '❌',
     }[this.state.status];
 
+    // Terminal UI output — intentional console.log for Ink rendering
     if (this.state.model) {
       console.log(`🔷 Gemini (${this.state.model})`);
     }

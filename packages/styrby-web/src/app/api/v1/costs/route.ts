@@ -116,17 +116,30 @@ async function handler(
 
   const supabase = createApiAdminClient();
 
-  // Get cost records for the period
-  // WHY: .limit(10000) prevents unbounded memory on serverless functions.
-  // 12-month 'monthly' period could return tens of thousands of rows.
-  const { data: costRecords, error: costError } = await supabase
-    .from('cost_records')
-    .select('record_date, cost_usd, input_tokens, output_tokens, cache_read_tokens')
-    .eq('user_id', userId)
-    .gte('record_date', startDate.toISOString().split('T')[0])
-    .lte('record_date', endDate.toISOString().split('T')[0])
-    .order('record_date', { ascending: true })
-    .limit(10000);
+  // WHY: Run cost records and session count queries in parallel — they are independent.
+  // This cuts round-trip latency roughly in half on every API call.
+  const [costResult, sessionCountResult] = await Promise.all([
+    // WHY: .limit(10000) prevents unbounded memory on serverless functions.
+    // 12-month 'monthly' period could return tens of thousands of rows.
+    supabase
+      .from('cost_records')
+      .select('record_date, cost_usd, input_tokens, output_tokens, cache_read_tokens')
+      .eq('user_id', userId)
+      .gte('record_date', startDate.toISOString().split('T')[0])
+      .lte('record_date', endDate.toISOString().split('T')[0])
+      .order('record_date', { ascending: true })
+      .limit(10000),
+    supabase
+      .from('sessions')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('created_at', startDate.toISOString())
+      .lte('created_at', endDate.toISOString())
+      .is('deleted_at', null),
+  ]);
+
+  const { data: costRecords, error: costError } = costResult;
+  const { count: sessionCount } = sessionCountResult;
 
   if (costError) {
     console.error('Failed to fetch cost records:', costError.message);
@@ -135,15 +148,6 @@ async function handler(
       { status: 500 }
     );
   }
-
-  // Get session count for the period
-  const { count: sessionCount } = await supabase
-    .from('sessions')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .gte('created_at', startDate.toISOString())
-    .lte('created_at', endDate.toISOString())
-    .is('deleted_at', null);
 
   // Aggregate by period
   const aggregatedData: Record<

@@ -9,7 +9,6 @@
 import { render } from 'ink';
 import React from 'react';
 import { randomUUID } from 'node:crypto';
-import os from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { ApiClient } from '@/api/api';
@@ -17,8 +16,6 @@ import { logger } from '@/ui/logger';
 import { Credentials, readSettings } from '@/persistence';
 import { createSessionMetadata } from '@/utils/createSessionMetadata';
 import { initialMachineMetadata } from '@/daemon/run';
-import { configuration } from '@/configuration';
-import packageJson from '../../package.json';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
 import { hashObject } from '@/utils/deterministicJson';
 import { projectPath } from '@/projectPath';
@@ -39,7 +36,7 @@ import { GeminiReasoningProcessor } from '@/gemini/utils/reasoningProcessor';
 import { GeminiDiffProcessor } from '@/gemini/utils/diffProcessor';
 import type { GeminiMode, CodexMessagePayload } from '@/gemini/types';
 import type { PermissionMode } from '@/api/types';
-import { GEMINI_MODEL_ENV, DEFAULT_GEMINI_MODEL, CHANGE_TITLE_INSTRUCTION } from '@/gemini/constants';
+import { GEMINI_MODEL_ENV, CHANGE_TITLE_INSTRUCTION } from '@/gemini/constants';
 import {
   readGeminiLocalConfig,
   saveGeminiModelToConfig,

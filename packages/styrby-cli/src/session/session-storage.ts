@@ -29,7 +29,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '@/ui/logger';
 import type { AgentType } from '@/auth/agent-credentials';
-import { encryptMessage, decryptMessage, deriveSessionKey, type EncryptedPayload, type KeyContext } from './encryption';
+import { encryptMessage, decryptMessage, deriveSessionKey } from './encryption';
 
 // ============================================================================
 // Types

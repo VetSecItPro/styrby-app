@@ -155,13 +155,14 @@ export async function POST(request: Request) {
 
     // Log export in audit_log
     // WHY: GDPR compliance requires tracking when data was exported
+    // WHY: Column is 'metadata', not 'details'.
     await supabase.from('audit_log').insert({
       user_id: user.id,
       action: 'export_requested',
-      details: {
+      ip_address: request.headers.get('x-forwarded-for') || 'unknown',
+      metadata: {
         tables_exported: 20,
         total_records: totalRecords,
-        ip_address: request.headers.get('x-forwarded-for') || 'unknown',
       },
     });
 
