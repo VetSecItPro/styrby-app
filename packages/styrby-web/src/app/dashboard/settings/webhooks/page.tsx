@@ -136,7 +136,7 @@ export default async function WebhooksPage() {
           >
             Settings
           </Link>
-          <span className="text-zinc-600">/</span>
+          <span className="text-zinc-500">/</span>
           <span className="text-sm text-zinc-300">Webhooks</span>
         </div>
         <h1 className="text-2xl font-bold text-zinc-100 mb-8">Webhooks</h1>

@@ -140,6 +140,7 @@ export default function LoginScreen() {
               keyboardType="email-address"
               autoCapitalize="none"
               autoComplete="email"
+              accessibilityLabel="Email address"
             />
           </View>
         </View>
@@ -158,6 +159,7 @@ export default function LoginScreen() {
                 onChangeText={setPassword}
                 secureTextEntry
                 autoCapitalize="none"
+                accessibilityLabel="Password"
               />
             </View>
           </View>

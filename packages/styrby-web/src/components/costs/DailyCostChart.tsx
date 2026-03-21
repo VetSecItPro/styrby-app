@@ -128,7 +128,7 @@ export function DailyCostChart({
       </div>
 
       {/* X-axis labels showing date range */}
-      <div className="flex justify-between mt-2 text-xs text-zinc-600">
+      <div className="flex justify-between mt-2 text-xs text-zinc-500">
         {data.length > 0 && (
           <>
             <span>{formatDate(data[0].date)}</span>

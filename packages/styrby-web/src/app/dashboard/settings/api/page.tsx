@@ -138,7 +138,7 @@ export default async function ApiKeysPage() {
           >
             Settings
           </Link>
-          <span className="text-zinc-600">/</span>
+          <span className="text-zinc-500">/</span>
           <span className="text-sm text-zinc-300">API Keys</span>
         </div>
         <h1 className="text-2xl font-bold text-zinc-100 mb-8">API Keys</h1>

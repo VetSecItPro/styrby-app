@@ -13,6 +13,7 @@
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -115,6 +116,10 @@ export function ApiKeysClient({
     setCreatedSecret(null);
     setCopied(false);
   }, []);
+
+  // WHY: WCAG 2.1.2 — focus trap keeps keyboard users inside the modal dialog
+  // and restores focus to the trigger when the modal closes.
+  const focusTrapRef = useFocusTrap<HTMLDivElement>(showModal, handleCloseModal);
 
   // -------------------------------------------------------------------------
   // Create Key Handler
@@ -242,7 +247,7 @@ export function ApiKeysClient({
         <div className="flex items-center gap-4">
           <p className="text-sm text-zinc-400">
             {keyCount} / {keyLimit} API keys used
-            <span className="text-zinc-600 ml-2">({tier} plan)</span>
+            <span className="text-zinc-500 ml-2">({tier} plan)</span>
           </p>
           <Link
             href="/dashboard/settings/api/docs"
@@ -464,7 +469,7 @@ export function ApiKeysClient({
                       Revoked
                     </span>
                   </div>
-                  <p className="text-xs text-zinc-600 mt-1">
+                  <p className="text-xs text-zinc-500 mt-1">
                     Revoked on{' '}
                     {new Date(key.revoked_at!).toLocaleDateString('en-US', {
                       month: 'short',
@@ -495,7 +500,7 @@ export function ApiKeysClient({
           />
 
           {/* Modal content */}
-          <div className="relative w-full max-w-lg rounded-xl bg-zinc-900 border border-zinc-800 p-6 shadow-xl">
+          <div ref={focusTrapRef} className="relative w-full max-w-lg rounded-xl bg-zinc-900 border border-zinc-800 p-6 shadow-xl">
             {createdSecret ? (
               // Secret display after creation
               <>
@@ -567,7 +572,7 @@ export function ApiKeysClient({
 
                 {/* Error message */}
                 {error && (
-                  <div className="mb-4 rounded-lg bg-red-500/10 border border-red-500/30 px-4 py-3">
+                  <div role="alert" className="mb-4 rounded-lg bg-red-500/10 border border-red-500/30 px-4 py-3">
                     <p className="text-sm text-red-400">{error}</p>
                   </div>
                 )}

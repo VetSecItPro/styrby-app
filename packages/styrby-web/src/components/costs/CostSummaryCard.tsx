@@ -81,11 +81,11 @@ export function CostSummaryCard({
       </p>
 
       <div className="flex items-center gap-2 mt-1">
-        <p className="text-xs text-zinc-600">{formatTokens(totalTokens)} tokens</p>
+        <p className="text-xs text-zinc-500">{formatTokens(totalTokens)} tokens</p>
         {summary.requestCount > 0 && (
           <>
             <span className="text-zinc-700">|</span>
-            <p className="text-xs text-zinc-600">
+            <p className="text-xs text-zinc-500">
               {summary.requestCount.toLocaleString()} requests
             </p>
           </>

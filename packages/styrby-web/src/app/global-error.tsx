@@ -38,7 +38,7 @@ export default function GlobalError({
             </button>
           </div>
           {error.digest && (
-            <p className="mt-6 text-xs text-zinc-600">Error ID: {error.digest}</p>
+            <p className="mt-6 text-xs text-zinc-500">Error ID: {error.digest}</p>
           )}
         </div>
       </body>

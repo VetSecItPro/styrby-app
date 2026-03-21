@@ -16,11 +16,11 @@ export function Footer() {
   return (
     <footer className="border-t border-border/40 py-6">
       <div className="mx-auto max-w-7xl px-6 text-center">
-        <nav className="flex flex-wrap items-center justify-center gap-x-1 gap-y-2">
+        <nav aria-label="Footer" className="flex flex-wrap items-center justify-center gap-x-1 gap-y-2">
           {links.map((link, i) => (
             <span key={link.label} className="flex items-center gap-1">
               {i > 0 && (
-                <span className="text-zinc-600" aria-hidden="true">
+                <span className="text-zinc-500" aria-hidden="true">
                   &middot;
                 </span>
               )}

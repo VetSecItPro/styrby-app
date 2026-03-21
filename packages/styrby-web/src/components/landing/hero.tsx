@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 
 function DashboardMockup() {
   return (
-    <div className="relative mx-auto mt-16 max-w-5xl">
+    <div aria-hidden="true" className="relative mx-auto mt-16 max-w-5xl">
       {/* Glow */}
       <div className="absolute inset-0 -z-10 rounded-xl bg-amber-500/10 blur-[80px]" />
 

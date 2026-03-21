@@ -46,7 +46,7 @@ export default function DashboardError({
         </p>
 
         {error.digest && (
-          <p className="text-xs text-zinc-600 mb-6">Error ID: {error.digest}</p>
+          <p className="text-xs text-zinc-500 mb-6">Error ID: {error.digest}</p>
         )}
 
         {process.env.NODE_ENV === 'development' && error.message && (

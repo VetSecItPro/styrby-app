@@ -164,6 +164,7 @@ export function SessionView({
       {/* View mode toggle (only shown for completed sessions with messages) */}
       {showReplayOption && (
         <div className="flex items-center gap-2 border-b border-zinc-800 bg-zinc-900/30 px-6 py-2">
+          <div role="group" aria-label="View mode" className="flex items-center gap-2">
           {/* Chat view button */}
           <button
             onClick={handleChatView}
@@ -189,7 +190,7 @@ export function SessionView({
                 ? 'bg-orange-500/20 text-orange-400'
                 : canAccessReplay
                   ? 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-                  : 'text-zinc-600 cursor-not-allowed'
+                  : 'text-zinc-500 cursor-not-allowed'
             )}
             aria-pressed={viewMode === 'replay'}
             aria-disabled={!canAccessReplay}
@@ -204,6 +205,7 @@ export function SessionView({
               <span className="ml-1 text-xs text-zinc-500">Pro</span>
             )}
           </button>
+          </div>
 
           {/* Upgrade prompt for free users */}
           {!canAccessReplay && (

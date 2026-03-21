@@ -152,7 +152,13 @@ export function ConnectionStatus({
       }}
     >
       {/* Status Indicator Dot */}
-      <View className="relative">
+      {/* WHY: accessibilityLabel on the dot announces the status to screen readers.
+          The pulsing ring is decorative, so it is hidden from assistive technology. */}
+      <View
+        className="relative"
+        accessibilityLabel={config.label}
+        accessibilityRole="image"
+      >
         <View
           className="w-3 h-3 rounded-full"
           style={{ backgroundColor: config.color }}
@@ -161,6 +167,8 @@ export function ConnectionStatus({
           <View
             className="absolute inset-0 w-3 h-3 rounded-full animate-ping"
             style={{ backgroundColor: config.color, opacity: 0.5 }}
+            accessibilityElementsHidden={true}
+            importantForAccessibility="no-hide-descendants"
           />
         )}
       </View>
@@ -246,8 +254,16 @@ export function ConnectionStatusDot({
       disabled={!onPress}
       className="p-2 rounded-full"
       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      accessibilityLabel={config.label}
+      accessibilityRole="button"
     >
-      <View className="relative">
+      {/* WHY: The dot itself is decorative — the Pressable carries the label.
+          Hide it from assistive technology to avoid duplicate announcements. */}
+      <View
+        className="relative"
+        accessibilityElementsHidden={true}
+        importantForAccessibility="no-hide-descendants"
+      >
         <View
           className="w-3 h-3 rounded-full"
           style={{ backgroundColor: config.color }}

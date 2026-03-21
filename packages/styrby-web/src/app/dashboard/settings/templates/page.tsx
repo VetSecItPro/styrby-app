@@ -91,7 +91,7 @@ export default async function TemplatesPage() {
             <Link href="/dashboard/settings" className="text-zinc-400 hover:text-zinc-100 transition-colors">
               Settings
             </Link>
-            <span className="text-zinc-600">/</span>
+            <span className="text-zinc-500">/</span>
             <span className="text-zinc-100">Templates</span>
           </nav>
         </div>

@@ -114,7 +114,7 @@ export function CostsByAgentChart({
               </div>
 
               {/* Token and request counts */}
-              <p className="text-xs text-zinc-600 mt-1">
+              <p className="text-xs text-zinc-500 mt-1">
                 {formatTokens(totalTokens)} tokens | {agent.requestCount.toLocaleString()}{' '}
                 requests
               </p>

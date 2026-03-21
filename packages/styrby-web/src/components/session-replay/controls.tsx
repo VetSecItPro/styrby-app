@@ -129,6 +129,7 @@ export function ReplayControls({
   onJumpToMessage,
 }: ReplayControlsProps) {
   const progressBarRef = useRef<HTMLDivElement>(null);
+  const speedButtonRef = useRef<HTMLButtonElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
 
@@ -224,8 +225,25 @@ export function ReplayControls({
     (newSpeed: PlaybackSpeed) => {
       onSpeedChange(newSpeed);
       setShowSpeedMenu(false);
+      // Restore focus to the speed toggle button after selecting a speed
+      speedButtonRef.current?.focus();
     },
     [onSpeedChange]
+  );
+
+  /**
+   * Closes the speed dropdown and restores focus to the trigger button.
+   * WHY: WCAG 2.1.1 — Escape must close any open popup/dropdown.
+   */
+  const handleSpeedMenuKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === 'Escape' && showSpeedMenu) {
+        e.preventDefault();
+        setShowSpeedMenu(false);
+        speedButtonRef.current?.focus();
+      }
+    },
+    [showSpeedMenu]
   );
 
   return (
@@ -244,6 +262,31 @@ export function ReplayControls({
           aria-valuenow={currentTimeMs}
           aria-valuetext={`${formatTime(currentTimeMs)} of ${formatTime(totalDurationMs)}`}
           tabIndex={0}
+          onKeyDown={(e) => {
+            // WHY: WCAG 2.1.1 requires keyboard operability. Arrow keys move in
+            // 5-second steps; Shift+Arrow uses 30-second steps for coarse navigation.
+            const step = e.shiftKey ? 30_000 : 5_000;
+            switch (e.key) {
+              case 'ArrowRight':
+              case 'ArrowUp':
+                e.preventDefault();
+                onSeek(Math.min(currentTimeMs + step, totalDurationMs));
+                break;
+              case 'ArrowLeft':
+              case 'ArrowDown':
+                e.preventDefault();
+                onSeek(Math.max(currentTimeMs - step, 0));
+                break;
+              case 'Home':
+                e.preventDefault();
+                onSeek(0);
+                break;
+              case 'End':
+                e.preventDefault();
+                onSeek(totalDurationMs);
+                break;
+            }
+          }}
         >
           {/* Progress fill */}
           <div
@@ -324,8 +367,9 @@ export function ReplayControls({
           </span>
 
           {/* Speed control */}
-          <div className="relative">
+          <div className="relative" onKeyDown={handleSpeedMenuKeyDown}>
             <button
+              ref={speedButtonRef}
               onClick={() => setShowSpeedMenu(!showSpeedMenu)}
               className="flex items-center gap-1 px-2 py-1 rounded-lg text-sm font-medium text-zinc-300 hover:bg-zinc-800 transition-colors"
               aria-label={`Playback speed: ${speed}x`}
@@ -334,6 +378,7 @@ export function ReplayControls({
             >
               <span>{speed}x</span>
               <svg
+                aria-hidden="true"
                 className={cn(
                   'h-4 w-4 transition-transform',
                   showSpeedMenu && 'rotate-180'
