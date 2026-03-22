@@ -9,10 +9,10 @@
  * Cache strategies are tuned per resource type:
  * - Static assets (JS/CSS/images): Cache-first with 30-day expiry, since these
  *   are content-hashed and immutable between deploys.
- * - Dashboard pages: Stale-while-revalidate with 5-minute expiry, so users see
- *   instant loads but always get fresh data on next navigation.
- * - API routes: Network-first with 30-second timeout, falling back to cached
- *   responses when the network is slow or unavailable.
+ * - Dashboard pages: Network-only, never cached. Authenticated content must
+ *   always be fetched fresh to prevent data leakage on shared devices.
+ * - API routes: Network-first with 30-second timeout, falling back to cache
+ *   only for unauthenticated/public API responses.
  * - Public pages (marketing/docs/blog): Cache-first with 1-hour expiry, since
  *   these change infrequently and benefit from instant loads.
  */
@@ -22,8 +22,8 @@ import type { PrecacheEntry, SerwistGlobalConfig } from 'serwist';
 import {
   Serwist,
   CacheFirst,
-  StaleWhileRevalidate,
   NetworkFirst,
+  NetworkOnly,
   ExpirationPlugin,
 } from 'serwist';
 
@@ -102,9 +102,6 @@ const THIRTY_DAYS_SEC = 30 * 24 * 60 * 60;
 /** 1 hour in seconds. Used for public marketing pages. */
 const ONE_HOUR_SEC = 60 * 60;
 
-/** 5 minutes in seconds. Used for dashboard page shells. */
-const FIVE_MINUTES_SEC = 5 * 60;
-
 /** 30 seconds. Network timeout before falling back to cache for API calls. */
 const API_NETWORK_TIMEOUT_SEC = 30;
 
@@ -121,26 +118,17 @@ const API_CACHE_MAX_AGE_SEC = 60 * 60;
  * static assets, fonts, and images).
  */
 const styrbyCache = [
-  // --- Dashboard pages: fast loads with background revalidation ---
+  // --- Dashboard pages: never cache, always fetch from network ---
   {
     /**
-     * WHY stale-while-revalidate for dashboard: Users navigating between
-     * dashboard tabs should see instant page loads. SWR serves the cached
-     * version immediately and fetches a fresh copy in the background. The
-     * 5-minute max age ensures stale data does not persist too long.
+     * WHY network-only for dashboard: Dashboard pages contain sensitive,
+     * authenticated user data. Caching them (even with short expiry) risks
+     * serving stale personal data on shared devices. The offline fallback
+     * page handles the no-network case gracefully.
      */
     matcher: ({ url }: { url: URL }) =>
       url.pathname.startsWith('/dashboard'),
-    handler: new StaleWhileRevalidate({
-      cacheName: 'styrby-dashboard-pages',
-      plugins: [
-        new ExpirationPlugin({
-          maxEntries: 32,
-          maxAgeSeconds: FIVE_MINUTES_SEC,
-          maxAgeFrom: 'last-used',
-        }),
-      ],
-    }),
+    handler: new NetworkOnly(),
   },
 
   // --- API routes: prefer network, fall back to cache when slow/offline ---
@@ -150,9 +138,13 @@ const styrbyCache = [
      * (sessions, costs, alerts). We always prefer the freshest response,
      * but if the network is slow (>30s) or offline, serving a cached
      * response is better than showing an error.
+     *
+     * WHY exclude Authorization header: Authenticated API responses contain
+     * user-specific data that must not be served from cache on shared devices.
+     * Only public/unauthenticated API responses are safe to cache.
      */
-    matcher: ({ url }: { url: URL }) =>
-      url.pathname.startsWith('/api/'),
+    matcher: ({ url, request }: { url: URL; request: Request }) =>
+      url.pathname.startsWith('/api/') && !request.headers.get('authorization'),
     handler: new NetworkFirst({
       cacheName: 'styrby-api-responses',
       networkTimeoutSeconds: API_NETWORK_TIMEOUT_SEC,

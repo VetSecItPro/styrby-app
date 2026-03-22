@@ -89,7 +89,9 @@ export function SWRegister() {
         // because it runs in a different global scope. Instead, it posts
         // a message to the client, which calls processQueue() on the
         // singleton offlineQueue instance that has IndexedDB access.
-        offlineQueue.processQueue();
+        offlineQueue.processQueue().catch((error: unknown) => {
+          console.error('[SW] Queue flush failed:', error);
+        });
       }
     }
 
