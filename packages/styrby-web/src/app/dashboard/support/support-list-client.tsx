@@ -100,7 +100,7 @@ export function SupportListClient({ tickets }: SupportListClientProps) {
       {/* Ticket list */}
       {tickets.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 py-16">
-          <HelpCircle className="mb-4 h-12 w-12 text-zinc-600" />
+          <HelpCircle className="mb-4 h-12 w-12 text-zinc-400" />
           <p className="text-sm font-medium text-zinc-300">No tickets yet.</p>
           <p className="mt-1 text-sm text-zinc-500">
             Need help? Submit a ticket and we will get back to you.
