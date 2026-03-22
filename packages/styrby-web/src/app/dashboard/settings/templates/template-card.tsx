@@ -276,12 +276,12 @@ export function TemplateCard({ template, onEdit, onDelete, onSetDefault }: Templ
       {/* Delete confirmation dialog */}
       {showDeleteConfirm && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center bg-black/60 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
           aria-labelledby="delete-template-title"
         >
-          <div className="w-full max-w-md rounded-2xl bg-zinc-900 border border-zinc-700 p-6 shadow-xl mx-4">
+          <div className="w-full md:w-auto md:min-w-[28rem] max-w-md max-h-[85vh] overflow-y-auto rounded-t-2xl md:rounded-2xl bg-zinc-900 border border-zinc-700 p-6 shadow-xl md:mx-4">
             <h3
               id="delete-template-title"
               className="text-lg font-semibold text-zinc-100 mb-2"

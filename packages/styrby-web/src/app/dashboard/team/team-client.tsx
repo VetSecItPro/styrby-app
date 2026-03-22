@@ -14,6 +14,12 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface User {
   id: string;
@@ -405,6 +411,7 @@ export function TeamClient({
                       alt={member.display_name || member.email}
                       width={40}
                       height={40}
+                      sizes="40px"
                       className="rounded-full"
                     />
                   ) : (
@@ -443,39 +450,40 @@ export function TeamClient({
 
                   {/* Actions dropdown */}
                   {(canModify || canRemove) && (
-                    <div className="relative group">
-                      <button className="p-2 text-zinc-400 hover:text-zinc-100 rounded-lg hover:bg-zinc-800">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
-                          />
-                        </svg>
-                      </button>
-                      <div className="absolute right-0 mt-1 w-40 bg-zinc-800 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button className="p-2 text-zinc-400 hover:text-zinc-100 rounded-lg hover:bg-zinc-800 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+                            />
+                          </svg>
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-40">
                         {canModify && (
-                          <button
+                          <DropdownMenuItem
                             onClick={() => {
                               setMemberToUpdateRole(member);
                               setNewRole(member.role === 'admin' ? 'member' : 'admin');
                             }}
-                            className="w-full px-4 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-700 first:rounded-t-lg"
                           >
                             Change role
-                          </button>
+                          </DropdownMenuItem>
                         )}
                         {canRemove && (
-                          <button
+                          <DropdownMenuItem
                             onClick={() => setMemberToRemove(member)}
-                            className="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-zinc-700 last:rounded-b-lg"
+                            className="text-red-400 focus:text-red-400"
                           >
                             {isCurrentUser ? 'Leave team' : 'Remove'}
-                          </button>
+                          </DropdownMenuItem>
                         )}
-                      </div>
-                    </div>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   )}
                 </div>
               </div>
@@ -530,8 +538,8 @@ export function TeamClient({
 
       {/* Invite Modal */}
       {showInviteModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-zinc-900 rounded-2xl p-6 w-full max-w-md">
+        <div className="fixed inset-0 bg-black/50 flex items-end md:items-center md:justify-center p-0 md:p-4 z-50">
+          <div className="bg-zinc-900 rounded-t-2xl md:rounded-2xl p-6 w-full md:w-auto md:min-w-[28rem] max-w-md max-h-[85vh] overflow-y-auto">
             <h3 className="text-lg font-semibold text-zinc-100 mb-4">
               Invite Team Member
             </h3>
@@ -600,8 +608,8 @@ export function TeamClient({
 
       {/* Remove Member Modal */}
       {memberToRemove && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-zinc-900 rounded-2xl p-6 w-full max-w-md">
+        <div className="fixed inset-0 bg-black/50 flex items-end md:items-center md:justify-center p-0 md:p-4 z-50">
+          <div className="bg-zinc-900 rounded-t-2xl md:rounded-2xl p-6 w-full md:w-auto md:min-w-[28rem] max-w-md max-h-[85vh] overflow-y-auto">
             <h3 className="text-lg font-semibold text-zinc-100 mb-2">
               {memberToRemove.user_id === user.id ? 'Leave Team?' : 'Remove Member?'}
             </h3>
@@ -636,8 +644,8 @@ export function TeamClient({
 
       {/* Update Role Modal */}
       {memberToUpdateRole && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-zinc-900 rounded-2xl p-6 w-full max-w-md">
+        <div className="fixed inset-0 bg-black/50 flex items-end md:items-center md:justify-center p-0 md:p-4 z-50">
+          <div className="bg-zinc-900 rounded-t-2xl md:rounded-2xl p-6 w-full md:w-auto md:min-w-[28rem] max-w-md max-h-[85vh] overflow-y-auto">
             <h3 className="text-lg font-semibold text-zinc-100 mb-2">
               Change Role
             </h3>

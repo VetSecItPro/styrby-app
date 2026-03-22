@@ -69,11 +69,11 @@ export default function SubscriptionCanceledEmail({
 
       <Paragraph>
         <strong className="text-zinc-100">We&apos;d love your feedback.</strong> What could
-        we have done better? Just reply to this email — it goes straight to our team.
+        we have done better? Just reply to this email. It goes straight to our team.
       </Paragraph>
 
       <Text className="m-0 text-sm text-zinc-400">
-        — The Styrby Team
+        The Styrby Team
       </Text>
     </BaseLayout>
   );

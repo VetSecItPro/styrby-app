@@ -4,70 +4,16 @@ import { Button } from "@/components/ui/button"
 
 function DashboardMockup() {
   return (
-    <div aria-hidden="true" className="relative mx-auto mt-16 max-w-5xl">
+    <div className="relative mx-auto mt-16 max-w-5xl px-4">
       {/* Glow */}
       <div className="absolute inset-0 -z-10 rounded-xl bg-amber-500/10 blur-[80px]" />
-
-      <div
-        className="rounded-xl border border-border/60 bg-card/80 p-4 shadow-2xl"
-        style={{ transform: "perspective(1200px) rotateX(4deg)" }}
-      >
-        {/* Title bar */}
-        <div className="mb-4 flex items-center gap-2">
-          <div className="h-3 w-3 rounded-full bg-destructive/60" />
-          <div className="h-3 w-3 rounded-full bg-amber-500/60" />
-          <div className="h-3 w-3 rounded-full bg-codex/60" />
-          <span className="ml-3 text-xs text-muted-foreground">Styrby Dashboard</span>
-        </div>
-
-        {/* Stat cards */}
-        <div className="mb-4 grid grid-cols-4 gap-3">
-          {[
-            { label: "Today's Spend", value: "$12.47", color: "text-amber-400" },
-            { label: "Active Sessions", value: "3", color: "text-codex" },
-            { label: "Machines", value: "2 / 5", color: "text-foreground" },
-            { label: "Messages", value: "847", color: "text-foreground" },
-          ].map((stat) => (
-            <div key={stat.label} className="rounded-lg bg-secondary/60 p-3">
-              <p className="text-[10px] text-muted-foreground">{stat.label}</p>
-              <p className={`font-mono text-sm font-bold ${stat.color}`}>{stat.value}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Chart + agents */}
-        <div className="grid grid-cols-5 gap-3">
-          <div className="col-span-3 rounded-lg bg-secondary/60 p-3">
-            <p className="mb-2 text-[10px] text-muted-foreground">Spending Trend</p>
-            <div className="flex h-24 items-end gap-1">
-              {[35, 42, 28, 55, 48, 62, 45, 70, 58, 80, 72, 65, 85, 78].map((h, i) => (
-                <div
-                  key={i}
-                  className="flex-1 rounded-t bg-amber-500/70"
-                  style={{ height: `${h}%` }}
-                />
-              ))}
-            </div>
-          </div>
-          <div className="col-span-2 flex flex-col gap-2">
-            {[
-              { name: "Claude Code", color: "border-l-claude", status: "Active", cost: "$8.23" },
-              { name: "Codex", color: "border-l-codex", status: "Idle", cost: "$0.00" },
-              { name: "Gemini CLI", color: "border-l-gemini", status: "Active", cost: "$4.24" },
-              { name: "OpenCode", color: "border-l-opencode", status: "Idle", cost: "$1.10" },
-              { name: "Aider", color: "border-l-aider", status: "Active", cost: "$2.56" },
-            ].map((agent) => (
-              <div key={agent.name} className={`rounded-lg border-l-2 ${agent.color} bg-secondary/60 p-2`}>
-                <p className="text-[10px] font-medium text-foreground">{agent.name}</p>
-                <div className="flex items-center justify-between">
-                  <span className="text-[9px] text-muted-foreground">{agent.status}</span>
-                  <span className="font-mono text-[10px] text-amber-400">{agent.cost}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      <img
+        src="/screenshots/dashboard-overview.png"
+        alt="Styrby dashboard showing real-time agent costs and session monitoring"
+        className="w-full rounded-xl border border-border/60 shadow-2xl"
+        width={1440}
+        height={900}
+      />
     </div>
   )
 }
@@ -84,18 +30,18 @@ export function Hero() {
              Anthropic launched Channels (Claude-only via Telegram) and Dispatch (Claude-only
              via their app). Our moat is 5 agents in one encrypted app. The headline must
              communicate that immediately. */}
-        <h1 className="mx-auto max-w-4xl text-balance text-5xl font-bold tracking-tight text-foreground md:text-7xl">
-          One App to Control{" "}
-          <span className="text-amber-500">All Your AI Agents</span>
+        <h1 className="mx-auto max-w-4xl text-balance text-5xl font-semibold tracking-tighter text-foreground md:text-7xl">
+          One Dashboard for{" "}
+          <span className="text-amber-500">Every AI Agent You Run</span>
         </h1>
 
         <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground md:text-xl">
-          Track spend, approve risky actions, and monitor sessions across Claude Code, Codex, Gemini CLI, OpenCode, and Aider — from your phone or browser. End-to-end encrypted.
+          See what Claude Code, Codex, Gemini CLI, OpenCode, and Aider are costing you. Approve risky actions from your phone. Set budget limits that actually stop runaway spend. All end-to-end encrypted.
         </p>
 
         <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
           <Button asChild size="lg" className="bg-amber-500 px-8 text-background hover:bg-amber-600 font-semibold text-base h-12">
-            <Link href="/signup">Start Free</Link>
+            <Link href="/signup">Connect Your First Agent</Link>
           </Button>
           <Button variant="ghost" size="lg" asChild className="gap-2 text-muted-foreground hover:text-foreground h-12">
             <a href="#how-it-works">
@@ -112,9 +58,9 @@ export function Hero() {
         <div className="mt-8 flex flex-wrap items-center justify-center gap-6">
           {[
             { icon: Lock, text: "E2E Encrypted" },
-            { icon: Shield, text: "Zero-Knowledge Architecture" },
-            { icon: Smartphone, text: "5 AI Agents, 1 App" },
-            { icon: Zap, text: "Free Tier Available" },
+            { icon: Shield, text: "Your Code Never Touches Our Servers" },
+            { icon: Smartphone, text: "5 Agents, 1 Dashboard" },
+            { icon: Zap, text: "Free Forever on 1 Machine" },
           ].map(({ icon: Icon, text }) => (
             <div key={text} className="flex items-center gap-2 text-xs text-muted-foreground">
               <Icon className="h-3.5 w-3.5 text-amber-500/70" />

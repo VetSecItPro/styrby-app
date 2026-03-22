@@ -1,6 +1,23 @@
+import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { DashboardShell } from './dashboard-shell';
+import { PlanCheckout } from './plan-checkout';
+
+/**
+ * Prevents all dashboard routes from being indexed by search engines.
+ *
+ * WHY: Dashboard pages contain user-specific, authenticated content that has
+ * no value to search engines and should never appear in search results.
+ * Setting noindex here covers every page under /dashboard/* in one place.
+ */
+export const metadata: Metadata = {
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
 
 /**
  * Dashboard layout - server component that checks auth, then renders the
@@ -28,5 +45,12 @@ export default async function DashboardLayout({
     redirect('/login');
   }
 
-  return <DashboardShell>{children}</DashboardShell>;
+  return (
+    <DashboardShell>
+      <Suspense>
+        <PlanCheckout />
+      </Suspense>
+      {children}
+    </DashboardShell>
+  );
 }

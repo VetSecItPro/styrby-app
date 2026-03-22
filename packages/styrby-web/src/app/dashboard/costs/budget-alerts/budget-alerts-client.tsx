@@ -666,7 +666,7 @@ export function BudgetAlertsClient({
       {/* Create/Edit Modal */}
       {showModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center p-0 md:p-4"
           role="dialog"
           aria-modal="true"
           aria-label={editingAlert ? 'Edit budget alert' : 'Create budget alert'}
@@ -679,7 +679,7 @@ export function BudgetAlertsClient({
           />
 
           {/* Modal content */}
-          <div ref={focusTrapRef} className="relative w-full max-w-lg rounded-xl bg-zinc-900 border border-zinc-800 p-6 shadow-xl">
+          <div ref={focusTrapRef} className="relative w-full md:w-auto md:min-w-[32rem] max-w-lg max-h-[85vh] overflow-y-auto rounded-t-xl md:rounded-xl bg-zinc-900 border border-zinc-800 p-6 shadow-xl">
             <h2 className="text-lg font-semibold text-zinc-100 mb-6">
               {editingAlert ? 'Edit Budget Alert' : 'Create Budget Alert'}
             </h2>
@@ -746,7 +746,7 @@ export function BudgetAlertsClient({
                 <legend className="block text-sm font-medium text-zinc-300 mb-1.5">
                   Period
                 </legend>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {(['daily', 'weekly', 'monthly'] as AlertPeriod[]).map(
                     (period) => (
                       <button

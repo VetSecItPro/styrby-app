@@ -13,7 +13,7 @@ const plans = [
     annual: 0,
     savings: null,
     popular: false,
-    cta: "Get Started",
+    cta: "Start Free",
     ctaVariant: "outline" as const,
     features: [
       "1 connected machine",
@@ -29,10 +29,10 @@ const plans = [
     annual: 190,
     savings: 38,
     popular: true,
-    cta: "Start Free Trial",
+    cta: "Connect 3 Machines",
     ctaVariant: "default" as const,
     features: [
-      "5 connected machines",
+      "3 connected machines",
       "All 5 AI agents",
       "90-day session history",
       "25,000 messages/month",
@@ -47,18 +47,18 @@ const plans = [
     annual: 490,
     savings: 98,
     popular: false,
-    cta: "Start Free Trial",
+    cta: "Connect 9 Machines",
     ctaVariant: "default" as const,
     features: [
-      "15 connected machines",
+      "9 connected machines",
       "All 5 AI agents",
       "1-year session history",
       "100,000 messages/month",
       "Full cost dashboard",
-      "10 budget alerts",
-      "5 team members",
+      "5 budget alerts",
+      "3 team members",
       "API access",
-      "Priority support",
+      "Email support",
     ],
   },
 ]
@@ -67,10 +67,10 @@ export function PricingSection() {
   const [annual, setAnnual] = useState(false)
 
   return (
-    <section id="pricing" className="py-24">
+    <section id="pricing" className="py-16">
       <div className="mx-auto max-w-7xl px-6">
         <h2 className="text-balance text-center text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-          Simple, Transparent Pricing
+          One Price. Everything Included. No Per-Token Fees.
         </h2>
 
         {/* Toggle */}
@@ -104,7 +104,7 @@ export function PricingSection() {
             <div
               key={plan.name}
               className={cn(
-                "relative rounded-xl bg-card/60 p-8 transition-all duration-200",
+                "relative flex flex-col rounded-xl bg-card/60 p-8 transition-all duration-200",
                 plan.popular
                   ? "border-2 border-amber-500/50 amber-glow"
                   : "border border-border/60"
@@ -117,19 +117,27 @@ export function PricingSection() {
               )}
 
               <h3 className="text-xl font-semibold text-foreground">{plan.name}</h3>
-              <div className="mt-4 flex items-baseline gap-1">
-                <span className="font-mono text-4xl font-bold text-foreground">
-                  ${annual && plan.annual > 0 ? Math.round(plan.annual / 12) : plan.monthly}
-                </span>
-                {plan.monthly > 0 && <span className="text-sm text-muted-foreground">/month</span>}
+              {/* Fixed-height price area prevents layout shift on annual toggle */}
+              <div className="min-h-[72px]">
+                <div className="mt-4 flex items-baseline gap-1">
+                  <span className="font-mono text-4xl font-bold text-foreground">
+                    ${annual && plan.annual > 0 ? Math.round(plan.annual / 12) : plan.monthly}
+                  </span>
+                  {plan.monthly > 0 && <span className="text-sm text-muted-foreground">/month</span>}
+                </div>
+                {annual && plan.savings ? (
+                  <p className="mt-1 text-xs text-amber-500">
+                    ${plan.annual}/year, save ${plan.savings}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-transparent" aria-hidden="true">
+                    &nbsp;
+                  </p>
+                )}
               </div>
-              {annual && plan.savings && (
-                <p className="mt-1 text-xs text-amber-500">
-                  ${plan.annual}/year — save ${plan.savings}
-                </p>
-              )}
 
-              <ul className="mt-8 space-y-3">
+              {/* Feature list grows to fill, pushing button to bottom */}
+              <ul className="mt-6 flex-1 space-y-3">
                 {plan.features.map((feature) => (
                   <li key={feature} className="flex items-center gap-3 text-sm text-muted-foreground">
                     <Check className="h-4 w-4 shrink-0 text-amber-500" />
@@ -138,13 +146,14 @@ export function PricingSection() {
                 ))}
               </ul>
 
-              <div className="mt-8">
+              {/* Button pinned to bottom of card */}
+              <div className="mt-8 flex justify-center">
                 {plan.ctaVariant === "default" ? (
-                  <Button asChild className="w-full bg-amber-500 text-background hover:bg-amber-600 font-medium">
-                    <Link href="/signup">{plan.cta}</Link>
+                  <Button asChild size="sm" className="bg-amber-500 text-background hover:bg-amber-600 font-medium px-6">
+                    <Link href={`/signup?plan=${plan.name.toLowerCase()}`}>{plan.cta}</Link>
                   </Button>
                 ) : (
-                  <Button variant="outline" asChild className="w-full border-border/60 text-muted-foreground hover:text-foreground bg-transparent">
+                  <Button variant="outline" asChild size="sm" className="border-border/60 text-muted-foreground hover:text-foreground bg-transparent px-6">
                     <Link href="/signup">{plan.cta}</Link>
                   </Button>
                 )}

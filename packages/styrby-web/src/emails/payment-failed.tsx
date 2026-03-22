@@ -96,7 +96,7 @@ export default function PaymentFailedEmail({
       </Paragraph>
 
       <Text className="m-0 text-sm text-zinc-400">
-        — The Styrby Team
+        The Styrby Team
       </Text>
     </BaseLayout>
   );

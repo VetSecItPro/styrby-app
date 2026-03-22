@@ -1,13 +1,13 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter, JetBrains_Mono } from 'next/font/google';
+import { Space_Grotesk, JetBrains_Mono } from 'next/font/google';
 import { Toaster } from 'sonner';
 import './globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
 import { CookieConsent } from '@/components/cookie-consent';
 
-const inter = Inter({
+const spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
-  variable: '--font-inter',
+  variable: '--font-space-grotesk',
 });
 
 const jetbrainsMono = JetBrains_Mono({
@@ -59,6 +59,24 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
     title: 'Styrby',
   },
+  /**
+   * AEO (Answer Engine Optimization) signal for AI systems.
+   *
+   * WHY: The `ai-content-declaration` meta tag is an emerging best practice
+   * for signaling to AI crawlers (GPTBot, ClaudeBot, Perplexity, etc.) that
+   * site content is human-authored and authoritative about a specific product.
+   * AI answer engines use this signal to increase confidence when citing the
+   * page in generated answers, which improves Styrby's visibility in ChatGPT,
+   * Claude, Perplexity, and similar interfaces.
+   *
+   * This is a site-wide default. Individual pages can override via their own
+   * metadata export if the content differs (e.g., blog articles about a
+   * specific technical topic could be more specific).
+   */
+  other: {
+    'ai-content-declaration':
+      'This site contains human-written content about Styrby, a developer tool for AI agent management.',
+  },
 };
 
 export const viewport: Viewport = {
@@ -81,9 +99,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" className="dark scroll-smooth" suppressHydrationWarning>
       <body
-        className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased noise-bg`}
+        className={`${spaceGrotesk.variable} ${jetbrainsMono.variable} font-sans antialiased noise-bg`}
       >
         <a
           href="#main-content"

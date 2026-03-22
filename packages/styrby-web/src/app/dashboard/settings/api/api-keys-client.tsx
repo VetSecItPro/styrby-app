@@ -487,7 +487,7 @@ export function ApiKeysClient({
       {/* Create Modal */}
       {showModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center p-0 md:p-4"
           role="dialog"
           aria-modal="true"
           aria-label="Create API key"
@@ -500,7 +500,7 @@ export function ApiKeysClient({
           />
 
           {/* Modal content */}
-          <div ref={focusTrapRef} className="relative w-full max-w-lg rounded-xl bg-zinc-900 border border-zinc-800 p-6 shadow-xl">
+          <div ref={focusTrapRef} className="relative w-full md:w-auto md:min-w-[32rem] max-w-lg max-h-[85vh] overflow-y-auto rounded-t-xl md:rounded-xl bg-zinc-900 border border-zinc-800 p-6 shadow-xl">
             {createdSecret ? (
               // Secret display after creation
               <>

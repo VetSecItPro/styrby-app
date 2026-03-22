@@ -4,14 +4,26 @@ import Link from 'next/link';
 export const metadata: Metadata = {
   title: 'Terms of Service',
   description:
-    'Styrby Terms of Service — the rules and guidelines for using the Styrby platform.',
+    'Terms of Service for Styrby. Covers accounts, billing, acceptable use, data handling, and your rights as a subscriber.',
+  openGraph: {
+    title: 'Styrby Terms of Service',
+    description:
+      'Terms of Service for Styrby. Covers accounts, billing, acceptable use, data handling, and your rights as a subscriber.',
+    type: 'website',
+    url: 'https://styrbyapp.com/terms',
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 /**
  * Terms of Service page.
  *
  * Covers acceptance, description of service, accounts, billing,
- * acceptable use, IP, liability, termination, and changes.
+ * acceptable use, IP, limitation of liability, indemnification,
+ * termination, governing law, and changes.
  */
 export default function TermsOfServicePage() {
   return (
@@ -42,105 +54,98 @@ export default function TermsOfServicePage() {
           <h1>Terms of Service</h1>
 
           <p className="text-sm text-zinc-500">
-            Last updated: February 5, 2026
+            Effective date: March 22, 2026. Last updated: March 22, 2026.
           </p>
 
           {/* ── 1. Acceptance of Terms ────────────────────────── */}
           <h2>1. Acceptance of Terms</h2>
 
           <p>
-            These Terms of Service (&quot;Terms&quot;) constitute a legally
-            binding agreement between you (&quot;you&quot; or &quot;User&quot;)
-            and Steel Motion LLC (&quot;we,&quot; &quot;our,&quot; or
-            &quot;us&quot;), governing your access to and use of the Styrby
-            platform, including the website at{' '}
+            These Terms of Service (&quot;Terms&quot;) are a binding agreement
+            between you (&quot;you&quot; or &quot;User&quot;) and Steel Motion
+            LLC (&quot;we,&quot; &quot;our,&quot; or &quot;us&quot;), governing
+            your use of the Styrby platform: the website at{' '}
             <a href="https://styrbyapp.com">styrbyapp.com</a>, the Styrby
-            mobile application, and the Styrby CLI tool (collectively, the
+            mobile app, and the Styrby CLI tool (collectively, the
             &quot;Service&quot;).
           </p>
 
           <p>
-            By creating an account or using the Service, you agree to be bound
-            by these Terms and our{' '}
-            <Link href="/privacy">Privacy Policy</Link>. If you do not agree to
-            these Terms, you may not use the Service.
+            By creating an account or using the Service, you agree to these
+            Terms and our <Link href="/privacy">Privacy Policy</Link>. If you
+            do not agree, you may not use the Service.
           </p>
 
           {/* ── 2. Description of Service ─────────────────────── */}
-          <h2>2. Description of Service</h2>
+          <h2>2. What Styrby Does</h2>
 
           <p>
-            Styrby is a mobile remote control platform for AI coding agents.
-            The Service allows users to:
+            Styrby is a remote monitoring and control platform for AI coding
+            agents. The Service allows you to:
           </p>
           <ul>
             <li>
-              Connect to and control AI coding agents (including Claude Code,
-              Codex CLI, and Gemini CLI) from a mobile device
+              Connect to and control AI coding agents (Claude Code, Codex CLI,
+              Gemini CLI) from your mobile device or web browser
             </li>
             <li>
-              Monitor and manage active agent sessions in real time
+              Monitor active sessions, approve or deny agent permission
+              requests, and send messages in real time
             </li>
             <li>
-              Approve or deny agent permission requests remotely
+              Track token usage and costs across AI providers, and configure
+              budget alerts
             </li>
             <li>
-              Track AI agent usage costs and set budget alerts
-            </li>
-            <li>
-              View session history, bookmarks, and analytics through the web
-              dashboard
+              View session history and bookmarks through the web dashboard
             </li>
           </ul>
 
           <p>
-            Styrby acts as a communication bridge between your local CLI
-            environment and your mobile device. We do not provide the AI models
-            themselves; those are provided by their respective vendors (Anthropic,
-            OpenAI, Google). Your use of those AI services is subject to their
-            respective terms.
+            <strong>What Styrby is not:</strong> Styrby does not provide the AI
+            models themselves. Those are provided by Anthropic, OpenAI, and
+            Google. Your use of those AI services is governed by their own
+            terms. Styrby acts as a communication bridge between your local CLI
+            and your devices. All session content is end-to-end encrypted. We
+            do not have access to the plaintext content of your AI sessions.
           </p>
 
           {/* ── 3. Account Registration ───────────────────────── */}
-          <h2>3. Account Registration</h2>
+          <h2>3. Your Account</h2>
 
           <p>To use Styrby, you must create an account. You agree to:</p>
           <ul>
             <li>
-              Provide accurate, current, and complete information during
-              registration
+              Provide accurate information during registration and keep it
+              current
             </li>
             <li>
-              Maintain the security of your account credentials (magic link
-              email access, OAuth tokens)
+              Keep your login credentials secure. You are responsible for all
+              activity under your account.
             </li>
             <li>
-              Immediately notify us of any unauthorized use of your account
+              Notify us immediately at{' '}
+              <a href="mailto:support@styrby.dev">support@styrby.dev</a> if you
+              suspect unauthorized access to your account
             </li>
             <li>
-              Accept responsibility for all activities that occur under your
-              account
+              Be responsible for the actions of any team members you invite to
+              your account
             </li>
           </ul>
 
           <p>
             You must be at least 13 years old to create an account. If you are
-            under 18, you represent that you have your parent or guardian&apos;s
-            consent to use the Service.
-          </p>
-
-          <p>
-            We reserve the right to suspend or terminate accounts that violate
-            these Terms or that we reasonably believe are being used
-            fraudulently.
+            under 18, you represent that you have your parent or
+            guardian&apos;s consent.
           </p>
 
           {/* ── 4. Subscription and Billing ───────────────────── */}
-          <h2>4. Subscription and Billing</h2>
+          <h2>4. Subscriptions and Billing</h2>
 
           <p>
-            Styrby offers both free and paid subscription tiers. Paid
-            subscriptions are billed through our merchant of record,{' '}
+            Styrby offers free and paid subscription tiers. Payments are
+            processed by our merchant of record,{' '}
             <a
               href="https://polar.sh"
               target="_blank"
@@ -148,56 +153,60 @@ export default function TermsOfServicePage() {
             >
               Polar
             </a>
-            .
+            . Current pricing is displayed at{' '}
+            <a href="https://styrbyapp.com/#pricing">styrbyapp.com</a>.
           </p>
 
           <h3>Subscription Tiers</h3>
           <ul>
             <li>
-              <strong>Free</strong> -- limited functionality with basic session
-              monitoring
+              <strong>Free</strong> -- basic session monitoring with 7 days of
+              session history
             </li>
             <li>
-              <strong>Pro</strong> -- full feature access with higher usage
-              limits
+              <strong>Pro</strong> -- full feature access with 90 days of
+              session history
             </li>
             <li>
-              <strong>Power</strong> -- maximum limits for power users and teams
+              <strong>Power</strong> -- maximum limits with 1 year of session
+              history
             </li>
           </ul>
 
           <h3>Billing Terms</h3>
           <ul>
             <li>
-              Paid subscriptions are billed on a monthly or annual basis, as
-              selected at the time of purchase
+              Paid subscriptions are billed monthly or annually, as selected
+              at purchase
             </li>
             <li>
-              Subscriptions automatically renew unless canceled before the end
-              of the current billing period
+              Subscriptions renew automatically unless you cancel before the
+              end of the current billing period
             </li>
             <li>
-              You may cancel your subscription at any time; cancellation takes
-              effect at the end of the current billing period
+              You may cancel at any time. Cancellation takes effect at the end
+              of the current billing period. You keep access until then.
             </li>
             <li>
-              Refunds are handled in accordance with Polar&apos;s refund policy.
-              We do not offer partial refunds for unused portions of a billing
-              period
+              We do not offer pro-rated refunds for unused portions of a
+              billing period. Polar&apos;s refund policy applies.
             </li>
             <li>
-              We reserve the right to change pricing with 30 days&apos; notice.
-              Existing subscribers will be grandfathered at their current price
-              until their next renewal after the notice period
+              We may change pricing with 30 days&apos; notice. Existing
+              subscribers will not see a price change until their next renewal
+              after the notice period ends.
             </li>
           </ul>
 
-          <h3>AI Usage Costs</h3>
+          <h3>AI Provider Costs</h3>
           <p>
-            Styrby tracks your AI agent token usage for cost monitoring purposes
-            only. The actual costs of AI model usage are billed directly by the
-            respective AI providers (Anthropic, OpenAI, Google) according to
-            their pricing. Styrby does not charge for AI model usage.
+            Styrby tracks your AI token usage so you can monitor your spending.
+            <strong> The actual costs of AI model usage are charged directly
+            by the AI providers</strong> (Anthropic, OpenAI, Google) to your
+            account with them. Styrby does not charge for AI model usage and
+            is not responsible for costs incurred through those providers.
+            You are responsible for your own API keys and the costs they
+            generate.
           </p>
 
           {/* ── 5. Acceptable Use ─────────────────────────────── */}
@@ -206,198 +215,231 @@ export default function TermsOfServicePage() {
           <p>You agree not to use the Service to:</p>
           <ul>
             <li>
-              Violate any applicable law, regulation, or third-party rights
+              Violate any law, regulation, or third-party rights
             </li>
             <li>
-              Attempt to gain unauthorized access to the Service, other user
-              accounts, or related systems
+              Attempt to gain unauthorized access to the Service, other
+              accounts, or our infrastructure
             </li>
             <li>
-              Transmit malware, viruses, or other harmful code through the
+              Interfere with or disrupt the performance or integrity of the
               Service
             </li>
             <li>
-              Interfere with or disrupt the integrity or performance of the
-              Service
+              Circumvent or attempt to reverse-engineer the end-to-end
+              encryption
             </li>
             <li>
-              Use the Service to facilitate illegal activities, harassment,
-              or the generation of harmful content
+              Use the Service to direct AI agents to take actions that violate
+              the terms of service of the AI provider (Anthropic, OpenAI,
+              Google)
             </li>
             <li>
-              Reverse engineer, decompile, or disassemble any part of the
-              Service, except as permitted by applicable law
+              Transmit malware, viruses, or other harmful code
             </li>
             <li>
-              Resell, sublicense, or redistribute the Service without our
-              written permission
+              Facilitate illegal activities, harassment, or the generation of
+              illegal content
             </li>
             <li>
-              Create multiple accounts to circumvent usage limits or avoid
-              suspension
+              Create multiple accounts to circumvent usage limits or suspensions
+            </li>
+            <li>
+              Resell or sublicense the Service without our written permission
             </li>
           </ul>
 
           <p>
-            We reserve the right to suspend or terminate your access to the
-            Service if we reasonably determine that you have violated these
-            acceptable use provisions.
+            We may suspend or terminate your access immediately if we determine
+            you have violated these provisions.
           </p>
 
           {/* ── 6. Intellectual Property ──────────────────────── */}
           <h2>6. Intellectual Property</h2>
 
-          <h3>Our Intellectual Property</h3>
+          <h3>Our Property</h3>
           <p>
-            The Service, including its software, design, branding, documentation,
-            and all related intellectual property, is owned by Steel Motion LLC
-            and is protected by copyright, trademark, and other intellectual
-            property laws. All rights not expressly granted in these Terms are
-            reserved.
+            The Service, including its software, design, branding, and
+            documentation, is owned by Steel Motion LLC. All rights not
+            expressly granted in these Terms are reserved.
           </p>
 
           <h3>Your Content</h3>
           <p>
-            You retain ownership of all code, data, and content that you
-            transmit through the Service (&quot;Your Content&quot;). By using
-            the Service, you grant us a limited, non-exclusive license to
-            process Your Content solely for the purpose of providing the
-            Service to you.
-          </p>
-
-          <p>
-            Session messages are end-to-end encrypted. We do not access, read,
-            or use the content of your encrypted session messages for any
-            purpose other than delivering them to your devices.
+            You retain ownership of all code, data, and content you work with
+            through the Service. Because session messages are end-to-end
+            encrypted, we cannot access them. By using the Service, you grant
+            us only the rights necessary to transmit and store encrypted
+            ciphertext on your behalf.
           </p>
 
           <h3>Feedback</h3>
           <p>
-            If you provide feedback, suggestions, or ideas about the Service,
-            you grant us an unrestricted, irrevocable, perpetual license to use
-            that feedback for any purpose without compensation to you.
+            If you send us feedback or suggestions, you grant us an
+            unrestricted, perpetual license to use that feedback for any
+            purpose. We will not compensate you for feedback, but we genuinely
+            appreciate it.
           </p>
 
           {/* ── 7. Limitation of Liability ────────────────────── */}
           <h2>7. Limitation of Liability</h2>
 
           <p>
-            TO THE MAXIMUM EXTENT PERMITTED BY LAW, STEEL MOTION LLC AND ITS
-            OFFICERS, DIRECTORS, EMPLOYEES, AND AGENTS SHALL NOT BE LIABLE FOR
-            ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE
-            DAMAGES, INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS, DATA, USE,
-            OR GOODWILL, ARISING OUT OF OR RELATED TO YOUR USE OF THE SERVICE.
+            <strong>Plain English summary:</strong> Styrby is a monitoring and
+            relay tool. We are not responsible for what your AI agents do. We
+            are not responsible for costs your AI agents generate with
+            third-party providers. We are not responsible for code your AI
+            agents write. We are not responsible for downtime from our
+            third-party infrastructure providers. Our total liability to you is
+            capped at what you paid us in the last 12 months.
+          </p>
+
+          <p>
+            TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, STEEL MOTION LLC
+            AND ITS OFFICERS, DIRECTORS, EMPLOYEES, AND AGENTS SHALL NOT BE
+            LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR
+            PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS,
+            DATA, REVENUE, GOODWILL, OR BUSINESS OPPORTUNITY, ARISING OUT OF
+            OR RELATED TO YOUR USE OF OR INABILITY TO USE THE SERVICE, EVEN IF
+            WE HAVE BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
           </p>
 
           <p>
             IN NO EVENT SHALL OUR TOTAL LIABILITY TO YOU FOR ALL CLAIMS ARISING
-            OUT OF OR RELATED TO THE SERVICE EXCEED THE AMOUNT YOU HAVE PAID US
-            IN THE TWELVE (12) MONTHS PRECEDING THE CLAIM, OR ONE HUNDRED
-            DOLLARS ($100), WHICHEVER IS GREATER.
+            OUT OF OR RELATED TO THE SERVICE EXCEED THE GREATER OF (A) THE
+            TOTAL FEES YOU HAVE PAID US IN THE TWELVE (12) MONTHS IMMEDIATELY
+            PRECEDING THE CLAIM, OR (B) ONE HUNDRED DOLLARS ($100).
           </p>
 
           <p>
             THE SERVICE IS PROVIDED &quot;AS IS&quot; AND &quot;AS
-            AVAILABLE&quot; WITHOUT WARRANTIES OF ANY KIND, WHETHER EXPRESS OR
-            IMPLIED, INCLUDING BUT NOT LIMITED TO IMPLIED WARRANTIES OF
-            MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND
-            NON-INFRINGEMENT.
+            AVAILABLE&quot; WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED,
+            INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS
+            FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. WE DO NOT WARRANT
+            THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR SECURE.
           </p>
 
           <p>
-            Styrby is a communication tool for AI coding agents. We are not
-            responsible for the output, behavior, or actions of AI models
-            accessed through the Service. You are solely responsible for
-            reviewing and validating any code or changes made by AI agents.
+            Specific exclusions of liability include, without limitation:
           </p>
+          <ul>
+            <li>
+              Actions taken by AI agents running on your infrastructure.
+              You are solely responsible for reviewing and approving agent
+              actions before they execute.
+            </li>
+            <li>
+              Costs incurred through third-party AI provider APIs (Anthropic,
+              OpenAI, Google). We track these costs; we do not control them.
+            </li>
+            <li>
+              Code generated by AI agents. Review all AI-generated code before
+              deploying it.
+            </li>
+            <li>
+              Data loss due to the session history retention limits of your
+              subscription tier.
+            </li>
+            <li>
+              Service outages caused by our infrastructure providers (Supabase,
+              Vercel).
+            </li>
+          </ul>
 
           {/* ── 8. Indemnification ────────────────────────────── */}
           <h2>8. Indemnification</h2>
 
           <p>
-            You agree to indemnify, defend, and hold harmless Steel Motion LLC
-            and its officers, directors, employees, and agents from and against
-            any claims, liabilities, damages, losses, and expenses (including
-            reasonable attorney&apos;s fees) arising out of or related to your
-            use of the Service, your violation of these Terms, or your violation
-            of any third-party rights.
+            You agree to defend, indemnify, and hold harmless Steel Motion LLC
+            and its officers, directors, employees, and agents from any claims,
+            damages, losses, and expenses (including reasonable legal fees)
+            arising from your use of the Service, your violation of these
+            Terms, or your violation of any third-party rights.
           </p>
 
           {/* ── 9. Termination ────────────────────────────────── */}
           <h2>9. Termination</h2>
 
+          <h3>By You</h3>
           <p>
-            You may terminate your account at any time by contacting us at{' '}
-            <a href="mailto:support@styrby.dev">support@styrby.dev</a>. Upon
-            termination:
+            You may delete your account at any time via Settings or by
+            contacting us at{' '}
+            <a href="mailto:support@styrby.dev">support@styrby.dev</a>. On
+            deletion:
           </p>
           <ul>
+            <li>Your access is revoked immediately</li>
             <li>
-              Your access to the Service will be immediately revoked
+              Your data is deleted within 30 days, except as required by law
             </li>
             <li>
-              Your data will be deleted within 30 days, except as required by
-              law
-            </li>
-            <li>
-              Any active paid subscription will continue until the end of the
-              current billing period (no refund for the remaining period)
+              Any active paid subscription continues until the end of the
+              current billing period. No refund is issued for the remaining
+              period.
             </li>
           </ul>
 
+          <h3>By Us</h3>
           <p>
-            We may suspend or terminate your access to the Service at any time,
-            with or without cause, with or without notice. Reasons for
-            termination may include, but are not limited to:
+            We may suspend or terminate your account for the following reasons:
           </p>
           <ul>
             <li>Violation of these Terms</li>
             <li>Fraudulent or illegal activity</li>
             <li>Non-payment of subscription fees</li>
-            <li>Extended period of inactivity (12 months or more)</li>
-            <li>Discontinuation of the Service</li>
+            <li>
+              Inactivity for 12 months or more (we will email you before doing
+              this)
+            </li>
+            <li>
+              Discontinuation of the Service (we will give at least 30
+              days&apos; notice)
+            </li>
           </ul>
+
+          <p>
+            For serious violations (fraud, illegal activity, ToS abuse), we
+            may suspend without notice. For all other reasons, we will provide
+            reasonable notice where practicable.
+          </p>
 
           {/* ── 10. Governing Law ─────────────────────────────── */}
           <h2>10. Governing Law</h2>
 
           <p>
-            These Terms shall be governed by and construed in accordance with
-            the laws of the State of Texas, United States, without regard to
-            its conflict of law provisions. Any legal action or proceeding
-            arising out of or related to these Terms shall be brought
-            exclusively in the state or federal courts located in Texas.
+            These Terms are governed by the laws of the State of Texas, United
+            States, without regard to conflict of law principles. Any legal
+            dispute shall be brought in the state or federal courts located in
+            Texas.
           </p>
 
           {/* ── 11. Changes to Terms ──────────────────────────── */}
-          <h2>11. Changes to Terms</h2>
+          <h2>11. Changes to These Terms</h2>
 
           <p>
-            We reserve the right to modify these Terms at any time. We will
-            notify you of material changes by:
+            We may update these Terms. For material changes, we will:
           </p>
           <ul>
-            <li>Posting the updated Terms on this page</li>
-            <li>Updating the &quot;Last updated&quot; date</li>
+            <li>Update the &quot;Last updated&quot; date at the top</li>
+            <li>Post the updated Terms on this page</li>
             <li>
-              Sending an email notification for significant changes (at least
-              14 days before the changes take effect)
+              Send you an email notification at least 14 days before the change
+              takes effect
             </li>
           </ul>
 
           <p>
-            Your continued use of the Service after any changes constitutes
-            your acceptance of the revised Terms. If you do not agree to the
-            updated Terms, you must stop using the Service and delete your
-            account.
+            Continued use of the Service after a change takes effect
+            constitutes acceptance of the revised Terms. If you do not agree,
+            you must stop using the Service and delete your account before the
+            effective date.
           </p>
 
           {/* ── 12. Contact Information ───────────────────────── */}
-          <h2>12. Contact Information</h2>
+          <h2>12. Contact</h2>
 
           <p>
-            If you have questions about these Terms of Service, please contact
-            us:
+            Questions about these Terms:
           </p>
           <ul>
             <li>
@@ -405,7 +447,7 @@ export default function TermsOfServicePage() {
               <a href="mailto:support@styrby.dev">support@styrby.dev</a>
             </li>
             <li>
-              <strong>Company:</strong> Steel Motion LLC
+              <strong>Company:</strong> Steel Motion LLC (veteran-owned)
             </li>
             <li>
               <strong>Website:</strong>{' '}

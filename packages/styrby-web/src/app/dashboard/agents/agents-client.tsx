@@ -153,6 +153,25 @@ export function AgentsClient({ machines, agentConfigs: _agentConfigs, todayCosts
         </Button>
       </div>
 
+      {/* Empty state — no machines connected yet */}
+      {machines.length === 0 && (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-border/40 bg-card/60 px-6 py-16 text-center">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20">
+            <Plus className="h-7 w-7 text-amber-500" />
+          </div>
+          <h2 className="text-lg font-semibold text-foreground">No agents connected yet</h2>
+          <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+            Connect your first AI coding agent to start tracking sessions, costs, and permissions from your dashboard.
+          </p>
+          <Button asChild className="mt-6 gap-2 bg-amber-500 text-background hover:bg-amber-600">
+            <Link href="/dashboard/devices/pair">
+              <Plus className="h-4 w-4" />
+              Connect an Agent
+            </Link>
+          </Button>
+        </div>
+      )}
+
       {/* Agent cards */}
       <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         {agentCards.map((agent) => (
@@ -215,7 +234,7 @@ export function AgentsClient({ machines, agentConfigs: _agentConfigs, todayCosts
               </div>
 
               {/* Stats */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <p className="text-xs text-muted-foreground">Machines</p>
                   <p className="font-mono text-lg font-bold text-foreground">
@@ -280,7 +299,7 @@ export function AgentsClient({ machines, agentConfigs: _agentConfigs, todayCosts
                         <td className="py-3 text-sm font-medium text-foreground">{machine.name}</td>
                         <td className="py-3 text-sm text-muted-foreground">{machine.platform || 'Unknown'}{machine.hostname ? ` (${machine.hostname})` : ''}</td>
                         <td className="py-3 text-sm text-muted-foreground">{timeAgo(machine.last_seen_at, now)}</td>
-                        <td className="py-3 text-sm text-muted-foreground">—</td>
+                        <td className="py-3 text-sm text-muted-foreground">-</td>
                         <td className="py-3">
                           <Badge
                             variant="secondary"

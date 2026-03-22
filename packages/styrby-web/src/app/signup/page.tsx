@@ -1,8 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Github } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,17 +13,43 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Footer } from '@/components/landing/footer';
 
 /**
- * Sign up page - creates a new Styrby account.
+ * Sign up page wrapper - provides Suspense boundary for useSearchParams().
+ *
+ * WHY Suspense: Next.js requires useSearchParams() to be wrapped in a
+ * Suspense boundary for static generation. Without it, the build fails
+ * because the page cannot be prerendered.
+ */
+export default function SignUpPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+      </div>
+    }>
+      <SignUpPageInner />
+    </Suspense>
+  );
+}
+
+/**
+ * Sign up page inner content - creates a new Styrby account.
  *
  * WHY email/password + GitHub: Unlike login (magic link), signup collects
  * a password for users who prefer credential-based auth. GitHub OAuth is
  * offered as an alternative for frictionless onboarding.
+ *
+ * Supports ?plan=pro or ?plan=power query param. When present, the post-signup
+ * redirect goes to /dashboard?plan=X, which triggers the Polar checkout flow
+ * after the user confirms their email.
  */
-export default function SignUpPage() {
+function SignUpPageInner() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [agreed, setAgreed] = useState(false);
+  const searchParams = useSearchParams();
+  const plan = searchParams.get('plan');
+  const redirectPath = plan ? `/dashboard?plan=${plan}` : '/dashboard';
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -74,7 +102,7 @@ export default function SignUpPage() {
         data: {
           full_name: name,
         },
-        emailRedirectTo: `${window.location.origin}/auth/callback?redirect=/dashboard`,
+        emailRedirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirectPath)}`,
       },
     });
 
@@ -83,7 +111,9 @@ export default function SignUpPage() {
     } else {
       setMessage({
         type: 'success',
-        text: 'Check your email to confirm your account!',
+        text: plan
+          ? `Check your email to confirm your account. After confirming, you'll be redirected to complete your ${plan.charAt(0).toUpperCase() + plan.slice(1)} checkout.`
+          : 'Check your email to confirm your account!',
       });
     }
 
@@ -105,7 +135,7 @@ export default function SignUpPage() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?redirect=/dashboard`,
+        redirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirectPath)}`,
       },
     });
 
@@ -127,11 +157,26 @@ export default function SignUpPage() {
             {/* Logo */}
             <div className="mb-8 flex flex-col items-center">
               <div className="mb-4 flex items-center gap-2">
-                <div className="h-8 w-8 rounded-md bg-amber-500" />
+                <Image src="/logo.png" alt="Styrby" width={32} height={32} className="h-8 w-8 " />
                 <span className="text-xl font-bold text-foreground">Styrby</span>
               </div>
-              <h1 className="text-2xl font-bold text-foreground">Create your account</h1>
-              <p className="mt-1 text-sm text-muted-foreground">Start monitoring your AI agents today</p>
+              <h1 className="text-2xl font-bold text-foreground">
+                {plan === 'pro'
+                  ? 'Create your Pro account'
+                  : plan === 'power'
+                  ? 'Create your Power account'
+                  : 'Create your free account'}
+              </h1>
+              <p className="mt-1 text-xs text-muted-foreground text-center">
+                {plan
+                  ? 'Confirm your email, then complete checkout'
+                  : 'You can upgrade to Pro or Power anytime'}
+              </p>
+              {plan && (
+                <span className="mt-2 inline-flex items-center rounded-full bg-amber-500/10 border border-amber-500/20 px-3 py-0.5 text-xs font-medium text-amber-500">
+                  {plan.charAt(0).toUpperCase() + plan.slice(1)} Plan
+                </span>
+              )}
             </div>
 
             {/* Message display */}
@@ -157,7 +202,7 @@ export default function SignUpPage() {
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Jane Smith"
+                  placeholder="Alex Morgan"
                   required
                   autoComplete="name"
                   className="bg-secondary/60 border-border/60 text-foreground placeholder:text-muted-foreground focus-visible:ring-amber-500"
@@ -191,14 +236,14 @@ export default function SignUpPage() {
                 />
               </div>
 
-              <div className="flex items-start gap-2">
+              <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-secondary/30 p-3">
                 <Checkbox
                   id="terms"
                   checked={agreed}
                   onCheckedChange={(checked) => setAgreed(checked === true)}
-                  className="mt-1 border-border/60 data-[state=checked]:bg-amber-500 data-[state=checked]:text-background"
+                  className="mt-0.5 h-5 w-5 border-2 border-zinc-500 data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500 data-[state=checked]:text-background"
                 />
-                <Label htmlFor="terms" className="text-sm text-muted-foreground leading-relaxed">
+                <Label htmlFor="terms" className="text-sm text-muted-foreground leading-relaxed cursor-pointer">
                   I agree to the{' '}
                   <Link href="/terms" className="text-amber-500 hover:text-amber-400 transition-colors">Terms of Service</Link>
                   {' '}and{' '}

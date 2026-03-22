@@ -1,5 +1,8 @@
 # Dependencies
 node_modules/
+
+# Design reports
+.design-reports/
 .pnp
 .pnp.js
 .pnp.cjs

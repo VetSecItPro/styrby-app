@@ -288,12 +288,12 @@ export function TemplateForm({ isOpen, onClose, template, onSubmit }: TemplateFo
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center bg-black/60 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="template-form-title"
     >
-      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-zinc-900 border border-zinc-700 shadow-xl mx-4">
+      <div className="w-full md:w-auto md:min-w-[40rem] max-w-2xl max-h-[85vh] overflow-y-auto rounded-t-2xl md:rounded-2xl bg-zinc-900 border border-zinc-700 shadow-xl md:mx-4">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
           <h2 id="template-form-title" className="text-lg font-semibold text-zinc-100">
@@ -423,7 +423,7 @@ export function TemplateForm({ isOpen, onClose, template, onSubmit }: TemplateFo
                     )}
                   >
                     <div className="flex items-start gap-3">
-                      <div className="flex-1 grid grid-cols-3 gap-3">
+                      <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
                           <label className="block text-xs text-zinc-400 mb-1">
                             Name <span className="text-red-400">*</span>

@@ -15,50 +15,50 @@ import { Smartphone, DollarSign, LayoutDashboard, AlertTriangle, Clock } from 'l
 const useCases = [
   {
     icon: Smartphone,
-    title: 'Approve risky actions from your phone',
+    title: 'Approve risky actions from the couch',
     description:
-      'Claude wants to delete a directory. Codex wants to run a shell command. Get a push notification with a risk badge — approve or deny in one tap, from anywhere.',
-    highlight: 'No more babysitting your terminal.',
+      'Claude wants to delete a directory. Codex wants to run a shell command. You get a push notification with a risk badge (low, medium, high, critical). Approve or deny in one tap.',
+    highlight: 'Walk away from your desk without killing productivity.',
   },
   {
     icon: DollarSign,
-    title: 'Track agent spend before costs spiral',
+    title: 'Catch runaway costs before the invoice',
     description:
-      'See exactly how much each agent costs per session, per project, per day. Set budget thresholds that warn you, slow agents down, or stop them automatically.',
-    highlight: 'Know where every dollar goes.',
+      'See per-agent and per-session costs on every page load. Tag sessions by client or project for filtering. Set budget thresholds that warn you, throttle the agent, or kill the session automatically.',
+    highlight: 'No more surprise API bills.',
   },
   {
     icon: LayoutDashboard,
-    title: 'Monitor all your agents in one place',
+    title: 'See every agent on every machine at a glance',
     description:
-      'Claude Code, Codex, Gemini CLI, OpenCode, Aider — see which are active, idle, stuck, or failing. Color-coded status cards with live heartbeat across every machine.',
-    highlight: 'One dashboard. Five agents.',
+      'Claude Code, Codex, Gemini CLI, OpenCode, Aider. Which are active, idle, stuck, or failing? Color-coded status cards with live heartbeat tell you instantly.',
+    highlight: 'One dashboard replaces five terminal tabs.',
   },
   {
     icon: AlertTriangle,
-    title: 'Find the stuck session fast',
+    title: 'Know exactly why a session failed',
     description:
-      'A session stalls. Error attribution tells you exactly what broke — agent error, build failure, network timeout, or Styrby issue. Drill in immediately.',
-    highlight: 'Know what broke and where.',
+      'A session stalls. Color-coded error attribution shows you the root cause: agent error, build failure, network timeout, or Styrby issue. No log diving required.',
+    highlight: 'Seconds to diagnosis, not minutes.',
   },
   {
     icon: Clock,
-    title: 'Review what happened while you were away',
+    title: 'Pick up where you left off, even days later',
     description:
-      'Searchable session history with cost breakdowns, permission logs, and bookmarks. Filter by agent, project, date, or cost. Pick up exactly where you left off.',
-    highlight: 'Every session is recorded.',
+      'Full session history with cost breakdowns, permission logs, and bookmarks. Filter by agent, tags, date, or cost. Every session is searchable and replayable.',
+    highlight: 'Nothing falls through the cracks.',
   },
 ];
 
 export function UseCases() {
   return (
-    <section className="py-24 border-t border-border/30" id="use-cases">
+    <section className="py-16 border-t border-border/30" id="use-cases">
       <div className="mx-auto max-w-7xl px-6">
         <h2 className="mx-auto max-w-3xl text-balance text-center text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-          What You Can Do With Styrby
+          Five Problems You Deal With Today, Solved
         </h2>
         <p className="mx-auto mt-4 max-w-xl text-center text-muted-foreground leading-relaxed">
-          Real workflows, solved. Not features — outcomes.
+          These are the workflows Styrby was built for.
         </p>
 
         <div className="mt-16 space-y-6">

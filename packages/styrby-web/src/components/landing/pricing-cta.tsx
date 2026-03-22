@@ -4,16 +4,16 @@ import { Button } from "@/components/ui/button"
 
 export function PricingCTA() {
   return (
-    <section className="py-24">
+    <section className="py-12">
       <div className="mx-auto max-w-7xl px-6">
-        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card/40 px-8 py-16 text-center">
+        <div className="relative mx-auto overflow-hidden rounded-2xl border border-border/60 bg-card/40 px-8 py-12 text-center md:max-w-[75%]">
           <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 via-transparent to-amber-500/5" />
           <div className="relative">
             <h2 className="text-balance text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-              Simple, transparent pricing
+              Free for one machine. Pro when you need more.
             </h2>
             <p className="mx-auto mt-4 max-w-md text-muted-foreground leading-relaxed">
-              Start free, scale as you grow. No surprises, no hidden fees.
+              No credit card required. No trial that expires. Connect one machine and use it forever.
             </p>
             <div className="mt-8">
               <Button
@@ -22,7 +22,7 @@ export function PricingCTA() {
                 className="bg-amber-500 px-8 text-background hover:bg-amber-600 font-semibold text-base h-12"
               >
                 <Link href="/pricing">
-                  View Pricing
+                  See All Plans
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>

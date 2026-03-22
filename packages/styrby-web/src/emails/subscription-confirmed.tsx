@@ -34,7 +34,7 @@ const tierFeatures = {
     'Team collaboration (coming soon)',
     'API access',
     'Custom integrations',
-    'Priority support',
+    'Email support',
     'Early access to features',
   ],
 };
@@ -84,7 +84,7 @@ export default function SubscriptionConfirmedEmail({
       <Section className="mb-6">
         {features.map((feature, index) => (
           <Text key={index} className="m-0 mb-2 text-sm text-zinc-300">
-            <span className="mr-2 text-green-500">✓</span>
+            <span className="mr-2 text-green-500">&#10003;</span>
             {feature}
           </Text>
         ))}
@@ -107,7 +107,7 @@ export default function SubscriptionConfirmedEmail({
       </Paragraph>
 
       <Text className="m-0 text-sm text-zinc-400">
-        — The Styrby Team
+        The Styrby Team
       </Text>
     </BaseLayout>
   );

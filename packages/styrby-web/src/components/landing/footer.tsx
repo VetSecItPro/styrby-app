@@ -1,41 +1,68 @@
 import Link from "next/link"
+import Image from "next/image"
+import { Shield } from "lucide-react"
 
 const links = [
-  { label: "Features", href: "/#features" },
   { label: "Pricing", href: "/pricing" },
-  { label: "Docs", href: "#" },
-  { label: "Blog", href: "#" },
-  { label: "Privacy", href: "#" },
-  { label: "Terms", href: "#" },
-  { label: "GitHub", href: "#" },
-  { label: "Twitter/X", href: "#" },
-  { label: "Discord", href: "#" },
+  { label: "Docs", href: "/docs" },
+  { label: "Blog", href: "/blog" },
+  { label: "Privacy", href: "/privacy" },
+  { label: "Terms", href: "/terms" },
 ]
 
 export function Footer() {
   return (
-    <footer className="border-t border-border/40 py-6">
-      <div className="mx-auto max-w-7xl px-6 text-center">
-        <nav aria-label="Footer" className="flex flex-wrap items-center justify-center gap-x-1 gap-y-2">
-          {links.map((link, i) => (
-            <span key={link.label} className="flex items-center gap-1">
-              {i > 0 && (
-                <span className="text-zinc-500" aria-hidden="true">
-                  &middot;
-                </span>
-              )}
+    <footer className="border-t border-border/40 py-4">
+      <div className="mx-auto max-w-7xl px-6">
+        {/* Logo left, nav links centered, on the same line */}
+        <div className="relative flex items-center">
+          {/* Logo — left-aligned, taken out of flow so nav can center freely */}
+          <Link href="/" className="flex shrink-0 items-center gap-2 md:absolute md:left-0">
+            <Image
+              src="/logo.png"
+              alt="Styrby"
+              width={20}
+              height={20}
+              className="h-5 w-5"
+            />
+            <span className="text-sm font-bold text-foreground">Styrby</span>
+          </Link>
+
+          {/* Nav links — centered in the full width */}
+          <nav aria-label="Footer" className="hidden flex-1 flex-wrap items-center justify-center gap-x-4 gap-y-1 md:flex">
+            {links.map((link) => (
               <Link
+                key={link.label}
                 href={link.href}
-                className="text-sm text-zinc-500 transition-colors hover:text-zinc-300"
+                className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
               >
                 {link.label}
               </Link>
-            </span>
+            ))}
+          </nav>
+        </div>
+
+        {/* Mobile nav links — stacked below logo */}
+        <nav aria-label="Footer mobile" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 md:hidden">
+          {links.map((link) => (
+            <Link
+              key={link.label}
+              href={link.href}
+              className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+            >
+              {link.label}
+            </Link>
           ))}
         </nav>
-        <p className="mt-3 text-sm text-zinc-500">
-          &copy; 2026 Steel Motion LLC
-        </p>
+
+        {/* Copyright row — centered */}
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-zinc-500">
+          <p>&copy; 2026 Steel Motion LLC</p>
+          <div className="flex items-center gap-1">
+            <Shield className="h-3 w-3 text-amber-500" />
+            <span>Veteran-Owned Business</span>
+          </div>
+        </div>
       </div>
     </footer>
   )

@@ -145,6 +145,37 @@ export default async function CostsPage() {
   // Fetch budget alerts summary data for the widget
   // WHY: We fetch alerts here instead of in a separate component because
   // this is a server component and we already have the authenticated Supabase client.
+  // Fetch sessions with tags for cost-by-tag aggregation.
+  // WHY: The Supabase JS client does not support SQL `unnest()`, so we fetch sessions
+  // that have at least one tag and aggregate by tag in JavaScript. We limit to 200
+  // sessions (last 30 days) which is more than enough for typical usage patterns.
+  // This is efficient because sessions already store total_cost_usd as a pre-aggregated
+  // column, so we never touch the cost_records table for this query.
+  const { data: taggedSessions } = await supabase
+    .from('sessions')
+    .select('tags, total_cost_usd')
+    .gte('started_at', thirtyDaysAgo.toISOString())
+    .not('tags', 'eq', '{}')
+    .order('started_at', { ascending: false })
+    .limit(200);
+
+  // Aggregate costs by tag (a session with multiple tags contributes to each tag).
+  type TagTotal = { cost: number; sessionCount: number };
+  const tagTotals: Record<string, TagTotal> = {};
+
+  for (const session of taggedSessions ?? []) {
+    const cost = Number(session.total_cost_usd) || 0;
+    const tags = session.tags as string[] | null;
+    if (!tags || tags.length === 0) continue;
+    for (const tag of tags) {
+      if (!tagTotals[tag]) {
+        tagTotals[tag] = { cost: 0, sessionCount: 0 };
+      }
+      tagTotals[tag].cost += cost;
+      tagTotals[tag].sessionCount += 1;
+    }
+  }
+
   const [alertsResult, subscriptionResult] = await Promise.all([
     supabase
       .from('budget_alerts')
@@ -237,7 +268,7 @@ export default async function CostsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col gap-4 mb-8 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-bold text-foreground">Cost Analytics</h1>
           <Link
@@ -252,7 +283,7 @@ export default async function CostsPage() {
         </div>
 
         {/* Time range selector */}
-        <select className="rounded-lg border border-border/60 bg-secondary/60 px-4 py-2 text-sm text-foreground focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500">
+        <select className="w-full rounded-lg border border-border/60 bg-secondary/60 px-4 py-2 text-sm text-foreground focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 md:w-auto">
           <option value="30">Last 30 days</option>
           <option value="7">Last 7 days</option>
           <option value="90">Last 90 days</option>
@@ -308,13 +339,57 @@ export default async function CostsPage() {
         </div>
       </section>
 
+      {/* Tag cost breakdown */}
+      {/* WHY: Freelance developers and agencies need to attribute AI spending to
+          specific clients or projects. Tags on sessions enable this without requiring
+          a full project management system. Users tag sessions with client names
+          (e.g., "acme-corp") and this section shows the cost breakdown per tag. */}
+      <section className="mt-8">
+        <h2 className="text-lg font-semibold text-foreground mb-1">
+          Cost by Tag
+        </h2>
+        <p className="text-xs text-muted-foreground mb-4">
+          Tag sessions from the CLI or session detail page to track costs per client or project.
+        </p>
+        <div className="rounded-xl bg-card/60 border border-border/40 divide-y divide-border/20">
+          {Object.entries(tagTotals)
+            .sort(([, a], [, b]) => b.cost - a.cost)
+            .map(([tag, data]) => (
+              <div
+                key={tag}
+                className="px-4 py-3 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex items-center rounded-full bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 text-xs font-medium text-amber-500">
+                    {tag}
+                  </span>
+                  <p className="text-xs text-muted-foreground">
+                    {data.sessionCount} {data.sessionCount === 1 ? 'session' : 'sessions'}
+                  </p>
+                </div>
+                <p className="text-sm font-semibold text-foreground">
+                  ${data.cost.toFixed(2)}
+                </p>
+              </div>
+            ))}
+          {Object.keys(tagTotals).length === 0 && (
+            <div className="px-4 py-8 text-center">
+              <p className="text-muted-foreground text-sm">No tagged sessions yet</p>
+              <p className="text-xs text-muted-foreground/60 mt-1">
+                Add tags to sessions to see cost breakdowns by client or project.
+              </p>
+            </div>
+          )}
+        </div>
+      </section>
+
       {/* Model pricing reference */}
       <section className="mt-8">
         <h2 className="text-lg font-semibold text-foreground mb-4">
           Model Pricing Reference
         </h2>
-        <div className="rounded-xl bg-card/60 border border-border/40 overflow-hidden">
-          <table className="w-full">
+        <div className="rounded-xl bg-card/60 border border-border/40 overflow-hidden overflow-x-auto">
+          <table className="w-full min-w-[400px]">
             <thead className="bg-secondary/40">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">

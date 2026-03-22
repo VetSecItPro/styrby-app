@@ -3,10 +3,15 @@
 /**
  * Global Error Boundary
  *
- * Catches unhandled errors in the app.
- * This is the last line of defense for errors in the application.
+ * Catches unhandled errors at the root of the app - the last line of defense
+ * before a blank screen. Renders its own HTML shell because the root layout
+ * may itself have errored.
+ *
+ * WHY the inline HTML shell: Next.js replaces the entire document with this
+ * component when a root-level error occurs, so we must provide <html> and
+ * <body> tags ourselves. Tailwind classes still work because the stylesheet
+ * is embedded in the page.
  */
-
 export default function GlobalError({
   error,
   reset,
@@ -18,7 +23,9 @@ export default function GlobalError({
     <html lang="en">
       <body className="bg-zinc-950 text-zinc-100 min-h-screen flex items-center justify-center">
         <div className="max-w-md mx-auto p-8 text-center">
-          <div className="text-6xl mb-4">!</div>
+          <div className="mx-auto h-16 w-16 rounded-full bg-orange-500/10 flex items-center justify-center mb-6">
+            <span className="text-2xl font-bold text-orange-400">!</span>
+          </div>
           <h1 className="text-2xl font-bold mb-4">Something went wrong</h1>
           <p className="text-zinc-400 mb-6">
             An unexpected error occurred. Please try again.

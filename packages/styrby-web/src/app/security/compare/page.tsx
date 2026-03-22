@@ -7,9 +7,22 @@ import { Navbar } from '@/components/landing/navbar';
 import { Footer } from '@/components/landing/footer';
 
 export const metadata: Metadata = {
-  title: 'Security Comparison — Styrby vs Claude Code Channels vs Dispatch',
+  title: 'Security Comparison: Styrby vs Claude Channels',
   description:
-    'Compare how Styrby protects your code vs Anthropic Channels (Telegram/Discord) and Dispatch. E2E encryption, zero-knowledge architecture, and multi-agent support.',
+    'Compare Styrby, Claude Code Channels, and Dispatch on encryption, privacy, and agent support. Zero-knowledge vs server-readable session data.',
+  openGraph: {
+    title: 'Styrby vs Claude Channels vs Dispatch',
+    description:
+      'Compare Styrby, Claude Code Channels, and Dispatch on encryption, privacy, and agent support. Zero-knowledge vs server-readable session data.',
+    type: 'website',
+    url: 'https://styrbyapp.com/security/compare',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Styrby vs Claude Channels vs Dispatch',
+    description:
+      'Compare Styrby, Claude Code Channels, and Dispatch on encryption, privacy, and agent support. Zero-knowledge vs server-readable session data.',
+  },
 };
 
 /**
@@ -111,7 +124,7 @@ const securityHighlights = [
   {
     icon: Eye,
     title: 'Zero Knowledge',
-    description: 'Session content is encrypted before it leaves your machine. Styrby servers relay ciphertext — never plaintext.',
+    description: 'Session content is encrypted before it leaves your machine. Styrby servers relay ciphertext, never plaintext.',
   },
   {
     icon: Server,
@@ -126,12 +139,12 @@ const securityHighlights = [
   {
     icon: Wifi,
     title: 'Resilient Connection',
-    description: 'Commands queue offline and sync when reconnected. Your laptop can sleep — Styrby remembers.',
+    description: 'Commands queue offline and sync when reconnected. Your laptop can sleep. Styrby remembers.',
   },
   {
     icon: Smartphone,
     title: '5 Agents, 1 App',
-    description: 'Claude, Codex, Gemini, OpenCode, Aider — all from one secure mobile app. No vendor lock-in.',
+    description: 'Claude, Codex, Gemini, OpenCode, Aider. All from one secure mobile app. No vendor lock-in.',
   },
 ];
 
@@ -216,7 +229,7 @@ export default function SecurityComparePage() {
           <p className="mx-auto mt-4 max-w-2xl text-lg text-muted-foreground leading-relaxed">
             Claude Code Channels routes your sessions through Telegram and Discord.
             Dispatch sends them through Anthropic&apos;s servers.
-            Styrby encrypts end-to-end — we never see your code.
+            Styrby encrypts end-to-end. We never see your code.
           </p>
         </div>
       </section>
@@ -356,7 +369,7 @@ export default function SecurityComparePage() {
 
         <div className="relative mx-auto max-w-7xl px-6 text-center">
           <h2 className="mx-auto max-w-2xl text-balance text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-            Control Your AI Agents — Without Compromising Security
+            Control Your AI Agents Without Compromising Security
           </h2>
           <p className="mx-auto mt-4 max-w-md text-muted-foreground leading-relaxed">
             E2E encrypted. Multi-agent. Purpose-built for developers.

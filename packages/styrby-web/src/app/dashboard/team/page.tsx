@@ -124,7 +124,7 @@ export default async function TeamPage() {
               </h2>
               <ul className="space-y-3">
                 {[
-                  'Up to 5 team members',
+                  'Up to 3 team members',
                   'Shared session visibility',
                   'Team cost tracking',
                   'Role-based permissions (Owner, Admin, Member)',

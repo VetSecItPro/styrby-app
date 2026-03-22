@@ -144,6 +144,21 @@ export function formatTokens(tokens: number): string {
   return tokens.toString();
 }
 
+/**
+ * Cost breakdown by user-defined tag.
+ *
+ * Aggregated from the sessions table `tags` array column.
+ * Used for client/project cost attribution on the dashboard.
+ */
+export interface TagCostBreakdown {
+  /** The tag string (e.g., "acme-corp", "internal") */
+  tag: string;
+  /** Total cost in USD for sessions carrying this tag */
+  cost: number;
+  /** Number of sessions carrying this tag */
+  sessionCount: number;
+}
+
 // ============================================================================
 // Color Utilities
 // ============================================================================
