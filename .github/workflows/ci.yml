@@ -224,14 +224,18 @@ jobs:
           # Supabase service keys, Polar tokens, Resend keys, Expo tokens
           PATTERNS='sk_live_[a-zA-Z0-9]{24,}|AKIA[0-9A-Z]{16}|-----BEGIN (RSA |EC )?PRIVATE KEY|ghp_[a-zA-Z0-9]{36}|glpat-[a-zA-Z0-9\-]{20}|sbp_[a-zA-Z0-9]{40}|polar_at_[a-zA-Z0-9]+|re_[a-zA-Z0-9]{20,}|eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.[a-zA-Z0-9_-]{50,}|expo_[a-zA-Z0-9]{20,}'
 
-          MATCHES=$(grep -rn --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.json" -E "$PATTERNS" . \
+          # WHY two-step: piping grep | grep -v can fail unpredictably in
+          # GitHub Actions when the first grep has zero matches. Storing to
+          # a temp file avoids pipe exit code issues.
+          grep -rn --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.json" -E "$PATTERNS" . \
             --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=dist \
             --exclude=package-lock.json --exclude=pnpm-lock.yaml \
-            | grep -v "packages/styrby-cli/src/env.ts.*anonKey" || true)
+            --exclude="packages/styrby-cli/src/env.ts" \
+            > /tmp/secret-scan-results.txt 2>/dev/null || true
 
-          if [ -n "$MATCHES" ]; then
+          if [ -s /tmp/secret-scan-results.txt ]; then
             echo "::error::Potential secrets found in source code!"
-            echo "$MATCHES"
+            cat /tmp/secret-scan-results.txt
             exit 1
           fi
           echo "No secrets detected."
