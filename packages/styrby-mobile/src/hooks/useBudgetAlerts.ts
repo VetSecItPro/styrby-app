@@ -8,10 +8,11 @@
  * Also fetches the user's subscription tier to enforce alert count limits:
  * - Free: 0 budget alerts (feature locked)
  * - Pro: 3 budget alerts
- * - Power: 10 budget alerts
+ * - Power: 5 budget alerts
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { z } from 'zod';
 import { supabase } from '../lib/supabase';
 import {
   BudgetAlertSchema,
@@ -105,6 +106,23 @@ export interface CreateBudgetAlertInput {
 }
 
 /**
+ * Result from the atomic budget hard-stop check RPC.
+ * Returned by the check_budget_hard_stop database function.
+ */
+export interface BudgetHardStopResult {
+  /** Whether the user's spending has exceeded a hard-stop threshold */
+  is_blocked: boolean;
+  /** UUID of the triggered alert, or null if not blocked */
+  alert_id: string | null;
+  /** The alert's USD threshold, or null if not blocked */
+  threshold_usd: number | null;
+  /** The user's current total spend for the period, or null if not blocked */
+  total_spend: number | null;
+  /** The alert's period ('daily', 'weekly', 'monthly'), or null if not blocked */
+  period: string | null;
+}
+
+/**
  * Return type for the useBudgetAlerts hook.
  */
 export interface UseBudgetAlertsReturn {
@@ -126,6 +144,11 @@ export interface UseBudgetAlertsReturn {
   tier: SubscriptionTier;
   /** Maximum number of alerts allowed for the current tier */
   alertLimit: number;
+  /**
+   * Check whether the user is blocked by a hard-stop budget alert.
+   * Uses the atomic check_budget_hard_stop RPC to avoid race conditions.
+   */
+  checkHardStop: () => Promise<BudgetHardStopResult | null>;
 }
 
 // ============================================================================
@@ -540,6 +563,80 @@ export function useBudgetAlerts(): UseBudgetAlertsReturn {
     setRefreshKey((k) => k + 1);
   }, []);
 
+  /**
+   * Atomically check whether the user is blocked by a hard-stop budget alert.
+   *
+   * WHY: The inline approach (SELECT cost_records, sum in JS, compare threshold)
+   * is vulnerable to race conditions. Two concurrent requests could both read the
+   * same spend total, both pass the check, and both proceed. The database RPC
+   * uses an advisory lock to serialize budget checks per user, eliminating the
+   * concurrent-bypass window.
+   *
+   * @returns The hard-stop result, or null if the check could not be performed
+   */
+  const checkHardStop = useCallback(async (): Promise<BudgetHardStopResult | null> => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+
+      const { data, error: rpcError } = await supabase
+        .rpc('check_budget_hard_stop', { p_user_id: user.id });
+
+      if (rpcError) {
+        console.error(
+          '[BudgetAlerts] Hard-stop check failed:',
+          __DEV__ ? rpcError : (rpcError instanceof Error ? rpcError.message : 'Unknown error')
+        );
+        return null;
+      }
+
+      // WHY: The RPC returns a table (array of rows). If no hard-stop alert is
+      // triggered, the result is an empty array. If one is triggered, it returns
+      // a single row with the blocking alert's details.
+      if (!data || (Array.isArray(data) && data.length === 0)) {
+        return {
+          is_blocked: false,
+          alert_id: null,
+          threshold_usd: null,
+          total_spend: null,
+          period: null,
+        };
+      }
+
+      // WHY: Validate the RPC response with Zod to catch unexpected shapes.
+      // The RPC returns numeric fields that Postgres may serialize as strings,
+      // so we use z.coerce.number() to handle both formats safely.
+      const BudgetHardStopResponseSchema = z.object({
+        is_blocked: z.boolean(),
+        alert_id: z.string().nullable().optional(),
+        threshold_usd: z.coerce.number().nullable().optional(),
+        total_spend: z.coerce.number().nullable().optional(),
+        period: z.string().nullable().optional(),
+      });
+
+      const raw = Array.isArray(data) ? data[0] : data;
+      const validated = safeParseSingle(BudgetHardStopResponseSchema, raw, 'budget_hard_stop_rpc');
+
+      if (!validated) {
+        return null;
+      }
+
+      return {
+        is_blocked: validated.is_blocked,
+        alert_id: validated.alert_id ?? null,
+        threshold_usd: validated.threshold_usd ?? null,
+        total_spend: validated.total_spend ?? null,
+        period: validated.period ?? null,
+      };
+    } catch (err) {
+      console.error(
+        '[BudgetAlerts] Hard-stop check error:',
+        __DEV__ ? err : (err instanceof Error ? err.message : 'Unknown error')
+      );
+      return null;
+    }
+  }, []);
+
   return {
     alerts,
     isLoading,
@@ -550,6 +647,7 @@ export function useBudgetAlerts(): UseBudgetAlertsReturn {
     refresh,
     tier,
     alertLimit,
+    checkHardStop,
   };
 }
 

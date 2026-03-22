@@ -40,6 +40,62 @@ const SessionStatusSchema = z.enum(['starting', 'running', 'idle', 'paused', 'st
 const SubscriptionTierSchema = z.enum(['free', 'pro', 'power', 'team']);
 
 // ============================================================================
+// Profile Schema
+// ============================================================================
+
+/**
+ * Validates a row from the Supabase `profiles` table.
+ *
+ * WHY: The profiles table has grown over multiple migrations. Columns like
+ * `is_admin` (migration 013) and `onboarding_completed_at` (initial schema)
+ * may be present in query results. Marking them as optional ensures the mobile
+ * app handles their presence gracefully without crashing, even though mobile
+ * does not use admin features.
+ */
+export const ProfileSchema = z.object({
+  /** Primary key, matches auth.users.id */
+  id: z.string(),
+  /** Display name (may be null if never set) */
+  display_name: z.string().nullable(),
+  /** Avatar URL */
+  avatar_url: z.string().nullable(),
+  /** User timezone (defaults to 'UTC' in DB) */
+  timezone: z.string().optional(),
+  /** Theme preference */
+  theme: z.string().optional(),
+  /** Preferred language */
+  preferred_language: z.string().optional(),
+  /** User's unique referral code */
+  referral_code: z.string().nullable(),
+  /** Consent tracking */
+  marketing_email_consent: z.boolean().optional(),
+  /** When Terms of Service were accepted */
+  tos_accepted_at: z.string().nullable(),
+  /** When onboarding was completed (null if not yet completed) */
+  onboarding_completed_at: z.string().nullable(),
+  /** Current onboarding step */
+  onboarding_step: z.number().optional(),
+  /**
+   * Server-set admin flag. Added in migration 013.
+   * Cannot be modified by users via RLS (set by service role only).
+   * Mobile does not use admin features, but this field may appear in
+   * profile query results and must be handled gracefully.
+   */
+  is_admin: z.boolean().optional(),
+  /** Last time the user was active */
+  last_active_at: z.string().nullable(),
+  /** Soft delete timestamp */
+  deleted_at: z.string().nullable(),
+  /** Record creation timestamp */
+  created_at: z.string().optional(),
+  /** Record update timestamp */
+  updated_at: z.string().optional(),
+});
+
+/** Inferred TypeScript type for a validated profile row. */
+export type ValidatedProfile = z.infer<typeof ProfileSchema>;
+
+// ============================================================================
 // Session Schema
 // ============================================================================
 
@@ -110,6 +166,12 @@ export const CostRecordSchema = z.object({
   input_tokens: z.number().nullable(),
   /** Output tokens consumed */
   output_tokens: z.number().nullable(),
+  /**
+   * Whether this cost record is still pending (agent is responding).
+   * Added in migration 013. Optional for backwards compatibility with queries
+   * that do not select this column.
+   */
+  is_pending: z.boolean().default(false),
 });
 
 /** Inferred TypeScript type for a validated cost record row. */
@@ -200,7 +262,18 @@ export const NotificationPreferencesSchema = z.object({
   /** Whether to email budget alerts */
   email_budget_alerts: z.boolean().optional(),
   /** IANA timezone for quiet hours (e.g., 'America/New_York') */
-  quiet_hours_timezone: z.string().nullable().optional(),
+  quiet_hours_timezone: z.string().nullable(),
+  /**
+   * Smart notification priority threshold (1-5). Added in migration 005.
+   * Only notifications with priority <= this value are sent.
+   * 1=urgent only, 3=medium (default), 5=all.
+   */
+  priority_threshold: z.number().default(3),
+  /**
+   * Custom priority rules as JSON array. Added in migration 005.
+   * Reserved for future use with advanced filtering logic.
+   */
+  priority_rules: z.any().default([]),
   /** ISO timestamp when preferences were created */
   created_at: z.string(),
   /** ISO timestamp when preferences were last updated */
