@@ -4,7 +4,20 @@ import Link from 'next/link';
 export const metadata: Metadata = {
   title: 'Security',
   description:
-    'Styrby security practices, vulnerability disclosure, and incident response.',
+    'How Styrby protects your data: E2E encryption, zero-knowledge architecture, vulnerability disclosure, and incident response.',
+  openGraph: {
+    title: 'Styrby Security',
+    description:
+      'How Styrby protects your data: E2E encryption, zero-knowledge architecture, vulnerability disclosure, and incident response.',
+    type: 'website',
+    url: 'https://styrbyapp.com/security',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Styrby Security',
+    description:
+      'How Styrby protects your data: E2E encryption, zero-knowledge architecture, vulnerability disclosure, and incident response.',
+  },
 };
 
 /**
@@ -12,7 +25,7 @@ export const metadata: Metadata = {
  *
  * WHY: GDPR Articles 33-34 require breach notification within 72 hours.
  * This page publicly documents our security posture, responsible disclosure
- * process, and how we handle incidents — building trust with users and
+ * process, and how we handle incidents, building trust with users and
  * satisfying compliance requirements for transparency.
  */
 export default function SecurityPage() {
@@ -59,17 +72,17 @@ export default function SecurityPage() {
           <h3>Encryption</h3>
           <ul>
             <li>
-              <strong>End-to-end encryption</strong> — session messages between
+              <strong>End-to-end encryption</strong>: session messages between
               your CLI and mobile/web clients are encrypted using TweetNaCl
               (public-key authenticated encryption). Styrby cannot read the
               plaintext content of your encrypted messages.
             </li>
             <li>
-              <strong>Encryption at rest</strong> — all data stored in our
+              <strong>Encryption at rest</strong>: all data stored in our
               database is encrypted using AES-256.
             </li>
             <li>
-              <strong>Encryption in transit</strong> — all connections use TLS
+              <strong>Encryption in transit</strong>: all connections use TLS
               1.2 or higher. HTTP is automatically redirected to HTTPS.
             </li>
           </ul>
@@ -77,15 +90,15 @@ export default function SecurityPage() {
           <h3>Access Control</h3>
           <ul>
             <li>
-              <strong>Row Level Security (RLS)</strong> — every database table
+              <strong>Row Level Security (RLS)</strong>: every database table
               has RLS enabled, ensuring users can only access their own data.
             </li>
             <li>
-              <strong>Authentication</strong> — we use Supabase Auth with
+              <strong>Authentication</strong>: we use Supabase Auth with
               secure magic links and OAuth providers (GitHub).
             </li>
             <li>
-              <strong>API key hashing</strong> — API keys are hashed with
+              <strong>API key hashing</strong>: API keys are hashed with
               bcrypt (cost factor 12) before storage. Plaintext keys are shown
               once on creation and never stored.
             </li>
@@ -94,24 +107,24 @@ export default function SecurityPage() {
           <h3>Application Security</h3>
           <ul>
             <li>
-              <strong>Input validation</strong> — all API endpoints use Zod
+              <strong>Input validation</strong>: all API endpoints use Zod
               schema validation to prevent injection and malformed input.
             </li>
             <li>
-              <strong>Rate limiting</strong> — all write endpoints are rate
+              <strong>Rate limiting</strong>: all write endpoints are rate
               limited to prevent abuse.
             </li>
             <li>
-              <strong>Security headers</strong> — Content Security Policy,
+              <strong>Security headers</strong>: Content Security Policy,
               HSTS, X-Frame-Options, and other headers are configured in
               production.
             </li>
             <li>
-              <strong>Webhook signatures</strong> — incoming webhooks are
+              <strong>Webhook signatures</strong>: incoming webhooks are
               verified using HMAC-SHA256 with timing-safe comparison.
             </li>
             <li>
-              <strong>Audit logging</strong> — security-relevant actions
+              <strong>Audit logging</strong>: security-relevant actions
               (login, machine pairing, API key operations, data export) are
               logged with timestamps and IP addresses.
             </li>
@@ -167,20 +180,20 @@ export default function SecurityPage() {
           <h3>3. Notification (within 72 hours)</h3>
           <ul>
             <li>
-              <strong>Supervisory authority</strong> — if the breach is likely
+              <strong>Supervisory authority</strong>: if the breach is likely
               to result in a risk to individuals, we notify the relevant data
               protection authority within 72 hours of confirmation (GDPR
               Article 33).
             </li>
             <li>
-              <strong>Affected users</strong> — if the breach is likely to
+              <strong>Affected users</strong>: if the breach is likely to
               result in a high risk to individuals, we notify affected users
               without undue delay via email (GDPR Article 34). Notifications
               include: nature of the breach, categories of data affected,
               likely consequences, and measures taken.
             </li>
             <li>
-              <strong>Team/B2B customers</strong> — Power tier team
+              <strong>Team/B2B customers</strong>: Power tier team
               administrators are notified directly per our{' '}
               <Link href="/dpa">Data Processing Agreement</Link>.
             </li>
@@ -198,17 +211,17 @@ export default function SecurityPage() {
           <h2>Infrastructure</h2>
           <ul>
             <li>
-              <strong>Hosting</strong> — Vercel (SOC 2 Type II compliant)
+              <strong>Hosting</strong>: Vercel (SOC 2 Type II compliant)
             </li>
             <li>
-              <strong>Database</strong> — Supabase (SOC 2 Type II compliant,
+              <strong>Database</strong>: Supabase (SOC 2 Type II compliant,
               daily backups, point-in-time recovery)
             </li>
             <li>
-              <strong>Email</strong> — Resend (DKIM, SPF, DMARC configured)
+              <strong>Email</strong>: Resend (DKIM, SPF, DMARC configured)
             </li>
             <li>
-              <strong>Payments</strong> — Polar (PCI DSS compliant as merchant
+              <strong>Payments</strong>: Polar (PCI DSS compliant as merchant
               of record; we never handle payment card data)
             </li>
           </ul>

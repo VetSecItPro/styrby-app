@@ -36,22 +36,22 @@ export default function WelcomeEmail({ displayName }: WelcomeEmailProps) {
       <Section className="mb-6">
         <Text className="m-0 mb-2 text-sm text-zinc-300">
           <span className="mr-2">📱</span>
-          <strong className="text-zinc-100">Approve permissions</strong> — No more
+          <strong className="text-zinc-100">Approve permissions</strong>: No more
           rushing back to your desk
         </Text>
         <Text className="m-0 mb-2 text-sm text-zinc-300">
           <span className="mr-2">💰</span>
-          <strong className="text-zinc-100">Track costs</strong> — Real-time spending
+          <strong className="text-zinc-100">Track costs</strong>: Real-time spending
           across all agents
         </Text>
         <Text className="m-0 mb-2 text-sm text-zinc-300">
           <span className="mr-2">🔔</span>
-          <strong className="text-zinc-100">Get alerts</strong> — Budget warnings
+          <strong className="text-zinc-100">Get alerts</strong>: Budget warnings
           before you overspend
         </Text>
         <Text className="m-0 text-sm text-zinc-300">
           <span className="mr-2">📊</span>
-          <strong className="text-zinc-100">View sessions</strong> — Full history
+          <strong className="text-zinc-100">View sessions</strong>: Full history
           and conversation logs
         </Text>
       </Section>
@@ -70,11 +70,11 @@ export default function WelcomeEmail({ displayName }: WelcomeEmailProps) {
       </Paragraph>
 
       <Paragraph>
-        Questions? Just reply to this email — we read every message.
+        Questions? Just reply to this email. We read every message.
       </Paragraph>
 
       <Text className="m-0 text-sm text-zinc-400">
-        — The Styrby Team
+        The Styrby Team
       </Text>
     </BaseLayout>
   );

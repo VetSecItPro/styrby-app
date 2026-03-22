@@ -1,0 +1,37 @@
+# Styrby
+
+Styrby is a mobile-first dashboard for developers who use AI coding agents (Claude Code, Codex, Gemini CLI, OpenCode, Aider). It lets you monitor costs, approve permissions, and review session history from your phone while agents run on your dev machine.
+
+## What Styrby Does
+
+- Remote control: Start, pause, and interact with AI agents from the Styrby mobile app
+- Cost tracking: Real-time per-session and per-agent spend with budget alerts
+- Permission approval: Approve or reject risky agent actions (file writes, shell commands) from mobile
+- Session history: Replay past agent sessions with full message history and cost breakdown
+- E2E encryption: Session content is encrypted with TweetNaCl on the CLI. Styrby relays ciphertext only. We cannot read your code or prompts.
+- Team support: Shared dashboards, per-developer spend attribution, role-based access (Power tier)
+
+## Key Pages
+
+- Homepage: https://styrbyapp.com
+- Features: https://styrbyapp.com/features
+- Pricing: https://styrbyapp.com/pricing (Free, Pro $19/mo, Power $49/mo)
+- Security architecture: https://styrbyapp.com/security
+- Security comparison vs Claude Channels and Dispatch: https://styrbyapp.com/security/compare
+- Blog: https://styrbyapp.com/blog
+- Documentation: https://styrbyapp.com/docs
+- Getting started: https://styrbyapp.com/docs/getting-started
+
+## Technology
+
+- CLI: Node.js, connects to AI agents on developer machines
+- Mobile: React Native (Expo), iOS and Android
+- Web dashboard: Next.js 15, hosted on Vercel
+- Backend: Supabase (PostgreSQL, Auth, Realtime)
+- Encryption: TweetNaCl (NaCl box construction, X25519 key exchange)
+- Payments: Polar (merchant of record)
+
+## Company
+
+Built by Steel Motion LLC. Veteran-owned. Based in the United States.
+Contact: support@styrbyapp.com

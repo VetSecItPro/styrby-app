@@ -1,5 +1,6 @@
 import type { Config } from 'tailwindcss';
 import forms from '@tailwindcss/forms';
+import typography from '@tailwindcss/typography';
 import animate from 'tailwindcss-animate';
 
 const config: Config = {
@@ -114,7 +115,7 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-space-grotesk)', 'system-ui', 'sans-serif'],
         mono: ['var(--font-jetbrains)', 'ui-monospace', 'monospace'],
       },
       borderRadius: {
@@ -145,7 +146,7 @@ const config: Config = {
       },
     },
   },
-  plugins: [forms, animate],
+  plugins: [forms, typography, animate],
 };
 
 export default config;

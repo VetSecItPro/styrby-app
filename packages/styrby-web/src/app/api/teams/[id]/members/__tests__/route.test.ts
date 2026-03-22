@@ -253,7 +253,7 @@ describe('Team Members Invitation API — /api/teams/[id]/members', () => {
     it('returns 403 when team member limit is reached', async () => {
       mockAuthenticated();
 
-      // WHY: Power tier allows 5 team members. This test verifies that the
+      // WHY: Power tier allows 3 team members. This test verifies that the
       // limit counts both existing members AND pending invitations.
 
       // 1. team found
@@ -268,16 +268,16 @@ describe('Team Members Invitation API — /api/teams/[id]/members', () => {
         error: null,
       });
 
-      // 3. getUserTier => power (limit: 5)
+      // 3. getUserTier => power (limit: 3)
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
 
-      // 4. member count => 4 existing members
-      fromCallQueue.push({ count: 4, error: null });
+      // 4. member count => 2 existing members
+      fromCallQueue.push({ count: 2, error: null });
 
       // 5. pending invitation count => 1 pending
       fromCallQueue.push({ count: 1, error: null });
 
-      // Total = 4 + 1 = 5, which equals the limit
+      // Total = 2 + 1 = 3, which equals the limit
 
       const req = createNextRequest({ email: 'new@example.com' });
       const response = await POST(req, createRouteContext());
@@ -285,7 +285,7 @@ describe('Team Members Invitation API — /api/teams/[id]/members', () => {
 
       const body = await response.json();
       expect(body.error).toContain('maximum');
-      expect(body.error).toContain('5');
+      expect(body.error).toContain('3');
     });
 
     it('returns 400 when invitee is already a member', async () => {
@@ -341,11 +341,11 @@ describe('Team Members Invitation API — /api/teams/[id]/members', () => {
       // 3. getUserTier => power
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
 
-      // 4. member count => 2
-      fromCallQueue.push({ count: 2, error: null });
-
-      // 5. pending count => 1
+      // 4. member count => 1
       fromCallQueue.push({ count: 1, error: null });
+
+      // 5. pending count => 0
+      fromCallQueue.push({ count: 0, error: null });
 
       // 6. rpc('get_team_members') => no match
       mockRpc.mockResolvedValueOnce({

@@ -48,10 +48,10 @@ const plans = [
     annual: 190,
     savings: 38,
     popular: true,
-    cta: 'Start Free Trial',
+    cta: 'Sign Up for Pro',
     ctaVariant: 'default' as const,
     features: [
-      '5 connected machines',
+      '3 connected machines',
       'All 5 AI agents',
       '90-day session history',
       '25,000 messages/month',
@@ -67,67 +67,102 @@ const plans = [
     annual: 490,
     savings: 98,
     popular: false,
-    cta: 'Start Free Trial',
+    cta: 'Sign Up for Power',
     ctaVariant: 'default' as const,
     features: [
-      '15 connected machines',
+      '9 connected machines',
       'All 5 AI agents',
       '1-year session history',
       '100,000 messages/month',
       'Full cost dashboard',
-      '10 budget alerts',
-      '5 team members',
+      '5 budget alerts',
+      '3 team members',
       'API access',
-      'Priority support',
+      'Email support',
     ],
   },
 ];
 
 const comparisonCategories = [
   {
-    name: 'Usage',
+    name: 'Usage & Limits',
     features: [
-      { name: 'Connected machines', free: '1', pro: '5', power: '15' },
-      { name: 'AI agents', free: '1', pro: 'All 5', power: 'All 5' },
+      { name: 'Connected machines', free: '1', pro: '3', power: '9' },
+      { name: 'AI agents supported', free: '1 (your choice)', pro: 'All 5', power: 'All 5' },
       { name: 'Messages per month', free: '1,000', pro: '25,000', power: '100,000' },
-      { name: 'Session history', free: '7 days', pro: '90 days', power: '1 year' },
+      { name: 'Session history retention', free: '7 days', pro: '90 days', power: '1 year' },
+      { name: 'Session bookmarks', free: '5', pro: 'Unlimited', power: 'Unlimited' },
+      { name: 'Prompt templates', free: '3', pro: '20', power: 'Unlimited' },
     ],
   },
   {
-    name: 'Monitoring & Alerts',
+    name: 'Cost Management',
+    features: [
+      { name: 'Real-time cost tracking', free: 'Basic', pro: 'Full dashboard', power: 'Full dashboard' },
+      { name: 'Cost breakdown by agent', free: false, pro: true, power: true },
+      { name: 'Cost breakdown by model', free: false, pro: true, power: true },
+      { name: 'Cost breakdown by project', free: false, pro: true, power: true },
+      { name: 'Budget alerts', free: false, pro: '3', power: '5' },
+      { name: 'Auto-pause on budget exceeded', free: false, pro: true, power: true },
+      { name: 'Daily cost summary view', free: false, pro: true, power: true },
+      { name: 'Cost export (CSV)', free: false, pro: false, power: true },
+    ],
+  },
+  {
+    name: 'Agent Control',
     features: [
       { name: 'Real-time session feed', free: true, pro: true, power: true },
-      { name: 'Cost tracking', free: 'Basic', pro: 'Full dashboard', power: 'Full dashboard' },
-      { name: 'Budget alerts', free: false, pro: '3', power: '10' },
-      { name: 'Cost attribution by agent', free: false, pro: true, power: true },
-      { name: 'Daily / weekly reports', free: false, pro: true, power: true },
+      { name: 'Permission approval from mobile', free: true, pro: true, power: true },
+      { name: 'Risk-level badges', free: true, pro: true, power: true },
+      { name: 'Agent-specific configuration', free: false, pro: true, power: true },
+      { name: 'Auto-approve rules', free: false, pro: true, power: true },
+      { name: 'Blocked tool lists', free: false, pro: true, power: true },
+      { name: 'Offline command queue', free: false, pro: true, power: true },
+    ],
+  },
+  {
+    name: 'Notifications',
+    features: [
+      { name: 'Push notifications', free: true, pro: true, power: true },
+      { name: 'Permission request alerts', free: true, pro: true, power: true },
+      { name: 'Budget threshold alerts', free: false, pro: true, power: true },
+      { name: 'Error and failure alerts', free: false, pro: true, power: true },
+      { name: 'Quiet hours', free: false, pro: true, power: true },
+      { name: 'Weekly summary emails', free: false, pro: true, power: true },
     ],
   },
   {
     name: 'Security & Privacy',
     features: [
-      { name: 'End-to-end encryption', free: true, pro: true, power: true },
+      { name: 'End-to-end encryption (TweetNaCl)', free: true, pro: true, power: true },
       { name: 'Zero-knowledge architecture', free: true, pro: true, power: true },
-      { name: 'Permission approval logs', free: true, pro: true, power: true },
+      { name: 'Permission approval audit log', free: true, pro: true, power: true },
+      { name: 'API key hashing (bcrypt)', free: true, pro: true, power: true },
+      { name: 'Rate limiting on all endpoints', free: true, pro: true, power: true },
       { name: 'Audit trail export', free: false, pro: false, power: true },
     ],
   },
   {
-    name: 'Collaboration & Integration',
+    name: 'Collaboration',
     features: [
-      { name: 'Team members', free: false, pro: false, power: '5' },
-      { name: 'Shared dashboards', free: false, pro: false, power: true },
-      { name: 'API access', free: false, pro: false, power: true },
+      { name: 'Team members', free: false, pro: false, power: '3' },
+      { name: 'Team invitations', free: false, pro: false, power: true },
+      { name: 'Role-based access (owner/admin/member)', free: false, pro: false, power: true },
+      { name: 'Shared cost dashboards', free: false, pro: false, power: true },
+    ],
+  },
+  {
+    name: 'Integrations',
+    features: [
+      { name: 'REST API access', free: false, pro: false, power: true },
       { name: 'Webhooks', free: false, pro: false, power: true },
+      { name: 'API key management', free: false, pro: false, power: true },
     ],
   },
   {
     name: 'Support',
     features: [
-      { name: 'Community forum', free: true, pro: true, power: true },
       { name: 'Email support', free: false, pro: true, power: true },
-      { name: 'Priority support', free: false, pro: false, power: true },
-      { name: 'Dedicated onboarding', free: false, pro: false, power: true },
     ],
   },
 ];
@@ -147,7 +182,7 @@ const faqs = [
   },
   {
     q: 'Can I use it with my team?',
-    a: 'Absolutely. The Power plan supports up to 5 team members with shared dashboards, cost attribution, and team-level budget alerts.',
+    a: 'Absolutely. The Power plan supports up to 3 team members with shared dashboards, cost attribution, and team-level budget alerts.',
   },
   {
     q: 'What happens if I hit my message limit?',
@@ -237,7 +272,7 @@ export default function PricingPage() {
               <div
                 key={plan.name}
                 className={cn(
-                  'relative rounded-xl bg-card/60 p-8 transition-all duration-200',
+                  'relative flex flex-col rounded-xl bg-card/60 p-8 transition-all duration-200',
                   plan.popular
                     ? 'border-2 border-amber-500/50 amber-glow'
                     : 'border border-border/60',
@@ -251,19 +286,27 @@ export default function PricingPage() {
 
                 <h3 className="text-xl font-semibold text-foreground">{plan.name}</h3>
                 <p className="mt-1 text-sm text-muted-foreground">{plan.description}</p>
-                <div className="mt-4 flex items-baseline gap-1">
-                  <span className="font-mono text-4xl font-bold text-foreground">
-                    ${annual && plan.annual > 0 ? Math.round(plan.annual / 12) : plan.monthly}
-                  </span>
-                  {plan.monthly > 0 && <span className="text-sm text-muted-foreground">/month</span>}
+                {/* Fixed-height price area prevents layout shift on annual toggle */}
+                <div className="min-h-[72px]">
+                  <div className="mt-4 flex items-baseline gap-1">
+                    <span className="font-mono text-4xl font-bold text-foreground">
+                      ${annual && plan.annual > 0 ? Math.round(plan.annual / 12) : plan.monthly}
+                    </span>
+                    {plan.monthly > 0 && <span className="text-sm text-muted-foreground">/month</span>}
+                  </div>
+                  {annual && plan.savings ? (
+                    <p className="mt-1 text-xs text-amber-500">
+                      ${plan.annual}/year, save ${plan.savings}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-transparent" aria-hidden="true">
+                      &nbsp;
+                    </p>
+                  )}
                 </div>
-                {annual && plan.savings && (
-                  <p className="mt-1 text-xs text-amber-500">
-                    ${plan.annual}/year — save ${plan.savings}
-                  </p>
-                )}
 
-                <ul className="mt-8 space-y-3">
+                {/* Feature list grows to fill, pushing button to bottom */}
+                <ul className="mt-6 flex-1 space-y-3">
                   {plan.features.map((feature) => (
                     <li key={feature} className="flex items-center gap-3 text-sm text-muted-foreground">
                       <Check className="h-4 w-4 shrink-0 text-amber-500" />
@@ -272,16 +315,18 @@ export default function PricingPage() {
                   ))}
                 </ul>
 
-                <div className="mt-8">
+                {/* Button pinned to bottom of card */}
+                <div className="mt-8 flex justify-center">
                   {plan.ctaVariant === 'default' ? (
-                    <Button asChild className="w-full bg-amber-500 text-background hover:bg-amber-600 font-medium">
-                      <Link href="/signup">{plan.cta}</Link>
+                    <Button asChild size="sm" className="bg-amber-500 text-background hover:bg-amber-600 font-medium px-6">
+                      <Link href={`/signup?plan=${plan.name.toLowerCase()}`}>{plan.cta}</Link>
                     </Button>
                   ) : (
                     <Button
                       variant="outline"
                       asChild
-                      className="w-full border-border/60 text-muted-foreground hover:text-foreground bg-transparent"
+                      size="sm"
+                      className="border-border/60 text-muted-foreground hover:text-foreground bg-transparent px-6"
                     >
                       <Link href="/signup">{plan.cta}</Link>
                     </Button>
@@ -294,7 +339,7 @@ export default function PricingPage() {
       </section>
 
       {/* Feature Comparison Table */}
-      <section className="py-24">
+      <section className="py-12">
         <div className="mx-auto max-w-5xl px-6">
           <h2 className="text-balance text-center text-3xl font-bold tracking-tight text-foreground">
             Compare All Features
@@ -327,7 +372,7 @@ export default function PricingPage() {
       </section>
 
       {/* FAQ */}
-      <section className="py-24 border-t border-border/30">
+      <section className="py-16 border-t border-border/30">
         <div className="mx-auto max-w-3xl px-6">
           <h2 className="text-balance text-center text-3xl font-bold tracking-tight text-foreground">
             Frequently Asked Questions
@@ -355,7 +400,7 @@ export default function PricingPage() {
 
         <div className="relative mx-auto max-w-7xl px-6 text-center">
           <h2 className="mx-auto max-w-2xl text-balance text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-            Start Free — No credit card required
+            Start Free. No credit card required.
           </h2>
           <p className="mx-auto mt-4 max-w-md text-muted-foreground leading-relaxed">
             Get full visibility into your AI coding agents in under two minutes.
@@ -390,7 +435,7 @@ function ComparisonCategory({ category }: { category: typeof comparisonCategorie
       <tr>
         <td
           colSpan={4}
-          className="pt-8 pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+          className="pt-8 pb-3 text-center text-xs font-semibold uppercase tracking-wider text-amber-500/70"
         >
           {category.name}
         </td>

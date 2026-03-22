@@ -56,7 +56,7 @@ describe('Polar Billing Module', () => {
     describe('Pro tier', () => {
       it('should have correct limits', () => {
         expect(TIERS.pro.limits).toEqual({
-          machines: 5,
+          machines: 3,
           historyDays: 90,
           messagesPerMonth: 25_000,
           budgetAlerts: 3,
@@ -82,12 +82,12 @@ describe('Polar Billing Module', () => {
     describe('Power tier', () => {
       it('should have correct limits', () => {
         expect(TIERS.power.limits).toEqual({
-          machines: 15,
+          machines: 9,
           historyDays: 365,
           messagesPerMonth: 100_000,
-          budgetAlerts: 10,
+          budgetAlerts: 5,
           webhooks: 10,
-          teamMembers: 5,
+          teamMembers: 3,
           apiKeys: 5,
         });
       });

@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { DashboardTopNav } from '@/components/dashboard/topnav';
 import { DashboardSidebar } from '@/components/dashboard/sidebar';
 import { MobileNav } from '@/components/dashboard/mobile-nav';
 import { CommandPalette } from '@/components/dashboard/command-palette';
 import { cn } from '@/lib/utils';
+import { startConnectivityListener } from '@/lib/offline-sync';
 
 /**
  * Client-side dashboard shell with collapsible sidebar, topnav, and mobile nav.
@@ -17,6 +18,16 @@ import { cn } from '@/lib/utils';
  */
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
+
+  // WHY: Start the offline sync connectivity listener when the dashboard
+  // mounts. This listens for browser online/offline events and automatically
+  // syncs locally stored commands to the Supabase offline_command_queue table
+  // when the user comes back online. Placed here (not root layout) because
+  // only authenticated users in the dashboard need cloud sync.
+  useEffect(() => {
+    const unsubscribe = startConnectivityListener();
+    return unsubscribe;
+  }, []);
 
   return (
     <div className="min-h-screen">

@@ -184,7 +184,7 @@ describe('Teams API — /api/teams', () => {
       expect(body.teams[0].member_count).toBe(3);
       expect(body.tier).toBe('power');
       expect(body.canCreateTeam).toBe(true);
-      expect(body.teamLimit).toBe(5);
+      expect(body.teamLimit).toBe(3);
     });
 
     it('returns empty teams array when user has no teams', async () => {

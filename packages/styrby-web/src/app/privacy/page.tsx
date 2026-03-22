@@ -4,14 +4,25 @@ import Link from 'next/link';
 export const metadata: Metadata = {
   title: 'Privacy Policy',
   description:
-    'Styrby Privacy Policy — how we collect, use, and protect your data.',
+    'How Styrby collects, uses, and protects your data. Session content is zero-knowledge. We cannot read your code or prompts.',
+  openGraph: {
+    title: 'Styrby Privacy Policy',
+    description:
+      'How Styrby collects, uses, and protects your data. Session content is zero-knowledge. We cannot read your code or prompts.',
+    type: 'website',
+    url: 'https://styrbyapp.com/privacy',
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 /**
  * Privacy Policy page.
  *
  * Outlines data collection, usage, storage, third-party services,
- * retention, and user rights for the Styrby platform.
+ * retention, cookies, and user rights for the Styrby platform.
  */
 export default function PrivacyPolicyPage() {
   return (
@@ -42,23 +53,41 @@ export default function PrivacyPolicyPage() {
           <h1>Privacy Policy</h1>
 
           <p className="text-sm text-zinc-500">
-            Last updated: February 5, 2026
+            Effective date: March 22, 2026. Last updated: March 22, 2026.
           </p>
 
           <p>
             Steel Motion LLC (&quot;we,&quot; &quot;our,&quot; or &quot;us&quot;)
-            operates the Styrby platform, including the website at{' '}
+            operates Styrby, including the website at{' '}
             <a href="https://styrbyapp.com">styrbyapp.com</a>, the Styrby mobile
-            application, and the Styrby CLI tool (collectively, the
-            &quot;Service&quot;). This Privacy Policy explains how we collect,
-            use, disclose, and safeguard your information when you use our
-            Service.
+            app, and the Styrby CLI tool (collectively, the &quot;Service&quot;).
+            This policy explains what data we collect, why we collect it, and
+            how we handle it.
           </p>
 
           <p>
-            By using Styrby, you agree to the collection and use of information
-            in accordance with this policy. If you do not agree with this
-            policy, please do not use our Service.
+            By using Styrby, you agree to this policy. If you do not agree,
+            please do not use the Service.
+          </p>
+
+          {/* ── Zero-Knowledge Architecture ─────────────────────── */}
+          <h2>Our Zero-Knowledge Architecture</h2>
+
+          <p>
+            Styrby is designed so that we never see the content of your work.
+            Session messages (your prompts, code, and AI responses) are
+            end-to-end encrypted using TweetNaCl public-key authenticated
+            encryption. Your private key never leaves your devices. Our servers
+            relay encrypted ciphertext and cannot read the plaintext content of
+            your sessions.
+          </p>
+
+          <p>
+            <strong>What this means in practice:</strong> we process metadata
+            (timestamps, token counts, costs, agent type, session status,
+            machine identifiers) but we do not process the actual content of
+            your AI sessions. That content is yours, encrypted, and invisible
+            to us.
           </p>
 
           {/* ── Information We Collect ─────────────────────────── */}
@@ -66,143 +95,199 @@ export default function PrivacyPolicyPage() {
 
           <h3>Account Information</h3>
           <p>
-            When you create an account, we collect information that identifies
-            you as an individual, including:
+            When you create an account, we collect:
           </p>
           <ul>
             <li>
               <strong>Email address</strong> -- used for authentication, account
-              recovery, and important service notifications
+              recovery, and essential service notifications
             </li>
             <li>
-              <strong>Display name</strong> -- an optional name you choose to
-              identify yourself within the platform
+              <strong>Display name</strong> -- an optional name you choose
             </li>
             <li>
-              <strong>Authentication provider data</strong> -- if you sign in
-              via GitHub OAuth, we receive your GitHub profile information
-              (username, email, avatar URL) as authorized by you
-            </li>
-          </ul>
-
-          <h3>Usage Data</h3>
-          <p>We automatically collect certain information when you use the Service:</p>
-          <ul>
-            <li>
-              <strong>Session data</strong> -- information about your AI agent
-              sessions, including agent type, session duration, message counts,
-              and token usage
-            </li>
-            <li>
-              <strong>Cost records</strong> -- token usage and associated costs
-              for billing and analytics purposes
-            </li>
-            <li>
-              <strong>Feature usage</strong> -- which features you use and how
-              frequently, to help us improve the product
+              <strong>GitHub OAuth data</strong> -- if you sign in via GitHub,
+              we receive your GitHub username, email, and avatar URL as
+              authorized by you during the OAuth flow
             </li>
           </ul>
 
-          <h3>Device Information</h3>
+          <h3>Session Metadata</h3>
+          <p>
+            We collect metadata about your AI agent sessions. We do not collect
+            the content of your sessions (see Zero-Knowledge Architecture
+            above).
+          </p>
           <ul>
             <li>
-              <strong>Device tokens</strong> -- push notification tokens
-              (APNs for iOS, FCM for Android) to deliver real-time
-              notifications to your mobile device
+              <strong>Session records</strong> -- agent type (Claude, Codex,
+              Gemini), session start and end times, status, and any tags or
+              summaries you create
             </li>
             <li>
-              <strong>Machine identifiers</strong> -- anonymized machine
-              registration data for CLI instances connected to your account
+              <strong>Token usage and costs</strong> -- input tokens, output
+              tokens, cache tokens, and calculated cost in USD, used to power
+              your cost dashboard and budget alerts
+            </li>
+            <li>
+              <strong>Encrypted message ciphertext</strong> -- stored only to
+              relay to your authorized devices. We cannot read this content.
+            </li>
+          </ul>
+
+          <h3>Device and Machine Information</h3>
+          <ul>
+            <li>
+              <strong>Machine identifiers</strong> -- an anonymized identifier
+              and display name for each CLI instance you register
             </li>
             <li>
               <strong>Public keys</strong> -- cryptographic public keys used for
-              end-to-end encryption of session messages
+              end-to-end encryption. Private keys never leave your devices.
+            </li>
+            <li>
+              <strong>Push notification tokens</strong> -- APNs (iOS) or FCM
+              (Android) tokens used to deliver real-time alerts to your mobile
+              device
+            </li>
+          </ul>
+
+          <h3>Configuration Data</h3>
+          <ul>
+            <li>
+              <strong>Agent configurations</strong> -- your per-agent settings,
+              auto-approve rules, and blocked tool lists
+            </li>
+            <li>
+              <strong>Budget alerts</strong> -- your spending thresholds and
+              chosen actions
+            </li>
+            <li>
+              <strong>Notification preferences</strong> -- your push and email
+              notification settings
+            </li>
+          </ul>
+
+          <h3>What We Do Not Collect</h3>
+          <ul>
+            <li>
+              We do not use analytics services (no Mixpanel, Amplitude,
+              Segment, Google Analytics, or similar). We do not track your
+              behavior across the app.
+            </li>
+            <li>
+              We do not collect your AI API keys or credentials. You configure
+              those directly with the AI provider on your local machine.
+            </li>
+            <li>
+              We do not collect the plaintext content of your AI sessions.
             </li>
           </ul>
 
           {/* ── How We Use Your Information ────────────────────── */}
           <h2>2. How We Use Your Information</h2>
 
-          <p>We use the information we collect for the following purposes:</p>
           <ul>
             <li>
               <strong>Providing the Service</strong> -- authenticating your
               account, connecting your mobile device to CLI instances, relaying
-              AI agent messages, and enabling session management
+              encrypted messages, and enabling session management
             </li>
             <li>
-              <strong>Billing and cost tracking</strong> -- calculating and
-              displaying your AI agent usage costs, managing subscription tiers,
-              and processing payments through our billing provider
+              <strong>Cost tracking and billing</strong> -- calculating and
+              displaying your AI token usage costs, managing your subscription
+              tier, and processing payments through Polar
             </li>
             <li>
               <strong>Notifications</strong> -- sending push notifications when
-              your AI agents need attention, permission approvals, or budget
-              alerts
+              your AI agents need attention, approval, or when budget thresholds
+              are reached
             </li>
             <li>
-              <strong>Security</strong> -- detecting and preventing
-              unauthorized access, fraud, and abuse
+              <strong>Security</strong> -- detecting and preventing unauthorized
+              access, fraud, and abuse
             </li>
             <li>
-              <strong>Product improvement</strong> -- understanding how the
-              Service is used so we can fix issues and build better features
-            </li>
-            <li>
-              <strong>Communication</strong> -- sending you essential service
+              <strong>Service communications</strong> -- sending essential
               updates, security alerts, and (only with your consent) product
               announcements
             </li>
           </ul>
 
-          {/* ── Data Storage and Security ─────────────────────── */}
-          <h2>3. Data Storage and Security</h2>
+          <p>
+            We do not use your data to train AI models. We do not sell, rent,
+            or share your personal data with third parties for their marketing
+            purposes.
+          </p>
+
+          {/* ── Cookies ───────────────────────────────────────── */}
+          <h2>3. Cookies</h2>
 
           <p>
-            We take the security of your data seriously and implement
-            industry-standard measures to protect it:
+            Styrby uses only two cookies. No tracking cookies. No analytics
+            cookies. No third-party advertising cookies.
           </p>
+
           <ul>
             <li>
-              <strong>End-to-end encryption</strong> -- session messages between
-              your CLI and mobile app are encrypted using TweetNaCl
-              (public-key authenticated encryption). We cannot read the content
-              of your encrypted messages.
+              <strong>Authentication cookie</strong>{' '}
+              (<code>sb-[ref]-auth-token</code>) -- set by Supabase Auth when
+              you log in. Required for the Service to work. Contains your
+              session token, stored as an httpOnly cookie.
             </li>
             <li>
-              <strong>Encryption at rest</strong> -- all data stored in our
-              database is encrypted at rest using AES-256
-            </li>
-            <li>
-              <strong>Encryption in transit</strong> -- all data transmitted
-              between your devices and our servers is encrypted using TLS 1.2 or
-              higher
-            </li>
-            <li>
-              <strong>Row Level Security</strong> -- database access is
-              restricted so that users can only access their own data
-            </li>
-            <li>
-              <strong>Authentication</strong> -- we use secure, industry-standard
-              authentication mechanisms including magic links and OAuth
+              <strong>Sidebar preference cookie</strong>{' '}
+              (<code>sidebar:state</code>) -- remembers whether your sidebar
+              is open or closed. Expires after 7 days. Not required; the Service
+              works without it.
             </li>
           </ul>
 
           <p>
-            Your data is stored on servers operated by our infrastructure
-            provider, Supabase, which maintains SOC 2 Type II compliance. While
-            we strive to use commercially acceptable means to protect your
-            personal information, no method of electronic storage or
-            transmission is 100% secure.
+            Because we use only strictly necessary and functional cookies, we
+            do not require an opt-in consent gate. We display a notice
+            informing you of these cookies when you first visit.
+          </p>
+
+          {/* ── Data Storage and Security ─────────────────────── */}
+          <h2>4. Data Storage and Security</h2>
+
+          <ul>
+            <li>
+              <strong>End-to-end encryption</strong> -- session message content
+              is encrypted on your device before it reaches our servers. We
+              relay ciphertext only.
+            </li>
+            <li>
+              <strong>Encryption at rest</strong> -- all data stored in our
+              database is encrypted at rest (AES-256)
+            </li>
+            <li>
+              <strong>Encryption in transit</strong> -- all connections use TLS
+              1.2 or higher. HTTP is redirected to HTTPS.
+            </li>
+            <li>
+              <strong>Row Level Security</strong> -- database access is
+              restricted so each user can only read and write their own data
+            </li>
+          </ul>
+
+          <p>
+            Data is stored on servers operated by Supabase (SOC 2 Type II
+            compliant). The web application is hosted on Vercel (SOC 2 Type II
+            compliant). No method of storage or transmission is 100% secure.
+            We cannot guarantee absolute security.
           </p>
 
           {/* ── Third-Party Services ──────────────────────────── */}
-          <h2>4. Third-Party Services</h2>
+          <h2>5. Sub-processors (Third-Party Services)</h2>
 
           <p>
             We use the following third-party services to operate Styrby. Each
-            has its own privacy policy governing use of your information:
+            is bound by its own privacy policy. We do not share your data with
+            any other parties.
           </p>
+
           <ul>
             <li>
               <strong>
@@ -214,35 +299,9 @@ export default function PrivacyPolicyPage() {
                   Supabase
                 </a>
               </strong>{' '}
-              -- database, authentication, and real-time infrastructure.
-              Stores your account data, session records, and encrypted messages.
-            </li>
-            <li>
-              <strong>
-                <a
-                  href="https://polar.sh/legal/privacy"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Polar
-                </a>
-              </strong>{' '}
-              -- payment processing and subscription management. Polar acts as
-              our merchant of record and handles all payment card data. We do
-              not store your payment card information on our servers.
-            </li>
-            <li>
-              <strong>
-                <a
-                  href="https://expo.dev/privacy"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Expo
-                </a>
-              </strong>{' '}
-              -- push notification delivery for the mobile application.
-              Receives your device push token to deliver notifications.
+              (United States) -- database, authentication, and real-time
+              infrastructure. Stores your account data, session metadata, and
+              encrypted message ciphertext.
             </li>
             <li>
               <strong>
@@ -254,122 +313,188 @@ export default function PrivacyPolicyPage() {
                   Vercel
                 </a>
               </strong>{' '}
-              -- web application hosting. May collect standard web analytics
-              data such as IP address and request metadata.
+              (United States) -- web application hosting. Receives your IP
+              address and standard HTTP request metadata as part of serving
+              web requests. Vercel does not use this for advertising.
+            </li>
+            <li>
+              <strong>
+                <a
+                  href="https://polar.sh/legal/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Polar
+                </a>
+              </strong>{' '}
+              (European Union) -- payment processing and subscription
+              management. Polar is our merchant of record. They handle all
+              payment card data. We never store your payment card information.
+            </li>
+            <li>
+              <strong>
+                <a
+                  href="https://resend.com/legal/privacy-policy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Resend
+                </a>
+              </strong>{' '}
+              (United States) -- transactional email delivery. Receives your
+              email address to send service notifications and account emails.
+            </li>
+            <li>
+              <strong>
+                <a
+                  href="https://expo.dev/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Expo
+                </a>
+              </strong>{' '}
+              (United States) -- push notification delivery for the iOS and
+              Android apps. Receives your device push token to deliver alerts.
             </li>
           </ul>
 
+          {/* ── Data Retention ────────────────────────────────── */}
+          <h2>6. Data Retention</h2>
+
           <p>
-            We do not sell, rent, or share your personal information with third
-            parties for their marketing purposes.
+            We retain data for as long as your account is active, subject to
+            the following limits:
           </p>
 
-          {/* ── Data Retention ────────────────────────────────── */}
-          <h2>5. Data Retention</h2>
-
-          <p>We retain your information for as long as your account is active:</p>
           <ul>
+            <li>
+              <strong>Session history</strong> -- retained based on your
+              subscription tier: 7 days on Free, 90 days on Pro, 1 year on
+              Power. Older sessions are automatically deleted.
+            </li>
+            <li>
+              <strong>Cost records</strong> -- retained for the lifetime of
+              your account for billing accuracy and dispute resolution
+            </li>
             <li>
               <strong>Account data</strong> -- retained until you delete your
               account
             </li>
             <li>
-              <strong>Session data</strong> -- retained for the lifetime of your
-              account; you may delete individual sessions at any time
-            </li>
-            <li>
-              <strong>Cost records</strong> -- retained for the lifetime of your
-              account for billing accuracy and dispute resolution
-            </li>
-            <li>
               <strong>Audit logs</strong> -- retained for 90 days for security
-              purposes
+              monitoring, then deleted
             </li>
           </ul>
 
           <p>
-            When you delete your account, we will delete or anonymize your
-            personal data within 30 days, except where we are required to retain
-            data for legal or regulatory compliance.
+            When you delete your account, we delete or anonymize your personal
+            data within 30 days, except where we are required to retain it for
+            legal compliance (for example, financial records required by tax
+            law).
           </p>
 
           {/* ── Your Rights ───────────────────────────────────── */}
-          <h2>6. Your Rights</h2>
+          <h2>7. Your Rights</h2>
 
-          <p>You have the following rights regarding your personal data:</p>
+          <p>
+            You have the following rights over your personal data. Most can be
+            exercised directly in the app under Settings.
+          </p>
+
           <ul>
             <li>
-              <strong>Access</strong> -- you can request a copy of all personal
-              data we hold about you
+              <strong>Access</strong> -- request a copy of all personal data we
+              hold about you
             </li>
             <li>
-              <strong>Correction</strong> -- you can update your account
-              information at any time through the Settings page
+              <strong>Portability</strong> -- export a machine-readable (JSON)
+              copy of your data via Settings
             </li>
             <li>
-              <strong>Deletion</strong> -- you can request deletion of your
-              account and all associated data by contacting us at{' '}
-              <a href="mailto:support@styrby.dev">support@styrby.dev</a>
+              <strong>Correction</strong> -- update your profile information at
+              any time via Settings
             </li>
             <li>
-              <strong>Export</strong> -- you can request a machine-readable
-              export of your data by contacting us at{' '}
-              <a href="mailto:support@styrby.dev">support@styrby.dev</a>
+              <strong>Deletion (right to be forgotten)</strong> -- delete your
+              account and all associated data via Settings, or by emailing us.
+              Data is permanently deleted within 30 days.
             </li>
             <li>
-              <strong>Opt-out</strong> -- you can opt out of non-essential
-              notifications through the Settings page
+              <strong>Restrict processing</strong> -- request that we limit how
+              we use your data by contacting us
+            </li>
+            <li>
+              <strong>Opt-out of marketing</strong> -- unsubscribe from
+              non-essential emails at any time. Essential service notifications
+              cannot be disabled while your account is active.
             </li>
           </ul>
 
+          <h3>California Residents (CCPA)</h3>
           <p>
-            To exercise any of these rights, please contact us at{' '}
-            <a href="mailto:support@styrby.dev">support@styrby.dev</a>. We will
-            respond to your request within 30 days.
+            California residents have additional rights under the CCPA,
+            including the right to know what personal information we sell
+            (we do not sell personal information) and the right to
+            non-discrimination for exercising privacy rights.
+          </p>
+
+          <h3>EU and UK Residents (GDPR)</h3>
+          <p>
+            If you are in the EU or UK, our legal basis for processing your
+            data is performance of the contract (providing the Service you
+            signed up for) and our legitimate interest in preventing fraud and
+            maintaining security. You have the right to lodge a complaint with
+            your local data protection authority.
+          </p>
+
+          <p>
+            To exercise any right, contact us at{' '}
+            <a href="mailto:support@styrby.dev">support@styrby.dev</a>. We
+            respond within 30 days.
           </p>
 
           {/* ── Children's Privacy ────────────────────────────── */}
-          <h2>7. Children&apos;s Privacy</h2>
+          <h2>8. Children&apos;s Privacy</h2>
 
           <p>
-            Styrby is not intended for use by anyone under the age of 13. We do
-            not knowingly collect personal information from children under 13.
-            If we become aware that we have collected personal data from a child
-            under 13, we will take steps to delete that information promptly.
+            Styrby is not intended for anyone under the age of 13. We do not
+            knowingly collect personal data from children under 13. If we learn
+            that we have, we will delete it promptly.
           </p>
 
           {/* ── Changes to This Policy ────────────────────────── */}
-          <h2>8. Changes to This Policy</h2>
+          <h2>9. Changes to This Policy</h2>
 
           <p>
-            We may update this Privacy Policy from time to time. We will notify
-            you of any material changes by posting the new policy on this page
-            and updating the &quot;Last updated&quot; date. For significant
-            changes, we will provide additional notice via email or an in-app
-            notification.
+            We may update this policy. For material changes, we will notify
+            you by email at least 14 days before the change takes effect and
+            update the &quot;Last updated&quot; date above. Minor clarifications
+            may be made without notice.
           </p>
 
           <p>
-            Your continued use of the Service after any changes to this Privacy
-            Policy constitutes your acceptance of the updated policy.
+            Continued use of the Service after a change takes effect
+            constitutes acceptance of the updated policy.
           </p>
 
           {/* ── Contact Information ───────────────────────────── */}
-          <h2>9. Contact Information</h2>
+          <h2>10. Contact</h2>
 
-          <p>
-            If you have questions or concerns about this Privacy Policy or our
-            data practices, please contact us:
-          </p>
           <ul>
             <li>
               <strong>Email:</strong>{' '}
               <a href="mailto:support@styrby.dev">support@styrby.dev</a>
             </li>
             <li>
-              <strong>Company:</strong> Steel Motion LLC
+              <strong>Company:</strong> Steel Motion LLC (veteran-owned)
             </li>
           </ul>
+
+          <p>
+            For a full breakdown of how we handle data in B2B contexts, see our{' '}
+            <Link href="/dpa">Data Processing Agreement</Link>.
+          </p>
         </article>
 
         {/* Footer links */}

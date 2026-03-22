@@ -4,21 +4,21 @@ const steps = [
   {
     number: "01",
     title: "Install the CLI",
-    description: "One command to connect your machine to Styrby.",
+    description: "One command. Works alongside your existing agent setup with zero config changes.",
     icon: Terminal,
     code: "npm install -g @styrby/cli",
   },
   {
     number: "02",
     title: "Scan the QR Code",
-    description: "Pair your phone or browser in seconds. No account setup needed.",
+    description: "Pair your phone or browser to your machine. No account forms, no email verification. Just scan and go.",
     icon: QrCode,
     code: null,
   },
   {
     number: "03",
-    title: "Start Coding",
-    description: "Your dashboard lights up with live agent activity, costs, and controls.",
+    title: "See Everything",
+    description: "Live agent activity, cost analytics, and permission controls. All encrypted, all in one place.",
     icon: Rocket,
     code: null,
   },
@@ -26,10 +26,10 @@ const steps = [
 
 export function HowItWorks() {
   return (
-    <section id="how-it-works" className="scroll-mt-20 py-24">
+    <section id="how-it-works" className="scroll-mt-20 py-16">
       <div className="mx-auto max-w-7xl px-6">
         <h2 className="text-balance text-center text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-          Up and Running in 90 Seconds
+          Three Steps. Ninety Seconds. Done.
         </h2>
 
         <div className="mt-16 grid gap-8 md:grid-cols-3">

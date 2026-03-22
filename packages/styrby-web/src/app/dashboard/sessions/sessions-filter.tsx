@@ -64,15 +64,36 @@ function useDebouncedValue<T>(value: T, delay: number): T {
 export function SessionsFilter({ sessions }: SessionsFilterProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [agentFilter, setAgentFilter] = useState('all');
+  const [tagFilter, setTagFilter] = useState('all');
   const inputRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * Extracts unique tags from all sessions, sorted by frequency (most-used first).
+   * Used to populate the tag filter dropdown with real data rather than hardcoded values.
+   */
+  const availableTags = useMemo(() => {
+    const tagCounts: Record<string, number> = {};
+    for (const session of sessions) {
+      if (session.tags) {
+        for (const tag of session.tags) {
+          tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+        }
+      }
+    }
+    return Object.entries(tagCounts)
+      .sort(([, a], [, b]) => b - a)
+      .map(([tag]) => tag);
+  }, [sessions]);
 
   // WHY: 300ms debounce prevents excessive re-renders while the user types.
   // The filtering happens on every debounced update, not on every keystroke.
   const debouncedSearch = useDebouncedValue(searchQuery, 300);
 
   /**
-   * Filters sessions by agent type and debounced search query.
-   * Search matches against title and summary (case-insensitive).
+   * Filters sessions by agent type, tag, and debounced search query.
+   * Search matches against title, summary, and tags (case-insensitive).
+   *
+   * @returns Filtered session array matching all active criteria
    */
   const filteredSessions = useMemo(() => {
     let result = sessions;
@@ -84,7 +105,14 @@ export function SessionsFilter({ sessions }: SessionsFilterProps) {
       );
     }
 
-    // Filter by search query (matches title or summary)
+    // Filter by tag
+    if (tagFilter !== 'all') {
+      result = result.filter(
+        (session) => session.tags?.includes(tagFilter) ?? false
+      );
+    }
+
+    // Filter by search query (matches title, summary, or tags)
     if (debouncedSearch.trim()) {
       const query = debouncedSearch.toLowerCase().trim();
       result = result.filter((session) => {
@@ -92,12 +120,14 @@ export function SessionsFilter({ sessions }: SessionsFilterProps) {
           session.title?.toLowerCase().includes(query) ?? false;
         const summaryMatch =
           session.summary?.toLowerCase().includes(query) ?? false;
-        return titleMatch || summaryMatch;
+        const tagMatch =
+          session.tags?.some((tag) => tag.toLowerCase().includes(query)) ?? false;
+        return titleMatch || summaryMatch || tagMatch;
       });
     }
 
     return result;
-  }, [sessions, agentFilter, debouncedSearch]);
+  }, [sessions, agentFilter, tagFilter, debouncedSearch]);
 
   /**
    * Groups filtered sessions by their creation date for display.
@@ -127,10 +157,11 @@ export function SessionsFilter({ sessions }: SessionsFilterProps) {
   const handleClearFilters = useCallback(() => {
     setSearchQuery('');
     setAgentFilter('all');
+    setTagFilter('all');
     inputRef.current?.focus();
   }, []);
 
-  const hasActiveFilters = searchQuery.trim() !== '' || agentFilter !== 'all';
+  const hasActiveFilters = searchQuery.trim() !== '' || agentFilter !== 'all' || tagFilter !== 'all';
 
   return (
     <>
@@ -199,6 +230,23 @@ export function SessionsFilter({ sessions }: SessionsFilterProps) {
             <option value="codex">Codex</option>
             <option value="gemini">Gemini</option>
           </select>
+
+          {/* Tag filter - only rendered when sessions have tags */}
+          {availableTags.length > 0 && (
+            <select
+              value={tagFilter}
+              onChange={(e) => setTagFilter(e.target.value)}
+              aria-label="Filter sessions by tag"
+              className="rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-100 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+            >
+              <option value="all">All Tags</option>
+              {availableTags.map((tag) => (
+                <option key={tag} value={tag}>
+                  {tag}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 

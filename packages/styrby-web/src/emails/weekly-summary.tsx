@@ -146,7 +146,7 @@ export default function WeeklySummaryEmail({
 
       <Text className="m-0 text-sm text-zinc-400">
         Have a great weekend!
-        <br />— The Styrby Team
+        <br />The Styrby Team
       </Text>
     </BaseLayout>
   );

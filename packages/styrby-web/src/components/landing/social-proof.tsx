@@ -1,4 +1,10 @@
-import { Terminal } from "lucide-react"
+/**
+ * Social Proof Section
+ *
+ * Shows the five supported AI coding agents with their brand colors
+ * and logos. Builds trust by showing compatibility with tools
+ * developers already use.
+ */
 
 function AnthropicLogo({ className }: { className?: string }) {
   return (
@@ -24,12 +30,34 @@ function GeminiLogo({ className }: { className?: string }) {
   )
 }
 
+/** OpenCode uses a terminal-bracket style mark */
+function OpenCodeLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <polyline points="4 17 10 11 4 5" />
+      <line x1="12" y1="19" x2="20" y2="19" />
+    </svg>
+  )
+}
+
+/** Aider uses a git-branch style mark (reflects its git-based workflow) */
+function AiderLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <line x1="6" y1="3" x2="6" y2="15" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 0 1-9 9" />
+    </svg>
+  )
+}
+
 const agents = [
-  { name: "Claude Code", Logo: AnthropicLogo },
-  { name: "Codex", Logo: OpenAILogo },
-  { name: "Gemini CLI", Logo: GeminiLogo },
-  { name: "OpenCode", Logo: null },
-  { name: "Aider", Logo: null },
+  { name: "Claude Code", Logo: AnthropicLogo, color: "text-orange-400" },
+  { name: "Codex", Logo: OpenAILogo, color: "text-green-400" },
+  { name: "Gemini CLI", Logo: GeminiLogo, color: "text-blue-400" },
+  { name: "OpenCode", Logo: OpenCodeLogo, color: "text-cyan-400" },
+  { name: "Aider", Logo: AiderLogo, color: "text-purple-400" },
 ]
 
 export function SocialProof() {
@@ -37,17 +65,13 @@ export function SocialProof() {
     <section className="border-y border-border/40 py-10">
       <div className="mx-auto max-w-7xl px-6">
         <p className="mb-6 text-center text-sm text-muted-foreground">
-          Works with
+          Works with the agents you already use
         </p>
         <div className="flex flex-wrap items-center justify-center gap-8 md:gap-12">
           {agents.map((agent) => (
             <div key={agent.name} className="flex items-center gap-2.5">
-              {agent.Logo ? (
-                <agent.Logo className="h-5 w-5 text-zinc-400" />
-              ) : (
-                <Terminal className="h-5 w-5 text-zinc-400" />
-              )}
-              <span className="text-sm font-medium tracking-tight text-muted-foreground">
+              <agent.Logo className={`h-5 w-5 ${agent.color}`} />
+              <span className={`text-sm font-medium tracking-tight ${agent.color}`}>
                 {agent.name}
               </span>
             </div>

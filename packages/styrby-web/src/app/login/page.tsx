@@ -3,6 +3,7 @@
 import { useState, Suspense } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import { Github, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -123,7 +124,7 @@ function LoginForm() {
             {/* Logo */}
             <div className="mb-8 flex flex-col items-center">
               <div className="mb-4 flex items-center gap-2">
-                <div className="h-8 w-8 rounded-md bg-amber-500" />
+                <Image src="/logo.png" alt="Styrby" width={32} height={32} className="h-8 w-8 " />
                 <span className="text-xl font-bold text-foreground">Styrby</span>
               </div>
               <h1 className="text-2xl font-bold text-foreground">Welcome back</h1>

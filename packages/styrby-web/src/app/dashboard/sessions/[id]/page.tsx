@@ -14,6 +14,7 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
 import { SessionView } from './session-view';
+import { SessionTagEditor } from './session-tags';
 
 /**
  * Props for the session detail page.
@@ -164,6 +165,19 @@ export default async function SessionPage({ params }: SessionPageProps) {
               </span>
             )}
           </div>
+        </div>
+
+        {/* Tag editor row */}
+        {/* WHY: Tags appear in the header so users can quickly tag or re-tag sessions
+            for cost attribution. This is the primary touchpoint for retroactive tagging
+            after a session completes, which is the most common workflow for freelancers
+            billing multiple clients. */}
+        <div className="mt-3 flex items-center gap-2">
+          <span className="text-xs text-zinc-500 shrink-0">Tags:</span>
+          <SessionTagEditor
+            sessionId={session.id}
+            initialTags={(session.tags as string[]) ?? []}
+          />
         </div>
       </header>
 

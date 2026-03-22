@@ -14,6 +14,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../src/lib/supabase';
 import { useNotifications } from '../src/hooks/useNotifications';
+import { startConnectivityListener } from '../src/services/offline-sync';
 import type { Session } from '@supabase/supabase-js';
 
 import type { ErrorBoundaryProps } from 'expo-router';
@@ -94,6 +95,18 @@ export default function RootLayout() {
       registerPush();
     }
   }, [session, isPushRegistered, registerPush]);
+
+  // WHY: Start the offline sync connectivity listener when the user is
+  // authenticated. This uses @react-native-community/netinfo to detect
+  // online/offline transitions and automatically syncs locally stored
+  // commands to the Supabase offline_command_queue table when the device
+  // comes back online. The listener is cleaned up on unmount or sign-out.
+  useEffect(() => {
+    if (!session) return;
+
+    const unsubscribe = startConnectivityListener();
+    return unsubscribe;
+  }, [session]);
 
   /**
    * Runs the initialization sequence: checks onboarding status and
