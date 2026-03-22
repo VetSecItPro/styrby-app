@@ -19,6 +19,14 @@ import type { NextConfig } from 'next';
  */
 const cspHeader = [
   "default-src 'self'",
+  // A-006: 'unsafe-inline' is required for Next.js App Router hydration scripts.
+  // Next.js injects inline <script> tags for page hydration, route prefetching,
+  // and RSC payload delivery that cannot be given nonces without ejecting from
+  // the framework's rendering pipeline. Nonce-based CSP via middleware is the
+  // ideal fix but requires framework-level support for nonce propagation to all
+  // hydration scripts, which Next.js 15 does not fully support for App Router.
+  // 'unsafe-eval' is NOT included -- production builds do not require eval().
+  // TODO: Revisit when Next.js adds native nonce support for App Router scripts.
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",

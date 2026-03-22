@@ -3,6 +3,7 @@
  * Handles spawning Claude process and managing message streams
  */
 
+import crypto from 'node:crypto'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { existsSync } from 'node:fs'
@@ -148,7 +149,8 @@ export class Query implements AsyncIterableIterator<SDKMessage> {
      * Send control request to Claude process
      */
     private request(request: ControlRequest, childStdin: Writable): Promise<SDKControlResponse['response']> {
-        const requestId = Math.random().toString(36).substring(2, 15)
+        // M-001: Use crypto.randomBytes for request IDs instead of Math.random()
+        const requestId = crypto.randomBytes(8).toString('hex')
         const sdkRequest: SDKControlRequest = {
             request_id: requestId,
             type: 'control_request',

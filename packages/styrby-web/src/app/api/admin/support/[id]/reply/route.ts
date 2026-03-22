@@ -19,8 +19,9 @@
  */
 
 import { createClient, createAdminClient } from '@/lib/supabase/server';
-import { isAdminEmail } from '@/lib/admin';
+import { isAdmin } from '@/lib/admin';
 import { sendSupportReplyEmail } from '@/lib/resend';
+import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -35,6 +36,10 @@ export async function POST(
 ) {
   const { id } = await params;
 
+  // A-008: Rate limit admin routes
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.standard, 'admin-support-reply');
+  if (!allowed) return rateLimitResponse(retryAfter!);
+
   // Verify auth and admin status
   const supabase = await createClient();
   const {
@@ -46,7 +51,8 @@ export async function POST(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  if (!isAdminEmail(user.email)) {
+  // A-001: Use profiles.is_admin instead of email claim
+  if (!(await isAdmin(user.id))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -92,7 +98,8 @@ export async function POST(
     .single();
 
   if (insertError) {
-    console.error('[admin/support/reply] Failed to insert reply:', insertError);
+    // A-010: Avoid logging raw Supabase error objects in production
+    console.error('[admin/support/reply] Failed to insert reply:', insertError instanceof Error ? insertError.message : String(insertError));
     return NextResponse.json({ error: 'Failed to add reply' }, { status: 500 });
   }
 

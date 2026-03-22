@@ -1,31 +1,38 @@
 /**
  * Admin authorization utilities.
  *
- * WHY hardcoded emails: Styrby does not yet have a full RBAC system. Rather
- * than adding an is_admin column to profiles (which would require a migration
- * and UI for managing admins), we use a simple allowlist of admin email
- * addresses stored in an environment variable. This is secure because the
- * check runs server-side only, and the list can be updated via Vercel env
- * vars without a code deploy.
+ * WHY is_admin column: The previous approach checked the JWT email claim
+ * against an allowlist of admin emails. This was vulnerable because email
+ * is a mutable, user-controlled attribute. If an attacker registered with
+ * an admin email address, they could gain admin access. The is_admin column
+ * on profiles is server-set (no RLS UPDATE policy allows users to change it),
+ * making it an immutable authorization anchor.
  *
- * Format of ADMIN_EMAILS env var: comma-separated email addresses.
- * Example: "admin@styrbyapp.com,founder@styrbyapp.com"
+ * The is_admin column is set via service role only (direct DB or admin panel).
+ * See migration 013_security_fixes.sql for the column definition.
  */
+
+import { createAdminClient } from '@/lib/supabase/server';
 
 /**
- * Checks whether the given email belongs to an admin user.
+ * Checks whether the given user ID belongs to an admin.
  *
- * @param email - The user's email address to check
- * @returns True if the email is in the admin allowlist
+ * Queries the profiles table for the is_admin flag, which is a server-set
+ * boolean that users cannot modify via RLS.
+ *
+ * @param userId - The authenticated user's ID (from supabase.auth.getUser())
+ * @returns True if the user has is_admin = true in their profile
  */
-export function isAdminEmail(email: string | undefined): boolean {
-  if (!email) return false;
+export async function isAdmin(userId: string): Promise<boolean> {
+  if (!userId) return false;
 
-  const adminEmails = process.env.ADMIN_EMAILS?.split(',').map((e) => e.trim().toLowerCase()) || [];
+  const supabase = createAdminClient();
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('is_admin')
+    .eq('id', userId)
+    .single();
 
-  // Fallback: if ADMIN_EMAILS is not set, no one is an admin.
-  // This prevents accidental admin access in misconfigured environments.
-  if (adminEmails.length === 0) return false;
-
-  return adminEmails.includes(email.toLowerCase());
+  return profile?.is_admin === true;
 }
+

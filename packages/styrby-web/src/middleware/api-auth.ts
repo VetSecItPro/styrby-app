@@ -26,6 +26,8 @@ import { createServerClient } from '@supabase/ssr';
 import { verifyApiKey } from '@/lib/api-keys';
 import { extractApiKeyPrefix, isValidApiKeyFormat } from '@styrby/shared';
 import { getClientIp } from '@/lib/rateLimit';
+import { Ratelimit } from '@upstash/ratelimit';
+import { Redis } from '@upstash/redis';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -72,33 +74,62 @@ const API_RATE_LIMIT = {
 };
 
 /**
- * In-memory rate limit store for API keys.
- * WHY: Simple and efficient for single-instance deployments.
- * For multi-instance, would need Redis or similar.
+ * Distributed rate limiter for API keys (H-001: replaces in-memory Map).
+ *
+ * WHY Upstash Redis: On Vercel's serverless platform, each request can land
+ * on a different instance. An in-memory Map is per-instance, so a client can
+ * bypass limits by distributing requests across instances. Upstash Redis
+ * provides shared state across all instances.
+ *
+ * FALLBACK: If UPSTASH_REDIS_REST_URL is not set (local dev, CI), falls back
+ * to in-memory rate limiting (better than no limiting at all).
  */
+const isRedisConfigured =
+  !!process.env.UPSTASH_REDIS_REST_URL &&
+  !!process.env.UPSTASH_REDIS_REST_TOKEN;
+
+const apiKeyLimiter = isRedisConfigured
+  ? new Ratelimit({
+      redis: new Redis({
+        url: process.env.UPSTASH_REDIS_REST_URL!,
+        token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+      }),
+      limiter: Ratelimit.slidingWindow(API_RATE_LIMIT.maxRequests, '60 s'),
+      prefix: 'styrby:api-key-ratelimit',
+      analytics: false,
+    })
+  : null;
+
+/** In-memory fallback store for local dev/CI without Redis */
 const apiRateLimitStore = new Map<string, { count: number; resetAt: number }>();
 
 /**
- * Periodic cleanup of expired entries.
- */
-if (typeof setInterval !== 'undefined') {
-  setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of apiRateLimitStore.entries()) {
-      if (entry.resetAt < now) {
-        apiRateLimitStore.delete(key);
-      }
-    }
-  }, 60000);
-}
-
-/**
  * Checks rate limit for an API key.
+ * Uses Upstash Redis when configured, falls back to in-memory.
  *
  * @param keyId - The API key ID to check
  * @returns Whether the request is allowed and retry info if not
  */
-function checkApiRateLimit(keyId: string): { allowed: boolean; remaining: number; retryAfter?: number } {
+async function checkApiRateLimit(keyId: string): Promise<{ allowed: boolean; remaining: number; retryAfter?: number }> {
+  // Use distributed Redis limiter if available
+  if (apiKeyLimiter) {
+    try {
+      const result = await apiKeyLimiter.limit(keyId);
+      return {
+        allowed: result.success,
+        remaining: result.remaining,
+        retryAfter: result.success
+          ? undefined
+          : Math.ceil((result.reset - Date.now()) / 1000),
+      };
+    } catch {
+      // WHY: If Redis is temporarily unreachable, allow the request rather
+      // than blocking all API users. Rate limiting is a safeguard, not a gate.
+      return { allowed: true, remaining: API_RATE_LIMIT.maxRequests };
+    }
+  }
+
+  // In-memory fallback for local dev/CI
   const now = Date.now();
   let entry = apiRateLimitStore.get(keyId);
 
@@ -258,8 +289,8 @@ export async function authenticateApiRequest(request: NextRequest): Promise<ApiA
     }
   }
 
-  // Step 6: Check rate limit
-  const rateLimit = checkApiRateLimit(matchedKey.id);
+  // Step 6: Check rate limit (now distributed via Upstash Redis)
+  const rateLimit = await checkApiRateLimit(matchedKey.id);
   if (!rateLimit.allowed) {
     return {
       success: false,
@@ -365,18 +396,21 @@ export function withApiAuth(
 /**
  * Adds rate limit headers to a response.
  *
+ * WHY: When using Upstash Redis, the in-memory store may not have the entry.
+ * We still set the Limit header so clients know the policy, and best-effort
+ * the Remaining/Reset values from the in-memory fallback when available.
+ *
  * @param response - The response to add headers to
  * @param keyId - The API key ID for rate limit lookup
  * @returns The response with rate limit headers
  */
 export function addRateLimitHeaders(response: NextResponse, keyId: string): NextResponse {
-  const entry = apiRateLimitStore.get(keyId);
+  response.headers.set('X-RateLimit-Limit', String(API_RATE_LIMIT.maxRequests));
 
+  const entry = apiRateLimitStore.get(keyId);
   if (entry) {
     const remaining = Math.max(0, API_RATE_LIMIT.maxRequests - entry.count);
     const resetAt = Math.ceil(entry.resetAt / 1000); // Unix timestamp
-
-    response.headers.set('X-RateLimit-Limit', String(API_RATE_LIMIT.maxRequests));
     response.headers.set('X-RateLimit-Remaining', String(remaining));
     response.headers.set('X-RateLimit-Reset', String(resetAt));
   }

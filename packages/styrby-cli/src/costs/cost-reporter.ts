@@ -73,6 +73,18 @@ interface SupabaseCostRecord {
   price_per_output_token: number | null;
   recorded_at: string;
   record_date: string;
+  is_pending: boolean;
+}
+
+/**
+ * A pending cost record that has been written to the DB with input cost only.
+ * Used to track which records need finalization when the agent responds.
+ */
+export interface PendingCostHandle {
+  /** Database ID of the pending cost_record row */
+  id: string;
+  /** The input-only cost that was pre-reserved */
+  reservedCostUsd: number;
 }
 
 /**
@@ -346,6 +358,129 @@ export class CostReporter extends EventEmitter {
   }
 
   // --------------------------------------------------------------------------
+  // Pending Cost Pre-Reservation (H-002b)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Pre-reserve input cost in the database before the AI agent responds.
+   *
+   * WHY: The budget check sums cost_records to enforce hard stops. Without
+   * pre-reservation, the check sees stale data during the agent's response
+   * window (30+ seconds). By writing the input cost immediately with
+   * is_pending=true, the budget check sees the reservation right away.
+   *
+   * The record contains exact input cost (the CLI knows the token count and
+   * model pricing at request time). Output cost is zero until finalized.
+   *
+   * @param record - Partial cost record with input-only data
+   * @returns Handle for finalization, or null if the write failed
+   */
+  async reportPending(record: CostRecord): Promise<PendingCostHandle | null> {
+    try {
+      const supabaseRecord = this.toSupabaseRecord(record);
+      supabaseRecord.is_pending = true;
+      // Output tokens are zero at this point; only input cost is known
+      supabaseRecord.output_tokens = 0;
+
+      const { data, error } = await this.config.supabase
+        .from('cost_records')
+        .insert(supabaseRecord)
+        .select('id')
+        .single();
+
+      if (error || !data) {
+        throw new Error(`Supabase insert failed: ${error?.message ?? 'no data returned'}`);
+      }
+
+      this.sessionTotalCostUsd += record.costUsd;
+
+      this.log('Pending cost reserved', {
+        id: data.id,
+        inputCostUsd: record.costUsd,
+        model: record.model,
+        inputTokens: record.inputTokens,
+      });
+
+      return {
+        id: data.id,
+        reservedCostUsd: record.costUsd,
+      };
+    } catch (error) {
+      this.log('Pending cost reservation failed', { error });
+      this.emit('error', {
+        message: 'Failed to reserve pending cost',
+        error: error instanceof Error ? error : undefined,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Finalize a pending cost record with the actual full cost.
+   *
+   * Called by the CLI when the AI agent finishes responding and the real
+   * token counts are known. Updates the pending row with actual input_tokens,
+   * output_tokens, cost_usd, and sets is_pending=false.
+   *
+   * The session cost trigger (tr_update_session_cost_finalize) automatically
+   * adjusts the session's aggregated totals by the delta.
+   *
+   * @param handle - The handle returned by reportPending()
+   * @param finalRecord - The complete cost record with actual token counts
+   * @returns True if the record was finalized successfully
+   */
+  async finalizePending(handle: PendingCostHandle, finalRecord: CostRecord): Promise<boolean> {
+    try {
+      const { error } = await this.config.supabase
+        .from('cost_records')
+        .update({
+          input_tokens: finalRecord.inputTokens,
+          output_tokens: finalRecord.outputTokens,
+          cache_read_tokens: finalRecord.cacheReadTokens,
+          cache_write_tokens: finalRecord.cacheWriteTokens,
+          cost_usd: finalRecord.costUsd,
+          is_pending: false,
+        })
+        .eq('id', handle.id);
+
+      if (error) {
+        throw new Error(`Supabase update failed: ${error.message}`);
+      }
+
+      // Adjust the session total: add the delta between final and reserved
+      const costDelta = finalRecord.costUsd - handle.reservedCostUsd;
+      this.sessionTotalCostUsd += costDelta;
+      this.reportedRecordCount++;
+
+      this.emit('reported', {
+        count: 1,
+        totalCostUsd: finalRecord.costUsd,
+      });
+
+      this.log('Pending cost finalized', {
+        id: handle.id,
+        reservedUsd: handle.reservedCostUsd,
+        finalUsd: finalRecord.costUsd,
+        deltaUsd: costDelta,
+      });
+
+      // Broadcast the final cost to mobile
+      await this.broadcastToMobile(costDelta > 0 ? costDelta : 0);
+
+      return true;
+    } catch (error) {
+      this.log('Pending cost finalization failed, falling back to addRecord', { error });
+      this.emit('error', {
+        message: 'Failed to finalize pending cost',
+        error: error instanceof Error ? error : undefined,
+      });
+      // Fallback: add as a new record so cost is not lost
+      this.addRecord(finalRecord);
+      return false;
+    }
+  }
+
+  // --------------------------------------------------------------------------
   // Mobile Broadcast
   // --------------------------------------------------------------------------
 
@@ -418,6 +553,7 @@ export class CostReporter extends EventEmitter {
       price_per_output_token: null,
       recorded_at: record.timestamp.toISOString(),
       record_date: dateStr,
+      is_pending: false,
     };
   }
 

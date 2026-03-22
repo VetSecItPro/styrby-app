@@ -103,44 +103,26 @@ export async function POST(request: Request) {
       );
     }
 
-    // FIX-034: Check for active hard_stop budget alerts before allowing message
-    const { data: hardStopAlerts } = await supabase
-      .from('budget_alerts')
-      .select('id, threshold_usd, period')
-      .eq('user_id', user.id)
-      .eq('action', 'hard_stop')
-      .eq('is_enabled', true)
-      .limit(10);
+    // FIX-034 + H-002: Atomic budget hard-stop check via Postgres RPC.
+    // WHY: The previous inline check-then-query pattern was racy: two concurrent
+    // requests could both read the same cost total and both pass. The RPC uses
+    // pg_advisory_xact_lock to serialize budget checks per user, eliminating the
+    // concurrent-request window.
+    //
+    // NOTE: Costs are still recorded asynchronously by the CLI after the agent
+    // responds (not at message-send time). The advisory lock eliminates the
+    // concurrent-request race but cannot make the cost data real-time. This is
+    // an inherent architectural property. The lock closes the fixable window;
+    // the async delay is accepted as eventually-consistent.
+    const { data: budgetCheck } = await supabase.rpc('check_budget_hard_stop', {
+      p_user_id: user.id,
+    });
 
-    if (hardStopAlerts && hardStopAlerts.length > 0) {
-      // Check if any hard_stop threshold is exceeded
-      for (const alert of hardStopAlerts) {
-        const periodStart = new Date();
-        if (alert.period === 'daily') periodStart.setUTCHours(0, 0, 0, 0);
-        else if (alert.period === 'weekly') {
-          const day = periodStart.getUTCDay();
-          periodStart.setUTCDate(periodStart.getUTCDate() - (day === 0 ? 6 : day - 1));
-          periodStart.setUTCHours(0, 0, 0, 0);
-        } else {
-          periodStart.setUTCDate(1);
-          periodStart.setUTCHours(0, 0, 0, 0);
-        }
-
-        const { data: costs } = await supabase
-          .from('cost_records')
-          .select('cost_usd')
-          .eq('user_id', user.id)
-          .gte('recorded_at', periodStart.toISOString())
-          .limit(10000);
-
-        const totalSpend = (costs || []).reduce((sum, r) => sum + (Number(r.cost_usd) || 0), 0);
-        if (totalSpend >= Number(alert.threshold_usd)) {
-          return NextResponse.json(
-            { error: 'BUDGET_EXCEEDED', message: 'Budget hard stop limit reached. Disable the alert or increase the threshold to continue.' },
-            { status: 403 }
-          );
-        }
-      }
+    if (budgetCheck && budgetCheck.length > 0 && budgetCheck[0].is_blocked) {
+      return NextResponse.json(
+        { error: 'BUDGET_EXCEEDED', message: 'Budget hard stop limit reached. Disable the alert or increase the threshold to continue.' },
+        { status: 403 }
+      );
     }
 
     // FIX-008: Use atomic RPC function for insertion (advisory lock + ownership check)

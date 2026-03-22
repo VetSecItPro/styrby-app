@@ -1,10 +1,13 @@
+import crypto from 'node:crypto';
+
 export async function delay(ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 export function exponentialBackoffDelay(currentFailureCount: number, minDelay: number, maxDelay: number, maxFailureCount: number) {
     let maxDelayRet = minDelay + ((maxDelay - minDelay) / maxFailureCount) * Math.min(currentFailureCount, maxFailureCount);
-    return Math.round(Math.random() * maxDelayRet);
+    // M-002: Use crypto.randomInt for consistent use of CSPRNG across the codebase
+    return crypto.randomInt(Math.max(1, Math.round(maxDelayRet)));
 }
 
 export type BackoffFunc = <T>(callback: () => Promise<T>) => Promise<T>;

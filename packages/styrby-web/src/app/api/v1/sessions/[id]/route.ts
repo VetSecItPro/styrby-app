@@ -48,7 +48,9 @@ async function handler(
   const segments = url.pathname.split('/');
   const sessionId = segments[segments.length - 1];
 
-  if (!sessionId || sessionId.length !== 36) {
+  // A-014: Proper UUID format validation (not just length check)
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!sessionId || !UUID_REGEX.test(sessionId)) {
     return NextResponse.json(
       { error: 'Invalid session ID' },
       { status: 400 }

@@ -17,7 +17,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { EventEmitter } from 'node:events';
 import type { AgentType } from '@/auth/agent-credentials';
-import { calculateCost, type TokenUsage } from './jsonl-parser.js';
+import { calculateCost, calculateInputCost, type TokenUsage } from './jsonl-parser.js';
 
 // ============================================================================
 // Types
@@ -408,6 +408,33 @@ export class CostExtractor extends EventEmitter {
     this.log('Added cost:', record);
 
     return record;
+  }
+
+  /**
+   * Create an input-only cost record for pre-reservation (H-002b).
+   *
+   * WHY: Before sending a request to the AI agent, the CLI knows the input
+   * token count and model. This method creates a CostRecord with only the
+   * input cost populated (output tokens = 0). The CostReporter writes this
+   * as a pending record so the budget check sees it immediately.
+   *
+   * @param usage - Token usage with input counts (output will be zeroed)
+   * @returns Input-only cost record suitable for reportPending()
+   */
+  createInputOnlyRecord(usage: TokenUsage): CostRecord {
+    const inputCostUsd = calculateInputCost(usage);
+
+    return {
+      sessionId: this.config.sessionId,
+      agentType: this.config.agentType,
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: 0, // Unknown until agent responds
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
+      costUsd: inputCostUsd,
+      timestamp: new Date(),
+    };
   }
 
   /**

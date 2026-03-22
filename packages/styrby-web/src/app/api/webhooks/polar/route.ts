@@ -17,65 +17,38 @@ import { createAdminClient } from '@/lib/supabase/server';
 import { headers } from 'next/headers';
 import crypto from 'crypto';
 import { z } from 'zod';
+import { Ratelimit } from '@upstash/ratelimit';
+import { Redis } from '@upstash/redis';
 
 // ============================================================================
-// Rate Limiting
+// Rate Limiting (Upstash Redis - distributed across all Vercel instances)
 // ============================================================================
 
-/** Rate limiting configuration */
-const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
-const RATE_LIMIT_MAX_REQUESTS = 100;
-
-/** In-memory rate limit tracking */
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-
 /**
- * Tracks the last time we swept expired entries from the rate limit map.
- * WHY: Without periodic cleanup, unique IPs accumulate forever in the Map,
- * causing unbounded memory growth on long-lived serverless instances.
- */
-let lastCleanup = Date.now();
-const CLEANUP_INTERVAL_MS = 60_000; // 1 minute between sweeps
-
-/**
- * Removes expired entries from the rate limit map.
- * WHY: Each unique IP that hits the webhook creates a Map entry. In a
- * long-running process, stale entries from IPs that never return would
- * accumulate indefinitely without periodic eviction.
- */
-function cleanupRateLimitMap(): void {
-  const now = Date.now();
-  if (now - lastCleanup < CLEANUP_INTERVAL_MS) return;
-
-  for (const [ip, entry] of rateLimitMap) {
-    if (now > entry.resetAt) {
-      rateLimitMap.delete(ip);
-    }
-  }
-  lastCleanup = now;
-}
-
-/**
- * Checks if a request should be rate limited.
- * WHY: Prevents abuse of the webhook endpoint which uses an admin Supabase client.
+ * Distributed rate limiter for the Polar webhook endpoint.
  *
- * @param ip - Client IP address
- * @returns True if the request should be rejected
+ * WHY Upstash Redis instead of in-memory Map (A-002):
+ * On Vercel's serverless platform, each request can land on a different instance.
+ * An in-memory Map is per-instance, so a hostile IP distributing requests across
+ * instances bypasses the limit entirely. Upstash Redis provides shared state
+ * across all instances for a single source of truth.
+ *
+ * FALLBACK: If UPSTASH_REDIS_REST_URL is not set (local dev, CI), webhookLimiter
+ * is null and rate limiting is skipped. This is acceptable because:
+ * 1. The webhook signature check is the primary security control
+ * 2. Local dev does not face real webhook traffic
  */
-function isRateLimited(ip: string): boolean {
-  cleanupRateLimitMap();
-
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return false;
-  }
-
-  entry.count++;
-  return entry.count > RATE_LIMIT_MAX_REQUESTS;
-}
+const webhookLimiter = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+  ? new Ratelimit({
+      redis: new Redis({
+        url: process.env.UPSTASH_REDIS_REST_URL,
+        token: process.env.UPSTASH_REDIS_REST_TOKEN,
+      }),
+      limiter: Ratelimit.slidingWindow(100, '60 s'),
+      prefix: 'styrby:polar-webhook',
+      analytics: false,
+    })
+  : null;
 
 /**
  * Polar webhook event types we handle.
@@ -192,13 +165,23 @@ const SUBSCRIPTION_EVENT_TYPES = new Set([
 ]);
 
 export async function POST(request: Request) {
-  // Rate limit check
+  // Rate limit check (A-002: distributed via Upstash Redis)
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
-  if (isRateLimited(ip)) {
-    return NextResponse.json(
-      { error: 'Too many requests' },
-      { status: 429, headers: { 'Retry-After': '60' } }
-    );
+  if (webhookLimiter) {
+    try {
+      const { success } = await webhookLimiter.limit(ip);
+      if (!success) {
+        return NextResponse.json(
+          { error: 'Too many requests' },
+          { status: 429, headers: { 'Retry-After': '60' } }
+        );
+      }
+    } catch {
+      // WHY: If Redis is temporarily unreachable, allow the webhook through.
+      // The signature verification is the primary security control, not rate
+      // limiting. Blocking all webhooks on Redis failure would cause Polar to
+      // retry indefinitely and potentially miss subscription state changes.
+    }
   }
 
   const webhookSecret = process.env.POLAR_WEBHOOK_SECRET;
