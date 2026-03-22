@@ -85,6 +85,7 @@ export default function AdminSupportPage() {
 
   /**
    * Fetches tickets from the admin API with the current status filter.
+   * WHY useCallback: called from useEffect and from the Refresh button onClick.
    */
   const fetchTickets = useCallback(async () => {
     setLoading(true);
@@ -114,6 +115,7 @@ export default function AdminSupportPage() {
   }, [statusFilter]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchTickets();
   }, [fetchTickets]);
 

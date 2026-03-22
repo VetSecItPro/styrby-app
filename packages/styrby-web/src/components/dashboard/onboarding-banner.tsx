@@ -9,7 +9,7 @@
  * API, shows a brief "all set" message, and removes itself.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { CheckCircle2, Circle, ChevronUp, ChevronDown, Sparkles, X } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
@@ -44,29 +44,21 @@ export function OnboardingBanner({ onboardingState }: OnboardingBannerProps) {
   const [expanded, setExpanded] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [allDone, setAllDone] = useState(false);
+  const completionTriggered = useRef(false);
 
   const progressPercent = totalSteps > 0 ? (completedCount / totalSteps) * 100 : 0;
   const allStepsComplete = completedCount === totalSteps;
 
-  /**
-   * When all steps are complete, mark onboarding done and show a brief
-   * "all set" message before auto-dismissing after 2 seconds.
-   */
-  const handleCompletion = useCallback(() => {
-    setAllDone(true);
-    markOnboardingComplete();
-    const timer = setTimeout(() => {
-      setDismissed(true);
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, []);
-
+  // When all steps complete, mark onboarding done and auto-dismiss after 2 seconds
   useEffect(() => {
-    if (allStepsComplete && !allDone) {
-      const cleanup = handleCompletion();
-      return cleanup;
+    if (allStepsComplete && !completionTriggered.current) {
+      completionTriggered.current = true;
+      markOnboardingComplete();
+      const t1 = setTimeout(() => setAllDone(true), 0);
+      const t2 = setTimeout(() => setDismissed(true), 2000);
+      return () => { clearTimeout(t1); clearTimeout(t2); };
     }
-  }, [allStepsComplete, allDone, handleCompletion]);
+  }, [allStepsComplete]);
 
   if (dismissed) return null;
 

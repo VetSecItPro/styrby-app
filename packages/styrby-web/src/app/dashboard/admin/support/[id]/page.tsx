@@ -146,6 +146,7 @@ export default function AdminTicketDetailPage() {
   }, [id]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchTicket();
   }, [fetchTicket]);
 
