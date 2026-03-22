@@ -10,10 +10,12 @@
 --
 -- Changes:
 --   1. Add web_push_subscription JSONB column for PushSubscription objects
---   2. Expand platform CHECK constraint to allow 'web'
---   3. Add partial index for efficient web push subscription lookups
+--   2. Expand platform CHECK constraint to allow 'web' (idempotent)
+--   3. Add constraint ensuring web rows have subscription data
+--   4. Add structural validation of JSONB PushSubscription shape
+--   5. Add partial index for efficient web push subscription lookups
 --
--- Backward-compatible: all changes use IF NOT EXISTS or safe ALTER patterns.
+-- Backward-compatible: all changes use IF NOT EXISTS or DO-block guards.
 -- ============================================================================
 
 
@@ -28,44 +30,82 @@ COMMENT ON COLUMN device_tokens.web_push_subscription IS
 'Web Push API PushSubscription object (endpoint, expirationTime, keys.p256dh, keys.auth). Only populated for platform=web tokens.';
 
 
--- 2. Expand the platform CHECK constraint to include 'web'.
+-- 2. Expand the platform CHECK constraint to include 'web' (idempotent).
 -- The original schema (001) defined: CHECK (platform IN ('ios', 'android')).
--- We drop that constraint and recreate it with 'web' added.
--- Using a named constraint reference from the original schema.
+-- We drop and recreate only if the existing constraint does not already
+-- include 'web', preventing failure on re-run.
 DO $$
 BEGIN
-  -- Drop the existing CHECK constraint on platform.
-  -- The constraint name comes from the original CREATE TABLE definition.
-  -- PostgreSQL auto-names CHECK constraints as <table>_<column>_check when
-  -- defined inline, so we try that name first. If a custom name was used,
-  -- we query pg_constraint to find it.
-  IF EXISTS (
+  IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conrelid = 'device_tokens'::regclass
     AND contype = 'c'
-    AND pg_get_constraintdef(oid) LIKE '%platform%'
+    AND conname = 'device_tokens_platform_check'
+    AND pg_get_constraintdef(oid) LIKE '%web%'
   ) THEN
-    EXECUTE (
-      SELECT 'ALTER TABLE device_tokens DROP CONSTRAINT ' || quote_ident(conname)
-      FROM pg_constraint
-      WHERE conrelid = 'device_tokens'::regclass
-      AND contype = 'c'
-      AND pg_get_constraintdef(oid) LIKE '%platform%'
-      LIMIT 1
+    ALTER TABLE device_tokens
+      DROP CONSTRAINT IF EXISTS device_tokens_platform_check;
+    ALTER TABLE device_tokens
+      ADD CONSTRAINT device_tokens_platform_check
+      CHECK (platform IN ('ios', 'android', 'web'));
+  END IF;
+END $$;
+
+
+-- 3. Ensure web platform rows always have a push subscription populated.
+-- Without this, a device_tokens row with platform='web' but NULL subscription
+-- would be useless for sending notifications.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'device_tokens'::regclass
+    AND contype = 'c'
+    AND conname = 'device_tokens_web_requires_subscription'
+  ) THEN
+    ALTER TABLE device_tokens
+    ADD CONSTRAINT device_tokens_web_requires_subscription
+    CHECK (
+      platform != 'web'
+      OR (platform = 'web' AND web_push_subscription IS NOT NULL)
     );
   END IF;
 END $$;
 
--- Recreate the constraint with 'web' included
-ALTER TABLE device_tokens
-ADD CONSTRAINT device_tokens_platform_check
-CHECK (platform IN ('ios', 'android', 'web'));
+
+-- 4. Validate the shape of web_push_subscription JSONB.
+-- The Web Push API PushSubscription object must contain an 'endpoint' string
+-- and nested 'keys' object with 'p256dh' and 'auth' fields. Without these
+-- the server cannot encrypt or deliver the notification payload.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'device_tokens'::regclass
+    AND contype = 'c'
+    AND conname = 'device_tokens_web_push_subscription_valid'
+  ) THEN
+    ALTER TABLE device_tokens
+    ADD CONSTRAINT device_tokens_web_push_subscription_valid
+    CHECK (
+      web_push_subscription IS NULL
+      OR (
+        web_push_subscription ? 'endpoint'
+        AND web_push_subscription -> 'keys' ? 'p256dh'
+        AND web_push_subscription -> 'keys' ? 'auth'
+      )
+    );
+  END IF;
+END $$;
 
 
--- 3. Partial index for efficient web push subscription lookup.
+-- 5. Partial index for efficient web push subscription lookup.
 -- When sending web push notifications, we need to find all active web
 -- subscriptions for a user. This index covers that query pattern without
--- bloating the index with native token rows.
+-- bloating the index with native token rows. Includes is_active filter
+-- so inactive subscriptions are excluded from the index entirely.
+DROP INDEX IF EXISTS idx_device_tokens_web_push;
+
 CREATE INDEX IF NOT EXISTS idx_device_tokens_web_push
 ON device_tokens (user_id)
-WHERE web_push_subscription IS NOT NULL;
+WHERE web_push_subscription IS NOT NULL AND is_active = TRUE;
