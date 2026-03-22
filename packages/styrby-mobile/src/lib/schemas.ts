@@ -56,9 +56,9 @@ export const ProfileSchema = z.object({
   /** Primary key, matches auth.users.id */
   id: z.string(),
   /** Display name (may be null if never set) */
-  display_name: z.string().nullable().optional(),
+  display_name: z.string().nullable(),
   /** Avatar URL */
-  avatar_url: z.string().nullable().optional(),
+  avatar_url: z.string().nullable(),
   /** User timezone (defaults to 'UTC' in DB) */
   timezone: z.string().optional(),
   /** Theme preference */
@@ -66,13 +66,13 @@ export const ProfileSchema = z.object({
   /** Preferred language */
   preferred_language: z.string().optional(),
   /** User's unique referral code */
-  referral_code: z.string().nullable().optional(),
+  referral_code: z.string().nullable(),
   /** Consent tracking */
   marketing_email_consent: z.boolean().optional(),
   /** When Terms of Service were accepted */
-  tos_accepted_at: z.string().nullable().optional(),
+  tos_accepted_at: z.string().nullable(),
   /** When onboarding was completed (null if not yet completed) */
-  onboarding_completed_at: z.string().nullable().optional(),
+  onboarding_completed_at: z.string().nullable(),
   /** Current onboarding step */
   onboarding_step: z.number().optional(),
   /**
@@ -83,9 +83,9 @@ export const ProfileSchema = z.object({
    */
   is_admin: z.boolean().optional(),
   /** Last time the user was active */
-  last_active_at: z.string().nullable().optional(),
+  last_active_at: z.string().nullable(),
   /** Soft delete timestamp */
-  deleted_at: z.string().nullable().optional(),
+  deleted_at: z.string().nullable(),
   /** Record creation timestamp */
   created_at: z.string().optional(),
   /** Record update timestamp */
@@ -171,7 +171,7 @@ export const CostRecordSchema = z.object({
    * Added in migration 013. Optional for backwards compatibility with queries
    * that do not select this column.
    */
-  is_pending: z.boolean().optional(),
+  is_pending: z.boolean().default(false),
 });
 
 /** Inferred TypeScript type for a validated cost record row. */
@@ -262,18 +262,18 @@ export const NotificationPreferencesSchema = z.object({
   /** Whether to email budget alerts */
   email_budget_alerts: z.boolean().optional(),
   /** IANA timezone for quiet hours (e.g., 'America/New_York') */
-  quiet_hours_timezone: z.string().nullable().optional(),
+  quiet_hours_timezone: z.string().nullable(),
   /**
    * Smart notification priority threshold (1-5). Added in migration 005.
    * Only notifications with priority <= this value are sent.
    * 1=urgent only, 3=medium (default), 5=all.
    */
-  priority_threshold: z.number().optional(),
+  priority_threshold: z.number().default(3),
   /**
    * Custom priority rules as JSON array. Added in migration 005.
    * Reserved for future use with advanced filtering logic.
    */
-  priority_rules: z.unknown().optional(),
+  priority_rules: z.any().default([]),
   /** ISO timestamp when preferences were created */
   created_at: z.string(),
   /** ISO timestamp when preferences were last updated */

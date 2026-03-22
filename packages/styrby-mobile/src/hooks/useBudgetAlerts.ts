@@ -8,10 +8,11 @@
  * Also fetches the user's subscription tier to enforce alert count limits:
  * - Free: 0 budget alerts (feature locked)
  * - Pro: 3 budget alerts
- * - Power: 10 budget alerts
+ * - Power: 5 budget alerts
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { z } from 'zod';
 import { supabase } from '../lib/supabase';
 import {
   BudgetAlertSchema,
@@ -602,13 +603,30 @@ export function useBudgetAlerts(): UseBudgetAlertsReturn {
         };
       }
 
-      const row = Array.isArray(data) ? data[0] : data;
+      // WHY: Validate the RPC response with Zod to catch unexpected shapes.
+      // The RPC returns numeric fields that Postgres may serialize as strings,
+      // so we use z.coerce.number() to handle both formats safely.
+      const BudgetHardStopResponseSchema = z.object({
+        is_blocked: z.boolean(),
+        alert_id: z.string().nullable().optional(),
+        threshold_usd: z.coerce.number().nullable().optional(),
+        total_spend: z.coerce.number().nullable().optional(),
+        period: z.string().nullable().optional(),
+      });
+
+      const raw = Array.isArray(data) ? data[0] : data;
+      const validated = safeParseSingle(BudgetHardStopResponseSchema, raw, 'budget_hard_stop_rpc');
+
+      if (!validated) {
+        return null;
+      }
+
       return {
-        is_blocked: Boolean(row.is_blocked),
-        alert_id: row.alert_id ?? null,
-        threshold_usd: row.threshold_usd != null ? Number(row.threshold_usd) : null,
-        total_spend: row.total_spend != null ? Number(row.total_spend) : null,
-        period: row.period ?? null,
+        is_blocked: validated.is_blocked,
+        alert_id: validated.alert_id ?? null,
+        threshold_usd: validated.threshold_usd ?? null,
+        total_spend: validated.total_spend ?? null,
+        period: validated.period ?? null,
       };
     } catch (err) {
       console.error(
