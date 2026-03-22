@@ -31,7 +31,7 @@ const AgentTypeSchema = z.enum(['claude', 'codex', 'gemini', 'opencode', 'aider'
  * Valid session lifecycle statuses.
  * Matches the `session_status` enum in the database.
  */
-const SessionStatusSchema = z.enum(['starting', 'running', 'idle', 'stopped', 'error']);
+const SessionStatusSchema = z.enum(['starting', 'running', 'idle', 'paused', 'stopped', 'error', 'expired']);
 
 /**
  * Valid subscription tiers.
@@ -57,8 +57,8 @@ export const SessionSchema = z.object({
   user_id: z.string(),
   /** Machine that ran the session (UUID) */
   machine_id: z.string(),
-  /** Which AI agent was used */
-  agent_type: AgentTypeSchema,
+  /** Which AI agent was used. Uses z.string() instead of AgentTypeSchema because the CLI supports more agents than the DB enum currently allows. */
+  agent_type: z.string(),
   /** Session lifecycle status */
   status: SessionStatusSchema,
   /** Human-readable session title */
@@ -82,7 +82,7 @@ export const SessionSchema = z.object({
   /** Number of messages exchanged */
   message_count: z.number(),
   /** Team ID if this is a team session, null for personal */
-  team_id: z.string().nullable(),
+  team_id: z.string().nullable().optional(),
 });
 
 /** Inferred TypeScript type for a validated session row. */
@@ -102,8 +102,8 @@ export type ValidatedSession = z.infer<typeof SessionSchema>;
 export const CostRecordSchema = z.object({
   /** Date string (YYYY-MM-DD) for the cost record */
   record_date: z.string(),
-  /** Which AI agent generated the cost (nullable for legacy records) */
-  agent_type: z.string().nullable(),
+  /** Which AI agent generated the cost (NOT NULL in DB) */
+  agent_type: z.string(),
   /** Cost in USD. Coerced from string because Postgres numeric types serialize as strings. */
   cost_usd: z.coerce.number().nullable(),
   /** Input tokens consumed */
@@ -187,6 +187,20 @@ export const NotificationPreferencesSchema = z.object({
   quiet_hours_start: z.string().nullable(),
   /** Quiet hours end time (HH:MM format) */
   quiet_hours_end: z.string().nullable(),
+  /** Whether to push-notify on permission requests */
+  push_permission_requests: z.boolean().optional(),
+  /** Whether to push-notify on session errors */
+  push_session_errors: z.boolean().optional(),
+  /** Whether to push-notify on budget alerts */
+  push_budget_alerts: z.boolean().optional(),
+  /** Whether to push-notify on session completion */
+  push_session_complete: z.boolean().optional(),
+  /** Whether to email a weekly summary */
+  email_weekly_summary: z.boolean().optional(),
+  /** Whether to email budget alerts */
+  email_budget_alerts: z.boolean().optional(),
+  /** IANA timezone for quiet hours (e.g., 'America/New_York') */
+  quiet_hours_timezone: z.string().nullable().optional(),
   /** ISO timestamp when preferences were created */
   created_at: z.string(),
   /** ISO timestamp when preferences were last updated */
@@ -218,8 +232,12 @@ export const DeviceTokenSchema = z.object({
   platform: z.string(),
   /** ISO timestamp when the token was registered */
   created_at: z.string(),
-  /** ISO timestamp when the token was last updated */
-  updated_at: z.string(),
+  /** Human-readable device name */
+  device_name: z.string().nullable().optional(),
+  /** App version that registered the token */
+  app_version: z.string().nullable().optional(),
+  /** ISO timestamp when the token was last used for a push notification */
+  last_used_at: z.string().nullable().optional(),
 });
 
 /** Inferred TypeScript type for a validated device token row. */
@@ -234,8 +252,8 @@ export type ValidatedDeviceToken = z.infer<typeof DeviceTokenSchema>;
  * Only the `tier` column is selected in that query.
  */
 export const SubscriptionTierRowSchema = z.object({
-  /** The user's subscription tier */
-  tier: SubscriptionTierSchema,
+  /** The user's subscription tier. Uses z.string() for forward-compatibility with new tiers. */
+  tier: z.string(),
 });
 
 /** Inferred TypeScript type for a validated subscription tier row. */

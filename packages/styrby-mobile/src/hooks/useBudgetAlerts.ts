@@ -251,8 +251,9 @@ async function fetchUserTier(): Promise<SubscriptionTier> {
 
   // WHY: Validate the tier value with Zod to catch unexpected enum values
   // from the database. Falls back to 'free' if the tier is invalid.
+  // Cast is safe: we fall back to 'free' for any unrecognized tier value.
   const validated = safeParseSingle(SubscriptionTierRowSchema, data, 'subscription_tier');
-  return validated?.tier || 'free';
+  return (validated?.tier as SubscriptionTier) || 'free';
 }
 
 /**

@@ -72,8 +72,8 @@ export interface SessionRow {
   updated_at: string;
   /** Number of messages exchanged */
   message_count: number;
-  /** Team ID if this is a team session (null for personal sessions) */
-  team_id: string | null;
+  /** Team ID if this is a team session (null for personal sessions, optional if not selected) */
+  team_id?: string | null;
 }
 
 /**
