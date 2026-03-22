@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Home, MessageSquare, BarChart3, Cpu, Settings, PanelLeftClose, PanelLeft } from "lucide-react"
+import { Home, MessageSquare, BarChart3, Cpu, Settings, HelpCircle, PanelLeftClose, PanelLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Progress } from "@/components/ui/progress"
 
@@ -12,14 +12,18 @@ const navItems = [
   { label: "Costs", href: "/dashboard/costs", icon: BarChart3 },
   { label: "Agents", href: "/dashboard/agents", icon: Cpu },
   { label: "Settings", href: "/dashboard/settings", icon: Settings },
+  { label: "Support", href: "/dashboard/support", icon: HelpCircle },
 ]
 
 export function DashboardSidebar({
   collapsed,
   onToggle,
+  onboardingBanner,
 }: {
   collapsed: boolean
   onToggle: () => void
+  /** Optional onboarding banner rendered above the plan badge */
+  onboardingBanner?: React.ReactNode
 }) {
   const pathname = usePathname()
 
@@ -61,6 +65,9 @@ export function DashboardSidebar({
             )
           })}
         </nav>
+
+        {/* Onboarding banner (shown above plan badge when onboarding is incomplete) */}
+        {!collapsed && onboardingBanner}
 
         {/* Plan badge and usage */}
         {!collapsed && (

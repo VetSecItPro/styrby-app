@@ -5,8 +5,20 @@ import { DashboardTopNav } from '@/components/dashboard/topnav';
 import { DashboardSidebar } from '@/components/dashboard/sidebar';
 import { MobileNav } from '@/components/dashboard/mobile-nav';
 import { CommandPalette } from '@/components/dashboard/command-palette';
+import { OnboardingModal } from '@/components/dashboard/onboarding-modal';
+import { OnboardingBanner } from '@/components/dashboard/onboarding-banner';
 import { cn } from '@/lib/utils';
 import { startConnectivityListener } from '@/lib/offline-sync';
+import type { OnboardingState } from '@/lib/onboarding';
+
+interface DashboardShellProps {
+  children: React.ReactNode;
+  /**
+   * Onboarding state for the current user. Undefined when onboarding
+   * is already complete, in which case no onboarding UI is rendered.
+   */
+  onboardingState?: OnboardingState;
+}
 
 /**
  * Client-side dashboard shell with collapsible sidebar, topnav, and mobile nav.
@@ -15,9 +27,14 @@ import { startConnectivityListener } from '@/lib/offline-sync';
  * default. The sidebar collapse state and mobile nav toggle require useState,
  * which only works in client components. This component handles all interactive
  * chrome while the parent layout.tsx handles auth.
+ *
+ * When onboardingState is provided (user has not completed onboarding), this
+ * component renders the welcome modal on first render and a persistent sidebar
+ * banner until all steps are done.
  */
-export function DashboardShell({ children }: { children: React.ReactNode }) {
+export function DashboardShell({ children, onboardingState }: DashboardShellProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [showOnboardingModal, setShowOnboardingModal] = useState(!!onboardingState);
 
   // WHY: Start the offline sync connectivity listener when the dashboard
   // mounts. This listens for browser online/offline events and automatically
@@ -32,8 +49,22 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen">
       <DashboardTopNav />
-      <DashboardSidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
+      <DashboardSidebar
+        collapsed={collapsed}
+        onToggle={() => setCollapsed(!collapsed)}
+        onboardingBanner={
+          onboardingState ? <OnboardingBanner onboardingState={onboardingState} /> : undefined
+        }
+      />
       <CommandPalette />
+
+      {/* Onboarding welcome modal, shown once on first render */}
+      {onboardingState && showOnboardingModal && (
+        <OnboardingModal
+          onboardingState={onboardingState}
+          onDismiss={() => setShowOnboardingModal(false)}
+        />
+      )}
 
       <main
         id="main-content"
