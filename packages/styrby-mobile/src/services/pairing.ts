@@ -198,17 +198,15 @@ export async function executePairing(qrData: string): Promise<PairingAttemptResu
     // can still communicate over the relay channel -- messages will just
     // be sent without encryption until keys are available. The encryption
     // service will retry key fetch on next encrypt/decrypt attempt.
-    if (__DEV__) {
-      console.warn('[Pairing] E2E key exchange failed (non-fatal):', keyExchangeError);
-    }
+    // WHY: Raw error objects can leak stack traces and internal state in production.
+    console.warn('[Pairing] E2E key exchange failed (non-fatal):', __DEV__ ? keyExchangeError : (keyExchangeError instanceof Error ? keyExchangeError.message : 'Unknown error'));
   }
 
   // Step 8: Register push notifications (non-blocking, best-effort)
   // WHY: Push notifications enhance the experience but are not required for pairing.
   // We do not fail the pairing if push registration fails.
-  registerPushNotificationsAsync().catch(() => {
-    // Silently ignore push notification registration failures during pairing.
-    // The user can re-register later from Settings.
+  registerPushNotificationsAsync().catch((err) => {
+    if (__DEV__) console.warn('[Pairing] Push registration failed (non-fatal):', err);
   });
 
   return {

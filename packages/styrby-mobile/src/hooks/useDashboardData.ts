@@ -354,7 +354,7 @@ export function useDashboardData(
       .limit(10);
 
     if (error) {
-      if (__DEV__) console.error('[Dashboard] Failed to fetch sessions:', error.message);
+      console.error('[Dashboard] Failed to fetch sessions:', __DEV__ ? error : (error instanceof Error ? error.message : 'Unknown error'));
       return [];
     }
 
@@ -387,7 +387,7 @@ export function useDashboardData(
       .limit(20);
 
     if (error) {
-      if (__DEV__) console.error('[Dashboard] Failed to fetch audit log:', error.message);
+      console.error('[Dashboard] Failed to fetch audit log:', __DEV__ ? error : (error instanceof Error ? error.message : 'Unknown error'));
       return [];
     }
 
@@ -427,7 +427,7 @@ export function useDashboardData(
       .eq('record_date', todayStr);
 
     if (error) {
-      if (__DEV__) console.error('[Dashboard] Failed to fetch agent costs:', error.message);
+      console.error('[Dashboard] Failed to fetch agent costs:', __DEV__ ? error : (error instanceof Error ? error.message : 'Unknown error'));
       return costs;
     }
 
@@ -486,7 +486,8 @@ export function useDashboardData(
       }
       setAgentStatus(newAgentStatus);
     } catch (error) {
-      if (__DEV__) console.error('[Dashboard] Refresh failed:', error);
+      // WHY: Raw error objects can leak stack traces and internal state in production.
+      console.error('[Dashboard] Refresh failed:', __DEV__ ? error : (error instanceof Error ? error.message : 'Unknown error'));
     }
   }, [fetchActiveSessions, fetchNotifications, fetchAgentCostsToday, connectedDevices]);
 

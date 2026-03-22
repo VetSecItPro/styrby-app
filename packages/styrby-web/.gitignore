@@ -24,3 +24,9 @@ npm-debug.log*
 
 # TypeScript
 *.tsbuildinfo
+
+# Generated service worker (built from src/sw.ts by Serwist)
+public/sw.js
+public/sw.js.map
+public/swe-worker-*.js
+public/swe-worker-*.js.map

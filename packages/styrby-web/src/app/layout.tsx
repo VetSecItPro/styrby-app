@@ -4,6 +4,7 @@ import { Toaster } from 'sonner';
 import './globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
 import { CookieConsent } from '@/components/cookie-consent';
+import { SWRegister } from '@/components/sw-register';
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
@@ -117,6 +118,7 @@ export default function RootLayout({
         >
           {children}
           <CookieConsent />
+          <SWRegister />
         </ThemeProvider>
         <Toaster
           position="bottom-right"
