@@ -18,7 +18,9 @@ Drawer.displayName = 'Drawer'
 
 const DrawerTrigger = DrawerPrimitive.Trigger
 
-const DrawerPortal = DrawerPrimitive.Portal
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore vaul Portal types may be incompatible with React 19 children prop in CI
+const DrawerPortal: React.FC<{ children: React.ReactNode }> = DrawerPrimitive.Portal
 
 const DrawerClose = DrawerPrimitive.Close
 
