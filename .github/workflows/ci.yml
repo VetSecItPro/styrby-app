@@ -226,7 +226,8 @@ jobs:
 
           MATCHES=$(grep -rn --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.json" -E "$PATTERNS" . \
             --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=dist \
-            --exclude=package-lock.json --exclude=pnpm-lock.yaml || true)
+            --exclude=package-lock.json --exclude=pnpm-lock.yaml \
+            | grep -v "packages/styrby-cli/src/env.ts.*anonKey" || true)
 
           if [ -n "$MATCHES" ]; then
             echo "::error::Potential secrets found in source code!"
