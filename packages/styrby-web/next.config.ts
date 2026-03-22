@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next';
+import withSerwistInit from '@serwist/next';
 
 /**
  * Content-Security-Policy header value.
@@ -12,6 +13,7 @@ import type { NextConfig } from 'next';
  *   do not require eval(). Removing it prevents XSS via string-to-code.
  * - `connect-src` includes Supabase (REST + Realtime WebSocket), Polar
  *   billing API, and Expo push notification service.
+ * - `worker-src 'self'` allows service worker registration from the same origin.
  * - `frame-ancestors 'none'` prevents clickjacking (mirrors X-Frame-Options: DENY).
  * - `object-src 'none'` prevents Flash/plugin-based attacks.
  * - `base-uri 'self'` prevents base tag hijacking.
@@ -32,11 +34,34 @@ const cspHeader = [
   "img-src 'self' data: https:",
   "font-src 'self' data:",
   "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.polar.sh https://exp.host",
+  // WHY: worker-src 'self' is required for the PWA service worker (sw.js).
+  // Without it, the browser blocks navigator.serviceWorker.register() calls.
+  "worker-src 'self'",
   "frame-ancestors 'none'",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
 ].join('; ');
+
+/**
+ * Serwist (service worker) integration for PWA support.
+ *
+ * WHY: Wrapping the Next.js config with withSerwist injects a Webpack plugin
+ * that compiles the service worker entry point (src/sw.ts) into public/sw.js
+ * at build time, with a precache manifest of all static assets.
+ *
+ * - swSrc: The TypeScript source for the service worker.
+ * - swDest: Where the compiled JS is written (must be in public/ for same-origin).
+ * - additionalPrecacheEntries: The offline fallback page is precached so it is
+ *   always available when the user loses connectivity.
+ * - disable: Service workers are disabled in development to avoid stale cache issues.
+ */
+const withSerwist = withSerwistInit({
+  swSrc: 'src/sw.ts',
+  swDest: 'public/sw.js',
+  additionalPrecacheEntries: [{ url: '/offline', revision: crypto.randomUUID() }],
+  disable: process.env.NODE_ENV === 'development',
+});
 
 const nextConfig: NextConfig = {
   // Disable X-Powered-By header for security
@@ -222,4 +247,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSerwist(nextConfig);
