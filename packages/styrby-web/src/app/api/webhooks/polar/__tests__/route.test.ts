@@ -561,11 +561,12 @@ describe('POST /api/webhooks/polar', () => {
   // --------------------------------------------------------------------------
 
   describe('rate limiting', () => {
-    it('returns 429 after exceeding rate limit', async () => {
-      // The webhook route uses its own in-memory rate limiter with
-      // 100 requests per minute per IP. We need to exhaust it.
-      // Use a unique IP to avoid collisions with other tests.
-      const uniqueIp = `10.99.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`;
+    it('skips rate limiting when Upstash Redis is not configured', async () => {
+      // WHY: The webhook route now uses Upstash Redis for distributed rate
+      // limiting (A-002). When UPSTASH_REDIS_REST_URL is not set (test/CI
+      // environment), the limiter is null and rate limiting is skipped.
+      // This is by design: the webhook signature check is the primary
+      // security control, not rate limiting.
       const event = createSubscriptionEvent('subscription.created');
       const payload = JSON.stringify(event);
       const signature = signPayload(payload);
@@ -576,30 +577,21 @@ describe('POST /api/webhooks/polar', () => {
         headersMock as unknown as Awaited<ReturnType<typeof headers>>
       );
 
-      // Mock all profile lookups to succeed
       mockSingle.mockResolvedValue({ data: { id: 'user-uuid-123' }, error: null });
 
-      // Fire 101 requests from the same IP
-      let rateLimited = false;
-      for (let i = 0; i < 105; i++) {
-        const request = new Request('http://localhost:3000/api/webhooks/polar', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-forwarded-for': uniqueIp,
-          },
-          body: payload,
-        });
+      // Without Upstash, all requests should pass (no 429)
+      const request = new Request('http://localhost:3000/api/webhooks/polar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-forwarded-for': '10.0.0.1',
+        },
+        body: payload,
+      });
 
-        const response = await POST(request);
-        if (response.status === 429) {
-          rateLimited = true;
-          expect(response.headers.get('Retry-After')).toBe('60');
-          break;
-        }
-      }
-
-      expect(rateLimited).toBe(true);
+      const response = await POST(request);
+      // Should succeed (signature valid, no rate limit in test env)
+      expect(response.status).toBe(200);
     });
   });
 });

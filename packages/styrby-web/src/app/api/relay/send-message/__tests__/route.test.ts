@@ -301,19 +301,9 @@ describe('POST /api/relay/send-message', () => {
       error: null,
     });
 
-    // 2. budget_alerts.select().eq().eq().eq().limit() → 1 hard_stop alert
-    fromCallQueue.push({
-      data: [{ id: 'alert-1', threshold_usd: 10, period: 'daily' }],
-      error: null,
-    });
-
-    // 3. cost_records.select().eq().gte().limit() → total spend $10.50 (exceeds threshold)
-    fromCallQueue.push({
-      data: [
-        { cost_usd: 5.00 },
-        { cost_usd: 3.50 },
-        { cost_usd: 2.00 },
-      ],
+    // 2. rpc('check_budget_hard_stop') → budget exceeded (H-002: atomic RPC check)
+    mockRpc.mockResolvedValueOnce({
+      data: [{ is_blocked: true, alert_id: 'alert-1', threshold_usd: 10, total_spend: 10.50, period: 'daily' }],
       error: null,
     });
 
@@ -339,14 +329,14 @@ describe('POST /api/relay/send-message', () => {
       error: null,
     });
 
-    // 2. budget_alerts.select().eq().eq().eq().limit() → no hard_stop alerts
-    fromCallQueue.push({
-      data: [],
+    // 2. rpc('check_budget_hard_stop') → not blocked
+    mockRpc.mockResolvedValueOnce({
+      data: [{ is_blocked: false }],
       error: null,
     });
 
     // 3. rpc('insert_session_message') → success
-    mockRpc.mockResolvedValue({
+    mockRpc.mockResolvedValueOnce({
       data: [{ id: 'new-message-id' }],
       error: null,
     });
@@ -377,14 +367,14 @@ describe('POST /api/relay/send-message', () => {
       error: null,
     });
 
-    // 2. budget_alerts.select().eq().eq().eq().limit() → no alerts
-    fromCallQueue.push({
-      data: [],
+    // 2. rpc('check_budget_hard_stop') → not blocked
+    mockRpc.mockResolvedValueOnce({
+      data: [{ is_blocked: false }],
       error: null,
     });
 
     // 3. rpc('insert_session_message') → success
-    mockRpc.mockResolvedValue({
+    mockRpc.mockResolvedValueOnce({
       data: [{ id: 'msg-12345' }],
       error: null,
     });

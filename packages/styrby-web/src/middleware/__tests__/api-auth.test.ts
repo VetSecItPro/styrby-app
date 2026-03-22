@@ -552,11 +552,14 @@ describe('apiAuthError', () => {
 });
 
 describe('addRateLimitHeaders', () => {
-  it('returns response unchanged when no rate limit entry exists', () => {
+  it('sets Limit header even when no rate limit entry exists in memory', () => {
     const response = NextResponse.json({ data: 'test' });
     const result = addRateLimitHeaders(response, 'nonexistent-key');
 
-    // Headers should not be set
-    expect(result.headers.get('X-RateLimit-Limit')).toBeNull();
+    // X-RateLimit-Limit is always set so clients know the policy
+    expect(result.headers.get('X-RateLimit-Limit')).toBe('100');
+    // Remaining and Reset are not set without a store entry
+    expect(result.headers.get('X-RateLimit-Remaining')).toBeNull();
+    expect(result.headers.get('X-RateLimit-Reset')).toBeNull();
   });
 });
