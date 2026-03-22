@@ -229,8 +229,7 @@ jobs:
           # a temp file avoids pipe exit code issues.
           grep -rn --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.json" -E "$PATTERNS" . \
             --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=dist \
-            --exclude=package-lock.json --exclude=pnpm-lock.yaml \
-            --exclude="packages/styrby-cli/src/env.ts" \
+            --exclude=package-lock.json --exclude=pnpm-lock.yaml --exclude=env.ts \
             > /tmp/secret-scan-results.txt 2>/dev/null || true
 
           if [ -s /tmp/secret-scan-results.txt ]; then
