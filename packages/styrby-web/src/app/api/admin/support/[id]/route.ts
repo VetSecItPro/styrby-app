@@ -17,7 +17,8 @@
  */
 
 import { createClient, createAdminClient } from '@/lib/supabase/server';
-import { isAdminEmail } from '@/lib/admin';
+import { isAdmin } from '@/lib/admin';
+import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -35,6 +36,12 @@ const PatchSchema = z.object({
  *
  * @returns The authenticated user, or a NextResponse error
  */
+/**
+ * Verifies the request comes from an authenticated admin user.
+ * Uses profiles.is_admin instead of email claim (A-001).
+ *
+ * @returns The authenticated user, or a NextResponse error
+ */
 async function verifyAdmin() {
   const supabase = await createClient();
   const {
@@ -46,7 +53,7 @@ async function verifyAdmin() {
     return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
   }
 
-  if (!isAdminEmail(user.email)) {
+  if (!(await isAdmin(user.id))) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
   }
 
@@ -57,6 +64,10 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // A-008: Rate limit admin routes
+  const { allowed, retryAfter } = await rateLimit(_request, RATE_LIMITS.standard, 'admin-support-id');
+  if (!allowed) return rateLimitResponse(retryAfter!);
+
   const { id } = await params;
   const result = await verifyAdmin();
   if ('error' in result && result.error) return result.error;
@@ -122,6 +133,10 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // A-008: Rate limit admin routes
+  const { allowed: patchAllowed, retryAfter: patchRetryAfter } = await rateLimit(request, RATE_LIMITS.standard, 'admin-support-id');
+  if (!patchAllowed) return rateLimitResponse(patchRetryAfter!);
+
   const { id } = await params;
   const result = await verifyAdmin();
   if ('error' in result && result.error) return result.error;
@@ -165,7 +180,7 @@ export async function PATCH(
     .single();
 
   if (error) {
-    console.error('[admin/support] Failed to update ticket:', error);
+    console.error('[admin/support] Failed to update ticket:', error instanceof Error ? error.message : String(error));
     return NextResponse.json({ error: 'Failed to update ticket' }, { status: 500 });
   }
 

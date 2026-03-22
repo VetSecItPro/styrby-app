@@ -21,7 +21,8 @@
  */
 
 import { createClient, createAdminClient } from '@/lib/supabase/server';
-import { isAdminEmail } from '@/lib/admin';
+import { isAdmin } from '@/lib/admin';
+import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
@@ -36,8 +37,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Verify admin access
-  if (!isAdminEmail(user.email)) {
+  // Rate limit check (A-008)
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.standard, 'admin-support');
+  if (!allowed) return rateLimitResponse(retryAfter!);
+
+  // Verify admin access via profiles.is_admin (A-001)
+  if (!(await isAdmin(user.id))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -74,7 +79,8 @@ export async function GET(request: Request) {
   const { data: tickets, count, error } = await query;
 
   if (error) {
-    console.error('[admin/support] Failed to fetch tickets:', error);
+    // A-009: Avoid logging raw Supabase error objects in production
+    console.error('[admin/support] Failed to fetch tickets:', error instanceof Error ? error.message : String(error));
     return NextResponse.json({ error: 'Failed to fetch tickets' }, { status: 500 });
   }
 
@@ -83,14 +89,17 @@ export async function GET(request: Request) {
   // We batch-fetch user data for all unique user_ids in the result set.
   const userIds = [...new Set((tickets || []).map((t: Record<string, unknown>) => t.user_id as string))];
 
+  // A-005: Parallel fetch instead of sequential N+1 loop
   const userMap: Record<string, { email: string }> = {};
 
-  for (const uid of userIds) {
-    const { data: userData } = await adminClient.auth.admin.getUserById(uid);
+  const userFetches = await Promise.all(
+    userIds.map((uid) => adminClient.auth.admin.getUserById(uid))
+  );
+  userFetches.forEach(({ data: userData }) => {
     if (userData?.user) {
-      userMap[uid] = { email: userData.user.email || '' };
+      userMap[userData.user.id] = { email: userData.user.email || '' };
     }
-  }
+  });
 
   // Enrich tickets with user email
   const enrichedTickets = (tickets || []).map((ticket: Record<string, unknown>) => ({

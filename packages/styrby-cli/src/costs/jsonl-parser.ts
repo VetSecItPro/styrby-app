@@ -134,6 +134,35 @@ export function calculateCost(usage: TokenUsage): number {
 }
 
 /**
+ * Calculate input-only cost for a token usage record.
+ *
+ * WHY (H-002b): Used for pre-reserving cost before the AI agent responds.
+ * At request time, the CLI knows the exact input token count and model, so
+ * the input cost is precise. Output cost is unknown until the agent finishes.
+ * This function returns only the input portion (input + cache costs, no output).
+ *
+ * @param usage - Token usage with input token counts populated
+ * @returns Input-only cost in USD
+ */
+export function calculateInputCost(usage: TokenUsage): number {
+  const pricing = getModelPricing()[usage.model];
+  if (!pricing) {
+    // Default pricing if model unknown (Sonnet-class input rate)
+    return (usage.inputTokens * 3) / 1_000_000;
+  }
+
+  const inputCost = (usage.inputTokens * pricing.input) / 1_000_000;
+  const cacheReadCost = pricing.cacheRead
+    ? (usage.cacheReadTokens * pricing.cacheRead) / 1_000_000
+    : 0;
+  const cacheWriteCost = pricing.cacheWrite
+    ? (usage.cacheWriteTokens * pricing.cacheWrite) / 1_000_000
+    : 0;
+
+  return inputCost + cacheReadCost + cacheWriteCost;
+}
+
+/**
  * Parse a single JSONL line for token usage
  */
 function parseJsonlLine(line: string): TokenUsage | null {

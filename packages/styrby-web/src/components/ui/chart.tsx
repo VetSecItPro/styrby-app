@@ -76,19 +76,32 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
     return null
   }
 
+  // A-012: Sanitize id to prevent CSS injection via dangerouslySetInnerHTML.
+  // WHY: If a future component derives chart id from user input, unsanitized
+  // values could inject arbitrary CSS (e.g., closing the selector and adding
+  // new rules). Restricting to alphanumeric + hyphens + underscores eliminates
+  // this vector.
+  const safeId = id.replace(/[^a-zA-Z0-9-_]/g, '')
+
   return (
     <style
       dangerouslySetInnerHTML={{
         __html: Object.entries(THEMES)
           .map(
             ([theme, prefix]) => `
-${prefix} [data-chart=${id}] {
+${prefix} [data-chart=${safeId}] {
 ${colorConfig
   .map(([key, itemConfig]) => {
     const color =
       itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ||
       itemConfig.color
-    return color ? `  --color-${key}: ${color};` : null
+    // A-012: Sanitize key and color to prevent CSS injection.
+    // WHY: key comes from ChartConfig object keys and color from config values.
+    // Currently developer-controlled, but sanitizing defensively prevents future
+    // user-input vectors from reaching the CSS template.
+    const safeKey = key.replace(/[^a-zA-Z0-9-_]/g, '')
+    const safeColor = color ? color.replace(/[^a-zA-Z0-9#().,%\s-]/g, '') : null
+    return safeColor ? `  --color-${safeKey}: ${safeColor};` : null
   })
   .join('\n')}
 }

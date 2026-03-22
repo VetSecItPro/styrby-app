@@ -63,6 +63,12 @@ type BotCategory = 'search-engine' | 'ai-crawler' | 'bad-bot' | 'human';
 /**
  * Classifies a User-Agent string into one of four categories.
  *
+ * IMPORTANT (A-007): This is a COST OPTIMIZATION, not a security control.
+ * User-Agent headers are fully attacker-controlled and trivially spoofable.
+ * Any client can set UA to bypass bot classification. For actual abuse
+ * prevention, rely on IP-based rate limiting (Upstash Redis) and
+ * infrastructure-level controls (Vercel firewall / Cloudflare).
+ *
  * WHY: We check bad bots first (cheapest rejection), then search engines
  * (cheapest allow), then AI crawlers (rate-limited allow), then humans.
  * This ordering minimizes work per request.
@@ -206,6 +212,19 @@ export async function middleware(request: NextRequest) {
 
   // Update Supabase auth session
   const response = await updateSession(request);
+
+  // A-011: Defence-in-depth for admin API routes.
+  // WHY: Admin routes perform inline auth checks, but if someone accidentally
+  // removes the inline check in a future commit, this middleware gate ensures
+  // unauthenticated requests never reach admin logic.
+  if (request.nextUrl.pathname.startsWith('/api/admin')) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
+    const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1] ?? '';
+    const adminCookieName = `sb-${projectRef}-auth-token`;
+    if (!request.cookies.has(adminCookieName)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+  }
 
   // Protected routes that require authentication
   const protectedPaths = ['/dashboard'];
