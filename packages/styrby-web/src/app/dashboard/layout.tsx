@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { DashboardShell } from './dashboard-shell';
 import { PlanCheckout } from './plan-checkout';
+import { getOnboardingState } from '@/lib/onboarding';
 
 /**
  * Prevents all dashboard routes from being indexed by search engines.
@@ -45,8 +46,10 @@ export default async function DashboardLayout({
     redirect('/login');
   }
 
+  const onboardingState = await getOnboardingState(supabase, user.id);
+
   return (
-    <DashboardShell>
+    <DashboardShell onboardingState={onboardingState.isComplete ? undefined : onboardingState}>
       <Suspense>
         <PlanCheckout />
       </Suspense>

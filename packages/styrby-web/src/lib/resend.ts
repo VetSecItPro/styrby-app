@@ -15,6 +15,7 @@ import SubscriptionCanceledEmail from '@/emails/subscription-canceled';
 import PaymentFailedEmail from '@/emails/payment-failed';
 import BudgetAlertEmail from '@/emails/budget-alert';
 import WeeklySummaryEmail from '@/emails/weekly-summary';
+import SupportReplyEmail from '@/emails/support-reply';
 
 // Lazy-initialize Resend client to avoid build-time errors
 let resendClient: Resend | null = null;
@@ -300,5 +301,33 @@ export async function sendWeeklySummaryEmail({
       agentStats,
       savedWithCache,
     }),
+  });
+}
+
+/**
+ * Send support ticket reply notification to a user.
+ *
+ * @param email - Recipient email address (ticket owner)
+ * @param subject - The original ticket subject
+ * @param message - The admin's reply message
+ * @param ticketId - The ticket UUID for the dashboard link
+ * @returns Result object with `success` boolean and optional `id` or `error`
+ */
+export async function sendSupportReplyEmail({
+  email,
+  subject,
+  message,
+  ticketId,
+}: {
+  email: string;
+  subject: string;
+  message: string;
+  ticketId: string;
+}) {
+  return sendEmail({
+    to: email,
+    subject: `Re: ${subject}`,
+    react: React.createElement(SupportReplyEmail, { subject, message, ticketId }),
+    replyTo: 'support@styrbyapp.com',
   });
 }

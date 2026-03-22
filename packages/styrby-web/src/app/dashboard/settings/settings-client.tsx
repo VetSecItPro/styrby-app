@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { SupportModal } from '@/components/dashboard/support-modal';
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -112,6 +113,9 @@ export function SettingsClient({
   const [deleteReason, setDeleteReason] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Support modal
+  const [showSupportModal, setShowSupportModal] = useState(false);
 
   // Data export
   const [exportLoading, setExportLoading] = useState(false);
@@ -1085,6 +1089,53 @@ export function SettingsClient({
         </div>
       </section>
 
+      {/* Support Section */}
+      <section className="mb-8">
+        <h2 className="text-lg font-semibold text-zinc-100 mb-4">Support</h2>
+        <div className="rounded-xl bg-zinc-900 border border-zinc-800 divide-y divide-zinc-800">
+          <Link
+            href="/dashboard/support"
+            className="px-4 py-4 flex items-center justify-between hover:bg-zinc-800/50 transition-colors"
+          >
+            <div>
+              <p className="text-sm font-medium text-zinc-100">View Your Tickets</p>
+              <p className="text-sm text-zinc-500">
+                Check the status of your support requests
+              </p>
+            </div>
+            <svg
+              className="h-5 w-5 text-zinc-500"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
+          </Link>
+          <div className="px-4 py-4 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-zinc-100">Need Help?</p>
+              <p className="text-sm text-zinc-500">
+                Submit a bug report, feature request, or question
+              </p>
+            </div>
+            <button
+              onClick={() => setShowSupportModal(true)}
+              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 transition-colors"
+              aria-label="Submit a new support ticket"
+            >
+              New Ticket
+            </button>
+          </div>
+        </div>
+      </section>
+
       {/* Danger Zone */}
       <section className="mb-8">
         <h2 className="text-lg font-semibold text-red-400 mb-4">
@@ -1172,6 +1223,9 @@ export function SettingsClient({
           </div>
         </div>
       )}
+
+      {/* ── Support Ticket Modal ────────────────────────────── */}
+      <SupportModal open={showSupportModal} onOpenChange={setShowSupportModal} />
 
       {/* ── Delete Account Confirmation Dialog ───────────────── */}
       {showDeleteDialog && (
