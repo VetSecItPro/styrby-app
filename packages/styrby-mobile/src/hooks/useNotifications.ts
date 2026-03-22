@@ -17,6 +17,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
+import { z } from 'zod';
 import {
   registerForPushNotifications,
   savePushToken,
@@ -47,6 +48,27 @@ interface NotificationData {
   /** Session ID to pass to the destination screen as a query parameter */
   sessionId?: string;
 }
+
+/**
+ * Zod schema for validating the notification data payload.
+ *
+ * WHY: Notification payloads come from external sources (backend, APNs, FCM)
+ * and cannot be trusted. Validating with Zod prevents crashes from malformed
+ * payloads while still allowing the app to handle partially valid data via
+ * optional fields.
+ */
+const NotificationDataSchema = z.object({
+  type: z.enum([
+    'permission_request',
+    'session_started',
+    'session_ended',
+    'error',
+    'agent_message',
+    'budget_alert',
+  ]).optional(),
+  screen: z.enum(['chat', 'dashboard', 'sessions', 'costs', 'settings']).optional(),
+  sessionId: z.string().optional(),
+}).passthrough();
 
 /** Return type of the useNotifications hook */
 interface UseNotificationsResult {
@@ -151,10 +173,23 @@ export function useNotifications(): UseNotificationsResult {
    */
   const handleNotificationResponse = useCallback(
     (response: Notifications.NotificationResponse) => {
-      const data = response.notification.request.content.data as NotificationData | undefined;
+      const rawData = response.notification.request.content.data;
 
       // Clear badge when user interacts with any notification
       clearBadge();
+
+      // WHY: Validate the notification payload with Zod instead of blindly
+      // casting. Invalid payloads fall through to the dashboard default,
+      // and validation errors are logged in __DEV__ for debugging.
+      const parseResult = rawData ? NotificationDataSchema.safeParse(rawData) : null;
+
+      if (parseResult && !parseResult.success && __DEV__) {
+        console.warn('[Zod] Invalid notification data:', parseResult.error.issues);
+      }
+
+      const data: NotificationData | undefined = parseResult?.success
+        ? (parseResult.data as NotificationData)
+        : undefined;
 
       if (!data) {
         // No data payload at all -- go to dashboard as a safe default

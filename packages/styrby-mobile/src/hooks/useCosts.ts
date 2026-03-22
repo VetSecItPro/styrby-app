@@ -7,6 +7,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { CostRecordSchema, safeParseArray } from '../lib/schemas';
 import type { AgentType } from 'styrby-shared';
 
 // ============================================================================
@@ -277,7 +278,10 @@ async function fetchMonthRecords(): Promise<RawCostRecord[]> {
     return [];
   }
 
-  return data || [];
+  // WHY: Validate each record with Zod before downstream aggregation.
+  // Invalid records are dropped so cost calculations are never corrupted
+  // by unexpected data shapes from the database.
+  return safeParseArray(CostRecordSchema, data, 'cost_records');
 }
 
 // ============================================================================

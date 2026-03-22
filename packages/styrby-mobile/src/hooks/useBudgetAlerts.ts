@@ -13,6 +13,12 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import {
+  BudgetAlertSchema,
+  SubscriptionTierRowSchema,
+  safeParseArray,
+  safeParseSingle,
+} from '../lib/schemas';
 import type { SubscriptionTier } from 'styrby-shared';
 
 // ============================================================================
@@ -243,7 +249,10 @@ async function fetchUserTier(): Promise<SubscriptionTier> {
     return 'free';
   }
 
-  return (data.tier as SubscriptionTier) || 'free';
+  // WHY: Validate the tier value with Zod to catch unexpected enum values
+  // from the database. Falls back to 'free' if the tier is invalid.
+  const validated = safeParseSingle(SubscriptionTierRowSchema, data, 'subscription_tier');
+  return validated?.tier || 'free';
 }
 
 /**
@@ -344,7 +353,13 @@ export function useBudgetAlerts(): UseBudgetAlertsReturn {
         throw new Error(alertsResult.error.message);
       }
 
-      const rows = (alertsResult.data || []) as BudgetAlertRow[];
+      // WHY: Validate each alert row with Zod before mapping to the UI type.
+      // Invalid rows are dropped so the UI never shows corrupted alert data.
+      const rows = safeParseArray(
+        BudgetAlertSchema,
+        alertsResult.data,
+        'budget_alerts',
+      ) as BudgetAlertRow[];
 
       if (rows.length === 0) {
         setAlerts([]);

@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { SessionSchema, safeParseArray } from '../lib/schemas';
 import type { AgentType, SessionStatus } from 'styrby-shared';
 
 // ============================================================================
@@ -255,10 +256,10 @@ export function useSessions(): UseSessionsReturn {
         throw new Error(queryError.message);
       }
 
-      // WHY: Supabase's generated types don't match our SessionRow interface
-      // exactly because we SELECT a subset of columns. The cast through
-      // `unknown` is safe because the SELECT list above matches SessionRow.
-      return (data as unknown as SessionRow[]) || [];
+      // WHY: We validate each row with Zod instead of blindly casting.
+      // Invalid rows are dropped (and logged in __DEV__) so the UI never
+      // receives malformed data. The validated type matches SessionRow.
+      return safeParseArray(SessionSchema, data, 'sessions') as SessionRow[];
     },
     [],
   );
