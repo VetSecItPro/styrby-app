@@ -391,7 +391,8 @@ export function useBudgetAlerts(): UseBudgetAlertsReturn {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load budget alerts';
       setError(message);
-      if (__DEV__) console.error('[BudgetAlerts] Fetch failed:', err);
+      // WHY: Raw error objects can leak stack traces and internal state in production.
+      console.error('[BudgetAlerts] Fetch failed:', __DEV__ ? err : (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
       setIsLoading(false);
     }

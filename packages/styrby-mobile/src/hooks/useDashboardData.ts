@@ -486,7 +486,8 @@ export function useDashboardData(
       }
       setAgentStatus(newAgentStatus);
     } catch (error) {
-      if (__DEV__) console.error('[Dashboard] Refresh failed:', error);
+      // WHY: Raw error objects can leak stack traces and internal state in production.
+      console.error('[Dashboard] Refresh failed:', __DEV__ ? error : (error instanceof Error ? error.message : 'Unknown error'));
     }
   }, [fetchActiveSessions, fetchNotifications, fetchAgentCostsToday, connectedDevices]);
 

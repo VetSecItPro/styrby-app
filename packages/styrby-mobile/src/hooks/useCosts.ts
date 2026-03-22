@@ -274,7 +274,9 @@ async function fetchMonthRecords(): Promise<RawCostRecord[]> {
     .order('record_date', { ascending: true });
 
   if (error) {
-    console.error('Error fetching 30-day cost records:', error);
+    // WHY: Raw error objects can leak stack traces, file paths, and internal state
+    // in production. We log full details only in __DEV__ for debugging.
+    console.error('Error fetching 30-day cost records:', __DEV__ ? error : error.message);
     return [];
   }
 
@@ -340,7 +342,8 @@ export function useCosts(): UseCostsReturn {
       setData({ today, week, month, byAgent, dailyCosts });
       setError(null);
     } catch (err) {
-      console.error('Error fetching cost data:', err);
+      // WHY: Raw error objects can leak stack traces and internal state in production.
+      console.error('Error fetching cost data:', __DEV__ ? err : (err instanceof Error ? err.message : 'Unknown error'));
       setError(err instanceof Error ? err.message : 'Failed to load cost data');
     }
   }, []);
