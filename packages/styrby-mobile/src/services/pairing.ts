@@ -205,9 +205,8 @@ export async function executePairing(qrData: string): Promise<PairingAttemptResu
   // Step 8: Register push notifications (non-blocking, best-effort)
   // WHY: Push notifications enhance the experience but are not required for pairing.
   // We do not fail the pairing if push registration fails.
-  registerPushNotificationsAsync().catch(() => {
-    // Silently ignore push notification registration failures during pairing.
-    // The user can re-register later from Settings.
+  registerPushNotificationsAsync().catch((err) => {
+    if (__DEV__) console.warn('[Pairing] Push registration failed (non-fatal):', err);
   });
 
   return {

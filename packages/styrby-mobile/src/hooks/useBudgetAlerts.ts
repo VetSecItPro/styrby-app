@@ -217,7 +217,7 @@ async function fetchPeriodSpend(userId: string, period: BudgetAlertPeriod): Prom
     .gte('record_date', startDate);
 
   if (error) {
-    if (__DEV__) console.error(`[BudgetAlerts] Failed to fetch ${period} spend:`, error.message);
+    console.error(`[BudgetAlerts] Failed to fetch ${period} spend:`, __DEV__ ? error : (error instanceof Error ? error.message : 'Unknown error'));
     return 0;
   }
 

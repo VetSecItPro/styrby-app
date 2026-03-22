@@ -354,7 +354,7 @@ export function useDashboardData(
       .limit(10);
 
     if (error) {
-      if (__DEV__) console.error('[Dashboard] Failed to fetch sessions:', error.message);
+      console.error('[Dashboard] Failed to fetch sessions:', __DEV__ ? error : (error instanceof Error ? error.message : 'Unknown error'));
       return [];
     }
 
@@ -387,7 +387,7 @@ export function useDashboardData(
       .limit(20);
 
     if (error) {
-      if (__DEV__) console.error('[Dashboard] Failed to fetch audit log:', error.message);
+      console.error('[Dashboard] Failed to fetch audit log:', __DEV__ ? error : (error instanceof Error ? error.message : 'Unknown error'));
       return [];
     }
 
@@ -427,7 +427,7 @@ export function useDashboardData(
       .eq('record_date', todayStr);
 
     if (error) {
-      if (__DEV__) console.error('[Dashboard] Failed to fetch agent costs:', error.message);
+      console.error('[Dashboard] Failed to fetch agent costs:', __DEV__ ? error : (error instanceof Error ? error.message : 'Unknown error'));
       return costs;
     }
 
