@@ -59,23 +59,29 @@ export function usePWAInstall(): PWAInstallState {
   const [deferredPrompt, setDeferredPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
   const [canInstall, setCanInstall] = useState(false);
-  const [isInstalled, setIsInstalled] = useState(false);
-  const [isDismissed, setIsDismissed] = useState(false);
+
+  // WHY: Initialize from localStorage/matchMedia at state declaration time
+  // instead of inside useEffect. Setting state synchronously inside an effect
+  // triggers cascading renders and violates the react-compiler lint rule.
+  const [isInstalled, setIsInstalled] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(display-mode: standalone)').matches;
+  });
+  const [isDismissed, setIsDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return localStorage.getItem(DISMISS_KEY) === 'true';
+    } catch {
+      // WHY: localStorage can throw in private browsing mode on some browsers.
+      return false;
+    }
+  });
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    // Check if the user previously dismissed the prompt
-    try {
-      setIsDismissed(localStorage.getItem(DISMISS_KEY) === 'true');
-    } catch {
-      // WHY: localStorage can throw in private browsing mode on some browsers.
-      // We silently fall back to not-dismissed so the prompt can still appear.
-    }
-
-    // Check if already running as installed PWA
+    // Check if already running as installed PWA (listen for changes)
     const mediaQuery = window.matchMedia('(display-mode: standalone)');
-    setIsInstalled(mediaQuery.matches);
 
     /**
      * Handles display mode changes (e.g., user installs the app while the
