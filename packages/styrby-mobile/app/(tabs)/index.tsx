@@ -17,8 +17,10 @@ import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useRelay } from '../../src/hooks/useRelay';
 import { useDashboardData } from '../../src/hooks/useDashboardData';
+import { useOnboarding } from '../../src/hooks/useOnboarding';
 import { SessionCarousel, type ActiveSession } from '../../src/components/SessionCarousel';
 import { NotificationStream, type Notification } from '../../src/components/NotificationStream';
+import { OnboardingModal } from '../../src/components/OnboardingModal';
 import type { AgentType } from 'styrby-shared';
 
 /**
@@ -91,7 +93,19 @@ export default function DashboardScreen() {
     refresh: refreshDashboardData,
   } = useDashboardData(lastMessage, connectedDevices);
 
+  const {
+    isComplete: onboardingComplete,
+    isLoading: onboardingLoading,
+    steps: onboardingSteps,
+    completedCount: onboardingCompletedCount,
+    totalCount: onboardingTotalCount,
+    tier: onboardingTier,
+    markComplete: markOnboardingComplete,
+    refresh: refreshOnboarding,
+  } = useOnboarding();
+
   const [refreshing, setRefreshing] = useState(false);
+  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
 
   /**
    * WHY: Notifications need local "read" state that persists during the session
@@ -126,11 +140,12 @@ export default function DashboardScreen() {
       await Promise.all([
         connect(),
         refreshDashboardData(),
+        refreshOnboarding(),
       ]);
     } finally {
       setRefreshing(false);
     }
-  }, [connect, refreshDashboardData]);
+  }, [connect, refreshDashboardData, refreshOnboarding]);
 
   // --------------------------------------------------------------------------
   // Focus Refresh
@@ -359,6 +374,54 @@ export default function DashboardScreen() {
           </View>
         )}
       </View>
+
+      {/* Onboarding Banner */}
+      {/* WHY: Show a persistent setup banner when onboarding is not yet complete.
+          This nudges users to finish their tier-specific checklist without blocking
+          the dashboard. Tapping the banner opens the full checklist modal. */}
+      {!onboardingLoading && !onboardingComplete && (
+        <Pressable
+          onPress={() => setShowOnboardingModal(true)}
+          className="mx-4 mt-4 bg-orange-500/10 rounded-xl px-4 py-3 flex-row items-center justify-between border border-orange-500/20"
+          accessibilityRole="button"
+          accessibilityLabel={`Complete setup, ${onboardingCompletedCount} of ${onboardingTotalCount} steps done`}
+        >
+          <View className="flex-row items-center flex-1">
+            <View className="w-8 h-8 rounded-full bg-brand/20 items-center justify-center mr-3">
+              <Ionicons name="rocket" size={16} color="#f97316" />
+            </View>
+            <View className="flex-1">
+              <Text className="text-zinc-100 font-medium text-sm">
+                Complete setup
+              </Text>
+              <Text className="text-zinc-500 text-xs mt-0.5">
+                {onboardingCompletedCount}/{onboardingTotalCount} steps done
+              </Text>
+            </View>
+          </View>
+          {/* Mini progress bar */}
+          <View className="w-16 h-1.5 bg-zinc-700 rounded-full overflow-hidden ml-3">
+            <View
+              className="h-full bg-brand rounded-full"
+              style={{
+                width: `${onboardingTotalCount > 0 ? (onboardingCompletedCount / onboardingTotalCount) * 100 : 0}%`,
+              }}
+            />
+          </View>
+          <Ionicons name="chevron-forward" size={16} color="#71717a" style={{ marginLeft: 8 }} />
+        </Pressable>
+      )}
+
+      {/* Onboarding Modal */}
+      <OnboardingModal
+        visible={showOnboardingModal}
+        onDismiss={() => setShowOnboardingModal(false)}
+        steps={onboardingSteps}
+        completedCount={onboardingCompletedCount}
+        totalCount={onboardingTotalCount}
+        tier={onboardingTier}
+        onComplete={markOnboardingComplete}
+      />
 
       {/* Active Sessions Carousel */}
       {activeSessions.length > 0 && (
