@@ -93,25 +93,6 @@ export default function TicketDetailScreen() {
   const [isSendingReply, setIsSendingReply] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
-  // Show error screen for invalid ticket IDs
-  if (!parsedId.success) {
-    return (
-      <View className="flex-1 bg-background items-center justify-center px-8">
-        <Stack.Screen
-          options={{
-            title: 'Ticket',
-            headerStyle: { backgroundColor: '#09090b' },
-            headerTintColor: '#fff',
-          }}
-        />
-        <Ionicons name="alert-circle" size={48} color="#71717a" />
-        <Text className="text-zinc-400 text-lg mt-4 text-center">
-          Invalid ticket ID
-        </Text>
-      </View>
-    );
-  }
-
   // --------------------------------------------------------------------------
   // Data Loading
   // --------------------------------------------------------------------------
@@ -197,6 +178,26 @@ export default function TicketDetailScreen() {
   // --------------------------------------------------------------------------
   // Render
   // --------------------------------------------------------------------------
+
+  // WHY: Early returns for error/loading states must come after all hooks
+  // to satisfy React's rules-of-hooks (hooks cannot be called conditionally).
+  if (!parsedId.success) {
+    return (
+      <View className="flex-1 bg-background items-center justify-center px-8">
+        <Stack.Screen
+          options={{
+            title: 'Ticket',
+            headerStyle: { backgroundColor: '#09090b' },
+            headerTintColor: '#fff',
+          }}
+        />
+        <Ionicons name="alert-circle" size={48} color="#71717a" />
+        <Text className="text-zinc-400 text-lg mt-4 text-center">
+          Invalid ticket ID
+        </Text>
+      </View>
+    );
+  }
 
   if (isLoading) {
     return (
