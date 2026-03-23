@@ -5,9 +5,10 @@
  * Handles loading states, error handling, and pull-to-refresh functionality.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { CostRecordSchema, safeParseArray } from '../lib/schemas';
+import { CostRecordSchema, safeParseArray, safeParseSingle } from '../lib/schemas';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import type { AgentType } from 'styrby-shared';
 
 // ============================================================================
@@ -71,6 +72,8 @@ export interface CostData {
   week: CostSummary;
   /** Cost summary for last 30 days */
   month: CostSummary;
+  /** Cost summary for last 90 days */
+  quarter: CostSummary;
   /** Cost breakdown by agent (last 30 days) */
   byAgent: AgentCostBreakdown[];
   /** Daily costs for the mini chart (last 7 days) */
@@ -100,10 +103,10 @@ export interface UseCostsReturn {
 /**
  * Get the start date for a time period.
  *
- * @param period - Time period ('today', 'week', 'month')
+ * @param period - Time period ('today', 'week', 'month', 'quarter')
  * @returns Date object for the start of the period
  */
-function getPeriodStartDate(period: 'today' | 'week' | 'month'): Date {
+function getPeriodStartDate(period: 'today' | 'week' | 'month' | 'quarter'): Date {
   const now = new Date();
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
@@ -119,6 +122,11 @@ function getPeriodStartDate(period: 'today' | 'week' | 'month'): Date {
       const monthAgo = new Date(startOfDay);
       monthAgo.setDate(monthAgo.getDate() - 30);
       return monthAgo;
+    }
+    case 'quarter': {
+      const quarterAgo = new Date(startOfDay);
+      quarterAgo.setDate(quarterAgo.getDate() - 90);
+      return quarterAgo;
     }
   }
 }
@@ -256,16 +264,16 @@ function deriveDailyCosts(records: RawCostRecord[]): DailyCostDataPoint[] {
 }
 
 /**
- * Fetch all cost_records for the last 30 days in a single query.
+ * Fetch all cost_records for the last 90 days in a single query.
  *
- * WHY: The 30-day window is a superset of the 7-day and 1-day windows.
- * Fetching once and aggregating client-side eliminates two redundant
- * Supabase round-trips on every load and refresh cycle (PERF-008).
+ * WHY: The 90-day window is a superset of the 30-day, 7-day, and 1-day windows.
+ * Fetching once and aggregating client-side eliminates redundant Supabase
+ * round-trips on every load and refresh cycle (PERF-008).
  *
- * @returns Raw cost records for the last 30 days, or empty array on error
+ * @returns Raw cost records for the last 90 days, or empty array on error
  */
-async function fetchMonthRecords(): Promise<RawCostRecord[]> {
-  const startDate = getPeriodStartDate('month');
+async function fetchQuarterRecords(): Promise<RawCostRecord[]> {
+  const startDate = getPeriodStartDate('quarter');
 
   const { data, error } = await supabase
     .from('cost_records')
@@ -276,7 +284,7 @@ async function fetchMonthRecords(): Promise<RawCostRecord[]> {
   if (error) {
     // WHY: Raw error objects can leak stack traces, file paths, and internal state
     // in production. We log full details only in __DEV__ for debugging.
-    console.error('Error fetching 30-day cost records:', __DEV__ ? error : error.message);
+    console.error('Error fetching 90-day cost records:', __DEV__ ? error : error.message);
     return [];
   }
 
@@ -316,37 +324,60 @@ export function useCosts(): UseCostsReturn {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // WHY: Keep a ref to the Realtime channel so we can clean it up on unmount
+  // without leaking WebSocket connections.
+  const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
+
+  // WHY: Keep a ref to the latest raw records so the Realtime handler can
+  // append new records and re-derive all summaries without a full re-fetch.
+  const recordsRef = useRef<RawCostRecord[]>([]);
+
+  /**
+   * Derives all cost summaries from a set of raw records and updates state.
+   *
+   * WHY: Extracted into a helper so both the initial fetch and Realtime
+   * INSERT handler can re-derive summaries from the same logic without
+   * duplicating the filtering and aggregation code.
+   *
+   * @param records - The full set of raw cost records (up to 90 days)
+   */
+  const deriveAndSetData = useCallback((records: RawCostRecord[]) => {
+    const todayStart = formatDateString(getPeriodStartDate('today'));
+    const weekStart = formatDateString(getPeriodStartDate('week'));
+    const monthStart = formatDateString(getPeriodStartDate('month'));
+
+    const today = aggregateSummary(records.filter((r) => r.record_date >= todayStart));
+    const week = aggregateSummary(records.filter((r) => r.record_date >= weekStart));
+    const monthRecords = records.filter((r) => r.record_date >= monthStart);
+    const month = aggregateSummary(monthRecords);
+    const quarter = aggregateSummary(records);
+    const byAgent = deriveAgentBreakdown(monthRecords);
+    const dailyCosts = deriveDailyCosts(records);
+
+    setData({ today, week, month, quarter, byAgent, dailyCosts });
+  }, []);
+
   /**
    * Fetch all cost data with a single Supabase query, then derive all
    * summaries and chart data client-side.
    *
-   * WHY: The 30-day window is a superset of the 7-day and 1-day windows.
-   * One query replaces three, cutting network round-trips by 67% per refresh
-   * (PERF-008). Client-side filtering of an already-fetched array is O(n) and
-   * negligible compared to the eliminated network latency.
+   * WHY: The 90-day window is a superset of the 30-day, 7-day, and 1-day windows.
+   * One query replaces four, cutting network round-trips per refresh cycle.
+   * Client-side filtering of an already-fetched array is O(n) and negligible
+   * compared to the eliminated network latency.
    */
   const fetchAllData = useCallback(async () => {
     try {
-      const monthRecords = await fetchMonthRecords();
-
-      // Derive each period's summary by filtering the 30-day dataset in memory
-      const todayStart = formatDateString(getPeriodStartDate('today'));
-      const weekStart = formatDateString(getPeriodStartDate('week'));
-
-      const today = aggregateSummary(monthRecords.filter((r) => r.record_date >= todayStart));
-      const week = aggregateSummary(monthRecords.filter((r) => r.record_date >= weekStart));
-      const month = aggregateSummary(monthRecords);
-      const byAgent = deriveAgentBreakdown(monthRecords);
-      const dailyCosts = deriveDailyCosts(monthRecords);
-
-      setData({ today, week, month, byAgent, dailyCosts });
+      const records = await fetchQuarterRecords();
+      recordsRef.current = records;
+      deriveAndSetData(records);
       setError(null);
     } catch (err) {
       // WHY: Raw error objects can leak stack traces and internal state in production.
       console.error('Error fetching cost data:', __DEV__ ? err : (err instanceof Error ? err.message : 'Unknown error'));
       setError(err instanceof Error ? err.message : 'Failed to load cost data');
     }
-  }, []);
+  }, [deriveAndSetData]);
 
   /**
    * Initial load on mount.
@@ -359,6 +390,76 @@ export function useCosts(): UseCostsReturn {
     };
     load();
   }, [fetchAllData]);
+
+  /**
+   * Subscribe to real-time INSERT events on the cost_records table.
+   *
+   * WHY: When a new cost record is inserted (e.g., from an active coding
+   * session), the dashboard updates immediately without requiring a manual
+   * refresh. This gives users a live cost ticker experience. The subscription
+   * is filtered by the user's auth to respect RLS.
+   */
+  useEffect(() => {
+    /**
+     * Set up the Realtime subscription after initial data load completes.
+     */
+    const setupRealtime = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) return;
+
+      const channel = supabase
+        .channel('cost-records-realtime')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'cost_records',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            // Validate the incoming record with Zod
+            const validated = safeParseSingle(CostRecordSchema, payload.new, 'realtime_cost_record');
+            if (!validated) return;
+
+            // Convert to the RawCostRecord shape used by aggregation functions
+            const newRecord: RawCostRecord = {
+              record_date: validated.record_date,
+              agent_type: validated.agent_type,
+              cost_usd: validated.cost_usd,
+              input_tokens: validated.input_tokens,
+              output_tokens: validated.output_tokens,
+            };
+
+            // Append to the cached records, prune records older than 90 days,
+            // and re-derive all summaries.
+            // WHY: Without pruning, the Realtime handler accumulates records
+            // indefinitely across long-running sessions, leading to unbounded
+            // memory growth and increasingly slow re-aggregation.
+            const cutoff = formatDateString(getPeriodStartDate('quarter'));
+            recordsRef.current = [...recordsRef.current, newRecord]
+              .filter((r) => r.record_date >= cutoff);
+            deriveAndSetData(recordsRef.current);
+          },
+        )
+        .subscribe();
+
+      realtimeChannelRef.current = channel;
+    };
+
+    setupRealtime();
+
+    // Cleanup on unmount
+    return () => {
+      if (realtimeChannelRef.current) {
+        supabase.removeChannel(realtimeChannelRef.current);
+        realtimeChannelRef.current = null;
+      }
+    };
+  }, [deriveAndSetData]);
 
   /**
    * Pull-to-refresh handler.
