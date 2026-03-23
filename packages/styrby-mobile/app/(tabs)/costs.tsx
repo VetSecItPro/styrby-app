@@ -276,6 +276,17 @@ export default function CostsScreen() {
             compact
           />
         </View>
+
+        {/* 90 Days - full width compact card */}
+        <View className="mt-3">
+          <CostCard
+            title="Last 90 Days"
+            amount={data.quarter.totalCost}
+            subtitle={`${data.quarter.requestCount} req`}
+            icon="calendar-number-outline"
+            iconColor="#a855f7"
+          />
+        </View>
       </View>
 
       {/* 7-Day Chart */}

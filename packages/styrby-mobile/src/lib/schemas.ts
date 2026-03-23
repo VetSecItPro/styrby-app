@@ -436,6 +436,149 @@ export const CreateTicketInputSchema = z.object({
 export type CreateTicketInput = z.infer<typeof CreateTicketInputSchema>;
 
 // ============================================================================
+// Team Schema
+// ============================================================================
+
+/**
+ * Valid team member roles.
+ * Matches the CHECK constraint on team_members.role in migration 006_teams.sql.
+ */
+const TeamMemberRoleSchema = z.enum(['owner', 'admin', 'member']);
+
+/**
+ * Valid team invitation roles.
+ * Only admin and member are valid for invitations (owner is set automatically).
+ */
+const TeamInvitationRoleSchema = z.enum(['admin', 'member']);
+
+/**
+ * Valid team invitation statuses.
+ * Matches the CHECK constraint on team_invitations.status in migration 006_teams.sql.
+ */
+const TeamInvitationStatusSchema = z.enum([
+  'pending',
+  'accepted',
+  'declined',
+  'expired',
+  'revoked',
+]);
+
+/**
+ * Validates a row from the Supabase `teams` table.
+ *
+ * Teams are the top-level entity for collaborative features. Each team
+ * has exactly one owner (set via owner_id) and optional settings stored
+ * as JSONB. Only Power tier subscribers can create teams.
+ */
+export const TeamSchema = z.object({
+  /** Primary key (UUID) */
+  id: z.string(),
+  /** Team display name (1-100 characters) */
+  name: z.string(),
+  /** Optional team description */
+  description: z.string().nullable(),
+  /** UUID of the team owner (always a team member with 'owner' role) */
+  owner_id: z.string(),
+  /** Team settings (JSONB, defaults to empty object) */
+  settings: z.any().optional(),
+  /** ISO timestamp when the team was created */
+  created_at: z.string(),
+  /** ISO timestamp when the team was last updated */
+  updated_at: z.string(),
+});
+
+/** Inferred TypeScript type for a validated team row. */
+export type ValidatedTeam = z.infer<typeof TeamSchema>;
+
+/**
+ * Validates a team member row as returned by the get_team_members RPC.
+ *
+ * WHY: The RPC joins team_members with profiles and auth.users to return
+ * denormalized member data. This schema matches the RPC return shape,
+ * not the raw team_members table columns.
+ */
+export const TeamMemberSchema = z.object({
+  /** team_members.id (UUID) */
+  member_id: z.string(),
+  /** The member's auth user ID */
+  user_id: z.string(),
+  /** Role within the team (owner, admin, member) */
+  role: TeamMemberRoleSchema,
+  /** Display name from the profiles table (may be null) */
+  display_name: z.string().nullable(),
+  /** Email from auth.users */
+  email: z.string(),
+  /** Avatar URL from the profiles table (may be null) */
+  avatar_url: z.string().nullable(),
+  /** ISO timestamp when the member joined */
+  joined_at: z.string(),
+});
+
+/** Inferred TypeScript type for a validated team member row. */
+export type ValidatedTeamMember = z.infer<typeof TeamMemberSchema>;
+
+/**
+ * Validates a row from the Supabase `team_invitations` table.
+ *
+ * Team invitations track pending, accepted, declined, expired, and revoked
+ * invitations. Each invitation has a unique token for email link acceptance.
+ */
+export const TeamInvitationSchema = z.object({
+  /** Primary key (UUID) */
+  id: z.string(),
+  /** Foreign key to the team */
+  team_id: z.string(),
+  /** Email address of the invited user */
+  email: z.string(),
+  /** UUID of the invited user (null if they have not signed up yet) */
+  invited_user_id: z.string().nullable().optional(),
+  /** UUID of the user who sent the invitation */
+  invited_by: z.string(),
+  /** Role the invited user will receive upon acceptance */
+  role: TeamInvitationRoleSchema,
+  /** Secure token for email invite links */
+  token: z.string().optional(),
+  /** Current invitation status */
+  status: TeamInvitationStatusSchema,
+  /** ISO timestamp when the invitation expires */
+  expires_at: z.string(),
+  /** ISO timestamp when the invitation was created */
+  created_at: z.string(),
+  /** ISO timestamp when the invitation was responded to (null if still pending) */
+  responded_at: z.string().nullable().optional(),
+});
+
+/** Inferred TypeScript type for a validated team invitation row. */
+export type ValidatedTeamInvitation = z.infer<typeof TeamInvitationSchema>;
+
+/**
+ * Validates the shape returned by the get_user_teams() RPC function.
+ *
+ * WHY: This is a separate schema because the RPC returns a denormalized
+ * shape with team details joined with membership info, different from
+ * the raw teams or team_members tables.
+ */
+export const UserTeamRowSchema = z.object({
+  /** Team UUID */
+  team_id: z.string(),
+  /** Team display name */
+  team_name: z.string(),
+  /** Team description (may be null) */
+  team_description: z.string().nullable(),
+  /** Team owner's user UUID */
+  owner_id: z.string(),
+  /** Current user's role in this team */
+  role: TeamMemberRoleSchema,
+  /** Number of members in this team */
+  member_count: z.number(),
+  /** ISO timestamp when the current user joined */
+  joined_at: z.string(),
+});
+
+/** Inferred TypeScript type for a validated user team row. */
+export type ValidatedUserTeamRow = z.infer<typeof UserTeamRowSchema>;
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 

@@ -19,5 +19,40 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "url": "/dashboard",
+      "icon": "/icon-192.png"
+    },
+    {
+      "name": "Sessions",
+      "short_name": "Sessions",
+      "url": "/dashboard/sessions",
+      "icon": "/icon-192.png"
+    },
+    {
+      "name": "Costs",
+      "short_name": "Costs",
+      "url": "/dashboard/costs",
+      "icon": "/icon-192.png"
+    },
+    {
+      "name": "Settings",
+      "short_name": "Settings",
+      "url": "/dashboard/settings",
+      "icon": "/icon-192.png"
+    }
+  ],
+  "share_target": {
+    "action": "/dashboard/sessions",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
 }

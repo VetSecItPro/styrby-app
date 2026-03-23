@@ -51,20 +51,26 @@ interface ServiceWorkerGlobalScope extends WorkerGlobalScope {
   clients: Clients;
   registration: ServiceWorkerRegistration;
   location: { origin: string; href: string };
+  addEventListener(type: 'install', listener: (event: ExtendableEvent) => void): void;
+  addEventListener(type: 'activate', listener: (event: ExtendableEvent) => void): void;
   addEventListener(type: 'sync', listener: (event: SyncEvent) => void): void;
+  addEventListener(type: 'periodicsync', listener: (event: PeriodicSyncEvent) => void): void;
   addEventListener(type: 'push', listener: (event: PushEvent) => void): void;
+  addEventListener(type: 'message', listener: (event: ExtendableMessageEvent) => void): void;
   addEventListener(
     type: 'notificationclick',
     listener: (event: NotificationEvent) => void
   ): void;
   addEventListener(type: string, listener: EventListenerOrEventListenerObject): void;
+  skipWaiting(): Promise<void>;
+  caches: CacheStorage;
 }
 
 /**
  * Clients interface for communicating with controlled pages.
  */
 interface Clients {
-  matchAll(options?: { type?: string }): Promise<Client[]>;
+  matchAll(options?: { type?: string; includeUncontrolled?: boolean }): Promise<Client[]>;
 }
 
 /**
@@ -88,6 +94,23 @@ interface ExtendableEvent extends Event {
  */
 interface SyncEvent extends ExtendableEvent {
   readonly tag: string;
+}
+
+/**
+ * PeriodicSyncEvent fires at browser-determined intervals for registered
+ * periodic sync tags. Part of the Periodic Background Sync API.
+ */
+interface PeriodicSyncEvent extends ExtendableEvent {
+  readonly tag: string;
+}
+
+/**
+ * ExtendableMessageEvent fires when the service worker receives a message
+ * from a client via postMessage.
+ */
+interface ExtendableMessageEvent extends ExtendableEvent {
+  readonly data: unknown;
+  readonly source: Client | null;
 }
 
 /**
@@ -192,7 +215,7 @@ const styrbyCache = [
       networkTimeoutSeconds: API_NETWORK_TIMEOUT_SEC,
       plugins: [
         new ExpirationPlugin({
-          maxEntries: 64,
+          maxEntries: 50,
           maxAgeSeconds: API_CACHE_MAX_AGE_SEC,
           maxAgeFrom: 'last-used',
         }),
@@ -228,7 +251,7 @@ const styrbyCache = [
       cacheName: 'styrby-public-pages',
       plugins: [
         new ExpirationPlugin({
-          maxEntries: 64,
+          maxEntries: 30,
           maxAgeSeconds: ONE_HOUR_SEC,
           maxAgeFrom: 'last-used',
         }),
@@ -250,7 +273,7 @@ const styrbyCache = [
       cacheName: 'styrby-static-assets',
       plugins: [
         new ExpirationPlugin({
-          maxEntries: 128,
+          maxEntries: 100,
           maxAgeSeconds: THIRTY_DAYS_SEC,
           maxAgeFrom: 'last-used',
         }),
@@ -462,6 +485,93 @@ self.addEventListener('notificationclick', (event: NotificationEvent) => {
       })
   );
 });
+
+// ============================================================================
+// Cache Cleanup on Activation
+// ============================================================================
+
+/**
+ * Known cache names managed by Styrby's runtime caching strategies.
+ * WHY: When the service worker activates, we delete any caches that are not
+ * in this list and not managed by Serwist's precache. This prevents unbounded
+ * cache growth from old SW versions that used different cache names.
+ */
+const KNOWN_CACHES = new Set([
+  'styrby-api-responses',
+  'styrby-public-pages',
+  'styrby-static-assets',
+]);
+
+self.addEventListener('activate', (event: ExtendableEvent) => {
+  event.waitUntil(
+    self.caches.keys().then((cacheNames: string[]) => {
+      return Promise.all(
+        cacheNames
+          .filter((name: string) => {
+            // WHY: Only delete caches that start with 'styrby-' but are not
+            // in our known set. This avoids deleting Serwist's precache or
+            // other framework-managed caches.
+            return name.startsWith('styrby-') && !KNOWN_CACHES.has(name);
+          })
+          .map((name: string) => self.caches.delete(name))
+      );
+    })
+  );
+});
+
+// ============================================================================
+// SKIP_WAITING Message Handler
+// ============================================================================
+
+/**
+ * WHY: When a new service worker version is detected and the user clicks
+ * "Update available", the client sends a SKIP_WAITING message. This tells
+ * the waiting SW to call skipWaiting() and become active immediately,
+ * allowing the page to reload with the new version.
+ */
+self.addEventListener('message', (event: ExtendableMessageEvent) => {
+  const data = event.data as { type?: string } | null;
+  if (data?.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
+// ============================================================================
+// Periodic Background Sync for Cost Updates
+// ============================================================================
+
+/**
+ * WHY: The Periodic Background Sync API allows the SW to periodically refresh
+ * cached data even when no tabs are open. We use it to keep the daily cost
+ * summary fresh so the dashboard loads instantly with recent data. The browser
+ * controls the actual sync interval based on site engagement; our minInterval
+ * of 1 hour is a hint, not a guarantee.
+ *
+ * Guard: The periodicsync event only fires on browsers that support the API
+ * (currently Chromium-based). Other browsers simply never fire the event.
+ */
+self.addEventListener('periodicsync', (event: PeriodicSyncEvent) => {
+  if (event.tag === 'cost-refresh') {
+    event.waitUntil(refreshCostCache());
+  }
+});
+
+/**
+ * Notifies open clients to refresh their cost data via the main thread.
+ * Called by the periodic background sync handler.
+ *
+ * WHY: We cannot safely cache authenticated API responses from the SW
+ * because credentials are tied to the main thread's cookie/session context.
+ * Instead, notify open clients to trigger their own fresh fetch.
+ *
+ * @returns A promise that resolves when all clients have been notified
+ */
+async function refreshCostCache(): Promise<void> {
+  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: false });
+  for (const client of clients) {
+    client.postMessage({ type: 'REFRESH_COSTS' });
+  }
+}
 
 // ============================================================================
 // Activate Serwist Event Listeners

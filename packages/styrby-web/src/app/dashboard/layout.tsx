@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { DashboardShell } from './dashboard-shell';
 import { PlanCheckout } from './plan-checkout';
 import { getOnboardingState } from '@/lib/onboarding';
+import { PWAInstallPrompt } from '@/components/pwa-install-prompt';
 
 /**
  * Prevents all dashboard routes from being indexed by search engines.
@@ -54,6 +55,7 @@ export default async function DashboardLayout({
         <PlanCheckout />
       </Suspense>
       {children}
+      <PWAInstallPrompt />
     </DashboardShell>
   );
 }

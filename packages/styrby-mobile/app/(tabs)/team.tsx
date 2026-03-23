@@ -1,10 +1,18 @@
 /**
  * Team Screen
  *
- * Read-only view of the user's team members and pending invitations.
- * Team management is done via the web dashboard.
+ * Full team management screen with create, invite, role management, and
+ * member removal. Uses the useTeamManagement hook for all data operations.
  *
- * Power tier only - shows upgrade prompt for Free/Pro users.
+ * States:
+ * - Loading: spinner while fetching team data
+ * - No team: "Create a Team" form with name and description inputs
+ * - Has team: team info header, member list with management actions,
+ *   pending invitations section, and "Invite Member" button
+ *
+ * Power tier only. Shows an upgrade prompt for Free/Pro users.
+ * Tier gating is handled at the API level; this screen relies on the
+ * hook returning null team for non-Power users.
  */
 
 import {
@@ -13,61 +21,47 @@ import {
   FlatList,
   RefreshControl,
   ActivityIndicator,
-  Linking,
   Pressable,
+  TextInput,
+  Alert,
+  Linking,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '../../src/lib/supabase';
+import { useTeamManagement } from '../../src/hooks/useTeamManagement';
+import type { ValidatedTeamMember, ValidatedTeamInvitation } from '../../src/lib/schemas';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-interface TeamMember {
-  member_id: string;
-  user_id: string;
-  role: 'owner' | 'admin' | 'member';
-  display_name: string | null;
-  email: string;
-  avatar_url: string | null;
-  joined_at: string;
-}
-
-interface PendingInvitation {
-  id: string;
-  email: string;
-  role: 'admin' | 'member';
-  created_at: string;
-  expires_at: string;
-}
-
-interface Team {
-  id: string;
-  name: string;
-  description: string | null;
-  owner_id: string;
-  created_at: string;
-}
-
 /**
  * Discriminated union for FlatList items.
+ * Allows mixing headers, members, and invitations in a single list.
  */
 type TeamListItem =
   | { type: 'header'; title: string }
-  | { type: 'member'; data: TeamMember }
-  | { type: 'invitation'; data: PendingInvitation };
+  | { type: 'member'; data: ValidatedTeamMember }
+  | { type: 'invitation'; data: ValidatedTeamInvitation }
+  | { type: 'invite-button' };
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
 
 /**
- * Returns initials from a name or email.
+ * Returns initials from a name or email for avatar display.
  *
  * @param name - User's display name (may be null)
  * @param email - User's email address
- * @returns 1-2 character initials
+ * @returns 1-2 character uppercase initials
+ *
+ * @example
+ * getInitials('John Doe', 'john@example.com'); // "JD"
+ * getInitials(null, 'john@example.com'); // "J"
  */
 function getInitials(name: string | null, email: string): string {
   if (name) {
@@ -81,29 +75,6 @@ function getInitials(name: string | null, email: string): string {
   return email[0].toUpperCase();
 }
 
-/**
- * Formats an ISO date string to relative time.
- *
- * @param isoDate - ISO 8601 date string
- * @returns Relative time string (e.g., "2 days ago", "Joined Jan 15")
- */
-function formatRelativeTime(isoDate: string): string {
-  const date = new Date(isoDate);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return `${diffDays} days ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
 // ============================================================================
 // Role Badge Component
 // ============================================================================
@@ -111,16 +82,17 @@ function formatRelativeTime(isoDate: string): string {
 /**
  * Renders a colored badge for team member roles.
  *
- * @param role - The member's role (owner, admin, member)
+ * @param props.role - The member's role (owner, admin, member)
+ * @returns Colored badge view
  */
-function RoleBadge({ role }: { role: 'owner' | 'admin' | 'member' }) {
-  const colors = {
+function RoleBadge({ role }: { role: string }) {
+  const colors: Record<string, { bg: string; text: string }> = {
     owner: { bg: 'rgba(249, 115, 22, 0.1)', text: '#f97316' },
     admin: { bg: 'rgba(168, 85, 247, 0.1)', text: '#a855f7' },
     member: { bg: 'rgba(113, 113, 122, 0.1)', text: '#71717a' },
   };
 
-  const { bg, text } = colors[role];
+  const { bg, text } = colors[role] || colors.member;
 
   return (
     <View className="px-2 py-0.5 rounded-full" style={{ backgroundColor: bg }}>
@@ -136,17 +108,26 @@ function RoleBadge({ role }: { role: 'owner' | 'admin' | 'member' }) {
 // ============================================================================
 
 interface MemberCardProps {
-  member: TeamMember;
+  /** The team member data */
+  member: ValidatedTeamMember;
+  /** Whether this member is the currently authenticated user */
   isCurrentUser: boolean;
+  /** Whether the current user can manage this member (change role, remove) */
+  canManage: boolean;
+  /** Callback to change this member's role */
+  onChangeRole: (memberId: string, currentRole: string) => void;
+  /** Callback to remove this member */
+  onRemove: (memberId: string, displayName: string) => void;
 }
 
 /**
- * Renders a single team member card with avatar, name, email, and role.
+ * Renders a single team member card with avatar, name, email, role,
+ * and optional management actions (change role, remove).
  *
- * @param member - The team member data
- * @param isCurrentUser - Whether this member is the current user
+ * @param props - Component props
+ * @returns Rendered member card
  */
-function MemberCard({ member, isCurrentUser }: MemberCardProps) {
+function MemberCard({ member, isCurrentUser, canManage, onChangeRole, onRemove }: MemberCardProps) {
   return (
     <View className="flex-row items-center px-4 py-3 border-b border-zinc-800/50">
       {/* Avatar */}
@@ -173,6 +154,35 @@ function MemberCard({ member, isCurrentUser }: MemberCardProps) {
 
       {/* Role Badge */}
       <RoleBadge role={member.role} />
+
+      {/* Management Actions */}
+      {canManage && member.role !== 'owner' && !isCurrentUser && (
+        <Pressable
+          onPress={() => {
+            Alert.alert(
+              member.display_name || member.email,
+              'Choose an action',
+              [
+                {
+                  text: member.role === 'admin' ? 'Change to Member' : 'Change to Admin',
+                  onPress: () => onChangeRole(member.member_id, member.role),
+                },
+                {
+                  text: 'Remove from Team',
+                  style: 'destructive',
+                  onPress: () => onRemove(member.member_id, member.display_name || member.email),
+                },
+                { text: 'Cancel', style: 'cancel' },
+              ],
+            );
+          }}
+          className="ml-2 p-1.5"
+          accessibilityRole="button"
+          accessibilityLabel={`Manage ${member.display_name || member.email}`}
+        >
+          <Ionicons name="ellipsis-vertical" size={18} color="#71717a" />
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -181,18 +191,15 @@ function MemberCard({ member, isCurrentUser }: MemberCardProps) {
 // Pending Invitation Card Component
 // ============================================================================
 
-interface InvitationCardProps {
-  invitation: PendingInvitation;
-}
-
 /**
- * Renders a pending invitation with email and expiration date.
+ * Renders a pending invitation with email, role, and expiration countdown.
  *
- * @param invitation - The invitation data
+ * @param props.invitation - The invitation data
+ * @returns Rendered invitation card
  */
-function InvitationCard({ invitation }: InvitationCardProps) {
+function InvitationCard({ invitation }: { invitation: ValidatedTeamInvitation }) {
   const expiresIn = new Date(invitation.expires_at).getTime() - Date.now();
-  const daysUntilExpiry = Math.ceil(expiresIn / (1000 * 60 * 60 * 24));
+  const daysUntilExpiry = Math.max(0, Math.ceil(expiresIn / (1000 * 60 * 60 * 24)));
 
   return (
     <View className="flex-row items-center px-4 py-3 border-b border-zinc-800/50">
@@ -207,12 +214,15 @@ function InvitationCard({ invitation }: InvitationCardProps) {
           {invitation.email}
         </Text>
         <Text className="text-zinc-500 text-sm">
-          Expires in {daysUntilExpiry} day{daysUntilExpiry !== 1 ? 's' : ''}
+          {daysUntilExpiry > 0
+            ? `Expires in ${daysUntilExpiry} day${daysUntilExpiry !== 1 ? 's' : ''}`
+            : 'Expired'}
         </Text>
       </View>
 
-      {/* Status Badge */}
-      <View className="px-2 py-0.5 rounded-full bg-yellow-500/10">
+      {/* Role + Status */}
+      <RoleBadge role={invitation.role} />
+      <View className="ml-2 px-2 py-0.5 rounded-full bg-yellow-500/10">
         <Text className="text-xs font-medium text-yellow-500">Pending</Text>
       </View>
     </View>
@@ -220,139 +230,199 @@ function InvitationCard({ invitation }: InvitationCardProps) {
 }
 
 // ============================================================================
+// Create Team Form Component
+// ============================================================================
+
+interface CreateTeamFormProps {
+  /** Callback when the team is created */
+  onCreate: (name: string, description?: string) => Promise<unknown>;
+  /** Whether the creation is in progress */
+  isCreating: boolean;
+  /** Error message to display */
+  error: string | null;
+}
+
+/**
+ * Renders the team creation form with name and description inputs.
+ * Shown when the user does not yet belong to any team.
+ *
+ * @param props - Component props
+ * @returns Rendered create team form
+ */
+function CreateTeamForm({ onCreate, isCreating, error }: CreateTeamFormProps) {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+
+  /**
+   * Handles the form submission.
+   */
+  const handleSubmit = async () => {
+    if (!name.trim()) return;
+    await onCreate(name.trim(), description.trim() || undefined);
+  };
+
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      className="flex-1 bg-background"
+    >
+      <View className="flex-1 items-center justify-center px-6">
+        <View className="w-16 h-16 bg-orange-500/10 rounded-full items-center justify-center mb-4">
+          <Ionicons name="people-outline" size={32} color="#f97316" />
+        </View>
+
+        <Text className="text-white text-xl font-semibold text-center mb-2">
+          Create a Team
+        </Text>
+
+        <Text className="text-zinc-400 text-center mb-6">
+          Start collaborating by creating a team. You can invite members after.
+        </Text>
+
+        {/* Name Input */}
+        <View className="w-full mb-3">
+          <Text className="text-zinc-400 text-sm mb-1.5">Team Name</Text>
+          <TextInput
+            value={name}
+            onChangeText={setName}
+            placeholder="e.g., Engineering Team"
+            placeholderTextColor="#52525b"
+            className="bg-background-secondary text-white rounded-xl px-4 py-3 text-base"
+            maxLength={100}
+            autoCapitalize="words"
+            returnKeyType="next"
+            accessibilityLabel="Team name"
+          />
+        </View>
+
+        {/* Description Input */}
+        <View className="w-full mb-4">
+          <Text className="text-zinc-400 text-sm mb-1.5">Description (optional)</Text>
+          <TextInput
+            value={description}
+            onChangeText={setDescription}
+            placeholder="What does this team work on?"
+            placeholderTextColor="#52525b"
+            className="bg-background-secondary text-white rounded-xl px-4 py-3 text-base"
+            multiline
+            numberOfLines={2}
+            maxLength={500}
+            accessibilityLabel="Team description"
+          />
+        </View>
+
+        {/* Error */}
+        {error && (
+          <Text className="text-red-500 text-sm text-center mb-3">{error}</Text>
+        )}
+
+        {/* Submit Button */}
+        <Pressable
+          onPress={handleSubmit}
+          disabled={isCreating || !name.trim()}
+          className={`w-full py-3 rounded-xl items-center ${
+            isCreating || !name.trim() ? 'bg-zinc-700' : 'bg-brand active:opacity-80'
+          }`}
+          accessibilityRole="button"
+          accessibilityLabel="Create team"
+          accessibilityState={{ disabled: isCreating || !name.trim() }}
+        >
+          {isCreating ? (
+            <ActivityIndicator color="#ffffff" size="small" />
+          ) : (
+            <Text className="text-white font-semibold">Create Team</Text>
+          )}
+        </Pressable>
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+// ============================================================================
 // Main Screen
 // ============================================================================
 
+/**
+ * Team management screen.
+ *
+ * Displays different content based on the user's team state:
+ * - Loading: centered spinner
+ * - Error: error message with retry button
+ * - No team: create team form
+ * - Has team: team header, member list with management actions,
+ *   pending invitations, and invite button
+ */
 export default function TeamScreen() {
-  const [isLoading, setIsLoading] = useState(true);
+  const {
+    team,
+    currentUserRole,
+    members,
+    invitations,
+    isLoading,
+    isMutating,
+    error,
+    currentUserId,
+    createTeam,
+    updateMemberRole,
+    removeMember,
+    refresh,
+  } = useTeamManagement();
+
+  const router = useRouter();
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isPowerTier, setIsPowerTier] = useState(false);
-  const [team, setTeam] = useState<Team | null>(null);
-  const [members, setMembers] = useState<TeamMember[]>([]);
-  const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [currentUserRole, setCurrentUserRole] = useState<'owner' | 'admin' | 'member' | null>(null);
 
   /**
-   * Fetches team data from Supabase.
+   * Handles pull-to-refresh.
    */
-  const fetchTeamData = useCallback(async () => {
-    try {
-      // Use the pre-configured supabase instance from lib/supabase
-
-      // Get current user
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      if (userError || !user) {
-        setError('Please log in to view team');
-        setIsLoading(false);
-        return;
-      }
-
-      setCurrentUserId(user.id);
-
-      // Check subscription tier
-      const { data: subscription } = await supabase
-        .from('subscriptions')
-        .select('tier')
-        .eq('user_id', user.id)
-        .eq('status', 'active')
-        .single();
-
-      const tier = subscription?.tier || 'free';
-      setIsPowerTier(tier === 'power');
-
-      if (tier !== 'power') {
-        setIsLoading(false);
-        return;
-      }
-
-      // Fetch user's teams
-      const { data: teamsData, error: teamsError } = await supabase.rpc('get_user_teams');
-
-      if (teamsError) {
-        throw teamsError;
-      }
-
-      if (!teamsData || teamsData.length === 0) {
-        // No team yet
-        setTeam(null);
-        setMembers([]);
-        setPendingInvitations([]);
-        setIsLoading(false);
-        return;
-      }
-
-      // Get first team details
-      const primaryTeam = teamsData[0];
-      setCurrentUserRole(primaryTeam.role);
-
-      // Fetch full team details
-      const { data: teamData, error: teamError } = await supabase
-        .from('teams')
-        .select('*')
-        .eq('id', primaryTeam.team_id)
-        .single();
-
-      if (teamError) {
-        throw teamError;
-      }
-
-      setTeam(teamData);
-
-      // Fetch members
-      const { data: membersData, error: membersError } = await supabase.rpc(
-        'get_team_members',
-        { p_team_id: primaryTeam.team_id }
-      );
-
-      if (membersError) {
-        throw membersError;
-      }
-
-      setMembers(membersData || []);
-
-      // Fetch pending invitations (only for owner/admin)
-      if (primaryTeam.role === 'owner' || primaryTeam.role === 'admin') {
-        const { data: invitesData } = await supabase
-          .from('team_invitations')
-          .select('id, email, role, created_at, expires_at')
-          .eq('team_id', primaryTeam.team_id)
-          .eq('status', 'pending')
-          .order('created_at', { ascending: false });
-
-        setPendingInvitations(invitesData || []);
-      }
-
-      setError(null);
-    } catch (err) {
-      console.error('Failed to fetch team data:', err);
-      setError('Failed to load team data');
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, []);
-
-  // Initial load
-  useEffect(() => {
-    fetchTeamData();
-  }, [fetchTeamData]);
-
-  /**
-   * Pull-to-refresh handler.
-   */
-  const handleRefresh = useCallback(() => {
+  const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    fetchTeamData();
-  }, [fetchTeamData]);
+    await refresh();
+    setIsRefreshing(false);
+  }, [refresh]);
 
   /**
-   * Opens the web dashboard for team management.
+   * Handles changing a member's role.
+   * Toggles between 'admin' and 'member'.
+   *
+   * @param memberId - The team_members.id to update
+   * @param currentRole - The member's current role
    */
-  const openWebDashboard = () => {
-    Linking.openURL('https://www.styrbyapp.com/team');
-  };
+  const handleChangeRole = useCallback(
+    async (memberId: string, currentRole: string) => {
+      const newRole = currentRole === 'admin' ? 'member' : 'admin';
+      const success = await updateMemberRole(memberId, newRole as 'admin' | 'member');
+      if (!success && __DEV__) {
+        console.warn('[TeamScreen] Failed to update role for member:', memberId);
+      }
+    },
+    [updateMemberRole],
+  );
+
+  /**
+   * Handles removing a member with a confirmation dialog.
+   *
+   * @param memberId - The team_members.id to remove
+   * @param displayName - Name or email shown in the confirmation dialog
+   */
+  const handleRemove = useCallback(
+    (memberId: string, displayName: string) => {
+      Alert.alert(
+        'Remove Member',
+        `Are you sure you want to remove ${displayName} from the team?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: async () => {
+              await removeMember(memberId);
+            },
+          },
+        ],
+      );
+    },
+    [removeMember],
+  );
 
   // ---- Loading State ----
   if (isLoading) {
@@ -364,8 +434,8 @@ export default function TeamScreen() {
     );
   }
 
-  // ---- Error State ----
-  if (error) {
+  // ---- Error State (only when no team data at all) ----
+  if (error && !team) {
     return (
       <View className="flex-1 bg-background items-center justify-center px-6">
         <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
@@ -374,7 +444,7 @@ export default function TeamScreen() {
         </Text>
         <Text className="text-zinc-500 text-center mt-2">{error}</Text>
         <Pressable
-          onPress={fetchTeamData}
+          onPress={refresh}
           className="bg-brand px-6 py-3 rounded-xl mt-6 active:opacity-80"
           accessibilityRole="button"
           accessibilityLabel="Retry loading team"
@@ -385,81 +455,48 @@ export default function TeamScreen() {
     );
   }
 
-  // ---- Upgrade Prompt (Non-Power Tier) ----
-  if (!isPowerTier) {
-    return (
-      <View className="flex-1 bg-background items-center justify-center px-6">
-        <View className="w-20 h-20 bg-orange-500/10 rounded-full items-center justify-center mb-6">
-          <Ionicons name="people" size={40} color="#f97316" />
-        </View>
-
-        <Text className="text-white text-2xl font-bold text-center mb-2">
-          Team Collaboration
-        </Text>
-
-        <Text className="text-zinc-400 text-center mb-6">
-          Share sessions and collaborate with your team members.
-        </Text>
-
-        <View className="bg-background-secondary rounded-xl p-4 w-full mb-6">
-          <Text className="text-zinc-300 font-medium mb-3">
-            Team features include:
-          </Text>
-          {[
-            'Up to 5 team members',
-            'Shared session visibility',
-            'Team cost tracking',
-            'Role-based permissions',
-          ].map((feature) => (
-            <View key={feature} className="flex-row items-center mb-2">
-              <Ionicons name="checkmark-circle" size={18} color="#22c55e" />
-              <Text className="text-zinc-400 ml-2">{feature}</Text>
-            </View>
-          ))}
-        </View>
-
-        <Pressable
-          onPress={() => Linking.openURL('https://www.styrbyapp.com/pricing')}
-          className="bg-brand px-8 py-3 rounded-xl active:opacity-80"
-          accessibilityRole="button"
-          accessibilityLabel="Upgrade to Power plan"
-        >
-          <Text className="text-white font-semibold">Upgrade to Power</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  // ---- No Team Yet ----
+  // ---- No Team: Show Create Form ----
   if (!team) {
     return (
-      <View className="flex-1 bg-background items-center justify-center px-6">
-        <View className="w-16 h-16 bg-orange-500/10 rounded-full items-center justify-center mb-4">
-          <Ionicons name="people-outline" size={32} color="#f97316" />
-        </View>
-
-        <Text className="text-white text-xl font-semibold text-center mb-2">
-          No Team Yet
-        </Text>
-
-        <Text className="text-zinc-400 text-center mb-6">
-          Create a team on the web dashboard to start collaborating.
-        </Text>
-
-        <Pressable
-          onPress={openWebDashboard}
-          className="bg-brand px-6 py-3 rounded-xl active:opacity-80"
-          accessibilityRole="button"
-          accessibilityLabel="Open web dashboard"
-        >
-          <Text className="text-white font-semibold">Create Team on Web</Text>
-        </Pressable>
-      </View>
+      <CreateTeamForm
+        onCreate={createTeam}
+        isCreating={isMutating}
+        error={error}
+      />
     );
   }
 
   // ---- Team View ----
   const canManageMembers = currentUserRole === 'owner' || currentUserRole === 'admin';
+
+  // WHY: We determine what an admin can manage vs what an owner can manage.
+  // Owners can manage anyone. Admins can manage members but not other admins.
+  const canManageMember = (member: ValidatedTeamMember): boolean => {
+    if (member.role === 'owner') return false;
+    if (member.user_id === currentUserId) return false;
+    if (currentUserRole === 'owner') return true;
+    if (currentUserRole === 'admin' && member.role === 'member') return true;
+    return false;
+  };
+
+  // Build the flat list data
+  const listData: TeamListItem[] = [
+    { type: 'header', title: 'Members' },
+    ...members.map((m): TeamListItem => ({ type: 'member', data: m })),
+  ];
+
+  // Add invite button for owners/admins
+  if (canManageMembers) {
+    listData.push({ type: 'invite-button' });
+  }
+
+  // Add pending invitations section for owners/admins
+  if (canManageMembers && invitations.length > 0) {
+    listData.push({ type: 'header', title: 'Pending Invitations' });
+    for (const inv of invitations) {
+      listData.push({ type: 'invitation', data: inv });
+    }
+  }
 
   return (
     <View className="flex-1 bg-background">
@@ -479,43 +516,34 @@ export default function TeamScreen() {
               </Text>
             )}
           </View>
-          <Pressable
-            onPress={openWebDashboard}
-            className="p-2 bg-zinc-800 rounded-lg"
-            accessibilityRole="button"
-            accessibilityLabel="Manage team on web"
-          >
-            <Ionicons name="open-outline" size={20} color="#71717a" />
-          </Pressable>
         </View>
 
         <View className="flex-row items-center mt-3">
           <Text className="text-zinc-500 text-sm">
             {members.length} member{members.length !== 1 ? 's' : ''}
           </Text>
-          {pendingInvitations.length > 0 && (
+          {invitations.length > 0 && (
             <Text className="text-zinc-500 text-sm ml-3">
-              {pendingInvitations.length} pending
+              {invitations.length} pending
             </Text>
           )}
         </View>
       </View>
 
+      {/* Error Banner (inline for mutation errors) */}
+      {error && (
+        <View className="mx-4 mt-2 bg-red-500/10 rounded-lg px-3 py-2">
+          <Text className="text-red-400 text-sm">{error}</Text>
+        </View>
+      )}
+
       <FlatList<TeamListItem>
-        data={[
-          { type: 'header', title: 'Members' } as TeamListItem,
-          ...members.map((m): TeamListItem => ({ type: 'member', data: m })),
-          ...(canManageMembers && pendingInvitations.length > 0
-            ? [
-                { type: 'header', title: 'Pending Invitations' } as TeamListItem,
-                ...pendingInvitations.map((i): TeamListItem => ({ type: 'invitation', data: i })),
-              ]
-            : []),
-        ]}
+        data={listData}
         keyExtractor={(item, index) => {
           if (item.type === 'header') return `header-${item.title}`;
-          if (item.type === 'member') return (item.data as TeamMember).member_id;
-          return (item.data as PendingInvitation).id;
+          if (item.type === 'member') return item.data.member_id;
+          if (item.type === 'invitation') return item.data.id;
+          return `invite-button-${index}`;
         }}
         renderItem={({ item }) => {
           if (item.type === 'header') {
@@ -530,12 +558,29 @@ export default function TeamScreen() {
           if (item.type === 'member') {
             return (
               <MemberCard
-                member={item.data as TeamMember}
-                isCurrentUser={(item.data as TeamMember).user_id === currentUserId}
+                member={item.data}
+                isCurrentUser={item.data.user_id === currentUserId}
+                canManage={canManageMember(item.data)}
+                onChangeRole={handleChangeRole}
+                onRemove={handleRemove}
               />
             );
           }
-          return <InvitationCard invitation={item.data as PendingInvitation} />;
+          if (item.type === 'invitation') {
+            return <InvitationCard invitation={item.data} />;
+          }
+          // Invite button
+          return (
+            <Pressable
+              onPress={() => router.push('/team/invite')}
+              className="mx-4 mt-3 bg-brand/10 border border-brand/30 rounded-xl py-3 flex-row items-center justify-center active:opacity-80"
+              accessibilityRole="button"
+              accessibilityLabel="Invite a team member"
+            >
+              <Ionicons name="person-add" size={18} color="#f97316" />
+              <Text className="text-brand font-semibold ml-2">Invite Member</Text>
+            </Pressable>
+          );
         }}
         refreshControl={
           <RefreshControl
@@ -545,14 +590,8 @@ export default function TeamScreen() {
             colors={['#f97316']}
           />
         }
-        ListFooterComponent={
-          <View className="px-4 py-6">
-            <Text className="text-zinc-500 text-center text-sm">
-              To manage team members, use the web dashboard.
-            </Text>
-          </View>
-        }
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 24 }}
       />
     </View>
   );
