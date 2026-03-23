@@ -46,6 +46,7 @@ notes/
 # Security audit reports (contain vulnerability details)
 .security-audit.json
 .security-reports/
+.sec-reports/
 
 # Compliance audit reports
 .compliance/
