@@ -71,7 +71,7 @@ import { GET } from '../route';
 // Helpers
 // ============================================================================
 
-const VALID_SESSION_ID = '00000000-0000-0000-0000-000000000001';
+const VALID_SESSION_ID = 'a0000000-0000-4000-a000-000000000001';
 
 /**
  * Creates a NextRequest for the messages endpoint.

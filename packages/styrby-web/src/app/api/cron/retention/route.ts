@@ -3,9 +3,15 @@
  *
  * POST /api/cron/retention
  *
- * Enforces the retention promises made in the privacy policy:
+ * Enforces the retention promises made in the privacy policy and subscription
+ * lifecycle rules:
  * 1. Purge audit_log records older than 90 days
  * 2. Hard-delete profiles (and cascade) where deleted_at > 30 days ago
+ * 3. SEC-LOGIC-004 FIX: Downgrade canceled subscriptions past their period end
+ *    back to 'free' tier. Without this, a user who cancels keeps paid access
+ *    indefinitely because the webhook only marks status = 'canceled'; it does
+ *    not downgrade the tier. The tier downgrade must happen after
+ *    current_period_end passes (the user keeps access until then).
  *
  * WHY: GDPR Article 5(1)(e) requires data not be kept longer than necessary.
  * The privacy policy promises 90-day audit log retention and 30-day account
@@ -14,7 +20,7 @@
  * @auth Required - CRON_SECRET header must match environment variable
  * @schedule Recommended: daily via Vercel Cron or external scheduler
  *
- * @returns 200 { success: true, purged: { auditLogs: number, accounts: number } }
+ * @returns 200 { success: true, purged: { auditLogs: number, accounts: number }, downgraded: number }
  *
  * @error 401 { error: 'Unauthorized' }
  * @error 500 { error: 'Retention enforcement failed' }
@@ -22,6 +28,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
+import crypto from 'crypto';
 
 /**
  * Maximum number of audit log records to delete per run.
@@ -43,11 +50,24 @@ const AUDIT_LOG_RETENTION_DAYS = 90;
 const ACCOUNT_DELETION_GRACE_DAYS = 30;
 
 export async function POST(request: NextRequest) {
-  // Verify cron secret to prevent unauthorized execution
+  // Verify cron secret to prevent unauthorized execution.
+  // SEC-LOGIC-007 FIX: Use crypto.timingSafeEqual instead of ===.
+  // WHY: String equality (===) is vulnerable to timing attacks — an attacker
+  // can measure how long comparisons take to infer how many leading characters
+  // of the secret they guessed correctly. timingSafeEqual always takes the
+  // same amount of time regardless of where strings diverge, eliminating this
+  // side channel. This is especially important for long-lived cron secrets
+  // that rotate infrequently.
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = request.headers.get('authorization');
+  const provided = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
 
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+  if (
+    !cronSecret ||
+    !provided ||
+    provided.length !== cronSecret.length ||
+    !crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(cronSecret))
+  ) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -123,15 +143,57 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 3. SEC-LOGIC-004 FIX: Downgrade canceled subscriptions past their period end.
+    //
+    // WHY: When a user cancels, the polar-webhook sets status = 'canceled' but
+    // intentionally does NOT change the tier — the user should keep paid access
+    // until current_period_end (they paid for that period). This cron runs daily
+    // and downgrades the tier to 'free' once current_period_end has passed.
+    // Without this job, canceled users keep their paid tier forever.
+    const now = new Date().toISOString();
+
+    const { data: expiredSubs, error: expiredSubsError } = await supabase
+      .from('subscriptions')
+      .select('id')
+      .eq('status', 'canceled')
+      .neq('tier', 'free')
+      .lt('current_period_end', now);
+
+    if (expiredSubsError) {
+      console.error('Expired subscription lookup failed:', expiredSubsError.message);
+    }
+
+    let subscriptionsDowngraded = 0;
+
+    if (expiredSubs && expiredSubs.length > 0) {
+      const expiredSubIds = expiredSubs.map((s) => s.id);
+
+      const { count: downgradedCount, error: downgradeError } = await supabase
+        .from('subscriptions')
+        .update({ tier: 'free' }, { count: 'exact' })
+        .in('id', expiredSubIds);
+
+      if (downgradeError) {
+        console.error('Subscription tier downgrade failed:', downgradeError.message);
+      } else {
+        subscriptionsDowngraded = downgradedCount ?? 0;
+        console.log(
+          `[SEC-LOGIC-004] Downgraded ${subscriptionsDowngraded} canceled subscription(s) to free tier.`
+        );
+      }
+    }
+
     return NextResponse.json({
       success: true,
       purged: {
         auditLogs: auditCount ?? 0,
         accounts: accountsDeleted,
       },
+      downgraded: subscriptionsDowngraded,
       cutoffs: {
         auditLogBefore: auditCutoff.toISOString(),
         accountsDeletedBefore: accountCutoff.toISOString(),
+        subscriptionPeriodEndBefore: now,
       },
     });
   } catch (error) {

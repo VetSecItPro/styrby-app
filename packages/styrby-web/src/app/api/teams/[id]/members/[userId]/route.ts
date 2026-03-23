@@ -157,10 +157,15 @@ export async function PATCH(
     }
 
     // Update the member's role
+    // SEC-AUTHZ-001: Add .eq('team_id', teamId) as a redundant filter for
+    // defense-in-depth. The primary ownership check above is the real gate,
+    // but scoping the update to the specific team prevents any edge case where
+    // a member.id might theoretically appear in multiple teams.
     const { data: updatedMember, error: updateError } = await supabase
       .from('team_members')
       .update({ role: newRole })
       .eq('id', targetMember.id)
+      .eq('team_id', teamId)
       .select('id, user_id, role, updated_at')
       .single();
 

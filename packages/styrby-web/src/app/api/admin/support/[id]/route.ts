@@ -184,5 +184,22 @@ export async function PATCH(
     return NextResponse.json({ error: 'Failed to update ticket' }, { status: 500 });
   }
 
+  // SEC-ADMIN-001 FIX: Audit log every admin mutation.
+  // WHY: Admin actions (status changes, adding notes) directly affect user
+  // accounts and support outcomes. Without an audit trail, there is no way
+  // to investigate complaints like "my ticket was incorrectly closed" or
+  // detect rogue admin activity. The audit_log table provides a tamper-evident
+  // record of who did what and when.
+  // NOTE: result.user is guaranteed here because we returned early if 'error' was set.
+  if ('user' in result) {
+    await adminClient.from('audit_log').insert({
+      user_id: result.user.id,
+      action: 'admin.support_ticket.update',
+      resource_type: 'support_ticket',
+      resource_id: id,
+      metadata: { updates },
+    });
+  }
+
   return NextResponse.json({ ticket });
 }

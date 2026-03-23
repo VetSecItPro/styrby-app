@@ -352,9 +352,14 @@ export async function POST(request: Request) {
           existingSub.status === 'active' &&
           (tierRank[tier] ?? 0) < (tierRank[existingSub.tier] ?? 0)
         ) {
+          // SEC-CFG-001 FIX: Log the warning with sanitized fields only.
+          // WHY: console.warn(error) or logging raw objects can leak full stack
+          // traces, internal IDs, or structured data to log aggregation systems
+          // that may have less strict access controls than the application.
+          // Structured logging with explicit fields prevents accidental leakage.
           console.warn(
-            `Downgrade detected: user ${profileId} is on '${existingSub.tier}' but event has '${tier}'. ` +
-            'Skipping upsert to prevent accidental downgrade. Process manually if intentional.'
+            'Webhook processing warning: downgrade detected',
+            `user tier='${existingSub.tier}' event tier='${tier}' — skipping upsert`
           );
           return NextResponse.json({ received: true });
         }
@@ -377,6 +382,13 @@ export async function POST(request: Request) {
             polar_product_id: productId,
             tier,
             is_annual: getBillingCycleFromProductId(productId) === 'annual',
+            // SEC-LOGIC-008: Map Polar statuses to our subscriptions table status column.
+            // The subscriptions table supports 'active' and 'canceled' statuses.
+            // 'past_due' is intentionally mapped to 'canceled' because our schema does
+            // not have a 'past_due' status — past_due subscriptions have lapsed billing
+            // and should be treated as no longer active. If the payment succeeds later,
+            // Polar sends a subscription.updated event with status='active' which
+            // restores access. This is a deliberate lossy mapping, not an oversight.
             status: data.status === 'active' ? 'active' : 'canceled',
             current_period_start: data.current_period_start,
             current_period_end: data.current_period_end,

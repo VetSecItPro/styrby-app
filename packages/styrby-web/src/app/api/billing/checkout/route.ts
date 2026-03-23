@@ -31,9 +31,19 @@ import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 /**
  * Zod schema for checkout request validation.
  * WHY: Prevents malformed or unexpected input from reaching the Polar API.
+ *
+ * SEC-LOGIC-005 FIX: tierId is now z.enum(['pro', 'power']) instead of
+ * z.string(). WHY: A plain z.string() allows any value to pass validation,
+ * meaning an attacker could send tierId='free' or tierId='../admin' and reach
+ * the TIERS[tierId] lookup with arbitrary input. z.enum enforces an allowlist
+ * at the schema layer, before any business logic runs, and produces a clear
+ * validation error for unexpected values rather than silently failing at the
+ * TIERS lookup.
  */
 const CheckoutRequestSchema = z.object({
-  tierId: z.string().min(1, 'tierId is required'),
+  tierId: z.enum(['pro', 'power'], {
+    errorMap: () => ({ message: "tierId must be 'pro' or 'power'" }),
+  }),
   billingCycle: z.enum(['monthly', 'annual']).optional().default('monthly'),
 });
 
@@ -72,6 +82,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // tierId is 'pro' | 'power' (enforced by z.enum above), safe to cast to TierId
     const { tierId, billingCycle } = parseResult.data as {
       tierId: TierId;
       billingCycle: BillingCycle;

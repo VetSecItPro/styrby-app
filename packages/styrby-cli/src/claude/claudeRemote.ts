@@ -120,7 +120,20 @@ export async function claudeRemote(opts: {
         permissionMode: mapToClaudeMode(initial.mode.permissionMode),
         model: initial.mode.model,
         fallbackModel: initial.mode.fallbackModel,
-        customSystemPrompt: initial.mode.customSystemPrompt ? initial.mode.customSystemPrompt + '\n\n' + systemPrompt : undefined,
+        // SEC-LLM-002: Sanitize customSystemPrompt before forwarding to the Claude SDK.
+        // WHY: The CLI is a local tool run by the user themselves, so this is low risk —
+        // the user is effectively setting their own prompt. However, we still apply basic
+        // hygiene to prevent accidents: a length cap protects against runaway context
+        // consumption, and stripping control characters prevents terminal escape sequences
+        // or null bytes from reaching the SDK if the prompt comes from a config file
+        // or environment variable that could have been tampered with.
+        customSystemPrompt: initial.mode.customSystemPrompt
+          ? initial.mode.customSystemPrompt
+              // Strip control characters (excluding normal whitespace: \t, \n, \r)
+              .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+              // Enforce a 10,000 character limit to prevent context exhaustion
+              .slice(0, 10_000) + '\n\n' + systemPrompt
+          : undefined,
         appendSystemPrompt: initial.mode.appendSystemPrompt ? initial.mode.appendSystemPrompt + '\n\n' + systemPrompt : systemPrompt,
         allowedTools: initial.mode.allowedTools ? initial.mode.allowedTools.concat(opts.allowedTools) : opts.allowedTools,
         disallowedTools: initial.mode.disallowedTools,

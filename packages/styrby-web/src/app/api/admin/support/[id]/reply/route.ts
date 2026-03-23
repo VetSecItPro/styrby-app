@@ -103,6 +103,18 @@ export async function POST(
     return NextResponse.json({ error: 'Failed to add reply' }, { status: 500 });
   }
 
+  // SEC-ADMIN-001 FIX: Audit log the admin reply action.
+  // WHY: Sending replies to users is a high-impact admin action — it
+  // communicates on behalf of the company. An audit trail lets us
+  // investigate disputed communications and detect misuse of admin access.
+  await adminClient.from('audit_log').insert({
+    user_id: user.id,
+    action: 'admin.support_ticket.reply',
+    resource_type: 'support_ticket',
+    resource_id: id,
+    metadata: { ticket_id: id, message_length: validation.data.message.length },
+  });
+
   // Send email notification to the ticket owner
   let emailSent = false;
   const { data: ticketOwner } = await adminClient.auth.admin.getUserById(ticket.user_id);
