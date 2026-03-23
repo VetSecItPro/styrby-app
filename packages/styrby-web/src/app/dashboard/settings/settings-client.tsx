@@ -463,7 +463,11 @@ export function SettingsClient({
       }
 
       // Convert VAPID key from base64url to Uint8Array
-      const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey);
+      // WHY: Cast to ArrayBuffer because the Push API's subscribe() expects
+      // BufferSource, but Uint8Array's .buffer returns ArrayBufferLike which
+      // includes SharedArrayBuffer. The explicit .buffer access ensures
+      // compatibility with strict TypeScript environments.
+      const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey).buffer as ArrayBuffer;
 
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
