@@ -333,6 +333,109 @@ export const SubscriptionTierRowSchema = z.object({
 export type ValidatedSubscriptionTierRow = z.infer<typeof SubscriptionTierRowSchema>;
 
 // ============================================================================
+// Support Ticket Schema
+// ============================================================================
+
+/**
+ * Valid support ticket types.
+ * Matches the CHECK constraint in the support_tickets table.
+ */
+const SupportTicketTypeSchema = z.enum(['bug', 'feature', 'question']);
+
+/**
+ * Valid support ticket priorities.
+ * Matches the CHECK constraint in the support_tickets table.
+ */
+const SupportTicketPrioritySchema = z.enum(['low', 'medium', 'high']);
+
+/**
+ * Valid support ticket statuses.
+ * Matches the CHECK constraint in the support_tickets table.
+ */
+const SupportTicketStatusSchema = z.enum(['open', 'in_progress', 'resolved', 'closed']);
+
+/**
+ * Validates a row from the Supabase `support_tickets` table.
+ *
+ * Support tickets are submitted by users and managed by admins.
+ * Each ticket has a type (bug/feature/question), priority, and status.
+ */
+export const SupportTicketSchema = z.object({
+  /** Primary key (UUID) */
+  id: z.string(),
+  /** Owner of the ticket (UUID) */
+  user_id: z.string(),
+  /** Ticket category */
+  type: SupportTicketTypeSchema,
+  /** Short summary of the issue or request (3-200 characters) */
+  subject: z.string(),
+  /** Detailed description of the issue or request (10-5000 characters) */
+  description: z.string(),
+  /** Ticket priority level */
+  priority: SupportTicketPrioritySchema,
+  /** Current ticket status */
+  status: SupportTicketStatusSchema,
+  /** Optional screenshot URLs attached to the ticket */
+  screenshot_urls: z.array(z.string()).optional().default([]),
+  /** Internal admin notes (null for user-facing queries) */
+  admin_notes: z.string().nullable().optional(),
+  /** ISO timestamp when the ticket was created */
+  created_at: z.string(),
+  /** ISO timestamp when the ticket was last updated */
+  updated_at: z.string(),
+});
+
+/** Inferred TypeScript type for a validated support ticket row. */
+export type ValidatedSupportTicket = z.infer<typeof SupportTicketSchema>;
+
+/**
+ * Valid reply author types.
+ * Matches the CHECK constraint in the support_ticket_replies table.
+ */
+const ReplyAuthorTypeSchema = z.enum(['user', 'admin']);
+
+/**
+ * Validates a row from the Supabase `support_ticket_replies` table.
+ *
+ * Each reply belongs to a ticket and tracks who wrote it (user or admin).
+ */
+export const SupportTicketReplySchema = z.object({
+  /** Primary key (UUID) */
+  id: z.string(),
+  /** Foreign key to the parent ticket */
+  ticket_id: z.string(),
+  /** Whether the reply was written by a user or admin */
+  author_type: ReplyAuthorTypeSchema,
+  /** UUID of the author (matches auth.users.id) */
+  author_id: z.string(),
+  /** Reply message content (1-5000 characters) */
+  message: z.string(),
+  /** ISO timestamp when the reply was created */
+  created_at: z.string(),
+});
+
+/** Inferred TypeScript type for a validated support ticket reply row. */
+export type ValidatedSupportTicketReply = z.infer<typeof SupportTicketReplySchema>;
+
+/**
+ * Zod schema for validating new ticket creation input.
+ * Used to validate user input before sending to Supabase.
+ */
+export const CreateTicketInputSchema = z.object({
+  /** Ticket category */
+  type: SupportTicketTypeSchema,
+  /** Short summary (3-200 characters) */
+  subject: z.string().min(3, 'Subject must be at least 3 characters').max(200, 'Subject must be at most 200 characters'),
+  /** Detailed description (10-5000 characters) */
+  description: z.string().min(10, 'Description must be at least 10 characters').max(5000, 'Description must be at most 5000 characters'),
+  /** Optional priority (defaults to 'medium' in the database) */
+  priority: SupportTicketPrioritySchema.optional(),
+});
+
+/** Inferred TypeScript type for ticket creation input. */
+export type CreateTicketInput = z.infer<typeof CreateTicketInputSchema>;
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 

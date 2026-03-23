@@ -1066,6 +1066,13 @@ export default function SettingsScreen() {
       <SectionHeader title="Support" />
       <View className="bg-background-secondary">
         <SettingRow
+          icon="ticket"
+          iconColor="#f97316"
+          title="Support Tickets"
+          subtitle="View or create support tickets"
+          onPress={() => router.push('/support')}
+        />
+        <SettingRow
           icon="help-circle"
           iconColor="#71717a"
           title="Help & FAQ"

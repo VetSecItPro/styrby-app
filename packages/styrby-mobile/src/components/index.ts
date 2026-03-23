@@ -44,5 +44,7 @@ export type { TypingIndicatorProps, AgentState } from './TypingIndicator';
 
 export { OnboardingProgress } from './OnboardingProgress';
 
+export { OnboardingModal } from './OnboardingModal';
+
 export { SessionSummary } from './SessionSummary';
 export type { SessionSummaryProps } from './SessionSummary';
