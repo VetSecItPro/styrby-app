@@ -159,7 +159,9 @@ export async function POST(request: Request) {
     await supabase.from('audit_log').insert({
       user_id: user.id,
       action: 'export_requested',
-      ip_address: request.headers.get('x-forwarded-for') || 'unknown',
+      // SEC-INJ-002: Split x-forwarded-for on comma and take the first value to
+      // prevent log injection via crafted headers containing multiple IPs.
+      ip_address: (request.headers.get('x-forwarded-for') || 'unknown').split(',')[0].trim(),
       metadata: {
         tables_exported: 20,
         total_records: totalRecords,

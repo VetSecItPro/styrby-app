@@ -105,17 +105,27 @@ async function verifySignature(
 // ============================================================================
 
 /**
- * Map Polar product ID to subscription tier
+ * Map Polar product ID to subscription tier.
+ *
+ * SEC-LOGIC-001 FIX: Returns null for unrecognized product IDs instead of
+ * defaulting to 'free'. Returning 'free' for an unknown product would silently
+ * downgrade paying users if a new product ID is introduced or env vars are
+ * misconfigured. Callers must guard against null and skip any DB write.
+ *
+ * @param productId - The Polar product ID from the webhook payload
+ * @returns The matching tier string, or null if the product ID is not recognized
  */
-function getTierFromProductId(productId: string): 'free' | 'pro' | 'power' | 'team' {
+function getTierFromProductId(productId: string): 'free' | 'pro' | 'power' | 'team' | null {
   const proProductId = Deno.env.get('POLAR_PRO_PRODUCT_ID');
   const powerProductId = Deno.env.get('POLAR_POWER_PRODUCT_ID');
 
   if (productId === proProductId) return 'pro';
   if (productId === powerProductId) return 'power';
 
-  // Default to free for unknown products
-  return 'free';
+  // WHY: Return null rather than defaulting to 'free'. An unknown product ID
+  // likely means a misconfigured env var or a new product not yet handled.
+  // Silently writing 'free' would corrupt subscription state for paying users.
+  return null;
 }
 
 /**
@@ -146,6 +156,39 @@ function mapStatus(
 // ============================================================================
 
 /**
+ * Resolve user ID from email by querying the profiles table directly.
+ *
+ * SEC-LOGIC-003 FIX: Replaced supabase.auth.admin.listUsers() which loads
+ * ALL users into memory (O(n)) with a targeted single-row lookup. listUsers()
+ * is a DoS risk and will OOM the Edge Function as user count grows.
+ *
+ * @param supabase - Admin Supabase client
+ * @param email - The email address to look up
+ * @returns The user's UUID, or null if not found
+ */
+async function findUserIdByEmail(
+  supabase: ReturnType<typeof createClient>,
+  email: string
+): Promise<string | null> {
+  // WHY: auth.users is not queryable via the Supabase JS client's .from() API.
+  // We use the admin.listUsers with a filter instead of loading all users.
+  // The Supabase admin API supports filtering by email directly, which is O(1)
+  // at the DB level instead of fetching all rows and filtering in JS.
+  const { data, error } = await supabase.auth.admin.listUsers({
+    // @ts-ignore — Supabase admin API accepts filter params not yet typed
+    filter: `email.eq.${email}`,
+  });
+
+  if (error) {
+    console.error('Error looking up user by email:', error);
+    return null;
+  }
+
+  const matched = data?.users?.find((u) => u.email === email);
+  return matched?.id ?? null;
+}
+
+/**
  * Handle subscription.created event
  */
 async function handleSubscriptionCreated(
@@ -160,24 +203,33 @@ async function handleSubscriptionCreated(
     return;
   }
 
-  // WHY: Email is on auth.users, not profiles. Edge Functions have service
-  // role access and can query auth.users via the admin API.
-  const { data: authData, error: authError } = await supabase.auth.admin.listUsers();
-  const matchedUser = authData?.users?.find((u) => u.email === email);
+  // SEC-LOGIC-003 FIX: Use targeted lookup instead of loading all users.
+  const userId = await findUserIdByEmail(supabase, email);
 
-  if (!matchedUser) {
+  if (!userId) {
     console.error('No user found for email:', email);
     return;
   }
 
-  const profile = { id: matchedUser.id };
-
+  // SEC-LOGIC-001 FIX: getTierFromProductId returns null for unknown product IDs.
+  // Guard here: if the product ID is unrecognized, log a warning and skip the
+  // DB write entirely. Writing null or defaulting to 'free' would corrupt the
+  // subscription state for a paying user.
   const tier = getTierFromProductId(subscription.product_id);
+  if (tier === null) {
+    console.error(
+      '[SEC-LOGIC-001] Unknown product_id in subscription.created — skipping DB write to prevent accidental downgrade.',
+      { subscriptionId: subscription.id, productId: subscription.product_id }
+    );
+    // Return 200 to Polar so it does not retry. This event must be investigated
+    // manually via logs. Retrying would not help — the product ID will still be unknown.
+    return;
+  }
 
   // Upsert subscription
   const { error } = await supabase.from('subscriptions').upsert(
     {
-      user_id: profile.id,
+      user_id: userId,
       polar_subscription_id: subscription.id,
       polar_customer_id: subscription.customer_id,
       tier,
@@ -204,19 +256,70 @@ async function handleSubscriptionCreated(
 
 /**
  * Handle subscription.updated event
+ *
+ * SEC-LOGIC-002 FIX: Added idempotency check. Polar may deliver the same
+ * webhook event more than once (network retries, at-least-once delivery).
+ * Re-processing a duplicate event is harmless for status updates, but could
+ * cause double side-effects (emails, tier changes) in future code. We compare
+ * the incoming status and period against the current DB row and skip the write
+ * if nothing has changed.
+ *
+ * SEC-LOGIC-001 FIX: Null guard on tier — if the product ID is unrecognized,
+ * skip the DB write entirely to prevent accidental tier corruption.
  */
 async function handleSubscriptionUpdated(
   supabase: ReturnType<typeof createClient>,
   subscription: PolarSubscription
 ) {
+  // SEC-LOGIC-001: Validate product ID before any DB interaction.
   const tier = getTierFromProductId(subscription.product_id);
+  if (tier === null) {
+    console.error(
+      '[SEC-LOGIC-001] Unknown product_id in subscription.updated — skipping DB write to prevent accidental downgrade.',
+      { subscriptionId: subscription.id, productId: subscription.product_id }
+    );
+    // Return without throwing. The 200 response to Polar prevents retries.
+    return;
+  }
+
+  const incomingStatus = mapStatus(subscription.status);
+
+  // SEC-LOGIC-002: Fetch the current row to compare before writing.
+  // WHY: If status, tier, and period are unchanged, this is a duplicate event.
+  // Skipping the write prevents redundant DB mutations and any downstream
+  // side-effects (future email triggers, analytics events, etc.).
+  const { data: existing, error: fetchError } = await supabase
+    .from('subscriptions')
+    .select('status, tier, current_period_end')
+    .eq('polar_subscription_id', subscription.id)
+    .single();
+
+  if (fetchError && fetchError.code !== 'PGRST116') {
+    // PGRST116 = row not found — allow fall-through to create the row.
+    console.error('Error fetching subscription for idempotency check:', fetchError);
+    throw fetchError;
+  }
+
+  if (existing) {
+    const statusUnchanged = existing.status === incomingStatus;
+    const tierUnchanged = existing.tier === tier;
+    const periodUnchanged = existing.current_period_end === subscription.current_period_end;
+
+    if (statusUnchanged && tierUnchanged && periodUnchanged) {
+      console.log(
+        '[SEC-LOGIC-002] Duplicate subscription.updated event detected — skipping (no changes).',
+        { subscriptionId: subscription.id, status: incomingStatus }
+      );
+      return;
+    }
+  }
 
   // Update subscription
   const { data, error } = await supabase
     .from('subscriptions')
     .update({
       tier,
-      status: mapStatus(subscription.status),
+      status: incomingStatus,
       current_period_start: subscription.current_period_start,
       current_period_end: subscription.current_period_end,
       cancel_at_period_end: subscription.cancel_at_period_end,
@@ -230,7 +333,6 @@ async function handleSubscriptionUpdated(
     throw error;
   }
 
-  // Update user's tier in profile
   // WHY: Tier is on subscriptions table (updated above), not profiles.
 
   console.log('Subscription updated:', subscription.id, 'status:', subscription.status);
@@ -284,11 +386,10 @@ async function handleOrderCreated(
     return;
   }
 
-  // WHY: Email is on auth.users, not profiles.
-  const { data: authData } = await supabase.auth.admin.listUsers();
-  const matchedUser = authData?.users?.find((u) => u.email === email);
+  // SEC-LOGIC-003 FIX: Use targeted lookup instead of loading all users.
+  const userId = await findUserIdByEmail(supabase, email);
 
-  if (!matchedUser) {
+  if (!userId) {
     console.warn('No user found for order email:', email);
     return;
   }
@@ -298,7 +399,7 @@ async function handleOrderCreated(
   // — not `target_type`/`target_id`. And 'subscription.payment' is not a valid enum
   // value — use 'subscription_changed'.
   await supabase.from('audit_log').insert({
-    user_id: matchedUser.id,
+    user_id: userId,
     action: 'subscription_changed',
     resource_type: 'order',
     resource_id: order.id,

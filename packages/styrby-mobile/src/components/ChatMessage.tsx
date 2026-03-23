@@ -59,7 +59,16 @@ function CodeBlock({ content, language }: { content: string; language?: string }
   const handleCopy = async () => {
     await Clipboard.setStringAsync(content);
     setCopied(true);
+    // Reset the "Copied!" indicator after 2 seconds
     setTimeout(() => setCopied(false), 2000);
+    // SEC-MOB-001 FIX: Clear the clipboard after 30 seconds.
+    // WHY: Code blocks may contain secrets (API keys, tokens, passwords) that
+    // the developer copies during a session. If the user copies sensitive content
+    // and then switches apps, that data sits in the system clipboard indefinitely,
+    // accessible to any app that reads the clipboard (many do so on every focus).
+    // Clearing after 30 seconds limits the exposure window without disrupting
+    // normal paste workflows (users typically paste within a few seconds).
+    setTimeout(() => Clipboard.setStringAsync(''), 30000);
   };
 
   return (

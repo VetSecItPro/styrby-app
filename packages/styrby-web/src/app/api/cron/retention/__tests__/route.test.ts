@@ -38,6 +38,7 @@ function createChainMock() {
   for (const method of [
     'select',
     'eq',
+    'neq',
     'gte',
     'lte',
     'lt',
@@ -158,6 +159,9 @@ describe('POST /api/cron/retention', () => {
     // Expired profiles query returns empty array
     fromCallQueue.push({ data: [], error: null });
 
+    // Expired canceled subscriptions query returns empty array (step 3)
+    fromCallQueue.push({ data: [], error: null });
+
     const request = createCronRequest('test-cron-secret-123');
     const response = await POST(request);
     const data = await response.json();
@@ -178,6 +182,9 @@ describe('POST /api/cron/retention', () => {
     fromCallQueue.push({ data: null, error: null, count: 150 });
 
     // No expired profiles
+    fromCallQueue.push({ data: [], error: null });
+
+    // No expired canceled subscriptions (step 3)
     fromCallQueue.push({ data: [], error: null });
 
     const request = createCronRequest('test-cron-secret-123');
@@ -206,6 +213,9 @@ describe('POST /api/cron/retention', () => {
     // Hard delete profiles (CASCADE handles related tables)
     fromCallQueue.push({ data: null, error: null, count: 3 });
 
+    // No expired canceled subscriptions (step 3)
+    fromCallQueue.push({ data: [], error: null });
+
     const request = createCronRequest('test-cron-secret-123');
     const response = await POST(request);
     const data = await response.json();
@@ -231,6 +241,9 @@ describe('POST /api/cron/retention', () => {
     // Hard delete profiles
     fromCallQueue.push({ data: null, error: null, count: 2 });
 
+    // No expired canceled subscriptions (step 3)
+    fromCallQueue.push({ data: [], error: null });
+
     const request = createCronRequest('test-cron-secret-123');
     await POST(request);
 
@@ -247,6 +260,9 @@ describe('POST /api/cron/retention', () => {
     fromCallQueue.push({ data: null, error: null, count: 5 });
 
     // No expired profiles
+    fromCallQueue.push({ data: [], error: null });
+
+    // No expired canceled subscriptions (step 3)
     fromCallQueue.push({ data: [], error: null });
 
     const request = createCronRequest('test-cron-secret-123');
@@ -278,6 +294,9 @@ describe('POST /api/cron/retention', () => {
     // No expired profiles
     fromCallQueue.push({ data: [], error: null });
 
+    // No expired canceled subscriptions (step 3)
+    fromCallQueue.push({ data: [], error: null });
+
     const request = createCronRequest('test-cron-secret-123');
     const response = await POST(request);
     const data = await response.json();
@@ -302,6 +321,9 @@ describe('POST /api/cron/retention', () => {
       data: null,
       error: { message: 'Database error', code: 'DB_ERROR' },
     });
+
+    // No expired canceled subscriptions (step 3)
+    fromCallQueue.push({ data: [], error: null });
 
     const request = createCronRequest('test-cron-secret-123');
     const response = await POST(request);
@@ -329,6 +351,9 @@ describe('POST /api/cron/retention', () => {
     // Profile deletion succeeds
     fromCallQueue.push({ data: null, error: null, count: 3 });
 
+    // No expired canceled subscriptions (step 3)
+    fromCallQueue.push({ data: [], error: null });
+
     // First user deletion succeeds, second fails, third succeeds
     mockAdminDeleteUser
       .mockResolvedValueOnce({ data: {}, error: null })
@@ -355,6 +380,9 @@ describe('POST /api/cron/retention', () => {
     // No expired profiles
     fromCallQueue.push({ data: [], error: null });
 
+    // No expired canceled subscriptions (step 3)
+    fromCallQueue.push({ data: [], error: null });
+
     const request = createCronRequest('test-cron-secret-123');
     const response = await POST(request);
     const data = await response.json();
@@ -365,6 +393,8 @@ describe('POST /api/cron/retention', () => {
 
   /**
    * Test 13: Returns metadata about the retention job
+   * WHY: Response now includes downgraded count (step 3) and
+   * cutoffs.subscriptionPeriodEndBefore alongside the existing fields.
    */
   it('returns metadata with both purge counts and cutoff dates', async () => {
     fromCallQueue.push({ data: null, error: null, count: 42 }); // Audit logs
@@ -372,7 +402,8 @@ describe('POST /api/cron/retention', () => {
       data: [{ id: 'user-1' }],
       error: null,
     }); // Profiles
-    fromCallQueue.push({ data: null, error: null, count: 1 }); // Delete
+    fromCallQueue.push({ data: null, error: null, count: 1 }); // Delete profiles
+    fromCallQueue.push({ data: [], error: null }); // No expired canceled subscriptions (step 3)
 
     const request = createCronRequest('test-cron-secret-123');
     const response = await POST(request);
@@ -384,9 +415,11 @@ describe('POST /api/cron/retention', () => {
         auditLogs: 42,
         accounts: 1,
       },
+      downgraded: 0,
       cutoffs: {
         auditLogBefore: expect.any(String),
         accountsDeletedBefore: expect.any(String),
+        subscriptionPeriodEndBefore: expect.any(String),
       },
     });
   });

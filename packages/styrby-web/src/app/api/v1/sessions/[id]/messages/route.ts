@@ -83,7 +83,11 @@ async function handler(
   // URL is /api/v1/sessions/[id]/messages, so session ID is at index -2
   const sessionId = segments[segments.length - 2];
 
-  if (!sessionId || sessionId.length !== 36) {
+  // SEC-API-002: Validate session ID as a proper UUID v4 rather than just
+  // checking length. A length-only check accepts malformed strings like
+  // "../../../../etc/passwd" padded to 36 chars with slashes.
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!sessionId || !UUID_REGEX.test(sessionId)) {
     return NextResponse.json(
       { error: 'Invalid session ID' },
       { status: 400 }

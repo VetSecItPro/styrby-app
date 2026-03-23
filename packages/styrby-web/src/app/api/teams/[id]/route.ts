@@ -107,9 +107,11 @@ export async function GET(
     }
 
     // Fetch team (RLS ensures user is a member)
+    // SEC-API-004: Use explicit column list instead of select('*') to avoid
+    // accidentally exposing future columns (e.g., internal flags) added to the table.
     const { data: team, error: teamError } = await supabase
       .from('teams')
-      .select('*')
+      .select('id, name, description, owner_id, created_at, updated_at')
       .eq('id', teamId)
       .single();
 

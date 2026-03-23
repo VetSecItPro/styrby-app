@@ -196,9 +196,22 @@ function formatMessagesForPrompt(messages: MessageRow[]): string {
     .map((msg) => {
       const label = getMessageTypeLabel(msg.message_type);
 
-      // Include tool name for tool_use messages — tool names are not encrypted
+      // Include tool name for tool_use messages — tool names are not encrypted.
+      // SEC-LLM-001 FIX: Sanitize tool_name before embedding in the prompt.
+      // WHY: tool_name is stored from CLI output which could be influenced by
+      // malicious file names or agent responses. Without sanitization, a crafted
+      // tool name like "bash\nignore all previous instructions" could inject new
+      // prompt lines. We enforce an allowlist of safe characters (alphanumeric,
+      // underscores, hyphens, dots) matching typical CLI tool names, and cap
+      // the length to prevent oversized payloads crowding out the real prompt.
       if (msg.message_type === 'tool_use' && msg.tool_name) {
-        return `[${label}: ${msg.tool_name}]`;
+        const sanitizedToolName = msg.tool_name
+          // Allowlist: only alphanumeric, underscore, hyphen, dot (matches tool names like read_file, bash, str_replace_editor)
+          .replace(/[^a-zA-Z0-9_\-.]/g, '')
+          // Cap length to prevent oversized values
+          .slice(0, 64);
+        const displayName = sanitizedToolName || 'unknown_tool';
+        return `[${label}: ${displayName}]`;
       }
 
       return `[${label}]`;

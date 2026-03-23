@@ -199,7 +199,8 @@ describe('POST /api/billing/checkout', () => {
 
   /**
    * Test 3: Returns 400 when tierId is empty string
-   * WHY: z.string().min(1, 'tierId is required') catches empty strings
+   * WHY: z.enum(['pro', 'power']) rejects empty strings with the enum error message.
+   * Previously z.string().min(1) caught this; now the allowlist schema handles it.
    */
   it('returns 400 when tierId is empty string', async () => {
     mockGetUser.mockResolvedValueOnce({
@@ -217,7 +218,7 @@ describe('POST /api/billing/checkout', () => {
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data.error).toContain('tierId is required');
+    expect(data.error).toContain("tierId must be 'pro' or 'power'");
   });
 
   /**
@@ -244,8 +245,9 @@ describe('POST /api/billing/checkout', () => {
   });
 
   /**
-   * Test 5: Returns 400 when tier does not exist in TIERS
-   * WHY: Route checks !TIERS[tierId] and returns 'Invalid tier'
+   * Test 5: Returns 400 when tierId is not in the allowed enum values
+   * WHY: z.enum(['pro', 'power']) now rejects unknown tiers at the schema layer
+   * before the TIERS lookup runs. The error message comes from the enum's errorMap.
    */
   it('returns 400 when tier does not exist in TIERS', async () => {
     mockGetUser.mockResolvedValueOnce({
@@ -263,13 +265,14 @@ describe('POST /api/billing/checkout', () => {
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data.error).toBe('Invalid tier');
+    expect(data.error).toContain("tierId must be 'pro' or 'power'");
   });
 
   /**
    * Test 6: Returns 400 when attempting checkout for free tier
-   * WHY: TIERS.free.polarProductId.monthly is undefined — free tier has
-   * no Polar product. Route hits the !productId check after TIERS lookup.
+   * WHY: z.enum(['pro', 'power']) now rejects 'free' at the schema layer,
+   * before the TIERS lookup runs. The enum allowlist prevents free-tier
+   * bypass attempts from reaching business logic.
    */
   it('returns 400 when attempting checkout for free tier', async () => {
     mockGetUser.mockResolvedValueOnce({
@@ -287,7 +290,7 @@ describe('POST /api/billing/checkout', () => {
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data.error).toBe('Tier not available for purchase');
+    expect(data.error).toContain("tierId must be 'pro' or 'power'");
   });
 
   /**

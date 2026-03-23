@@ -203,9 +203,11 @@ export async function GET() {
     // Fetch alerts and subscription tier in parallel
     const [alertsResult, tier] = await Promise.all([
       // FIX-056: Add .limit() to prevent unbounded queries
+      // SEC-API-003: Use explicit column list instead of select('*') to avoid
+      // accidentally exposing future columns added to the table.
       supabase
         .from('budget_alerts')
-        .select('*')
+        .select('id, user_id, name, threshold_usd, period, agent_type, action, notification_channels, is_enabled, last_triggered_at, created_at, updated_at')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(100),

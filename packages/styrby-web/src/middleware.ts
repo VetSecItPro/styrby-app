@@ -217,11 +217,28 @@ export async function middleware(request: NextRequest) {
   // WHY: Admin routes perform inline auth checks, but if someone accidentally
   // removes the inline check in a future commit, this middleware gate ensures
   // unauthenticated requests never reach admin logic.
+  //
+  // SEC-AUTH-001 FIX: The previous check only tested cookie *presence*, which
+  // is trivially bypassable — an attacker can send a request with an empty or
+  // expired cookie and the gate would pass. We now validate that the Supabase
+  // session is actually authenticated by checking whether updateSession()
+  // redirected to login (which it does when the JWT is invalid/expired).
+  // Cookie presence is still checked first as a fast path, but validity is
+  // confirmed via the session update result.
   if (request.nextUrl.pathname.startsWith('/api/admin')) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
     const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1] ?? '';
     const adminCookieName = `sb-${projectRef}-auth-token`;
+
+    // Fast path: if no cookie at all, reject immediately
     if (!request.cookies.has(adminCookieName)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Deeper check: updateSession() will clear/redirect if the JWT is expired
+    // or tampered. A redirect to /login means the session is invalid.
+    const isInvalidSession = response.headers.get('location')?.includes('/login');
+    if (isInvalidSession) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
   }
