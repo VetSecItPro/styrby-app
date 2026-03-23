@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
@@ -54,6 +54,30 @@ interface SettingsClientProps {
   notificationPrefs: NotificationPrefs | null;
   /** Per-agent configuration rows */
   agentConfigs: AgentConfig[] | null;
+}
+
+/* ──────────────────────────── Helpers ─────────────────────────── */
+
+/**
+ * Converts a base64url-encoded string to a Uint8Array.
+ *
+ * WHY: The Push API's subscribe() method requires the applicationServerKey
+ * as a Uint8Array, but VAPID public keys are distributed as base64url strings.
+ * This conversion handles the base64url-to-standard-base64 translation and
+ * then decodes into a byte array.
+ *
+ * @param base64String - A base64url-encoded VAPID public key
+ * @returns The decoded key as a Uint8Array for the Push API
+ */
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
 }
 
 /* ──────────────────────────── Component ──────────────────────── */
@@ -139,8 +163,44 @@ export function SettingsClient({
   );
   const [prioritySaving, setPrioritySaving] = useState(false);
 
+  // Web Push subscription state
+  const [webPushSupported, setWebPushSupported] = useState(false);
+  const [webPushPermission, setWebPushPermission] = useState<NotificationPermission>('default');
+  const [webPushSubscribed, setWebPushSubscribed] = useState(false);
+  const [webPushLoading, setWebPushLoading] = useState(false);
+  const [webPushError, setWebPushError] = useState<string | null>(null);
+
   /** Whether the user is on a paid tier (Pro+ enables smart notifications) */
   const isPaidTier = subscription?.tier === 'pro' || subscription?.tier === 'power';
+
+  /**
+   * WHY: On mount, we detect browser support for Web Push and check whether
+   * the user already has an active push subscription. This lets the UI show
+   * the correct state (subscribed vs. not subscribed) without a server call.
+   */
+  useEffect(() => {
+    const checkWebPushStatus = async () => {
+      // Check browser support
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        setWebPushSupported(false);
+        return;
+      }
+      setWebPushSupported(true);
+      setWebPushPermission(Notification.permission);
+
+      // Check if already subscribed
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        setWebPushSubscribed(!!subscription);
+      } catch {
+        // Service worker not ready yet, subscription status unknown
+        setWebPushSubscribed(false);
+      }
+    };
+
+    checkWebPushStatus();
+  }, []);
 
   /* ── Handlers ────────────────────────────────────────────────── */
 
@@ -367,6 +427,113 @@ export function SettingsClient({
     },
     [supabase, profile?.id]
   );
+
+  /**
+   * Subscribes the browser to Web Push notifications.
+   * Requests permission if not already granted, creates a push subscription
+   * via the Push API, and saves it to the server.
+   */
+  const handleWebPushSubscribe = useCallback(async () => {
+    setWebPushLoading(true);
+    setWebPushError(null);
+
+    try {
+      // Request notification permission
+      const permission = await Notification.requestPermission();
+      setWebPushPermission(permission);
+
+      if (permission !== 'granted') {
+        setWebPushError(
+          'Notification permission was denied. Please allow notifications in your browser settings.'
+        );
+        setWebPushLoading(false);
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+
+      // WHY: The applicationServerKey is the VAPID public key that identifies
+      // our server to the push service. It must match the private key used
+      // to sign push messages on the server side.
+      const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+      if (!vapidPublicKey) {
+        setWebPushError('Push notification configuration is missing. Please contact support.');
+        setWebPushLoading(false);
+        return;
+      }
+
+      // Convert VAPID key from base64url to Uint8Array
+      const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey);
+
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey,
+      });
+
+      // Save subscription to the server
+      const response = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(subscription.toJSON()),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to save subscription');
+      }
+
+      setWebPushSubscribed(true);
+    } catch (error) {
+      setWebPushError(
+        error instanceof Error ? error.message : 'Failed to enable push notifications'
+      );
+    } finally {
+      setWebPushLoading(false);
+    }
+  }, []);
+
+  /**
+   * Unsubscribes the browser from Web Push notifications.
+   * Removes the push subscription from the browser and the server.
+   */
+  const handleWebPushUnsubscribe = useCallback(async () => {
+    setWebPushLoading(true);
+    setWebPushError(null);
+
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+
+      if (subscription) {
+        // Notify the server first (so it stops sending)
+        const response = await fetch('/api/push/unsubscribe', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: subscription.endpoint }),
+        });
+
+        // WHY: If the server call fails, we must not unsubscribe locally.
+        // Otherwise the browser loses its subscription reference while the
+        // server still holds the endpoint, causing ghost notifications the
+        // user can never dismiss or re-manage.
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to remove subscription from server');
+        }
+
+        // Then unsubscribe locally
+        await subscription.unsubscribe();
+      }
+
+      setWebPushSubscribed(false);
+    } catch (error) {
+      setWebPushError(
+        error instanceof Error ? error.message : 'Failed to disable push notifications'
+      );
+    } finally {
+      setWebPushLoading(false);
+    }
+  }, []);
 
   /* ── Render ──────────────────────────────────────────────────── */
 
@@ -702,6 +869,62 @@ export function SettingsClient({
               <div className="h-6 w-11 rounded-full bg-zinc-700 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-orange-500 peer-checked:after:translate-x-full" />
             </label>
           </div>
+
+          {/* Web Push subscription management */}
+          {webPushSupported && (
+            <div className="px-4 py-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-zinc-100">
+                    Browser Push Subscription
+                  </p>
+                  <p className="text-sm text-zinc-500">
+                    {webPushSubscribed
+                      ? 'This browser is receiving push notifications.'
+                      : webPushPermission === 'denied'
+                        ? 'Notifications are blocked in browser settings.'
+                        : 'Enable push notifications for this browser.'}
+                  </p>
+                </div>
+                <div>
+                  {webPushSubscribed ? (
+                    <button
+                      onClick={handleWebPushUnsubscribe}
+                      disabled={webPushLoading}
+                      className="px-3 py-1.5 text-sm font-medium text-zinc-400 bg-zinc-800 border border-zinc-700 rounded-lg hover:bg-zinc-700 hover:text-zinc-200 disabled:opacity-50 transition-colors"
+                      aria-label="Unsubscribe from push notifications"
+                    >
+                      {webPushLoading ? 'Processing...' : 'Unsubscribe'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleWebPushSubscribe}
+                      disabled={webPushLoading || webPushPermission === 'denied'}
+                      className="px-3 py-1.5 text-sm font-medium text-white bg-orange-500 rounded-lg hover:bg-orange-600 disabled:opacity-50 transition-colors"
+                      aria-label="Subscribe to push notifications"
+                    >
+                      {webPushLoading ? 'Processing...' : 'Enable'}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {webPushError && (
+                <p className="mt-2 text-sm text-red-400" role="alert">
+                  {webPushError}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Unsupported browser notice */}
+          {!webPushSupported && (
+            <div className="px-4 py-4">
+              <p className="text-sm text-zinc-500">
+                Your browser does not support Web Push notifications.
+                Try Chrome, Firefox, or Edge for push notification support.
+              </p>
+            </div>
+          )}
 
           {/* Email notifications */}
           <div className="px-4 py-4 flex items-center justify-between">

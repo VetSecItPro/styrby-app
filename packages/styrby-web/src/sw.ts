@@ -50,7 +50,13 @@ interface ServiceWorkerGlobalScope extends WorkerGlobalScope {
   __SW_MANIFEST: (PrecacheEntry | string)[] | undefined;
   clients: Clients;
   registration: ServiceWorkerRegistration;
+  location: { origin: string; href: string };
   addEventListener(type: 'sync', listener: (event: SyncEvent) => void): void;
+  addEventListener(type: 'push', listener: (event: PushEvent) => void): void;
+  addEventListener(
+    type: 'notificationclick',
+    listener: (event: NotificationEvent) => void
+  ): void;
   addEventListener(type: string, listener: EventListenerOrEventListenerObject): void;
 }
 
@@ -82,6 +88,42 @@ interface ExtendableEvent extends Event {
  */
 interface SyncEvent extends ExtendableEvent {
   readonly tag: string;
+}
+
+/**
+ * PushEvent fires when the service worker receives a push message
+ * from a push service. Contains the encrypted payload sent by the server.
+ */
+interface PushEvent extends ExtendableEvent {
+  readonly data: PushMessageData | null;
+}
+
+/**
+ * Provides methods to extract data from the push message payload.
+ */
+interface PushMessageData {
+  json(): unknown;
+  text(): string;
+}
+
+/**
+ * NotificationEvent fires when the user clicks on a displayed notification.
+ * Provides access to the notification object and its associated data.
+ */
+interface NotificationEvent extends ExtendableEvent {
+  readonly notification: NotificationObject;
+  readonly action: string;
+}
+
+/**
+ * Represents a displayed notification with its properties and methods.
+ */
+interface NotificationObject {
+  readonly title: string;
+  readonly body: string;
+  readonly data: Record<string, unknown>;
+  readonly tag: string;
+  close(): void;
 }
 
 /* eslint-enable @typescript-eslint/no-empty-object-type */
@@ -295,6 +337,131 @@ async function notifyClientsToSync(): Promise<void> {
     client.postMessage({ type: 'SYNC_OFFLINE_QUEUE' });
   }
 }
+
+// ============================================================================
+// Web Push Notification Handlers
+// ============================================================================
+
+/**
+ * Expected shape of the push notification payload sent by the server.
+ * The server sends this JSON via the web-push library.
+ */
+interface PushPayload {
+  /** Notification title displayed to the user */
+  title: string;
+  /** Notification body text */
+  body: string;
+  /** Optional icon URL (defaults to app icon) */
+  icon?: string;
+  /** Optional URL to open when the notification is clicked */
+  url?: string;
+  /** Optional tag for notification grouping/replacement */
+  tag?: string;
+}
+
+/**
+ * WHY: The 'push' event fires when the push service delivers a message to
+ * this service worker. The server encrypts the payload using the VAPID keys
+ * and the subscription's p256dh/auth keys. The browser decrypts it before
+ * delivering it here.
+ *
+ * We display a notification using the Notification API. If the payload is
+ * missing or malformed, we show a generic fallback notification so the user
+ * still knows something happened.
+ */
+self.addEventListener('push', (event: PushEvent) => {
+  const defaultPayload: PushPayload = {
+    title: 'Styrby',
+    body: 'You have a new notification.',
+  };
+
+  let payload: PushPayload = defaultPayload;
+
+  if (event.data) {
+    try {
+      const parsed = event.data.json() as Partial<PushPayload>;
+      payload = {
+        title: parsed.title || defaultPayload.title,
+        body: parsed.body || defaultPayload.body,
+        icon: parsed.icon,
+        url: parsed.url,
+        tag: parsed.tag,
+      };
+    } catch {
+      // WHY: If the payload is not valid JSON, fall back to the text content
+      // as the notification body. This handles edge cases where the server
+      // sends a plain text message instead of structured JSON.
+      payload = {
+        ...defaultPayload,
+        body: event.data.text() || defaultPayload.body,
+      };
+    }
+  }
+
+  const notificationOptions: NotificationOptions = {
+    body: payload.body,
+    icon: payload.icon || '/icons/icon-192x192.png',
+    badge: '/icons/icon-72x72.png',
+    tag: payload.tag || 'styrby-notification',
+    data: { url: payload.url || '/dashboard' },
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, notificationOptions)
+  );
+});
+
+/**
+ * WHY: The 'notificationclick' event fires when the user clicks on a
+ * notification displayed by this service worker. We use the data.url
+ * property (set in the push handler above) to navigate the user to the
+ * relevant page in the app.
+ *
+ * We first try to find an existing open tab for the app and focus it.
+ * If no tab is open, we open a new one. This prevents spawning duplicate
+ * tabs every time a notification is clicked.
+ */
+self.addEventListener('notificationclick', (event: NotificationEvent) => {
+  event.notification.close();
+
+  // WHY: Validate that the notification URL is same-origin before navigating.
+  // A malicious push payload could inject an arbitrary URL to redirect users
+  // to a phishing site. By restricting to same-origin paths, we prevent open
+  // redirect attacks via crafted notification data.
+  const rawUrl = (event.notification.data?.url as string) || '/dashboard';
+  let targetUrl: string;
+  try {
+    const parsed = new URL(rawUrl, self.location.origin);
+    targetUrl = parsed.origin === self.location.origin
+      ? parsed.pathname + parsed.search + parsed.hash
+      : '/dashboard';
+  } catch {
+    targetUrl = '/dashboard';
+  }
+
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: 'window' })
+      .then((clientList: Client[]) => {
+        // WHY: Look for an existing open tab to reuse. Opening a new tab for
+        // every notification click creates tab clutter. We check if any
+        // controlled client is already showing the app and focus it instead.
+        for (const client of clientList) {
+          const windowClient = client as unknown as {
+            url: string;
+            focus(): Promise<unknown>;
+            navigate(url: string): Promise<unknown>;
+          };
+          if (windowClient.url && windowClient.focus) {
+            return windowClient.navigate(targetUrl).then(() => windowClient.focus());
+          }
+        }
+        // No existing tab found, open a new one
+        return (self as unknown as { clients: { openWindow(url: string): Promise<unknown> } })
+          .clients.openWindow(targetUrl);
+      })
+  );
+});
 
 // ============================================================================
 // Activate Serwist Event Listeners
