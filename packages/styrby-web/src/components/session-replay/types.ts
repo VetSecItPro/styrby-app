@@ -29,6 +29,8 @@ export interface ReplayMessage {
     | 'system';
   /** Encrypted content (E2E encrypted for security) */
   content_encrypted: string | null;
+  /** Base64-encoded nonce used for encryption (null = plaintext) */
+  encryption_nonce: string | null;
   /** Risk level for permission requests */
   risk_level: 'low' | 'medium' | 'high' | null;
   /** Whether permission was granted */
