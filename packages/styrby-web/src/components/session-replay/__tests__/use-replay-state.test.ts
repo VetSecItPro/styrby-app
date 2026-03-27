@@ -43,6 +43,7 @@ function createMessage(
     sequence_number: parseInt(id.replace('msg-', ''), 10),
     message_type: type,
     content_encrypted: `Content for ${id}`,
+    encryption_nonce: null,
     risk_level: null,
     permission_granted: null,
     tool_name: null,

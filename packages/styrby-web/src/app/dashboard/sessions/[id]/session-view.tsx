@@ -33,6 +33,8 @@ interface Session {
   error_message: string | null;
   summary: string | null;
   summary_generated_at: string | null;
+  /** CLI machine that created this session (used for E2E key lookup) */
+  machine_id: string | null;
 }
 
 /**
@@ -239,6 +241,7 @@ export function SessionView({
             userId={userId}
             initialMessages={messages}
             isSessionActive={isSessionActive}
+            machineId={session.machine_id}
           />
 
           {/* Input (only shown for active sessions) */}

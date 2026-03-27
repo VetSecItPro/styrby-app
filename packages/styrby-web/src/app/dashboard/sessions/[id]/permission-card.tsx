@@ -8,8 +8,9 @@
  * determines the card's visual styling.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import { tryDecryptMessage } from '@/lib/encryption';
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -21,6 +22,8 @@ interface PermissionMessage {
   id: string;
   /** Encrypted content describing the permission request */
   content_encrypted: string | null;
+  /** Base64-encoded nonce (null = plaintext) */
+  encryption_nonce: string | null;
   /** Risk level determines visual styling */
   risk_level: 'low' | 'medium' | 'high' | null;
   /** Whether permission has been granted (null = pending) */
@@ -41,6 +44,8 @@ interface PermissionCardProps {
   sessionId: string;
   /** Whether the card should show action buttons */
   isActive: boolean;
+  /** CLI machine ID for E2E key lookup */
+  machineId: string | null;
 }
 
 /**
@@ -112,7 +117,7 @@ function LoaderIcon({ className }: { className?: string }) {
  *
  * @param props - PermissionCard configuration
  */
-export function PermissionCard({ message, sessionId, isActive }: PermissionCardProps) {
+export function PermissionCard({ message, sessionId, isActive, machineId }: PermissionCardProps) {
   // Track initial state from message
   const initialStatus: ResponseStatus = message.permission_granted === true
     ? 'approved'
@@ -212,8 +217,32 @@ export function PermissionCard({ message, sessionId, isActive }: PermissionCardP
     }
   };
 
-  // Decrypt content (placeholder for E2E encryption)
-  const content = message.content_encrypted || 'Permission request';
+  // Decrypt content — async decryption for E2E encrypted messages
+  const [content, setContent] = useState<string>(
+    // If no nonce, treat as plaintext; otherwise show loading state
+    !message.encryption_nonce
+      ? (message.content_encrypted || 'Permission request')
+      : 'Decrypting...'
+  );
+  const [isEncrypted, setIsEncrypted] = useState(false);
+
+  useEffect(() => {
+    if (!message.encryption_nonce) return; // Already plaintext
+
+    let cancelled = false;
+    tryDecryptMessage(message.content_encrypted, message.encryption_nonce, machineId)
+      .then((result) => {
+        if (cancelled) return;
+        if (result.content) {
+          setContent(result.content);
+        } else {
+          setContent('Permission request');
+          setIsEncrypted(true);
+        }
+      });
+
+    return () => { cancelled = true; };
+  }, [message.content_encrypted, message.encryption_nonce, machineId]);
 
   return (
     <div
@@ -240,7 +269,16 @@ export function PermissionCard({ message, sessionId, isActive }: PermissionCardP
           </div>
 
           {/* Description */}
-          <p className="text-sm text-zinc-300 mt-1">{content}</p>
+          <p className="text-sm text-zinc-300 mt-1">
+            {isEncrypted && (
+              <span className="inline-flex items-center gap-1 text-zinc-500 mr-1.5">
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              </span>
+            )}
+            {content}
+          </p>
 
           {/* Tool details */}
           <div className="mt-3 rounded-lg bg-zinc-900 border border-zinc-700 p-3">

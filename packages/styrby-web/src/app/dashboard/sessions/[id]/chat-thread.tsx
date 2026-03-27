@@ -12,6 +12,7 @@ import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 import { PermissionCard } from './permission-card';
 import { cn } from '@/lib/utils';
+import { tryDecryptMessage, registerWebDevice, type DecryptResult } from '@/lib/encryption';
 
 // WHY: Hoisted to module level to avoid re-allocating the RegExp object on every
 // render call. Note: no `g` flag here — we use matchAll() instead, which
@@ -45,6 +46,8 @@ interface Message {
     | 'system';
   /** Encrypted content (E2E encrypted for security) */
   content_encrypted: string | null;
+  /** Base64-encoded nonce used for encryption (null = plaintext) */
+  encryption_nonce: string | null;
   /** Risk level for permission requests */
   risk_level: 'low' | 'medium' | 'high' | null;
   /** Whether permission was granted */
@@ -71,6 +74,8 @@ interface ChatThreadProps {
   initialMessages: Message[];
   /** Whether the session is still active (affects permission cards) */
   isSessionActive: boolean;
+  /** CLI machine ID that created this session (for E2E key lookup) */
+  machineId: string | null;
 }
 
 /* ──────────────────────────── Icons ──────────────────────────── */
@@ -175,15 +180,18 @@ function getSenderLabel(messageType: Message['message_type']): string {
 }
 
 /**
- * Extracts message content from the encrypted field.
- * WHY: For now we display encrypted content directly.
- * Real E2E decryption would happen here using TweetNaCl.
+ * Returns plaintext for unencrypted messages (no nonce).
+ * For encrypted messages, returns null — async decryption is handled
+ * by the useDecryptedMessages hook in the ChatThread component.
  *
  * @param message - Message record
- * @returns Displayable content string
+ * @returns Displayable content string, or null if encrypted
  */
-function getMessageContent(message: Message): string {
-  return message.content_encrypted || '';
+function getMessageContentSync(message: Message): string | null {
+  if (!message.encryption_nonce) {
+    return message.content_encrypted || '';
+  }
+  return null;
 }
 
 /**
@@ -272,6 +280,8 @@ function renderContent(
 interface MessageRowProps {
   /** The message to render */
   message: Message;
+  /** Decrypted content (null if decryption failed or still loading) */
+  decryptedContent: DecryptResult | null;
   /** Which code block ID is currently showing the "Copied" state */
   copiedId: string | null;
   /** Stable callback — parent must wrap in useCallback to preserve referential equality */
@@ -291,8 +301,11 @@ interface MessageRowProps {
  * for unchanged rows), `copiedId` is a string|null (primitive comparison),
  * and `onCopy` must be wrapped in useCallback by the parent.
  */
-const MessageRow = memo(function MessageRow({ message, copiedId, onCopy }: MessageRowProps) {
-  const content = getMessageContent(message);
+const MessageRow = memo(function MessageRow({ message, decryptedContent, copiedId, onCopy }: MessageRowProps) {
+  // Resolve content: use decrypted result, fall back to sync extraction
+  const syncContent = getMessageContentSync(message);
+  const content = syncContent ?? decryptedContent?.content ?? '';
+  const isEncryptedAndUnreadable = !syncContent && decryptedContent?.wasEncrypted && !decryptedContent.content;
 
   return (
     <div
@@ -320,7 +333,16 @@ const MessageRow = memo(function MessageRow({ message, copiedId, onCopy }: Messa
 
       {/* Message content */}
       <div className="whitespace-pre-wrap break-words">
-        {renderContent(content, message.id, copiedId, onCopy)}
+        {isEncryptedAndUnreadable ? (
+          <span className="inline-flex items-center gap-1.5 text-zinc-500 italic">
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            Encrypted — view on paired device
+          </span>
+        ) : (
+          renderContent(content, message.id, copiedId, onCopy)
+        )}
       </div>
 
       {/* Duration for agent responses */}
@@ -349,10 +371,59 @@ export function ChatThread({
   userId: _userId,
   initialMessages,
   isSessionActive,
+  machineId,
 }: ChatThreadProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  /**
+   * Cached decryption results indexed by message ID.
+   * WHY: Decryption is async (requires Supabase key lookup on first call).
+   * We decrypt all messages on mount and cache results so MessageRow can
+   * render synchronously from the cache.
+   */
+  const [decryptedCache, setDecryptedCache] = useState<Record<string, DecryptResult>>({});
+
+  /**
+   * Decrypt all encrypted messages on mount and when new messages arrive.
+   * Also registers the web device's public key for future E2E support.
+   */
+  useEffect(() => {
+    // Best-effort web device registration (non-blocking)
+    registerWebDevice().catch(() => {});
+
+    const decryptAll = async () => {
+      const newCache: Record<string, DecryptResult> = {};
+      let hasNew = false;
+
+      for (const msg of messages) {
+        // Skip if already cached
+        if (decryptedCache[msg.id]) {
+          newCache[msg.id] = decryptedCache[msg.id];
+          continue;
+        }
+
+        // Only decrypt messages that have a nonce (actually encrypted)
+        if (msg.encryption_nonce) {
+          hasNew = true;
+          const result = await tryDecryptMessage(
+            msg.content_encrypted,
+            msg.encryption_nonce,
+            machineId
+          );
+          newCache[msg.id] = result;
+        }
+      }
+
+      if (hasNew) {
+        setDecryptedCache((prev) => ({ ...prev, ...newCache }));
+      }
+    };
+
+    decryptAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, machineId]);
 
   /**
    * Handles a new message from the real-time subscription.
@@ -451,6 +522,7 @@ export function ChatThread({
                 message={message}
                 sessionId={sessionId}
                 isActive={isSessionActive && message.permission_granted === null}
+                machineId={machineId}
               />
             );
           }
@@ -464,6 +536,7 @@ export function ChatThread({
             <MessageRow
               key={message.id}
               message={message}
+              decryptedContent={decryptedCache[message.id] || null}
               copiedId={copiedId}
               onCopy={copyCode}
             />
