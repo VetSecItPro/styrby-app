@@ -277,7 +277,7 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
           className="w-full rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 resize-none mb-1"
           aria-label="Feedback message"
         />
-        <p className="text-xs text-zinc-600 text-right mb-4">
+        <p className="text-xs text-zinc-500 text-right mb-4">
           {message.length}/{MAX_MESSAGE_LENGTH}
         </p>
 

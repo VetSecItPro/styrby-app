@@ -745,7 +745,7 @@ export function SessionsFilter({
             </div>
           )}
           {!hasMore && allSessions.length > 0 && (
-            <p className="text-center text-sm text-zinc-600 py-4">
+            <p className="text-center text-sm text-zinc-500 py-4">
               All sessions loaded
             </p>
           )}
