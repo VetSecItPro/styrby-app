@@ -160,6 +160,13 @@ export const CostRecordSchema = z.object({
   record_date: z.string(),
   /** Which AI agent generated the cost (NOT NULL in DB) */
   agent_type: z.string(),
+  /**
+   * Model identifier (e.g., 'claude-sonnet-4', 'gpt-4o').
+   * NOT NULL in DB. Uses `.default('unknown')` rather than `.optional()` so
+   * queries that do not select this column still produce a usable value, and
+   * the downstream aggregation logic never receives `undefined` for this field.
+   */
+  model: z.string().default('unknown'),
   /** Cost in USD. Coerced from string because Postgres numeric types serialize as strings. */
   cost_usd: z.coerce.number().nullable(),
   /** Input tokens consumed */
@@ -210,6 +217,11 @@ export const BudgetAlertSchema = z.object({
   threshold_usd: z.coerce.number(),
   /** Time period for spend aggregation */
   period: BudgetAlertPeriodSchema,
+  /**
+   * Optional agent type scope. NULL means all agents.
+   * The database column is `agent_type agent_type` (nullable enum).
+   */
+  agent_type: AgentTypeSchema.nullable().optional(),
   /** Action to take when threshold is reached */
   action: BudgetAlertDbActionSchema,
   /** Whether the alert is currently active */

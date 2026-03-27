@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../src/lib/supabase';
 import { SessionSummary } from '../../src/components/SessionSummary';
 import { SessionReplay, type ReplayMessageData } from '../../src/components/SessionReplay';
+import { SessionTagEditor } from '../../src/components/SessionTagEditor';
 import { formatCost } from '../../src/hooks/useCosts';
 
 // ============================================================================
@@ -42,6 +43,7 @@ interface SessionData {
   total_input_tokens: number;
   total_output_tokens: number;
   message_count: number;
+  tags: string[];
   started_at: string;
   ended_at: string | null;
   error_message: string | null;
@@ -200,7 +202,7 @@ export default function SessionDetailScreen() {
         }
       } catch (err) {
         setError('Failed to load session');
-        console.error('Session load error:', err);
+        if (__DEV__) console.error('Session load error:', err);
       } finally {
         setIsLoading(false);
       }
@@ -363,6 +365,12 @@ export default function SessionDetailScreen() {
           summaryGeneratedAt={session.summary_generated_at}
           sessionStatus={session.status}
           userTier={userTier}
+        />
+
+        {/* Tag editor — below metadata, above stats */}
+        <SessionTagEditor
+          sessionId={session.id}
+          initialTags={session.tags ?? []}
         />
 
         {/* Stats section */}

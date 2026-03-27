@@ -27,12 +27,16 @@ import {
   Linking,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
 } from 'react-native';
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTeamManagement } from '../../src/hooks/useTeamManagement';
+import { supabase } from '../../src/lib/supabase';
+import { SubscriptionTierRowSchema } from '../../src/lib/schemas';
 import type { ValidatedTeamMember, ValidatedTeamInvitation } from '../../src/lib/schemas';
+import type { SubscriptionTier } from 'styrby-shared';
 
 // ============================================================================
 // Types
@@ -230,6 +234,111 @@ function InvitationCard({ invitation }: { invitation: ValidatedTeamInvitation })
 }
 
 // ============================================================================
+// Upgrade Prompt Constants & Component
+// ============================================================================
+
+/**
+ * Polar customer portal URL for subscription management.
+ * WHY: Polar is the merchant of record. Upgrade flows go through Polar checkout.
+ */
+const POLAR_CUSTOMER_PORTAL_URL = 'https://polar.sh/styrby/portal';
+
+/** Pricing page URL for users who want to learn more before upgrading. */
+const PRICING_URL = 'https://styrbyapp.com/pricing';
+
+/**
+ * Power plan price displayed in the upgrade prompt.
+ * WHY: Sourced from the pricing page (llms.txt: "Power $49/mo").
+ * If pricing changes, update this constant and the pricing page.
+ */
+const POWER_PLAN_PRICE = '$49/month';
+
+/**
+ * Feature list for the Power plan upgrade prompt.
+ * WHY: These map to the actual Power tier capabilities as defined in the
+ * subscriptions/tier system. Keeping them in a data array avoids duplication
+ * if we ever render them in multiple places.
+ */
+const POWER_FEATURES = [
+  'Up to 3 team members',
+  'Shared session visibility',
+  'Team cost tracking',
+  'Role-based permissions',
+  'Email invitations',
+] as const;
+
+/**
+ * Upgrade prompt shown to Free and Pro users who navigate to the Team tab.
+ * Team collaboration is a Power-tier-only feature.
+ *
+ * @param props.tier - The user's current subscription tier, shown for context
+ * @returns Upgrade card with feature list and action buttons
+ */
+function UpgradePrompt({ tier }: { tier: SubscriptionTier }) {
+  return (
+    <ScrollView
+      className="flex-1 bg-background"
+      contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }}
+    >
+      <View className="bg-zinc-900 rounded-2xl p-6 border border-zinc-800">
+        {/* Icon */}
+        <View className="items-center mb-4">
+          <View className="w-16 h-16 bg-orange-500/10 rounded-full items-center justify-center">
+            <Ionicons name="shield-checkmark" size={48} color="#f97316" />
+          </View>
+        </View>
+
+        {/* Heading */}
+        <Text className="text-white text-xl font-bold text-center mb-2">
+          Upgrade to Power
+        </Text>
+        <Text className="text-zinc-400 text-center text-base mb-6">
+          Team collaboration requires the Power plan
+        </Text>
+
+        {/* Feature List */}
+        <View className="mb-6">
+          {POWER_FEATURES.map((feature) => (
+            <View key={feature} className="flex-row items-center gap-2 mb-3">
+              <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
+              <Text className="text-zinc-300 text-base flex-1">{feature}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Price */}
+        <Text className="text-white text-2xl font-bold text-center mb-1">
+          {POWER_PLAN_PRICE}
+        </Text>
+        <Text className="text-zinc-500 text-sm text-center mb-6">
+          Currently on {tier.charAt(0).toUpperCase() + tier.slice(1)} plan
+        </Text>
+
+        {/* Upgrade Button */}
+        <Pressable
+          onPress={() => Linking.openURL(POLAR_CUSTOMER_PORTAL_URL)}
+          className="bg-orange-500 rounded-xl py-3 items-center active:opacity-80"
+          accessibilityRole="button"
+          accessibilityLabel="Upgrade to Power plan"
+        >
+          <Text className="text-white font-semibold text-base">Upgrade</Text>
+        </Pressable>
+
+        {/* Learn More Link */}
+        <Pressable
+          onPress={() => Linking.openURL(PRICING_URL)}
+          className="mt-2 py-2"
+          accessibilityRole="link"
+          accessibilityLabel="Learn more about pricing"
+        >
+          <Text className="text-orange-400 text-sm text-center">Learn More</Text>
+        </Pressable>
+      </View>
+    </ScrollView>
+  );
+}
+
+// ============================================================================
 // Create Team Form Component
 // ============================================================================
 
@@ -372,6 +481,63 @@ export default function TeamScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   /**
+   * The user's subscription tier, used to gate team features.
+   * WHY: Team collaboration is Power-tier only. Free and Pro users see an
+   * upgrade prompt instead of the create team form. We fetch the tier separately
+   * because useTeamManagement does not expose it — tier gating is a UI concern.
+   */
+  const [subscriptionTier, setSubscriptionTier] = useState<SubscriptionTier | null>(null);
+
+  /**
+   * Whether the subscription tier is still loading.
+   * WHY: Separate from the team hook's isLoading to avoid showing incorrect
+   * UI (e.g., the create team form) before we know the user's tier.
+   */
+  const [isTierLoading, setIsTierLoading] = useState(true);
+
+  /**
+   * Fetches the user's subscription tier from the subscriptions table.
+   * Defaults to 'free' if no subscription row exists.
+   */
+  useEffect(() => {
+    const loadTier = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setSubscriptionTier('free');
+          setIsTierLoading(false);
+          return;
+        }
+
+        const { data, error: subError } = await supabase
+          .from('subscriptions')
+          .select('tier')
+          .eq('user_id', user.id)
+          .single();
+
+        if (!subError && data) {
+          // WHY: Validate the tier value through Zod before casting to SubscriptionTier.
+          // An unvalidated `data.tier as SubscriptionTier` would silently pass unknown
+          // tier strings (e.g., from future DB migrations) into the UI, causing
+          // incorrect conditional rendering or crashes in downstream switch statements.
+          const parsed = SubscriptionTierRowSchema.safeParse(data);
+          const tierStr = parsed.success ? parsed.data.tier : 'free';
+          setSubscriptionTier(tierStr as SubscriptionTier);
+        } else {
+          setSubscriptionTier('free');
+        }
+      } catch {
+        // Default to free on error — worst case they see the upgrade prompt
+        setSubscriptionTier('free');
+      } finally {
+        setIsTierLoading(false);
+      }
+    };
+
+    loadTier();
+  }, []);
+
+  /**
    * Handles pull-to-refresh.
    */
   const handleRefresh = useCallback(async () => {
@@ -425,7 +591,10 @@ export default function TeamScreen() {
   );
 
   // ---- Loading State ----
-  if (isLoading) {
+  // WHY: Wait for both team data AND subscription tier before rendering.
+  // Without tier info, we cannot decide whether to show the upgrade prompt
+  // or the create team form.
+  if (isLoading || isTierLoading) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
         <ActivityIndicator size="large" color="#f97316" />
@@ -455,8 +624,16 @@ export default function TeamScreen() {
     );
   }
 
-  // ---- No Team: Show Create Form ----
+  // ---- No Team: Show Upgrade Prompt or Create Form ----
   if (!team) {
+    // WHY: Team features are Power-tier only. Free and Pro users should see
+    // an upgrade prompt explaining the feature and its benefits, rather than
+    // a create team form that would fail at the API level anyway.
+    const effectiveTier = subscriptionTier ?? 'free';
+    if (effectiveTier === 'free' || effectiveTier === 'pro') {
+      return <UpgradePrompt tier={effectiveTier} />;
+    }
+
     return (
       <CreateTeamForm
         onCreate={createTeam}

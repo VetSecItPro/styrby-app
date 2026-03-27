@@ -10,19 +10,44 @@
  *
  * This screen handles the first 3 steps via a swipeable pager.
  * The remaining steps are separate screens for focused user interaction.
+ *
+ * Step persistence:
+ * The current onboarding step is persisted to SecureStore so users can resume
+ * where they left off if the app is closed mid-onboarding. On mount, the screen
+ * checks what the user has already completed (authentication, pairing, push token)
+ * and resumes from the first incomplete step.
  */
 
-import { View, Text, Pressable } from 'react-native';
-import { useState, useRef, useCallback } from 'react';
+import { View, Text, Pressable, ActivityIndicator } from 'react-native';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { router } from 'expo-router';
 import PagerView from 'react-native-pager-view';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
+import * as SecureStore from 'expo-secure-store';
 import { OnboardingProgress } from '../../src/components/OnboardingProgress';
+import { isPaired } from '../../src/services/pairing';
+import { supabase } from '../../src/lib/supabase';
 
 /** Total number of steps in the complete onboarding flow */
 const TOTAL_ONBOARDING_STEPS = 5;
+
+/**
+ * SecureStore key for persisting the current onboarding pager step index.
+ * WHY: If a user closes the app during onboarding, they should resume from
+ * their last step rather than restarting from Welcome. We use SecureStore
+ * (not AsyncStorage) because it is already available in the project and avoids
+ * adding another dependency.
+ */
+const ONBOARDING_STEP_KEY = 'styrby_onboarding_step';
+
+/**
+ * SecureStore key for marking onboarding as fully completed.
+ * WHY: Separate from the step key because completion indicates the entire
+ * flow is done, not just a particular pager step.
+ */
+const ONBOARDING_COMPLETE_KEY = 'styrby_onboarding_complete';
 
 interface OnboardingStep {
   title: string;
@@ -63,9 +88,95 @@ const INSTALL_COMMAND = 'npm install -g styrby';
 /** Terminal command for device pairing (step 3). */
 const PAIR_COMMAND = 'styrby pair';
 
+/**
+ * Determines the first incomplete onboarding pager step by checking
+ * which actions the user has already completed.
+ *
+ * Smart resume logic:
+ * - If the user is authenticated, step 0 (Welcome) is complete
+ * - If pairing info exists in SecureStore, step 2 (Scan QR) is done
+ * - Step 1 (Install CLI) is inferred as done if pairing exists (can't pair without CLI)
+ *
+ * @returns The zero-based pager index to resume from
+ *
+ * @example
+ * const step = await computeResumeStep();
+ * pagerRef.current?.setPage(step);
+ */
+async function computeResumeStep(): Promise<number> {
+  try {
+    // Check if device is already paired — implies CLI installed + QR scanned
+    const paired = await isPaired();
+    if (paired) {
+      // WHY: If already paired, the user has completed steps 0-2 (Welcome, Install CLI,
+      // Scan QR). Return the last pager step so they can proceed to the scan screen
+      // and then on to notifications.
+      return STEPS.length - 1;
+    }
+
+    // Check if user is authenticated — implies Welcome step is done
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      // Check if there's a saved step that's further along
+      const savedStep = await SecureStore.getItemAsync(ONBOARDING_STEP_KEY);
+      if (savedStep !== null) {
+        const parsed = parseInt(savedStep, 10);
+        // WHY: Clamp to valid range to prevent crashes if stored value is corrupted
+        if (!isNaN(parsed) && parsed >= 0 && parsed < STEPS.length) {
+          return Math.max(1, parsed); // At minimum step 1, since they're authenticated
+        }
+      }
+      return 1; // Skip Welcome, go to Install CLI
+    }
+
+    return 0; // Start from the beginning
+  } catch {
+    // On any error, start from step 0 — safe fallback
+    return 0;
+  }
+}
+
+/**
+ * Persists the current onboarding pager step to SecureStore.
+ *
+ * @param stepIndex - The zero-based pager step index to save
+ */
+async function saveOnboardingStep(stepIndex: number): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(ONBOARDING_STEP_KEY, stepIndex.toString());
+  } catch {
+    // Non-fatal: persistence failure just means the user restarts from an earlier step
+    if (__DEV__) {
+      console.warn('[Onboarding] Failed to save step index:', stepIndex);
+    }
+  }
+}
+
+/**
+ * Marks onboarding as fully completed in SecureStore and clears the step key.
+ * Called when the user navigates past the final pager step to the scan screen.
+ */
+async function markOnboardingPagerComplete(): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(ONBOARDING_COMPLETE_KEY, 'true');
+    await SecureStore.deleteItemAsync(ONBOARDING_STEP_KEY);
+  } catch {
+    if (__DEV__) {
+      console.warn('[Onboarding] Failed to mark pager complete');
+    }
+  }
+}
+
 export default function OnboardingScreen() {
   const pagerRef = useRef<PagerView>(null);
   const [currentPage, setCurrentPage] = useState(0);
+
+  /**
+   * Whether the screen is still computing the resume step.
+   * WHY: We need to determine the correct starting page before rendering
+   * the pager, otherwise the user sees a flash of step 0 before jumping.
+   */
+  const [isRestoringStep, setIsRestoringStep] = useState(true);
 
   /**
    * Tracks which command was recently copied so the UI can show
@@ -73,6 +184,35 @@ export default function OnboardingScreen() {
    * Value is 'install' | 'pair' | null.
    */
   const [copiedCommand, setCopiedCommand] = useState<'install' | 'pair' | null>(null);
+
+  /**
+   * On mount, compute the resume step and set the pager to it.
+   * WHY: If a user closes the app mid-onboarding, they should resume from
+   * their last step (or from the first incomplete step based on what they've
+   * already accomplished — authenticated, paired, etc.).
+   */
+  useEffect(() => {
+    let isMounted = true;
+
+    const restoreStep = async () => {
+      const resumeStep = await computeResumeStep();
+      if (isMounted) {
+        setCurrentPage(resumeStep);
+        // WHY: setPage must be called after the PagerView has mounted.
+        // Using requestAnimationFrame ensures the pager is ready.
+        requestAnimationFrame(() => {
+          pagerRef.current?.setPageWithoutAnimation(resumeStep);
+        });
+        setIsRestoringStep(false);
+      }
+    };
+
+    restoreStep();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   /**
    * Copies a terminal command to the system clipboard and shows
@@ -89,14 +229,19 @@ export default function OnboardingScreen() {
 
   /**
    * Advances to the next pager step, or navigates to the scan screen
-   * when the last pager step is reached.
+   * when the last pager step is reached. Persists the new step index
+   * to SecureStore for resume support.
    */
   const handleNext = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     if (currentPage < STEPS.length - 1) {
-      pagerRef.current?.setPage(currentPage + 1);
+      const nextPage = currentPage + 1;
+      pagerRef.current?.setPage(nextPage);
+      await saveOnboardingStep(nextPage);
     } else {
+      // Mark pager steps as complete before navigating to scan
+      await markOnboardingPagerComplete();
       // Go to scan screen (step 3 completion leads to camera scanner)
       router.push('/(auth)/scan');
     }
@@ -108,6 +253,7 @@ export default function OnboardingScreen() {
    */
   const handleSkip = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await markOnboardingPagerComplete();
     router.replace('/(tabs)');
   };
 
@@ -115,6 +261,28 @@ export default function OnboardingScreen() {
 
   /** Calculate the current step in the overall flow (1-indexed for display) */
   const currentOverallStep = currentPage + 1;
+
+  /**
+   * Handles pager page changes from both swipe gestures and programmatic navigation.
+   * Persists the new step index for resume support.
+   *
+   * @param position - The zero-based index of the newly selected page
+   */
+  const handlePageSelected = useCallback((position: number) => {
+    setCurrentPage(position);
+    // Fire-and-forget persistence — non-blocking for UI responsiveness
+    saveOnboardingStep(position);
+  }, []);
+
+  // WHY: Show a loading indicator while computing the resume step to prevent
+  // a flash of step 0 before jumping to the correct step.
+  if (isRestoringStep) {
+    return (
+      <View className="flex-1 bg-background items-center justify-center">
+        <ActivityIndicator size="large" color="#f97316" />
+      </View>
+    );
+  }
 
   return (
     <View className="flex-1 bg-background">
@@ -140,8 +308,8 @@ export default function OnboardingScreen() {
       <PagerView
         ref={pagerRef}
         style={{ flex: 1 }}
-        initialPage={0}
-        onPageSelected={(e) => setCurrentPage(e.nativeEvent.position)}
+        initialPage={currentPage}
+        onPageSelected={(e) => handlePageSelected(e.nativeEvent.position)}
       >
         {STEPS.map((step, index) => (
           <View key={index} className="flex-1 items-center justify-center px-8">

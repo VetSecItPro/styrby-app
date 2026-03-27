@@ -31,8 +31,8 @@ describe('deep-links', () => {
       expect(UNIVERSAL_LINK_DOMAIN).toBe('styrbyapp.com');
     });
 
-    it('should have all 7 DEEP_LINK_ROUTES', () => {
-      expect(Object.keys(DEEP_LINK_ROUTES).length).toBe(7);
+    it('should have all 8 DEEP_LINK_ROUTES', () => {
+      expect(Object.keys(DEEP_LINK_ROUTES).length).toBe(8);
     });
 
     it('should have correct DEEP_LINK_ROUTES mapping', () => {
@@ -44,6 +44,7 @@ describe('deep-links', () => {
         'styrby://costs': '/(tabs)/costs',
         'styrby://settings': '/(tabs)/settings',
         'styrby://scan': '/(auth)/scan',
+        'styrby://team/accept-invite': '/team/accept-invite',
       });
     });
   });
@@ -316,6 +317,10 @@ describe('deep-links', () => {
 
     it('should return true for scan', () => {
       expect(isKnownScreen('scan')).toBe(true);
+    });
+
+    it('should return true for team/accept-invite', () => {
+      expect(isKnownScreen('team/accept-invite')).toBe(true);
     });
 
     it('should return false for unknown screen', () => {

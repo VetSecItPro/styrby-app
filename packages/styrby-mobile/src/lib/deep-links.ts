@@ -49,6 +49,7 @@ export const DEEP_LINK_ROUTES = {
   'styrby://costs': '/(tabs)/costs',
   'styrby://settings': '/(tabs)/settings',
   'styrby://scan': '/(auth)/scan',
+  'styrby://team/accept-invite': '/team/accept-invite',
 } as const;
 
 /** All known deep link URL strings */

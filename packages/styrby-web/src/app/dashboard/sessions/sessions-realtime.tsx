@@ -45,6 +45,18 @@ interface SessionsRealtimeProps {
    * The authenticated user's ID for filtering real-time updates.
    */
   userId: string;
+
+  /**
+   * Whether the user belongs to a team. Controls visibility of the
+   * scope filter (My Sessions / Team Sessions).
+   */
+  hasTeam: boolean;
+
+  /**
+   * Whether there are more sessions to load beyond the initial page.
+   * Drives the infinite scroll behaviour in SessionsFilter.
+   */
+  initialHasMore: boolean;
 }
 
 /* ──────────────────────────── Component ──────────────────────────── */
@@ -54,17 +66,27 @@ interface SessionsRealtimeProps {
  *
  * WHY: The sessions page needs to show live updates when sessions are created,
  * updated, or ended. This component manages the real-time subscription and
- * optimistically updates the local state, while delegating filtering and
- * display to the SessionsFilter component.
+ * optimistically updates the local state, while delegating filtering, scope
+ * switching, infinite scroll, and display to the SessionsFilter component.
  *
- * @param props - Component props including initial sessions and user ID
+ * @param props - Component props including initial sessions, user ID, and team membership
  * @returns Sessions list with real-time updates and connection status indicator
  *
  * @example
  * // In the server component:
- * <SessionsRealtime initialSessions={sessions} userId={user.id} />
+ * <SessionsRealtime
+ *   initialSessions={sessions}
+ *   userId={user.id}
+ *   hasTeam={true}
+ *   initialHasMore={true}
+ * />
  */
-export function SessionsRealtime({ initialSessions, userId }: SessionsRealtimeProps) {
+export function SessionsRealtime({
+  initialSessions,
+  userId,
+  hasTeam,
+  initialHasMore,
+}: SessionsRealtimeProps) {
   const [sessions, setSessions] = useState(initialSessions);
 
   /**
@@ -108,8 +130,13 @@ export function SessionsRealtime({ initialSessions, userId }: SessionsRealtimePr
         <ConnectionStatus isConnected={isConnected} />
       </div>
 
-      {/* Delegate filtering and display to the existing SessionsFilter component */}
-      <SessionsFilter sessions={sessions} />
+      {/* Delegate filtering, scope switching, infinite scroll, and display */}
+      <SessionsFilter
+        sessions={sessions}
+        userId={userId}
+        hasTeam={hasTeam}
+        initialHasMore={initialHasMore}
+      />
     </>
   );
 }

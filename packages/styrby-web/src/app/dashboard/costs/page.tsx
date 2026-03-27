@@ -9,6 +9,8 @@ import Link from 'next/link';
 import { CostCharts } from './cost-charts';
 import { CostsRealtime } from './costs-realtime';
 import { BudgetAlertsSummary } from './budget-alerts-summary';
+import { TokenUsageSummary } from './token-usage-summary';
+import { TimeRangeSelect } from './time-range-select';
 import { TIERS, type TierId } from '@/lib/polar';
 import { MODEL_PRICING, LAST_VERIFIED } from '@/lib/model-pricing';
 
@@ -56,7 +58,11 @@ function getPeriodStartDate(period: string): string {
  * as new cost records are created. This allows users to see their spending
  * increase live during active sessions without requiring page refresh.
  */
-export default async function CostsPage() {
+export default async function CostsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ days?: string }>;
+}) {
   const supabase = await createClient();
 
   const {
@@ -68,19 +74,26 @@ export default async function CostsPage() {
     redirect('/login');
   }
 
-  // Fetch daily cost summary (last 30 days) — includes agent_type and model dimensions.
+  // Parse time range from URL searchParams (default: 30 days).
+  // WHY: Using searchParams makes the time range bookmarkable and allows the
+  // server component to adjust its query without client-side state management.
+  const params = await searchParams;
+  const daysRaw = Number(params.days);
+  const days = [7, 30, 90].includes(daysRaw) ? daysRaw : 30;
+
+  // Fetch daily cost summary — includes agent_type and model dimensions.
   // WHY: After migration 010, mv_daily_cost_summary groups by (user_id, record_date,
   // agent_type, model). A single MV query now provides all data needed for the daily
   // trend chart, per-agent breakdown, and per-model breakdown — eliminating the
   // separate raw cost_records table scan that previously fetched up to 10,000 rows.
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  const thirtyDaysAgoDate = thirtyDaysAgo.toISOString().split('T')[0];
+  const rangeStart = new Date();
+  rangeStart.setDate(rangeStart.getDate() - days);
+  const rangeStartDate = rangeStart.toISOString().split('T')[0];
 
   const { data: mvRows } = await supabase
     .from('mv_daily_cost_summary')
     .select('record_date, agent_type, model, total_cost_usd, total_input_tokens, total_output_tokens, record_count')
-    .gte('record_date', thirtyDaysAgoDate)
+    .gte('record_date', rangeStartDate)
     .order('record_date', { ascending: true });
 
   // Derive agent totals, model totals, and chart data from a single pass over the MV rows.
@@ -154,7 +167,7 @@ export default async function CostsPage() {
   const { data: taggedSessions } = await supabase
     .from('sessions')
     .select('tags, total_cost_usd')
-    .gte('started_at', thirtyDaysAgo.toISOString())
+    .gte('started_at', rangeStart.toISOString())
     .not('tags', 'eq', '{}')
     .order('started_at', { ascending: false })
     .limit(200);
@@ -282,12 +295,8 @@ export default async function CostsPage() {
           </Link>
         </div>
 
-        {/* Time range selector */}
-        <select className="w-full rounded-lg border border-border/60 bg-secondary/60 px-4 py-2 text-sm text-foreground focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 md:w-auto">
-          <option value="30">Last 30 days</option>
-          <option value="7">Last 7 days</option>
-          <option value="90">Last 90 days</option>
-        </select>
+        {/* Time range selector — client component for onChange interactivity */}
+        <TimeRangeSelect currentDays={days} />
       </div>
 
       {/* Real-time summary cards with connection status */}
@@ -306,6 +315,13 @@ export default async function CostsPage() {
         {/* Charts */}
         <CostCharts data={chartData} />
       </CostsRealtime>
+
+      {/* Token Usage Summary */}
+      {/* WHY: Explicit token usage gives developers visibility into how much
+          context they're consuming, which directly affects costs and helps
+          them optimize prompts. This mirrors the mobile app's "TOKEN USAGE (MONTH)"
+          section with input, output, and total token counts. */}
+      <TokenUsageSummary agentTotals={agentTotals} />
 
       {/* Model breakdown */}
       <section className="mt-8">

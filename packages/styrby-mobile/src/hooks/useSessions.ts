@@ -9,7 +9,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { SessionSchema, safeParseArray } from '../lib/schemas';
+import { SessionSchema, safeParseArray, safeParseSingle } from '../lib/schemas';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import type { AgentType, SessionStatus } from 'styrby-shared';
 
 // ============================================================================
@@ -114,6 +115,8 @@ export interface UseSessionsReturn {
   setSearchQuery: (query: string) => void;
   /** Update the filter state (triggers immediate re-fetch) */
   setFilters: (filters: SessionFilters) => void;
+  /** Whether the Supabase Realtime channel is actively connected */
+  isRealtimeConnected: boolean;
   /** Pull-to-refresh handler */
   refresh: () => Promise<void>;
   /** Load the next page of results (call on scroll-end) */
@@ -157,6 +160,15 @@ export function useSessions(): UseSessionsReturn {
     scope: null,
     teamId: null,
   });
+
+  // WHY: Tracks whether the Supabase Realtime channel is actively receiving
+  // events. Exposed to the UI so it can show a connection indicator (green
+  // dot = live, orange dot = disconnected / manual-refresh-only).
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+
+  // WHY: We keep a ref to the Realtime channel so we can clean it up on
+  // unmount or when the effect re-runs.
+  const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
 
   // WHY: We keep a ref to the latest debounced search term so that the
   // actual Supabase query always uses the most recent value, even when
@@ -340,6 +352,104 @@ export function useSessions(): UseSessionsReturn {
   }, []);
 
   // -------------------------------------------------------------------------
+  // Realtime subscription
+  // -------------------------------------------------------------------------
+
+  /**
+   * Subscribe to Supabase Realtime postgres_changes on the `sessions` table.
+   *
+   * WHY: Without a Realtime subscription the sessions list only updates on
+   * manual pull-to-refresh or screen focus. This is a poor experience when
+   * a session starts/stops on the CLI — the mobile user has to manually
+   * refresh. Realtime keeps the list in sync within seconds.
+   *
+   * Events handled:
+   * - INSERT: prepend the new session (after Zod validation)
+   * - UPDATE: replace the matching session in-place
+   * - DELETE: remove the matching session
+   */
+  useEffect(() => {
+    /**
+     * Async setup for the Realtime channel.
+     * Fetches the current user ID (required for the filter) then subscribes.
+     */
+    const setupRealtime = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) return;
+
+      const channel = supabase
+        .channel('sessions-realtime')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'sessions',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            const eventType = payload.eventType;
+
+            if (eventType === 'INSERT') {
+              // WHY: Validate with Zod before adding to state so the UI never
+              // receives malformed data from a Realtime event.
+              const validated = safeParseSingle(
+                SessionSchema,
+                payload.new,
+                'realtime_session_insert',
+              );
+              if (!validated) return;
+
+              setSessions((prev) => [validated as SessionRow, ...prev]);
+            } else if (eventType === 'UPDATE') {
+              const validated = safeParseSingle(
+                SessionSchema,
+                payload.new,
+                'realtime_session_update',
+              );
+              if (!validated) return;
+
+              setSessions((prev) =>
+                prev.map((s) =>
+                  s.id === validated.id ? (validated as SessionRow) : s,
+                ),
+              );
+            } else if (eventType === 'DELETE') {
+              // WHY: DELETE payloads only contain `old` with the row's primary
+              // key columns. We use `old.id` to remove the session from state.
+              const deletedId = (payload.old as { id?: string })?.id;
+              if (!deletedId) return;
+
+              setSessions((prev) => prev.filter((s) => s.id !== deletedId));
+            }
+          },
+        )
+        .subscribe((status) => {
+          // WHY: Track subscription status so the UI can show a connection
+          // indicator. 'SUBSCRIBED' means the channel is actively receiving
+          // events; any other status means we're in a degraded state.
+          setIsRealtimeConnected(status === 'SUBSCRIBED');
+        });
+
+      realtimeChannelRef.current = channel;
+    };
+
+    setupRealtime();
+
+    // Cleanup: remove the channel on unmount or when the effect re-runs.
+    return () => {
+      if (realtimeChannelRef.current) {
+        supabase.removeChannel(realtimeChannelRef.current);
+        realtimeChannelRef.current = null;
+        setIsRealtimeConnected(false);
+      }
+    };
+  }, []);
+
+  // -------------------------------------------------------------------------
   // Filters
   // -------------------------------------------------------------------------
 
@@ -435,6 +545,7 @@ export function useSessions(): UseSessionsReturn {
     error,
     searchQuery,
     filters,
+    isRealtimeConnected,
     setSearchQuery,
     setFilters,
     refresh,

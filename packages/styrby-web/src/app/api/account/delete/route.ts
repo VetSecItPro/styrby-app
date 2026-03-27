@@ -7,7 +7,9 @@
  * deleted immediately but not permanently removed for 30 days, allowing for
  * recovery if needed.
  *
- * @auth Required - Supabase Auth JWT via cookie
+ * @auth Required - Supabase Auth JWT via cookie (web) OR Bearer token in
+ *   Authorization header (mobile). Mobile clients send
+ *   `Authorization: Bearer <access_token>` because they have no cookies.
  * @rateLimit 1 request per day
  *
  * @body {
@@ -24,6 +26,7 @@
  */
 
 import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
@@ -55,7 +58,29 @@ export async function DELETE(request: Request) {
     return rateLimitResponse(retryAfter!);
   }
 
-  const supabase = await createClient();
+  // WHY: Mobile clients send `Authorization: Bearer <token>` because they have
+  // no cookies. Web clients rely on the default cookie-based session. We support
+  // both so a single endpoint serves the web dashboard and the mobile app.
+  const authHeader = request.headers.get('Authorization');
+  let supabase;
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    // Create a Supabase client that injects the Bearer token into every request.
+    // This is equivalent to using the cookie-based client but works for mobile.
+    supabase = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        global: {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      }
+    );
+  } else {
+    supabase = await createClient();
+  }
 
   // Get authenticated user
   const {
