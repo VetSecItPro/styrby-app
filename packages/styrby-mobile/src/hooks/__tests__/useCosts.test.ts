@@ -17,26 +17,31 @@ import { renderHook, act, waitFor } from '@testing-library/react-native';
 
 let mockAuthUser: { id: string } | null = { id: 'test-user-id' };
 let mockCostRecords: unknown[] = [];
+let mockTaggedSessions: unknown[] = [];
 let mockQueryError: unknown = null;
 
 /** Stores the Realtime event handler so tests can trigger synthetic events. */
 let realtimeCallback: ((payload: { new: unknown }) => void) | null = null;
 
 jest.mock('@/lib/supabase', () => {
-  const createChain = () => {
+  const createChain = (tableName: string) => {
     const chain: Record<string, unknown> = {};
-    const chainMethods = ['select', 'eq', 'order', 'gte', 'limit'];
+    const chainMethods = ['select', 'eq', 'order', 'gte', 'limit', 'not'];
     for (const method of chainMethods) {
       chain[method] = jest.fn(() => chain);
     }
     chain.single = jest.fn(() =>
       Promise.resolve({ data: null, error: null }),
     );
-    chain.then = (resolve: (v: unknown) => void) =>
-      Promise.resolve({
-        data: mockCostRecords,
+    chain.then = (resolve: (v: unknown) => void) => {
+      // WHY: Route different tables to different mock data sets so the hook's
+      // dual-table fetch (cost_records + sessions) both resolve correctly.
+      const data = tableName === 'sessions' ? mockTaggedSessions : mockCostRecords;
+      return Promise.resolve({
+        data,
         error: mockQueryError,
       }).then(resolve);
+    };
     return chain;
   };
 
@@ -48,7 +53,7 @@ jest.mock('@/lib/supabase', () => {
           error: null,
         })),
       },
-      from: jest.fn(() => createChain()),
+      from: jest.fn((table: string) => createChain(table)),
       channel: jest.fn(() => ({
         on: jest.fn((_event: string, _filter: unknown, callback: (payload: { new: unknown }) => void) => {
           realtimeCallback = callback;
@@ -79,10 +84,12 @@ function makeCostRecord(
   date: string,
   agent: string = 'claude',
   cost: number = 1.0,
+  model: string = 'claude-sonnet-4',
 ) {
   return {
     record_date: date,
     agent_type: agent,
+    model,
     cost_usd: cost,
     input_tokens: 1000,
     output_tokens: 500,
@@ -115,6 +122,7 @@ describe('useCosts', () => {
     jest.clearAllMocks();
     mockAuthUser = { id: 'test-user-id' };
     mockCostRecords = [];
+    mockTaggedSessions = [];
     mockQueryError = null;
     realtimeCallback = null;
   });

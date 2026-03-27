@@ -20,7 +20,7 @@ import {
   safeParseArray,
   safeParseSingle,
 } from '../lib/schemas';
-import type { SubscriptionTier } from 'styrby-shared';
+import type { AgentType, SubscriptionTier } from 'styrby-shared';
 
 // ============================================================================
 // Types
@@ -74,6 +74,11 @@ export interface BudgetAlert {
   threshold: number;
   /** Time period for spend aggregation */
   period: BudgetAlertPeriod;
+  /**
+   * Optional agent type scope. When set, only costs from this agent
+   * are counted against the threshold. When null, all agents are included.
+   */
+  agentType: AgentType | null;
   /** What happens when the threshold is reached */
   action: BudgetAlertAction;
   /** Whether the alert is currently active */
@@ -101,6 +106,8 @@ export interface CreateBudgetAlertInput {
   period: BudgetAlertPeriod;
   /** Action to take when threshold is reached */
   action: BudgetAlertAction;
+  /** Optional agent type scope (null = all agents) */
+  agentType?: AgentType | null;
   /** Whether the alert starts enabled (defaults to true) */
   enabled?: boolean;
 }
@@ -183,6 +190,8 @@ interface BudgetAlertRow {
   name: string;
   threshold_usd: number;
   period: string;
+  /** Optional agent type scope. NULL means all agents. */
+  agent_type: string | null;
   action: string;
   is_enabled: boolean;
   last_triggered_at: string | null;
@@ -224,20 +233,37 @@ function getPeriodStartDate(period: BudgetAlertPeriod): string {
 }
 
 /**
- * Fetch the current user's spend for a given period from cost_records.
+ * Fetch the current user's spend for a given period from cost_records,
+ * optionally filtered by agent type.
+ *
+ * WHY: Budget alerts can be scoped to a specific agent type. When agentType
+ * is set, only costs from that agent count against the threshold. This
+ * matches the web dashboard's behavior and the database schema which has
+ * an optional agent_type column on budget_alerts.
  *
  * @param userId - The user's UUID
  * @param period - Budget alert period to aggregate
+ * @param agentType - Optional agent type to filter by (null = all agents)
  * @returns Total spend in USD for the period
  */
-async function fetchPeriodSpend(userId: string, period: BudgetAlertPeriod): Promise<number> {
+async function fetchPeriodSpend(
+  userId: string,
+  period: BudgetAlertPeriod,
+  agentType?: string | null,
+): Promise<number> {
   const startDate = getPeriodStartDate(period);
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('cost_records')
     .select('cost_usd')
     .eq('user_id', userId)
     .gte('record_date', startDate);
+
+  if (agentType) {
+    query = query.eq('agent_type', agentType);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     console.error(`[BudgetAlerts] Failed to fetch ${period} spend:`, __DEV__ ? error : (error instanceof Error ? error.message : 'Unknown error'));
@@ -280,19 +306,35 @@ async function fetchUserTier(): Promise<SubscriptionTier> {
 }
 
 /**
+ * Spend cache key combining period and agent type for lookup.
+ *
+ * WHY: When alerts have different agent_type scopes, we need separate spend
+ * calculations for each unique (period, agentType) combination. This key
+ * format allows us to cache and look up the correct spend for each alert.
+ *
+ * @param period - Budget alert period
+ * @param agentType - Agent type scope (null = all agents)
+ * @returns Cache key string
+ */
+function spendCacheKey(period: BudgetAlertPeriod, agentType: string | null): string {
+  return `${period}:${agentType || 'all'}`;
+}
+
+/**
  * Map a database row to a BudgetAlert with computed spend data.
  *
  * @param row - Raw database row
- * @param periodSpends - Pre-fetched spend totals keyed by period
+ * @param spendCache - Pre-fetched spend totals keyed by (period:agentType)
  * @returns A fully hydrated BudgetAlert object
  */
 function mapRowToAlert(
   row: BudgetAlertRow,
-  periodSpends: Record<BudgetAlertPeriod, number>
+  spendCache: Map<string, number>,
 ): BudgetAlert {
   const threshold = Number(row.threshold_usd) || 0;
   const period = row.period as BudgetAlertPeriod;
-  const currentSpend = periodSpends[period] || 0;
+  const key = spendCacheKey(period, row.agent_type);
+  const currentSpend = spendCache.get(key) || 0;
 
   return {
     id: row.id,
@@ -300,6 +342,7 @@ function mapRowToAlert(
     name: row.name,
     threshold,
     period,
+    agentType: (row.agent_type as AgentType) || null,
     action: DB_TO_ACTION[row.action] || 'notify',
     enabled: row.is_enabled,
     currentSpend,
@@ -365,7 +408,7 @@ export function useBudgetAlerts(): UseBudgetAlertsReturn {
       const [alertsResult, userTier] = await Promise.all([
         supabase
           .from('budget_alerts')
-          .select('id, user_id, name, threshold_usd, period, action, is_enabled, last_triggered_at, created_at')
+          .select('id, user_id, name, threshold_usd, period, agent_type, action, is_enabled, last_triggered_at, created_at')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false }),
         fetchUserTier(),
@@ -390,26 +433,25 @@ export function useBudgetAlerts(): UseBudgetAlertsReturn {
         return;
       }
 
-      // WHY: Determine which periods we need spend data for, then fetch only
-      // the distinct periods. This avoids fetching the same period's spend
-      // multiple times when multiple alerts share the same period.
-      const periodsNeeded = new Set<BudgetAlertPeriod>(
-        rows.map((r) => r.period as BudgetAlertPeriod)
+      // WHY: Determine which unique (period, agentType) combinations we need
+      // spend data for. Alerts with different agent scopes need separate spend
+      // queries even if they share the same period.
+      const spendKeysNeeded = new Set<string>(
+        rows.map((r) => spendCacheKey(r.period as BudgetAlertPeriod, r.agent_type))
       );
 
-      const periodSpends: Record<BudgetAlertPeriod, number> = {
-        daily: 0,
-        weekly: 0,
-        monthly: 0,
-      };
+      const spendCache = new Map<string, number>();
 
-      const spendPromises = Array.from(periodsNeeded).map(async (period) => {
-        periodSpends[period] = await fetchPeriodSpend(user.id, period);
+      const spendPromises = Array.from(spendKeysNeeded).map(async (key) => {
+        const [period, agentPart] = key.split(':') as [BudgetAlertPeriod, string];
+        const agentType = agentPart === 'all' ? null : agentPart;
+        const spend = await fetchPeriodSpend(user.id, period, agentType);
+        spendCache.set(key, spend);
       });
 
       await Promise.all(spendPromises);
 
-      const mappedAlerts = rows.map((row) => mapRowToAlert(row, periodSpends));
+      const mappedAlerts = rows.map((row) => mapRowToAlert(row, spendCache));
       setAlerts(mappedAlerts);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load budget alerts';
@@ -466,6 +508,7 @@ export function useBudgetAlerts(): UseBudgetAlertsReturn {
           name: input.name,
           threshold_usd: input.threshold,
           period: input.period,
+          agent_type: input.agentType || null,
           action: ACTION_TO_DB[input.action],
           is_enabled: input.enabled !== false,
         });
@@ -505,6 +548,7 @@ export function useBudgetAlerts(): UseBudgetAlertsReturn {
       if (updates.name !== undefined) dbUpdates.name = updates.name;
       if (updates.threshold !== undefined) dbUpdates.threshold_usd = updates.threshold;
       if (updates.period !== undefined) dbUpdates.period = updates.period;
+      if (updates.agentType !== undefined) dbUpdates.agent_type = updates.agentType || null;
       if (updates.action !== undefined) dbUpdates.action = ACTION_TO_DB[updates.action];
       if (updates.enabled !== undefined) dbUpdates.is_enabled = updates.enabled;
 
@@ -717,6 +761,30 @@ export function getAlertProgressColor(percentUsed: number): string {
   if (percentUsed >= 80) return '#f97316';  // Orange - approaching
   if (percentUsed >= 50) return '#eab308';  // Yellow - halfway
   return '#22c55e';                          // Green - under control
+}
+
+/**
+ * Get the display label for a budget alert's agent scope.
+ *
+ * @param agentType - Agent type scope (null = all agents)
+ * @returns Human-readable agent scope label
+ */
+export function getAgentScopeLabel(agentType: string | null): string {
+  if (!agentType) return 'All Agents';
+  switch (agentType) {
+    case 'claude':
+      return 'Claude';
+    case 'codex':
+      return 'Codex';
+    case 'gemini':
+      return 'Gemini';
+    case 'opencode':
+      return 'OpenCode';
+    case 'aider':
+      return 'Aider';
+    default:
+      return agentType;
+  }
 }
 
 /**

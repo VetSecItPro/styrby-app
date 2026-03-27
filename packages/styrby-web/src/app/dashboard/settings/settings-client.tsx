@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { SupportModal } from '@/components/dashboard/support-modal';
+import { FeedbackDialog } from '@/components/dashboard/feedback-dialog';
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -141,6 +142,18 @@ export function SettingsClient({
   // Support modal
   const [showSupportModal, setShowSupportModal] = useState(false);
 
+  // Feedback dialog
+  const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
+
+  // Monthly usage for subscription section
+  const [monthlySpend, setMonthlySpend] = useState<number | null>(null);
+
+  // Quiet hours editing
+  const [editingQuietHours, setEditingQuietHours] = useState(false);
+  const [quietStart, setQuietStart] = useState(notificationPrefs?.quiet_hours_start || '22:00');
+  const [quietEnd, setQuietEnd] = useState(notificationPrefs?.quiet_hours_end || '07:00');
+  const [quietHoursSaving, setQuietHoursSaving] = useState(false);
+
   // Data export
   const [exportLoading, setExportLoading] = useState(false);
   const [exportMessage, setExportMessage] = useState<{
@@ -201,6 +214,33 @@ export function SettingsClient({
 
     checkWebPushStatus();
   }, []);
+
+  /**
+   * WHY: Fetch the current month's total spend from cost_records so the
+   * subscription usage bar shows real data instead of a placeholder.
+   * We only fetch for paid tiers since free users don't see the usage bar.
+   */
+  useEffect(() => {
+    if (!isPaidTier) return;
+
+    const fetchMonthlySpend = async () => {
+      const now = new Date();
+      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+
+      const { data } = await supabase
+        .from('cost_records')
+        .select('cost_usd')
+        .gte('recorded_at', monthStart);
+
+      const total = (data || []).reduce(
+        (sum, r) => sum + (Number(r.cost_usd) || 0),
+        0
+      );
+      setMonthlySpend(total);
+    };
+
+    fetchMonthlySpend();
+  }, [isPaidTier, supabase]);
 
   /* ── Handlers ────────────────────────────────────────────────── */
 
@@ -427,6 +467,32 @@ export function SettingsClient({
     },
     [supabase, profile?.id]
   );
+
+  /**
+   * Saves quiet hours start/end times to notification_preferences.
+   *
+   * WHY: Quiet hours prevent push notifications during sleeping hours.
+   * Stored as HH:MM strings in the database so timezone conversion
+   * happens at delivery time, not storage time.
+   */
+  const handleQuietHoursSave = useCallback(async () => {
+    setQuietHoursSaving(true);
+
+    await supabase
+      .from('notification_preferences')
+      .upsert(
+        {
+          user_id: profile?.id,
+          quiet_hours_start: quietStart,
+          quiet_hours_end: quietEnd,
+        },
+        { onConflict: 'user_id' }
+      );
+
+    setQuietHoursSaving(false);
+    setEditingQuietHours(false);
+    router.refresh();
+  }, [supabase, profile?.id, quietStart, quietEnd, router]);
 
   /**
    * Subscribes the browser to Web Push notifications.
@@ -793,6 +859,14 @@ export function SettingsClient({
               )}
             </div>
             <button
+              onClick={() => {
+                if (subscription?.tier === 'free' || !subscription) {
+                  router.push('/pricing');
+                } else {
+                  // WHY: The portal route handles Polar customer lookup and redirect
+                  window.location.href = '/api/billing/portal';
+                }
+              }}
               className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
               aria-label={
                 subscription?.tier === 'free' || !subscription
@@ -806,16 +880,16 @@ export function SettingsClient({
             </button>
           </div>
 
-          {/* Usage */}
-          {subscription && subscription.tier !== 'free' && (
+          {/* Usage — real spend data fetched on mount */}
+          {subscription && subscription.tier !== 'free' && monthlySpend !== null && (
             <div className="mt-4 pt-4 border-t border-zinc-800">
               <p className="text-sm text-zinc-500">
-                This month&apos;s usage: $12.45 / $50.00 included
+                This month&apos;s usage: ${monthlySpend.toFixed(2)}
               </p>
               <div className="mt-2 h-2 rounded-full bg-zinc-800 overflow-hidden">
                 <div
-                  className="h-full bg-orange-500 rounded-full"
-                  style={{ width: '24.9%' }}
+                  className="h-full bg-orange-500 rounded-full transition-all duration-500"
+                  style={{ width: `${Math.min(monthlySpend * 2, 100)}%` }}
                 />
               </div>
             </div>
@@ -956,22 +1030,58 @@ export function SettingsClient({
           </div>
 
           {/* Quiet hours */}
-          <div className="px-4 py-4 flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-zinc-100">Quiet Hours</p>
-              <p className="text-sm text-zinc-500">
-                {notificationPrefs?.quiet_hours_start &&
-                notificationPrefs?.quiet_hours_end
-                  ? `${notificationPrefs.quiet_hours_start} - ${notificationPrefs.quiet_hours_end}`
-                  : 'Not configured'}
-              </p>
+          <div className="px-4 py-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-zinc-100">Quiet Hours</p>
+                <p className="text-sm text-zinc-500">
+                  {notificationPrefs?.quiet_hours_start &&
+                  notificationPrefs?.quiet_hours_end
+                    ? `${notificationPrefs.quiet_hours_start} - ${notificationPrefs.quiet_hours_end}`
+                    : 'Not configured'}
+                </p>
+              </div>
+              <button
+                onClick={() => setEditingQuietHours(!editingQuietHours)}
+                className="text-sm text-orange-500 hover:text-orange-400"
+                aria-label="Configure quiet hours"
+              >
+                {editingQuietHours ? 'Cancel' : 'Configure'}
+              </button>
             </div>
-            <button
-              className="text-sm text-orange-500 hover:text-orange-400"
-              aria-label="Configure quiet hours"
-            >
-              Configure
-            </button>
+
+            {/* Inline quiet hours editor */}
+            {editingQuietHours && (
+              <div className="mt-3 flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <label htmlFor="quiet-start" className="text-xs text-zinc-500">From</label>
+                  <input
+                    id="quiet-start"
+                    type="time"
+                    value={quietStart}
+                    onChange={(e) => setQuietStart(e.target.value)}
+                    className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-100 focus:border-orange-500 focus:outline-none"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <label htmlFor="quiet-end" className="text-xs text-zinc-500">To</label>
+                  <input
+                    id="quiet-end"
+                    type="time"
+                    value={quietEnd}
+                    onChange={(e) => setQuietEnd(e.target.value)}
+                    className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-100 focus:border-orange-500 focus:outline-none"
+                  />
+                </div>
+                <button
+                  onClick={handleQuietHoursSave}
+                  disabled={quietHoursSaving}
+                  className="rounded-md bg-orange-500 px-3 py-1 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50 transition-colors"
+                >
+                  {quietHoursSaving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Smart Notifications Priority */}
@@ -1062,7 +1172,10 @@ export function SettingsClient({
                 <p className="text-sm text-orange-400 mb-2">
                   Smart notifications help reduce notification fatigue by filtering based on importance.
                 </p>
-                <button className="text-sm font-medium text-orange-500 hover:text-orange-400">
+                <button
+                  onClick={() => router.push('/pricing')}
+                  className="text-sm font-medium text-orange-500 hover:text-orange-400"
+                >
                   Upgrade to Pro to enable
                 </button>
               </div>
@@ -1118,6 +1231,7 @@ export function SettingsClient({
                   </div>
                 </div>
                 <button
+                  onClick={() => router.push(`/dashboard/agents?agent=${agent}`)}
                   className="text-sm text-orange-500 hover:text-orange-400"
                   aria-label={`Configure ${agent} agent`}
                 >
@@ -1360,6 +1474,27 @@ export function SettingsClient({
               New Ticket
             </button>
           </div>
+
+          {/* Send Feedback */}
+          {/* WHY: In-app feedback is distinct from support tickets. Feedback is
+              for quick thoughts, feature ideas, and general sentiment, while
+              support tickets are for issues that need tracking and resolution.
+              This mirrors the mobile app's feedback modal in settings. */}
+          <div className="px-4 py-4 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-zinc-100">Send Feedback</p>
+              <p className="text-sm text-zinc-500">
+                Share ideas, report bugs, or tell us what you think
+              </p>
+            </div>
+            <button
+              onClick={() => setShowFeedbackDialog(true)}
+              className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+              aria-label="Send feedback"
+            >
+              Feedback
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1453,6 +1588,9 @@ export function SettingsClient({
 
       {/* ── Support Ticket Modal ────────────────────────────── */}
       <SupportModal open={showSupportModal} onOpenChange={setShowSupportModal} />
+
+      {/* ── Feedback Dialog ──────────────────────────────── */}
+      <FeedbackDialog open={showFeedbackDialog} onOpenChange={setShowFeedbackDialog} />
 
       {/* ── Delete Account Confirmation Dialog ───────────────── */}
       {showDeleteDialog && (

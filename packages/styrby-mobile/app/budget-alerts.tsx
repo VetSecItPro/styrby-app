@@ -31,6 +31,7 @@ import {
   getActionDescription,
   getAlertProgressColor,
   getActionBadgeColor,
+  getAgentScopeLabel,
 } from '../src/hooks/useBudgetAlerts';
 import type {
   BudgetAlert,
@@ -38,6 +39,7 @@ import type {
   BudgetAlertAction,
   CreateBudgetAlertInput,
 } from '../src/hooks/useBudgetAlerts';
+import type { AgentType } from 'styrby-shared';
 
 // ============================================================================
 // Sub-Components
@@ -119,6 +121,14 @@ function AlertCard({ alert, onToggle, onDelete }: AlertCardProps) {
               {getActionLabel(alert.action)}
             </Text>
           </View>
+          {/* Agent Scope Badge — only shown when scoped to a specific agent */}
+          {alert.agentType && (
+            <View className="ml-1.5 px-2 py-0.5 rounded-full bg-zinc-800">
+              <Text style={{ color: '#a1a1aa', fontSize: 11, fontWeight: '600' }}>
+                {getAgentScopeLabel(alert.agentType)}
+              </Text>
+            </View>
+          )}
         </View>
         <View className="flex-row items-center">
           <Pressable
@@ -281,6 +291,7 @@ function CreateAlertForm({ onSubmit, onCancel }: CreateAlertFormProps) {
   const [name, setName] = useState('');
   const [threshold, setThreshold] = useState('');
   const [period, setPeriod] = useState<BudgetAlertPeriod>('daily');
+  const [agentScope, setAgentScope] = useState<AgentType | null>(null);
   const [action, setAction] = useState<BudgetAlertAction>('notify');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -288,6 +299,18 @@ function CreateAlertForm({ onSubmit, onCancel }: CreateAlertFormProps) {
     { value: 'daily', label: 'Daily' },
     { value: 'weekly', label: 'Weekly' },
     { value: 'monthly', label: 'Monthly' },
+  ];
+
+  /**
+   * Agent scope options for the budget alert.
+   * WHY: The database stores agent_type as a nullable enum. NULL means
+   * "all agents". We use a string union with 'all' mapped to null for the UI.
+   */
+  const agentScopeOptions: { value: AgentType | null; label: string }[] = [
+    { value: null, label: 'All Agents' },
+    { value: 'claude', label: 'Claude' },
+    { value: 'codex', label: 'Codex' },
+    { value: 'gemini', label: 'Gemini' },
   ];
 
   const actionOptions: { value: BudgetAlertAction; label: string; description: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -333,6 +356,7 @@ function CreateAlertForm({ onSubmit, onCancel }: CreateAlertFormProps) {
         name: trimmedName,
         threshold: thresholdNum,
         period,
+        agentType: agentScope,
         action,
       });
       onCancel(); // Close form on success
@@ -390,6 +414,40 @@ function CreateAlertForm({ onSubmit, onCancel }: CreateAlertFormProps) {
           onSelect={setPeriod}
           label="Budget period"
         />
+      </View>
+
+      {/* Agent Scope Selector */}
+      <View className="mb-4">
+        <Text className="text-zinc-400 text-sm font-medium mb-2">Agent</Text>
+        <View
+          className="flex-row flex-wrap gap-2"
+          accessibilityRole="radiogroup"
+          accessibilityLabel="Agent scope"
+        >
+          {agentScopeOptions.map((opt) => {
+            const isSelected = opt.value === agentScope;
+            return (
+              <Pressable
+                key={opt.value ?? 'all'}
+                onPress={() => setAgentScope(opt.value)}
+                className={`px-4 py-2.5 rounded-xl ${
+                  isSelected ? 'bg-zinc-700 border border-zinc-600' : 'bg-zinc-800/50'
+                }`}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: isSelected }}
+                accessibilityLabel={opt.label}
+              >
+                <Text
+                  className={`text-sm font-medium ${
+                    isSelected ? 'text-white' : 'text-zinc-500'
+                  }`}
+                >
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
 
       {/* Action Selector */}

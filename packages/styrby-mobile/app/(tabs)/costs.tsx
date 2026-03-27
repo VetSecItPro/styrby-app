@@ -2,13 +2,16 @@
  * Costs Screen
  *
  * Main cost dashboard showing spending summaries, agent breakdown,
- * and a 7-day cost chart. Users can track their AI coding costs here.
+ * model breakdown, tag breakdown, and a daily cost chart. Users can
+ * track their AI coding costs here with configurable time ranges.
  */
 
+import { useState } from 'react';
 import { View, Text, ScrollView, RefreshControl, ActivityIndicator, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useCosts, formatTokens } from '../../src/hooks/useCosts';
+import { useCosts, formatTokens, formatCost } from '../../src/hooks/useCosts';
+import type { CostTimeRange, ModelCostBreakdown, TagCostBreakdown } from '../../src/hooks/useCosts';
 import { useBudgetAlerts, getAlertProgressColor, getPeriodLabel } from '../../src/hooks/useBudgetAlerts';
 import type { BudgetAlert } from '../../src/hooks/useBudgetAlerts';
 import type { SubscriptionTier } from 'styrby-shared';
@@ -177,6 +180,284 @@ function BudgetAlertsSummary({ alerts, tier, isLoading, onPress }: BudgetAlertsS
 }
 
 // ============================================================================
+// Time Range Selector
+// ============================================================================
+
+/**
+ * Segmented control for selecting the cost dashboard time range.
+ *
+ * WHY: The web dashboard has a dropdown for 7/30/90 day views. On mobile,
+ * a segmented control is more natural and touch-friendly than a dropdown.
+ *
+ * @param props.selected - Currently selected time range
+ * @param props.onSelect - Callback when a new range is selected
+ * @returns Rendered segmented control
+ */
+function TimeRangeSelector({
+  selected,
+  onSelect,
+}: {
+  selected: CostTimeRange;
+  onSelect: (range: CostTimeRange) => void;
+}) {
+  const options: { value: CostTimeRange; label: string }[] = [
+    { value: 7, label: '7D' },
+    { value: 30, label: '30D' },
+    { value: 90, label: '90D' },
+  ];
+
+  return (
+    <View
+      className="flex-row bg-zinc-800 rounded-xl p-1"
+      accessibilityRole="radiogroup"
+      accessibilityLabel="Time range selector"
+    >
+      {options.map((option) => {
+        const isSelected = option.value === selected;
+        return (
+          <Pressable
+            key={option.value}
+            onPress={() => onSelect(option.value)}
+            className={`flex-1 py-2 rounded-lg items-center ${
+              isSelected ? 'bg-brand' : ''
+            }`}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: isSelected }}
+            accessibilityLabel={`${option.label} time range`}
+          >
+            <Text
+              className={`text-sm font-semibold ${
+                isSelected ? 'text-white' : 'text-zinc-500'
+              }`}
+            >
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+// ============================================================================
+// Connection Status Indicator
+// ============================================================================
+
+/**
+ * Small badge showing whether the realtime cost subscription is connected.
+ *
+ * WHY: The web dashboard shows a connection status badge and live ticker.
+ * Mobile users also need to know whether cost data is updating in real time
+ * or if they're seeing stale data.
+ *
+ * @param props.isConnected - Whether the realtime subscription is active
+ * @returns Rendered connection status badge
+ */
+function ConnectionStatus({ isConnected }: { isConnected: boolean }) {
+  return (
+    <View
+      className="flex-row items-center"
+      accessibilityLabel={isConnected ? 'Live data connection active' : 'Data connection offline'}
+    >
+      <View
+        className={`w-2 h-2 rounded-full mr-1.5 ${
+          isConnected ? 'bg-green-500' : 'bg-orange-500'
+        }`}
+      />
+      <Text className={`text-xs font-medium ${
+        isConnected ? 'text-green-500' : 'text-orange-500'
+      }`}>
+        {isConnected ? 'Live' : 'Offline'}
+      </Text>
+    </View>
+  );
+}
+
+// ============================================================================
+// Collapsible Section
+// ============================================================================
+
+/**
+ * A collapsible section with a header that toggles visibility of children.
+ *
+ * @param props.title - Section header text
+ * @param props.isExpanded - Whether the section is currently expanded
+ * @param props.onToggle - Callback to toggle expanded state
+ * @param props.children - Content to show when expanded
+ * @returns Rendered collapsible section
+ */
+function CollapsibleSection({
+  title,
+  isExpanded,
+  onToggle,
+  children,
+}: {
+  title: string;
+  isExpanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <View className="bg-background-secondary rounded-xl">
+      <Pressable
+        onPress={onToggle}
+        className="flex-row items-center justify-between p-4 active:opacity-80"
+        accessibilityRole="button"
+        accessibilityLabel={`${title}, ${isExpanded ? 'collapse' : 'expand'}`}
+        accessibilityState={{ expanded: isExpanded }}
+      >
+        <Text className="text-zinc-400 text-sm font-medium">{title}</Text>
+        <Ionicons
+          name={isExpanded ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color="#71717a"
+        />
+      </Pressable>
+      {isExpanded && <View className="px-4 pb-4">{children}</View>}
+    </View>
+  );
+}
+
+// ============================================================================
+// Model Cost Row
+// ============================================================================
+
+/**
+ * Displays a single row in the cost-by-model breakdown.
+ *
+ * @param props.item - Model cost breakdown data
+ * @returns Rendered model cost row
+ */
+function ModelCostRow({ item }: { item: ModelCostBreakdown }) {
+  return (
+    <View className="flex-row items-center justify-between py-2.5 border-b border-zinc-800/50">
+      <View className="flex-1 mr-3">
+        <Text className="text-white text-sm font-medium" numberOfLines={1}>
+          {item.model}
+        </Text>
+        <Text className="text-zinc-500 text-xs mt-0.5">
+          {item.requestCount} req  ·  {formatTokens(item.inputTokens + item.outputTokens)} tokens
+        </Text>
+      </View>
+      <Text className="text-white text-sm font-semibold">
+        {formatCost(item.cost)}
+      </Text>
+    </View>
+  );
+}
+
+// ============================================================================
+// Tag Cost Row
+// ============================================================================
+
+/**
+ * Displays a single row in the cost-by-tag breakdown.
+ *
+ * @param props.item - Tag cost breakdown data
+ * @returns Rendered tag cost row
+ */
+function TagCostRow({ item }: { item: TagCostBreakdown }) {
+  return (
+    <View className="flex-row items-center justify-between py-2.5 border-b border-zinc-800/50">
+      <View className="flex-1 mr-3">
+        <View className="flex-row items-center">
+          <Ionicons name="pricetag" size={12} color="#71717a" />
+          <Text className="text-white text-sm font-medium ml-1.5" numberOfLines={1}>
+            {item.tag}
+          </Text>
+        </View>
+        <Text className="text-zinc-500 text-xs mt-0.5">
+          {item.sessionCount} session{item.sessionCount !== 1 ? 's' : ''}
+        </Text>
+      </View>
+      <Text className="text-white text-sm font-semibold">
+        {formatCost(item.cost)}
+      </Text>
+    </View>
+  );
+}
+
+// ============================================================================
+// Model Pricing Reference
+// ============================================================================
+
+/**
+ * AI model pricing entry for the reference table.
+ * Prices are in USD per 1 million tokens.
+ */
+interface ModelPricingEntry {
+  /** Display name of the model (e.g. 'Claude 3.5 Sonnet') */
+  name: string;
+  /** AI provider name for grouping */
+  provider: string;
+  /** Cost per 1M input tokens in USD */
+  inputPer1M: number;
+  /** Cost per 1M output tokens in USD */
+  outputPer1M: number;
+}
+
+/**
+ * Static model pricing data for the reference table.
+ *
+ * WHY static: Pricing data is not fetched from the database — it's a
+ * reference table that matches what the CLI uses to calculate costs.
+ * Updated here when provider pricing changes.
+ *
+ * Last verified: 2026-02-05
+ * Sources: anthropic.com/pricing, openai.com/pricing, ai.google.dev/pricing
+ */
+const MODEL_PRICING: ModelPricingEntry[] = [
+  // Anthropic
+  { name: 'Claude 3.5 Sonnet', provider: 'Anthropic', inputPer1M: 3.0, outputPer1M: 15.0 },
+  { name: 'Claude 3.5 Haiku', provider: 'Anthropic', inputPer1M: 0.8, outputPer1M: 4.0 },
+  { name: 'Claude 3 Opus', provider: 'Anthropic', inputPer1M: 15.0, outputPer1M: 75.0 },
+  // OpenAI
+  { name: 'GPT-4o', provider: 'OpenAI', inputPer1M: 2.5, outputPer1M: 10.0 },
+  { name: 'o1', provider: 'OpenAI', inputPer1M: 15.0, outputPer1M: 60.0 },
+  // Google
+  { name: 'Gemini 1.5 Pro', provider: 'Google', inputPer1M: 1.25, outputPer1M: 5.0 },
+  { name: 'Gemini 1.5 Flash', provider: 'Google', inputPer1M: 0.075, outputPer1M: 0.3 },
+];
+
+/**
+ * Formats a price per million tokens for table display.
+ * Shows up to 3 decimal places to handle sub-cent prices (e.g. $0.075).
+ *
+ * @param price - USD price per 1M tokens
+ * @returns Formatted string like '$3.00' or '$0.075'
+ */
+function formatPricePer1M(price: number): string {
+  if (price < 0.01) return `$${price.toFixed(3)}`;
+  if (price < 1) return `$${price.toFixed(3)}`;
+  return `$${price.toFixed(2)}`;
+}
+
+/**
+ * A single row in the model pricing reference table.
+ *
+ * @param props.entry - The model pricing data to display
+ * @returns Rendered table row
+ */
+function ModelPricingRow({ entry }: { entry: ModelPricingEntry }) {
+  return (
+    <View className="flex-row items-center py-2.5 border-b border-zinc-800/50">
+      <View className="flex-1 mr-2">
+        <Text className="text-white text-xs font-medium" numberOfLines={1}>
+          {entry.name}
+        </Text>
+        <Text className="text-zinc-500 text-xs">{entry.provider}</Text>
+      </View>
+      <Text className="text-zinc-300 text-xs font-medium w-16 text-right">
+        {formatPricePer1M(entry.inputPer1M)}
+      </Text>
+      <Text className="text-zinc-300 text-xs font-medium w-16 text-right">
+        {formatPricePer1M(entry.outputPer1M)}
+      </Text>
+    </View>
+  );
+}
+
+// ============================================================================
 // Main Screen
 // ============================================================================
 
@@ -184,16 +465,28 @@ function BudgetAlertsSummary({ alerts, tier, isLoading, onPress }: BudgetAlertsS
  * Cost Dashboard Screen
  *
  * Displays:
+ * - Connection status indicator (live/offline)
+ * - Time range selector (7D / 30D / 90D)
  * - Cost summaries for today, this week, and this month
  * - Cost breakdown by agent with visual progress bars
- * - 7-day cost chart
+ * - Cost breakdown by model (collapsible)
+ * - Cost breakdown by tag (collapsible)
+ * - Daily cost chart for the selected time range
  * - Budget alerts summary with link to full management screen
  * - Pull-to-refresh functionality
  */
 export default function CostsScreen() {
-  const { data, isLoading, isRefreshing, error, refresh } = useCosts();
+  const { data, isLoading, isRefreshing, error, refresh, timeRange, setTimeRange, isRealtimeConnected } = useCosts();
   const { alerts, tier, isLoading: alertsLoading } = useBudgetAlerts();
   const router = useRouter();
+  const [modelExpanded, setModelExpanded] = useState(false);
+  const [tagExpanded, setTagExpanded] = useState(false);
+  /**
+   * Whether the Model Pricing reference table is expanded.
+   * WHY: The pricing table is reference data — useful occasionally but not
+   * the primary content. Collapsible keeps the dashboard clean by default.
+   */
+  const [pricingExpanded, setPricingExpanded] = useState(false);
 
   // Loading state
   if (isLoading) {
@@ -244,9 +537,17 @@ export default function CostsScreen() {
         />
       }
     >
+      {/* Header: Connection Status + Time Range */}
+      <View className="px-4 pt-4 mb-3">
+        <View className="flex-row items-center justify-between mb-3">
+          <Text className="text-zinc-400 text-sm font-medium">SPENDING</Text>
+          <ConnectionStatus isConnected={isRealtimeConnected} />
+        </View>
+        <TimeRangeSelector selected={timeRange} onSelect={setTimeRange} />
+      </View>
+
       {/* Cost Summary Cards */}
-      <View className="px-4 pt-4">
-        <Text className="text-zinc-400 text-sm font-medium mb-3">SPENDING</Text>
+      <View className="px-4">
 
         {/* Today - featured card */}
         <CostCard
@@ -318,6 +619,44 @@ export default function CostsScreen() {
         </View>
       </View>
 
+      {/* Cost by Model (Collapsible) */}
+      <View className="px-4 mt-6">
+        <CollapsibleSection
+          title="COST BY MODEL"
+          isExpanded={modelExpanded}
+          onToggle={() => setModelExpanded((v) => !v)}
+        >
+          {data.byModel.length > 0 ? (
+            data.byModel.map((item) => (
+              <ModelCostRow key={item.model} item={item} />
+            ))
+          ) : (
+            <Text className="text-zinc-500 text-sm text-center py-4">
+              No model data yet
+            </Text>
+          )}
+        </CollapsibleSection>
+      </View>
+
+      {/* Cost by Tag (Collapsible) */}
+      <View className="px-4 mt-6">
+        <CollapsibleSection
+          title="COST BY TAG"
+          isExpanded={tagExpanded}
+          onToggle={() => setTagExpanded((v) => !v)}
+        >
+          {data.byTag.length > 0 ? (
+            data.byTag.map((item) => (
+              <TagCostRow key={item.tag} item={item} />
+            ))
+          ) : (
+            <Text className="text-zinc-500 text-sm text-center py-4">
+              Tag sessions from the CLI to track costs per project
+            </Text>
+          )}
+        </CollapsibleSection>
+      </View>
+
       {/* Token Usage Summary */}
       <View className="px-4 mt-6">
         <Text className="text-zinc-400 text-sm font-medium mb-3">TOKEN USAGE (MONTH)</Text>
@@ -374,6 +713,32 @@ export default function CostsScreen() {
           isLoading={alertsLoading}
           onPress={() => router.push('/budget-alerts')}
         />
+      </View>
+
+      {/* Model Pricing Reference Table (Collapsible) */}
+      <View className="px-4 mt-6 mb-6">
+        <CollapsibleSection
+          title="MODEL PRICING REFERENCE"
+          isExpanded={pricingExpanded}
+          onToggle={() => setPricingExpanded((v) => !v)}
+        >
+          {/* Table Header */}
+          <View className="flex-row items-center pb-2 border-b border-zinc-700 mb-1">
+            <Text className="flex-1 text-zinc-500 text-xs font-semibold mr-2">Model</Text>
+            <Text className="text-zinc-500 text-xs font-semibold w-16 text-right">Input/1M</Text>
+            <Text className="text-zinc-500 text-xs font-semibold w-16 text-right">Output/1M</Text>
+          </View>
+
+          {/* Pricing Rows */}
+          {MODEL_PRICING.map((entry) => (
+            <ModelPricingRow key={entry.name} entry={entry} />
+          ))}
+
+          {/* Footer note */}
+          <Text className="text-zinc-600 text-xs mt-3 text-center">
+            Prices in USD per 1M tokens · Last verified Feb 2026
+          </Text>
+        </CollapsibleSection>
       </View>
     </ScrollView>
   );

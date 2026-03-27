@@ -25,9 +25,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
+import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import { supabase, signOut } from '../../src/lib/supabase';
 import { clearPairingInfo } from '../../src/services/pairing';
+import { THEME_PREFERENCE_KEY } from '../../src/contexts/ThemeContext';
 
 // ============================================================================
 // Constants
@@ -255,6 +257,12 @@ export default function SettingsScreen() {
   const [isSigningOut, setIsSigningOut] = useState(false);
 
   /**
+   * Whether account deletion is in progress (API call + sign-out flow).
+   * WHY: Separate from isSigningOut so both buttons can show independent loading states.
+   */
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+
+  /**
    * The user's current subscription tier from the subscriptions table.
    * WHY: Displayed in the Account section to show the user which plan they
    * are on. Defaults to 'free' if no subscription row exists.
@@ -279,6 +287,18 @@ export default function SettingsScreen() {
    * UPDATE (row exists) and INSERT (no row yet) when saving push toggle changes.
    */
   const [notifPrefId, setNotifPrefId] = useState<string | null>(null);
+
+  /**
+   * Whether the Android typed-deletion modal is visible.
+   * WHY: Alert.prompt is iOS-only. On Android we show a custom modal so the
+   * user still has to type "DELETE MY ACCOUNT" — same security bar as iOS.
+   */
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+
+  /**
+   * The text the user has typed into the Android deletion confirmation input.
+   */
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   /** Whether the feedback modal is visible */
   const [isFeedbackModalVisible, setIsFeedbackModalVisible] = useState(false);
@@ -319,6 +339,76 @@ export default function SettingsScreen() {
    * Whether the priority threshold is currently being saved.
    */
   const [prioritySaving, setPrioritySaving] = useState(false);
+
+  /**
+   * Whether email notifications are enabled from notification_preferences.
+   * WHY: This is loaded alongside push_enabled from the same row and follows
+   * the same pattern — optimistic update with Supabase upsert on toggle.
+   */
+  const [emailEnabled, setEmailEnabled] = useState(false);
+
+  // --------------------------------------------------------------------------
+  // Display name editing state
+  // --------------------------------------------------------------------------
+
+  /**
+   * Whether the display name edit mode is active (shows TextInput).
+   * WHY: We use inline editing (edit icon → TextInput + save/cancel) rather than
+   * a modal so the user sees the current name while editing.
+   */
+  const [isEditingDisplayName, setIsEditingDisplayName] = useState(false);
+
+  /** The in-progress display name while editing */
+  const [displayNameDraft, setDisplayNameDraft] = useState('');
+
+  /** Whether the display name save is in progress */
+  const [isSavingDisplayName, setIsSavingDisplayName] = useState(false);
+
+  // --------------------------------------------------------------------------
+  // Email change state
+  // --------------------------------------------------------------------------
+
+  /** Whether the email change modal is visible */
+  const [isEmailModalVisible, setIsEmailModalVisible] = useState(false);
+
+  /** The new email address typed in the email change modal */
+  const [newEmailDraft, setNewEmailDraft] = useState('');
+
+  /** Whether the email change API call is in progress */
+  const [isChangingEmail, setIsChangingEmail] = useState(false);
+
+  // --------------------------------------------------------------------------
+  // Password reset state
+  // --------------------------------------------------------------------------
+
+  /**
+   * Unix timestamp (ms) of the last password reset email sent.
+   * WHY: We enforce a 60-second cooldown client-side to prevent accidental
+   * double-taps from sending multiple emails in quick succession.
+   */
+  const [lastPasswordResetAt, setLastPasswordResetAt] = useState<number | null>(null);
+
+  /** Whether the password reset email is being sent */
+  const [isSendingPasswordReset, setIsSendingPasswordReset] = useState(false);
+
+  // --------------------------------------------------------------------------
+  // Data export state
+  // --------------------------------------------------------------------------
+
+  /** Whether the data export is in progress */
+  const [isExportingData, setIsExportingData] = useState(false);
+
+  // --------------------------------------------------------------------------
+  // Theme state
+  // --------------------------------------------------------------------------
+
+  /**
+   * The user's theme preference: 'dark' | 'light' | 'system'.
+   * WHY: We use local state here (loaded from SecureStore) rather than a
+   * context provider because settings.tsx is the only screen that needs to
+   * write it. Other screens that need to read it use useTheme() from context.
+   */
+  const [themePreference, setThemePreferenceState] = useState<'dark' | 'light' | 'system'>('dark');
 
   /**
    * Whether the user is on a paid tier (Pro/Power) that enables smart notifications.
@@ -377,6 +467,7 @@ export default function SettingsScreen() {
         if (!insertError && newPrefs) {
           setNotifPrefId(newPrefs.id);
           setPushEnabled(newPrefs.push_enabled);
+          setEmailEnabled(newPrefs.email_enabled ?? false);
           setQuietHoursEnabled(newPrefs.quiet_hours_enabled);
           setQuietHoursStart(newPrefs.quiet_hours_start);
           setQuietHoursEnd(newPrefs.quiet_hours_end);
@@ -385,6 +476,7 @@ export default function SettingsScreen() {
       } else if (!notifError && notifPrefs) {
         setNotifPrefId(notifPrefs.id);
         setPushEnabled(notifPrefs.push_enabled);
+        setEmailEnabled(notifPrefs.email_enabled ?? false);
         setQuietHoursEnabled(notifPrefs.quiet_hours_enabled);
         setQuietHoursStart(notifPrefs.quiet_hours_start);
         setQuietHoursEnd(notifPrefs.quiet_hours_end);
@@ -474,12 +566,21 @@ export default function SettingsScreen() {
    */
   const loadLocalPreferences = useCallback(async () => {
     try {
-      const hapticValue = await SecureStore.getItemAsync(HAPTIC_PREFERENCE_KEY);
+      const [hapticValue, themeValue] = await Promise.all([
+        SecureStore.getItemAsync(HAPTIC_PREFERENCE_KEY),
+        SecureStore.getItemAsync(THEME_PREFERENCE_KEY),
+      ]);
 
       // WHY: If no value is stored, default to true (haptics enabled).
       // We only store explicitly when the user toggles the setting.
       if (hapticValue !== null) {
         setHapticEnabled(hapticValue === 'true');
+      }
+
+      // WHY: Load theme preference from SecureStore so settings shows the
+      // current value. Default 'dark' if not set.
+      if (themeValue === 'dark' || themeValue === 'light' || themeValue === 'system') {
+        setThemePreferenceState(themeValue);
       }
     } catch (error) {
       if (__DEV__) {
@@ -542,6 +643,331 @@ export default function SettingsScreen() {
       }
     }
   }, [userInfo, notifPrefId]);
+
+  /**
+   * Toggles the email notification preference and persists it to Supabase.
+   *
+   * Follows the same pattern as handlePushToggle: optimistic update,
+   * update existing row or insert new row, revert on error.
+   *
+   * @param value - The new email notification enabled state
+   */
+  const handleEmailToggle = useCallback(async (value: boolean) => {
+    // Optimistic update for responsive UI
+    setEmailEnabled(value);
+
+    try {
+      if (!userInfo) return;
+
+      if (notifPrefId) {
+        const { error } = await supabase
+          .from('notification_preferences')
+          .update({ email_enabled: value })
+          .eq('id', notifPrefId);
+
+        if (error) {
+          setEmailEnabled(!value);
+          if (__DEV__) {
+            console.error('[Settings] Failed to update email preference:', error);
+          }
+        }
+      } else {
+        const { data, error } = await supabase
+          .from('notification_preferences')
+          .insert({ user_id: userInfo.id, email_enabled: value })
+          .select('id')
+          .single();
+
+        if (error) {
+          setEmailEnabled(!value);
+          if (__DEV__) {
+            console.error('[Settings] Failed to insert email preference:', error);
+          }
+        } else if (data) {
+          setNotifPrefId(data.id);
+        }
+      }
+    } catch (error) {
+      setEmailEnabled(!value);
+      if (__DEV__) {
+        console.error('[Settings] Email toggle error:', error);
+      }
+    }
+  }, [userInfo, notifPrefId]);
+
+  // --------------------------------------------------------------------------
+  // Display Name Handlers
+  // --------------------------------------------------------------------------
+
+  /**
+   * Begins inline display name editing.
+   * Prefills the draft input with the current display name.
+   */
+  const handleBeginEditDisplayName = useCallback(() => {
+    setDisplayNameDraft(userInfo?.displayName ?? '');
+    setIsEditingDisplayName(true);
+  }, [userInfo?.displayName]);
+
+  /**
+   * Cancels display name editing without saving.
+   */
+  const handleCancelEditDisplayName = useCallback(() => {
+    setIsEditingDisplayName(false);
+    setDisplayNameDraft('');
+  }, []);
+
+  /**
+   * Saves the edited display name to the profiles table via Supabase.
+   * Uses an optimistic update pattern: updates local state immediately,
+   * then reverts on error.
+   *
+   * WHY we update profiles.display_name instead of user_metadata:
+   * The profiles table is the canonical source for display_name in Styrby.
+   * user_metadata can also be updated for auth-level consistency, but the
+   * app always reads from profiles for display purposes.
+   */
+  const handleSaveDisplayName = useCallback(async () => {
+    const trimmed = displayNameDraft.trim();
+    if (!trimmed || !userInfo) return;
+
+    const previous = userInfo.displayName;
+
+    // Optimistic update
+    setUserInfo((prev) => prev ? { ...prev, displayName: trimmed, initial: trimmed.charAt(0).toUpperCase() } : prev);
+    setIsEditingDisplayName(false);
+    setIsSavingDisplayName(true);
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ display_name: trimmed })
+        .eq('id', userInfo.id);
+
+      if (error) {
+        // Revert optimistic update
+        setUserInfo((prev) => prev ? { ...prev, displayName: previous, initial: previous ? previous.charAt(0).toUpperCase() : prev.email.charAt(0).toUpperCase() } : prev);
+        Alert.alert('Error', 'Failed to save display name. Please try again.');
+        if (__DEV__) {
+          console.error('[Settings] Failed to save display name:', error);
+        }
+      }
+    } catch (err) {
+      setUserInfo((prev) => prev ? { ...prev, displayName: previous, initial: previous ? previous.charAt(0).toUpperCase() : prev.email.charAt(0).toUpperCase() } : prev);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+    } finally {
+      setIsSavingDisplayName(false);
+      setDisplayNameDraft('');
+    }
+  }, [displayNameDraft, userInfo]);
+
+  // --------------------------------------------------------------------------
+  // Email Change Handler
+  // --------------------------------------------------------------------------
+
+  /**
+   * Submits an email address change request.
+   *
+   * Calls supabase.auth.updateUser({ email }) which sends a verification
+   * email to the new address. The change is not applied until the user
+   * clicks the verification link.
+   *
+   * WHY: This uses Supabase's built-in email change flow which sends a
+   * verification email to the new address for security. We do NOT change
+   * the email immediately — the user must verify the new address first.
+   */
+  const handleChangeEmail = useCallback(async () => {
+    const trimmed = newEmailDraft.trim().toLowerCase();
+
+    // Basic email format validation
+    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      Alert.alert('Invalid Email', 'Please enter a valid email address.');
+      return;
+    }
+
+    if (trimmed === userInfo?.email) {
+      Alert.alert('Same Email', 'The new email address is the same as your current one.');
+      return;
+    }
+
+    setIsChangingEmail(true);
+
+    try {
+      const { error } = await supabase.auth.updateUser({ email: trimmed });
+
+      if (error) {
+        // WHY: Supabase returns 422 for emails already in use. Surface a clear message.
+        const message = error.message.includes('already registered')
+          ? 'This email address is already in use by another account.'
+          : error.message;
+        Alert.alert('Email Change Failed', message);
+      } else {
+        setNewEmailDraft('');
+        setIsEmailModalVisible(false);
+        Alert.alert(
+          'Verification Email Sent',
+          `A verification email has been sent to ${trimmed}. Please click the link in the email to confirm the change.`,
+        );
+      }
+    } catch (err) {
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+      if (__DEV__) {
+        console.error('[Settings] Email change error:', err);
+      }
+    } finally {
+      setIsChangingEmail(false);
+    }
+  }, [newEmailDraft, userInfo?.email]);
+
+  // --------------------------------------------------------------------------
+  // Password Reset Handler
+  // --------------------------------------------------------------------------
+
+  /**
+   * Sends a password reset email to the user's current email address.
+   *
+   * WHY: We enforce a 60-second cooldown between requests to prevent
+   * accidental double-taps from sending multiple emails. The cooldown is
+   * tracked in component state (not persisted) so it resets on app restart.
+   *
+   * @returns void
+   */
+  const handlePasswordReset = useCallback(async () => {
+    if (!userInfo?.email) {
+      Alert.alert('Error', 'No email address on file.');
+      return;
+    }
+
+    // WHY: 60-second cooldown prevents accidental spam. Supabase also
+    // rate-limits this endpoint server-side, but the client guard gives
+    // immediate feedback without a network round trip.
+    const PASSWORD_RESET_COOLDOWN_MS = 60_000;
+    if (lastPasswordResetAt !== null) {
+      const elapsed = Date.now() - lastPasswordResetAt;
+      if (elapsed < PASSWORD_RESET_COOLDOWN_MS) {
+        const remaining = Math.ceil((PASSWORD_RESET_COOLDOWN_MS - elapsed) / 1000);
+        Alert.alert('Please Wait', `You can request another reset email in ${remaining} seconds.`);
+        return;
+      }
+    }
+
+    setIsSendingPasswordReset(true);
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(userInfo.email);
+
+      if (error) {
+        Alert.alert('Error', error.message);
+      } else {
+        setLastPasswordResetAt(Date.now());
+        Alert.alert(
+          'Reset Email Sent',
+          `A password reset link has been sent to ${userInfo.email}. Check your inbox.`,
+        );
+      }
+    } catch (err) {
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+      if (__DEV__) {
+        console.error('[Settings] Password reset error:', err);
+      }
+    } finally {
+      setIsSendingPasswordReset(false);
+    }
+  }, [userInfo?.email, lastPasswordResetAt]);
+
+  // --------------------------------------------------------------------------
+  // Data Export Handler
+  // --------------------------------------------------------------------------
+
+  /**
+   * Exports all user data (GDPR Art. 20) via the web app's export endpoint
+   * and copies a summary to clipboard, or triggers a share if supported.
+   *
+   * WHY we call the web API instead of querying Supabase directly:
+   * The web endpoint runs server-side with the Supabase service role and handles
+   * 20 table queries, audit log writing, and rate limiting in one shot. Reusing
+   * it keeps export logic in one place (DRY) and avoids duplicating the rate
+   * limit logic on mobile.
+   *
+   * The raw JSON is copied to clipboard for users to paste into a file manager.
+   * This approach works without expo-file-system or expo-sharing dependencies.
+   *
+   * @returns void
+   */
+  const handleExportData = useCallback(async () => {
+    if (!userInfo) return;
+
+    setIsExportingData(true);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        Alert.alert('Error', 'You must be signed in to export your data.');
+        setIsExportingData(false);
+        return;
+      }
+
+      // WHY POST: The web export endpoint is POST (not GET) because it writes
+      // an audit log entry and should not be cached or prefetched.
+      const response = await fetch('https://styrbyapp.com/api/account/export', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 429) {
+          Alert.alert('Rate Limited', 'You can only export your data once per hour. Please try again later.');
+        } else {
+          Alert.alert('Export Failed', 'Failed to export your data. Please try again.');
+        }
+        return;
+      }
+
+      const exportJson = await response.text();
+
+      // Copy JSON to clipboard so the user can save it
+      await Clipboard.setStringAsync(exportJson);
+
+      Alert.alert(
+        'Data Export Ready',
+        'Your data has been copied to the clipboard. Paste it into a text editor or notes app to save the JSON file.',
+        [{ text: 'OK' }],
+      );
+    } catch (err) {
+      Alert.alert('Export Failed', 'Failed to export your data. Please check your connection and try again.');
+      if (__DEV__) {
+        console.error('[Settings] Data export error:', err);
+      }
+    } finally {
+      setIsExportingData(false);
+    }
+  }, [userInfo]);
+
+  // --------------------------------------------------------------------------
+  // Theme Handler
+  // --------------------------------------------------------------------------
+
+  /**
+   * Updates the theme preference in local state and persists it to SecureStore.
+   * The ThemeProvider will read this value on next mount and apply it.
+   *
+   * @param preference - The new theme preference
+   */
+  const handleThemeChange = useCallback(async (preference: 'dark' | 'light' | 'system') => {
+    setThemePreferenceState(preference);
+
+    try {
+      await SecureStore.setItemAsync(THEME_PREFERENCE_KEY, preference);
+    } catch (err) {
+      // Revert on storage failure
+      if (__DEV__) {
+        console.error('[Settings] Failed to save theme preference:', err);
+      }
+    }
+  }, []);
 
   /**
    * Toggles the haptic feedback preference and persists it to SecureStore.
@@ -822,6 +1248,144 @@ export default function SettingsScreen() {
   }, []);
 
   // --------------------------------------------------------------------------
+  // Account Deletion
+  // --------------------------------------------------------------------------
+
+  /**
+   * Initiates the account deletion flow with a two-step confirmation.
+   *
+   * Step 1: Alert explaining what will be deleted
+   * Step 2: Prompt to type "DELETE MY ACCOUNT" to confirm
+   *
+   * On confirmation, calls the web app's DELETE /api/account/delete endpoint
+   * which performs a soft-delete (data recoverable for 30 days) and bans the user.
+   *
+   * WHY two-step: Account deletion is irreversible after the 30-day grace period.
+   * Requiring a typed confirmation prevents accidental deletions and satisfies
+   * compliance requirements for explicit user consent.
+   *
+   * WHY web API: The delete endpoint requires a Supabase service role key to ban
+   * the user in auth.users. Mobile apps must never contain service role keys,
+   * so we delegate to the server-side endpoint.
+   */
+  const handleDeleteAccount = useCallback(() => {
+    // Step 1: Initial confirmation
+    Alert.alert(
+      'Delete Account?',
+      'This will permanently delete your account and all associated data, including sessions, cost records, team memberships, and preferences.\n\nYour data will be recoverable for 30 days, after which it is permanently removed.\n\nThis action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          style: 'destructive',
+          onPress: () => {
+            // Step 2: Type confirmation
+            // WHY: Alert.prompt is iOS-only but this is an iOS app (Expo).
+            // On Android, we use a simpler confirmation since Alert.prompt is unavailable.
+            if (Platform.OS === 'ios') {
+              Alert.prompt(
+                'Confirm Deletion',
+                'Type "DELETE MY ACCOUNT" to confirm.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: (input?: string) => {
+                      if (input?.trim() === 'DELETE MY ACCOUNT') {
+                        executeAccountDeletion();
+                      } else {
+                        Alert.alert(
+                          'Confirmation Failed',
+                          'You must type "DELETE MY ACCOUNT" exactly to proceed.',
+                        );
+                      }
+                    },
+                  },
+                ],
+                'plain-text',
+              );
+            } else {
+              // WHY: Alert.prompt is iOS-only (React Native limitation). On Android
+              // we open a custom modal that renders a TextInput so the user still
+              // must type the exact phrase — same security bar as iOS.
+              setDeleteConfirmText('');
+              setShowDeleteModal(true);
+            }
+          },
+        },
+      ],
+    );
+  }, [executeAccountDeletion]);
+
+  /**
+   * Executes the account deletion by calling the web API endpoint and
+   * signing the user out on success.
+   *
+   * WHY: Separated from handleDeleteAccount for clarity and because it is
+   * called from multiple code paths (iOS prompt vs Android fallback).
+   *
+   * @throws Shows an error alert if the API call fails
+   */
+  const executeAccountDeletion = useCallback(async () => {
+    setIsDeletingAccount(true);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        Alert.alert('Error', 'You must be signed in to delete your account.');
+        setIsDeletingAccount(false);
+        return;
+      }
+
+      // WHY: The web app at styrbyapp.com hosts the account deletion endpoint
+      // which uses the Supabase admin client to ban the user and soft-delete data.
+      const response = await fetch('https://styrbyapp.com/api/account/delete', {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ confirmation: 'DELETE MY ACCOUNT' }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        const errorMessage = typeof errorData.error === 'string'
+          ? errorData.error
+          : 'Failed to delete account. Please try again.';
+
+        if (response.status === 429) {
+          Alert.alert(
+            'Rate Limited',
+            'You can only attempt account deletion once per day. Please try again later.',
+          );
+        } else {
+          Alert.alert('Deletion Failed', errorMessage);
+        }
+
+        setIsDeletingAccount(false);
+        return;
+      }
+
+      // Success: clear local data and sign out
+      await clearPairingInfo();
+      await SecureStore.deleteItemAsync(HAPTIC_PREFERENCE_KEY);
+      await signOut();
+
+      // WHY: The root layout auth listener will detect the sign-out and redirect
+      // to the login screen. We don't navigate manually here.
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : 'An unexpected error occurred. Please try again.';
+      Alert.alert('Deletion Failed', message);
+      setIsDeletingAccount(false);
+    }
+  }, []);
+
+  // --------------------------------------------------------------------------
   // Render
   // --------------------------------------------------------------------------
 
@@ -841,12 +1405,105 @@ export default function SettingsScreen() {
       {/* Account Section */}
       <SectionHeader title="Account" />
       <View className="bg-background-secondary">
+        {/* Display Name — inline editing */}
+        {isEditingDisplayName ? (
+          <View className="flex-row items-center px-4 py-3">
+            <View
+              className="w-8 h-8 rounded-lg items-center justify-center mr-3"
+              style={{ backgroundColor: '#f9731620' }}
+            >
+              <Ionicons name="person" size={18} color="#f97316" />
+            </View>
+            <TextInput
+              className="flex-1 text-white bg-zinc-800 rounded-lg px-3 py-2 text-base mr-2"
+              value={displayNameDraft}
+              onChangeText={setDisplayNameDraft}
+              placeholder="Display name"
+              placeholderTextColor="#71717a"
+              autoFocus
+              autoCapitalize="words"
+              returnKeyType="done"
+              onSubmitEditing={handleSaveDisplayName}
+              accessibilityLabel="Display name input"
+            />
+            <Pressable
+              onPress={handleSaveDisplayName}
+              disabled={isSavingDisplayName || !displayNameDraft.trim()}
+              className="p-2"
+              accessibilityRole="button"
+              accessibilityLabel="Save display name"
+            >
+              {isSavingDisplayName ? (
+                <ActivityIndicator size="small" color="#22c55e" />
+              ) : (
+                <Ionicons name="checkmark" size={22} color="#22c55e" />
+              )}
+            </Pressable>
+            <Pressable
+              onPress={handleCancelEditDisplayName}
+              className="p-2 ml-1"
+              accessibilityRole="button"
+              accessibilityLabel="Cancel display name edit"
+            >
+              <Ionicons name="close" size={22} color="#71717a" />
+            </Pressable>
+          </View>
+        ) : (
+          <SettingRow
+            icon="person"
+            iconColor="#f97316"
+            title={userInfo?.displayName ?? 'Set Display Name'}
+            subtitle="Tap edit to change your name"
+            trailing={
+              <Pressable
+                onPress={handleBeginEditDisplayName}
+                className="p-1"
+                accessibilityRole="button"
+                accessibilityLabel="Edit display name"
+              >
+                <Ionicons name="pencil" size={18} color="#71717a" />
+              </Pressable>
+            }
+          />
+        )}
+
         <SettingRow
-          icon="person"
-          iconColor="#f97316"
-          title="Profile"
+          icon="mail"
+          iconColor="#3b82f6"
+          title="Change Email"
           subtitle={userInfo?.email ?? 'Not signed in'}
+          onPress={() => {
+            setNewEmailDraft('');
+            setIsEmailModalVisible(true);
+          }}
         />
+
+        <SettingRow
+          icon="key"
+          iconColor="#eab308"
+          title="Reset Password"
+          subtitle="Send reset link to your email"
+          onPress={handlePasswordReset}
+          trailing={
+            isSendingPasswordReset ? (
+              <ActivityIndicator size="small" color="#eab308" />
+            ) : undefined
+          }
+        />
+
+        <SettingRow
+          icon="download"
+          iconColor="#22c55e"
+          title="Export My Data"
+          subtitle="Download all your data (GDPR)"
+          onPress={handleExportData}
+          trailing={
+            isExportingData ? (
+              <ActivityIndicator size="small" color="#22c55e" />
+            ) : undefined
+          }
+        />
+
         <SettingRow
           icon="card"
           iconColor="#22c55e"
@@ -914,6 +1571,57 @@ export default function SettingsScreen() {
             />
           }
         />
+        <SettingRow
+          icon="mail"
+          iconColor="#3b82f6"
+          title="Email Notifications"
+          trailing={
+            <Switch
+              value={emailEnabled}
+              onValueChange={handleEmailToggle}
+              trackColor={{ false: '#3f3f46', true: '#f9731650' }}
+              thumbColor={emailEnabled ? '#f97316' : '#71717a'}
+              accessibilityRole="switch"
+              accessibilityLabel="Toggle email notifications"
+            />
+          }
+        />
+
+        {/* Theme selector: Dark / Light / System */}
+        <View className="px-4 py-3">
+          <View className="flex-row items-center mb-2">
+            <View
+              className="w-8 h-8 rounded-lg items-center justify-center mr-3"
+              style={{ backgroundColor: '#f9731620' }}
+            >
+              <Ionicons name="color-palette" size={18} color="#f97316" />
+            </View>
+            <Text className="text-white font-medium flex-1">Theme</Text>
+          </View>
+          <View className="flex-row bg-zinc-800 rounded-xl p-1 ml-11">
+            {(['dark', 'light', 'system'] as const).map((option) => {
+              const isSelected = themePreference === option;
+              const label = option.charAt(0).toUpperCase() + option.slice(1);
+              return (
+                <Pressable
+                  key={option}
+                  onPress={() => handleThemeChange(option)}
+                  className={`flex-1 py-2 rounded-lg items-center ${isSelected ? 'bg-brand' : ''}`}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: isSelected }}
+                  accessibilityLabel={`Set theme to ${label}`}
+                >
+                  <Text
+                    className={`text-xs font-semibold ${isSelected ? 'text-white' : 'text-zinc-500'}`}
+                  >
+                    {label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
         <SettingRow
           icon="phone-portrait"
           iconColor="#8b5cf6"
@@ -1098,12 +1806,12 @@ export default function SettingsScreen() {
         />
       </View>
 
-      {/* Sign Out */}
-      <View className="mt-4 mb-8">
+      {/* Sign Out & Delete Account */}
+      <View className="mt-4 mb-8 gap-3">
         <Pressable
           className="mx-4 py-3 rounded-xl border border-red-500/30 items-center active:bg-red-500/10"
           onPress={handleSignOut}
-          disabled={isSigningOut}
+          disabled={isSigningOut || isDeletingAccount}
           accessibilityRole="button"
           accessibilityLabel="Sign out of your account"
         >
@@ -1113,12 +1821,179 @@ export default function SettingsScreen() {
             <Text className="text-red-500 font-semibold">Sign Out</Text>
           )}
         </Pressable>
+
+        {/* WHY: Delete Account is separate from Sign Out and placed below it
+            to indicate higher severity. Red text + red border signals destructive
+            action while maintaining visual consistency with Sign Out. */}
+        <Pressable
+          className="mx-4 py-3 rounded-xl border border-red-500/50 items-center active:bg-red-500/10"
+          onPress={handleDeleteAccount}
+          disabled={isDeletingAccount || isSigningOut}
+          accessibilityRole="button"
+          accessibilityLabel="Delete your account permanently"
+        >
+          {isDeletingAccount ? (
+            <ActivityIndicator size="small" color="#ef4444" />
+          ) : (
+            <Text className="text-red-500 font-semibold">Delete Account</Text>
+          )}
+        </Pressable>
       </View>
 
       {/* Version */}
       <Text className="text-zinc-600 text-center text-xs mb-8">
         Styrby v{APP_VERSION} ({BUILD_NUMBER})
       </Text>
+
+      {/* Change Email Modal */}
+      <Modal
+        visible={isEmailModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsEmailModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          className="flex-1 justify-end"
+        >
+          <Pressable
+            className="flex-1"
+            onPress={() => setIsEmailModalVisible(false)}
+            accessibilityLabel="Close email change modal"
+          />
+          <View className="bg-zinc-900 rounded-t-3xl px-6 pt-6 pb-10 border-t border-zinc-800">
+            {/* Modal Header */}
+            <View className="flex-row items-center justify-between mb-4">
+              <Text className="text-white text-lg font-semibold">Change Email</Text>
+              <Pressable
+                onPress={() => setIsEmailModalVisible(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close email change modal"
+              >
+                <Ionicons name="close" size={24} color="#71717a" />
+              </Pressable>
+            </View>
+
+            <Text className="text-zinc-400 text-sm mb-4">
+              A verification email will be sent to your new address. Your email will not change until you confirm it.
+            </Text>
+
+            {/* Current email */}
+            <View className="mb-3">
+              <Text className="text-zinc-500 text-xs mb-1">Current Email</Text>
+              <Text className="text-zinc-300 text-sm">{userInfo?.email}</Text>
+            </View>
+
+            {/* New email input */}
+            <TextInput
+              className="bg-zinc-800 text-white rounded-xl px-4 py-3 text-base mb-4"
+              placeholder="New email address"
+              placeholderTextColor="#71717a"
+              value={newEmailDraft}
+              onChangeText={setNewEmailDraft}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="done"
+              onSubmitEditing={handleChangeEmail}
+              accessibilityLabel="New email address input"
+            />
+
+            {/* Submit Button */}
+            <Pressable
+              onPress={handleChangeEmail}
+              disabled={isChangingEmail || !newEmailDraft.trim()}
+              className={`py-3 rounded-xl items-center ${
+                isChangingEmail || !newEmailDraft.trim()
+                  ? 'bg-zinc-700'
+                  : 'bg-brand active:opacity-80'
+              }`}
+              accessibilityRole="button"
+              accessibilityLabel="Submit email change"
+            >
+              {isChangingEmail ? (
+                <ActivityIndicator size="small" color="#ffffff" />
+              ) : (
+                <Text className="text-white font-semibold">Send Verification Email</Text>
+              )}
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Android Account Deletion Confirmation Modal */}
+      {/* WHY: Alert.prompt is iOS-only. This modal provides a TextInput so Android
+          users also have to type "DELETE MY ACCOUNT" — same security bar as iOS.
+          Only rendered on Android to keep the iOS flow unchanged. */}
+      {Platform.OS !== 'ios' && (
+        <Modal
+          visible={showDeleteModal}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setShowDeleteModal(false)}
+        >
+          <KeyboardAvoidingView
+            behavior="height"
+            className="flex-1 justify-end"
+          >
+            <Pressable
+              className="flex-1"
+              onPress={() => setShowDeleteModal(false)}
+              accessibilityLabel="Close deletion confirmation"
+            />
+            <View className="bg-zinc-900 rounded-t-3xl px-6 pt-6 pb-10 border-t border-zinc-800">
+              {/* Modal Header */}
+              <View className="flex-row items-center justify-between mb-4">
+                <Text className="text-white text-lg font-semibold">Confirm Deletion</Text>
+                <Pressable
+                  onPress={() => setShowDeleteModal(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel account deletion"
+                >
+                  <Ionicons name="close" size={24} color="#71717a" />
+                </Pressable>
+              </View>
+
+              <Text className="text-zinc-400 text-sm mb-4">
+                Type <Text className="text-white font-mono font-semibold">DELETE MY ACCOUNT</Text> to permanently delete your account.
+              </Text>
+
+              <TextInput
+                className="bg-zinc-800 text-white rounded-xl px-4 py-3 text-base mb-4"
+                placeholder="DELETE MY ACCOUNT"
+                placeholderTextColor="#71717a"
+                value={deleteConfirmText}
+                onChangeText={setDeleteConfirmText}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                accessibilityLabel="Type DELETE MY ACCOUNT to confirm"
+              />
+
+              {/* Confirm Delete Button — only active when text matches exactly */}
+              <Pressable
+                className={`py-3 rounded-xl items-center ${
+                  deleteConfirmText === 'DELETE MY ACCOUNT'
+                    ? 'bg-red-600 active:bg-red-700'
+                    : 'bg-zinc-700 opacity-50'
+                }`}
+                disabled={deleteConfirmText !== 'DELETE MY ACCOUNT' || isDeletingAccount}
+                onPress={() => {
+                  setShowDeleteModal(false);
+                  executeAccountDeletion();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Confirm permanent account deletion"
+              >
+                {isDeletingAccount ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text className="text-white font-semibold">Delete My Account</Text>
+                )}
+              </Pressable>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+      )}
 
       {/* Feedback Modal */}
       <Modal

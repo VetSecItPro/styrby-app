@@ -48,6 +48,42 @@ export interface AgentCostBreakdown {
 }
 
 /**
+ * Cost breakdown by model name.
+ *
+ * WHY: Users run multiple models (e.g., claude-sonnet-4, gpt-4o) and need
+ * to see which model is driving their costs. The web dashboard already shows
+ * this; mobile needs parity.
+ */
+export interface ModelCostBreakdown {
+  /** Model identifier (e.g., 'claude-sonnet-4', 'gpt-4o') */
+  model: string;
+  /** Total cost in USD for this model */
+  cost: number;
+  /** Input tokens for this model */
+  inputTokens: number;
+  /** Output tokens for this model */
+  outputTokens: number;
+  /** Number of requests */
+  requestCount: number;
+}
+
+/**
+ * Cost breakdown by session tag.
+ *
+ * WHY: Users tag sessions from the CLI (e.g., 'project-x', 'refactor')
+ * to track spending per project or task. The web dashboard shows cost-by-tag;
+ * mobile needs parity so users can audit per-project spend on the go.
+ */
+export interface TagCostBreakdown {
+  /** Tag string */
+  tag: string;
+  /** Total cost in USD for sessions with this tag */
+  cost: number;
+  /** Number of sessions with this tag */
+  sessionCount: number;
+}
+
+/**
  * Daily cost data point for the mini chart.
  */
 export interface DailyCostDataPoint {
@@ -62,6 +98,9 @@ export interface DailyCostDataPoint {
   opencode: number;
 }
 
+/** Valid time range options in days for the cost dashboard. */
+export type CostTimeRange = 7 | 30 | 90;
+
 /**
  * Complete cost data for the dashboard.
  */
@@ -74,9 +113,13 @@ export interface CostData {
   month: CostSummary;
   /** Cost summary for last 90 days */
   quarter: CostSummary;
-  /** Cost breakdown by agent (last 30 days) */
+  /** Cost breakdown by agent for the selected time range */
   byAgent: AgentCostBreakdown[];
-  /** Daily costs for the mini chart (last 7 days) */
+  /** Cost breakdown by model for the selected time range */
+  byModel: ModelCostBreakdown[];
+  /** Cost breakdown by session tag for the selected time range */
+  byTag: TagCostBreakdown[];
+  /** Daily costs for the mini chart (for the selected time range) */
   dailyCosts: DailyCostDataPoint[];
 }
 
@@ -94,6 +137,12 @@ export interface UseCostsReturn {
   error: string | null;
   /** Trigger a refresh */
   refresh: () => Promise<void>;
+  /** Currently selected time range in days */
+  timeRange: CostTimeRange;
+  /** Change the selected time range */
+  setTimeRange: (range: CostTimeRange) => void;
+  /** Whether the realtime subscription is connected */
+  isRealtimeConnected: boolean;
 }
 
 // ============================================================================
@@ -141,15 +190,28 @@ function formatDateString(date: Date): string {
   return date.toISOString().split('T')[0];
 }
 
-// WHY: Raw record shape returned by the single 30-day Supabase fetch.
+// WHY: Raw record shape returned by the single 90-day Supabase fetch.
 // Selecting all columns needed by every downstream aggregation avoids
-// additional round-trips for agent breakdown and daily chart data.
+// additional round-trips for agent breakdown, model breakdown, and daily chart data.
 interface RawCostRecord {
   record_date: string;
   agent_type: string | null;
+  /** Model identifier (e.g., 'claude-sonnet-4'). Added for cost-by-model breakdown. */
+  model: string | null;
   cost_usd: string | number | null;
   input_tokens: number | null;
   output_tokens: number | null;
+}
+
+/**
+ * Raw session row shape returned by the tag cost query.
+ * Only includes fields needed for per-tag cost aggregation.
+ */
+interface RawTaggedSession {
+  tags: string[];
+  total_cost_usd: number;
+  /** ISO 8601 timestamp when the session started. Used to filter by time range. */
+  started_at: string;
 }
 
 /**
@@ -208,17 +270,89 @@ function deriveAgentBreakdown(records: RawCostRecord[]): AgentCostBreakdown[] {
 }
 
 /**
- * Derive daily cost chart data from raw 30-day records.
+ * Derive cost breakdown by model from raw cost records.
  *
- * @param records - Full 30-day raw records (superset — only last 7 days are used)
+ * @param records - Pre-filtered raw cost records for the desired time range
+ * @returns Array of model cost breakdowns sorted by cost descending
+ */
+function deriveModelBreakdown(records: RawCostRecord[]): ModelCostBreakdown[] {
+  const modelMap = new Map<string, ModelCostBreakdown>();
+
+  for (const record of records) {
+    const model = record.model || 'unknown';
+    const existing = modelMap.get(model) || {
+      model,
+      cost: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      requestCount: 0,
+    };
+
+    modelMap.set(model, {
+      model,
+      cost: existing.cost + (Number(record.cost_usd) || 0),
+      inputTokens: existing.inputTokens + (record.input_tokens || 0),
+      outputTokens: existing.outputTokens + (record.output_tokens || 0),
+      requestCount: existing.requestCount + 1,
+    });
+  }
+
+  return Array.from(modelMap.values()).sort((a, b) => b.cost - a.cost);
+}
+
+/**
+ * Derive cost breakdown by session tag from raw tagged session rows.
+ *
+ * WHY: Tags are stored as arrays on sessions (not cost_records), so we need
+ * a separate query to the sessions table. A single session can have multiple
+ * tags, so its cost is attributed to every tag it carries.
+ *
+ * WHY rangeStartStr: The tag sessions query always fetches 90 days so the
+ * full dataset is cached. We filter down to the selected time range client-side
+ * so the tag breakdown reflects the same window as agent/model breakdowns.
+ *
+ * @param sessions - Raw tagged session rows with cost, tags, and started_at
+ * @param rangeStartStr - Optional YYYY-MM-DD cutoff; sessions before this date are excluded
+ * @returns Array of tag cost breakdowns sorted by cost descending
+ */
+function deriveTagBreakdown(sessions: RawTaggedSession[], rangeStartStr?: string): TagCostBreakdown[] {
+  const tagMap = new Map<string, { cost: number; sessionCount: number }>();
+
+  for (const session of sessions) {
+    // Filter by time range if a cutoff was provided
+    if (rangeStartStr && session.started_at.slice(0, 10) < rangeStartStr) continue;
+    if (!session.tags || session.tags.length === 0) continue;
+    const cost = Number(session.total_cost_usd) || 0;
+
+    for (const tag of session.tags) {
+      const existing = tagMap.get(tag) || { cost: 0, sessionCount: 0 };
+      tagMap.set(tag, {
+        cost: existing.cost + cost,
+        sessionCount: existing.sessionCount + 1,
+      });
+    }
+  }
+
+  return Array.from(tagMap.entries())
+    .map(([tag, data]) => ({ tag, ...data }))
+    .sort((a, b) => b.cost - a.cost);
+}
+
+/**
+ * Derive daily cost chart data from raw records for a given number of days.
+ *
+ * @param records - Full 90-day raw records (superset)
+ * @param days - Number of days to show in the chart
  * @returns Array of daily cost data points sorted by date ascending
  */
-function deriveDailyCosts(records: RawCostRecord[]): DailyCostDataPoint[] {
-  const weekStart = formatDateString(getPeriodStartDate('week'));
+function deriveDailyCosts(records: RawCostRecord[], days: number = 7): DailyCostDataPoint[] {
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
+  const startDateStr = formatDateString(startDate);
 
-  // Pre-populate all 7 days with zeros for consistent chart display
+  // Pre-populate all days with zeros for consistent chart display
   const dateMap = new Map<string, DailyCostDataPoint>();
-  for (let i = 6; i >= 0; i--) {
+  for (let i = days - 1; i >= 0; i--) {
     const date = new Date();
     date.setDate(date.getDate() - i);
     const dateStr = formatDateString(date);
@@ -232,9 +366,9 @@ function deriveDailyCosts(records: RawCostRecord[]): DailyCostDataPoint[] {
     });
   }
 
-  // Aggregate actual data — filter to last 7 days from the already-fetched 30-day set
+  // Aggregate actual data — filter to selected range from the already-fetched 90-day set
   for (const record of records) {
-    if (record.record_date < weekStart) continue;
+    if (record.record_date < startDateStr) continue;
     const existing = dateMap.get(record.record_date);
     if (!existing) continue;
 
@@ -277,7 +411,7 @@ async function fetchQuarterRecords(): Promise<RawCostRecord[]> {
 
   const { data, error } = await supabase
     .from('cost_records')
-    .select('record_date, agent_type, cost_usd, input_tokens, output_tokens')
+    .select('record_date, agent_type, model, cost_usd, input_tokens, output_tokens')
     .gte('record_date', formatDateString(startDate))
     .order('record_date', { ascending: true });
 
@@ -291,7 +425,20 @@ async function fetchQuarterRecords(): Promise<RawCostRecord[]> {
   // WHY: Validate each record with Zod before downstream aggregation.
   // Invalid records are dropped so cost calculations are never corrupted
   // by unexpected data shapes from the database.
-  return safeParseArray(CostRecordSchema, data, 'cost_records');
+  const validated = safeParseArray(CostRecordSchema, data, 'cost_records');
+
+  // WHY: Map from Zod validated records to RawCostRecord shape. model is now
+  // `.default('unknown')` in the schema so it is always a string; no nullish
+  // coalescing needed. RawCostRecord still uses string | null to accept records
+  // fetched from realtime events that may predate the schema change.
+  return validated.map((r) => ({
+    record_date: r.record_date,
+    agent_type: r.agent_type,
+    model: r.model,
+    cost_usd: r.cost_usd,
+    input_tokens: r.input_tokens,
+    output_tokens: r.output_tokens,
+  }));
 }
 
 // ============================================================================
@@ -323,6 +470,8 @@ export function useCosts(): UseCostsReturn {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [timeRange, setTimeRange] = useState<CostTimeRange>(30);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
 
   // WHY: Keep a ref to the Realtime channel so we can clean it up on unmount
   // without leaking WebSocket connections.
@@ -332,6 +481,15 @@ export function useCosts(): UseCostsReturn {
   // append new records and re-derive all summaries without a full re-fetch.
   const recordsRef = useRef<RawCostRecord[]>([]);
 
+  // WHY: Keep a ref to tagged sessions so we can re-derive tag breakdown
+  // without re-fetching when realtime records arrive.
+  const taggedSessionsRef = useRef<RawTaggedSession[]>([]);
+
+  // WHY: Store timeRange in a ref so the deriveAndSetData callback can read
+  // the latest value without being recreated on every timeRange change.
+  const timeRangeRef = useRef<CostTimeRange>(timeRange);
+  timeRangeRef.current = timeRange;
+
   /**
    * Derives all cost summaries from a set of raw records and updates state.
    *
@@ -340,8 +498,9 @@ export function useCosts(): UseCostsReturn {
    * duplicating the filtering and aggregation code.
    *
    * @param records - The full set of raw cost records (up to 90 days)
+   * @param taggedSessions - Tagged sessions for cost-by-tag breakdown
    */
-  const deriveAndSetData = useCallback((records: RawCostRecord[]) => {
+  const deriveAndSetData = useCallback((records: RawCostRecord[], taggedSessions?: RawTaggedSession[]) => {
     const todayStart = formatDateString(getPeriodStartDate('today'));
     const weekStart = formatDateString(getPeriodStartDate('week'));
     const monthStart = formatDateString(getPeriodStartDate('month'));
@@ -351,10 +510,50 @@ export function useCosts(): UseCostsReturn {
     const monthRecords = records.filter((r) => r.record_date >= monthStart);
     const month = aggregateSummary(monthRecords);
     const quarter = aggregateSummary(records);
-    const byAgent = deriveAgentBreakdown(monthRecords);
-    const dailyCosts = deriveDailyCosts(records);
 
-    setData({ today, week, month, quarter, byAgent, dailyCosts });
+    // WHY: The time range selector controls which slice of the 90-day data
+    // is used for agent breakdown, model breakdown, tag breakdown, and chart.
+    // The summary cards always show fixed periods (today/week/month/quarter).
+    const currentRange = timeRangeRef.current;
+    const rangeStart = new Date();
+    rangeStart.setDate(rangeStart.getDate() - currentRange);
+    const rangeStartStr = formatDateString(rangeStart);
+    const rangeRecords = records.filter((r) => r.record_date >= rangeStartStr);
+
+    const byAgent = deriveAgentBreakdown(rangeRecords);
+    const byModel = deriveModelBreakdown(rangeRecords);
+    // WHY: Pass rangeStartStr so the tag breakdown matches the selected time range.
+    // Previously it always showed 90-day data regardless of the time range selector.
+    const byTag = deriveTagBreakdown(taggedSessions ?? taggedSessionsRef.current, rangeStartStr);
+    const dailyCosts = deriveDailyCosts(records, currentRange);
+
+    setData({ today, week, month, quarter, byAgent, byModel, byTag, dailyCosts });
+  }, []);
+
+  /**
+   * Fetch tagged sessions for cost-by-tag breakdown.
+   *
+   * WHY: Tags live on the sessions table, not cost_records. We need a separate
+   * query to get sessions with tags and their total_cost_usd for the selected
+   * period. Limited to 200 rows to avoid fetching excessive data.
+   *
+   * @param periodStart - ISO date string for the start of the period
+   * @returns Array of tagged session rows
+   */
+  const fetchTaggedSessions = useCallback(async (periodStart: string): Promise<RawTaggedSession[]> => {
+    const { data: sessions, error: sessionsError } = await supabase
+      .from('sessions')
+      .select('tags, total_cost_usd, started_at')
+      .gte('started_at', periodStart)
+      .not('tags', 'eq', '{}')
+      .limit(200);
+
+    if (sessionsError) {
+      console.error('Error fetching tagged sessions:', __DEV__ ? sessionsError : sessionsError.message);
+      return [];
+    }
+
+    return (sessions || []) as RawTaggedSession[];
   }, []);
 
   /**
@@ -368,16 +567,24 @@ export function useCosts(): UseCostsReturn {
    */
   const fetchAllData = useCallback(async () => {
     try {
-      const records = await fetchQuarterRecords();
+      // WHY: Fetch cost records and tagged sessions in parallel to minimize
+      // total load time. Both are independent queries.
+      const quarterStart = formatDateString(getPeriodStartDate('quarter'));
+      const [records, taggedSessions] = await Promise.all([
+        fetchQuarterRecords(),
+        fetchTaggedSessions(quarterStart),
+      ]);
+
       recordsRef.current = records;
-      deriveAndSetData(records);
+      taggedSessionsRef.current = taggedSessions;
+      deriveAndSetData(records, taggedSessions);
       setError(null);
     } catch (err) {
       // WHY: Raw error objects can leak stack traces and internal state in production.
       console.error('Error fetching cost data:', __DEV__ ? err : (err instanceof Error ? err.message : 'Unknown error'));
       setError(err instanceof Error ? err.message : 'Failed to load cost data');
     }
-  }, [deriveAndSetData]);
+  }, [deriveAndSetData, fetchTaggedSessions]);
 
   /**
    * Initial load on mount.
@@ -390,6 +597,19 @@ export function useCosts(): UseCostsReturn {
     };
     load();
   }, [fetchAllData]);
+
+  /**
+   * Re-derive data when time range changes.
+   *
+   * WHY: The 90-day dataset is already cached in recordsRef. Changing the time
+   * range only requires re-filtering and re-aggregating the cached data, not
+   * a new network request. This makes time range switching feel instant.
+   */
+  useEffect(() => {
+    if (recordsRef.current.length > 0) {
+      deriveAndSetData(recordsRef.current, taggedSessionsRef.current);
+    }
+  }, [timeRange, deriveAndSetData]);
 
   /**
    * Subscribe to real-time INSERT events on the cost_records table.
@@ -429,6 +649,7 @@ export function useCosts(): UseCostsReturn {
             const newRecord: RawCostRecord = {
               record_date: validated.record_date,
               agent_type: validated.agent_type,
+              model: validated.model ?? null,
               cost_usd: validated.cost_usd,
               input_tokens: validated.input_tokens,
               output_tokens: validated.output_tokens,
@@ -442,10 +663,21 @@ export function useCosts(): UseCostsReturn {
             const cutoff = formatDateString(getPeriodStartDate('quarter'));
             recordsRef.current = [...recordsRef.current, newRecord]
               .filter((r) => r.record_date >= cutoff);
+
+            // KNOWN LIMITATION: tag breakdown uses taggedSessionsRef.current which
+            // was fetched at initial load. New session tags added after mount will not
+            // appear in the tag breakdown until the user manually pulls to refresh.
+            // Fixing this would require an additional Supabase round-trip per INSERT
+            // event, which is not worth the cost for a non-real-time metric.
             deriveAndSetData(recordsRef.current);
           },
         )
-        .subscribe();
+        .subscribe((status) => {
+          // WHY: Track subscription status so the UI can show a live/offline
+          // indicator. 'SUBSCRIBED' means the WebSocket is connected and
+          // receiving events; any other status means we're not live.
+          setIsRealtimeConnected(status === 'SUBSCRIBED');
+        });
 
       realtimeChannelRef.current = channel;
     };
@@ -457,6 +689,7 @@ export function useCosts(): UseCostsReturn {
       if (realtimeChannelRef.current) {
         supabase.removeChannel(realtimeChannelRef.current);
         realtimeChannelRef.current = null;
+        setIsRealtimeConnected(false);
       }
     };
   }, [deriveAndSetData]);
@@ -476,6 +709,9 @@ export function useCosts(): UseCostsReturn {
     isRefreshing,
     error,
     refresh,
+    timeRange,
+    setTimeRange,
+    isRealtimeConnected,
   };
 }
 

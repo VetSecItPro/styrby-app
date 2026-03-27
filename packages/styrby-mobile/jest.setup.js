@@ -157,15 +157,100 @@ jest.mock('expo-linking', () => ({
 }));
 
 // ============================================================================
-// react-native (partial mock for Platform)
+// react-native (comprehensive mock for node environment)
 // ============================================================================
 
-jest.mock('react-native', () => ({
-  Platform: { OS: 'ios', select: jest.fn((obj) => obj.ios) },
-  AppState: {
-    addEventListener: jest.fn(() => ({ remove: jest.fn() })),
-    currentState: 'active',
-  },
+jest.mock('react-native', () => {
+  const React = require('react');
+
+  /**
+   * Creates a simple mock React component that renders its children.
+   *
+   * @param name - The component display name
+   * @returns A mock functional component
+   */
+  const mockComponent = (name) => {
+    const Component = (props) =>
+      React.createElement(name, props, props.children);
+    Component.displayName = name;
+    return Component;
+  };
+
+  return {
+    Platform: { OS: 'ios', select: jest.fn((obj) => obj.ios) },
+    AppState: {
+      addEventListener: jest.fn(() => ({ remove: jest.fn() })),
+      currentState: 'active',
+    },
+    StyleSheet: { create: (styles) => styles, flatten: (style) => style },
+    Appearance: { getColorScheme: jest.fn(() => 'dark') },
+    Dimensions: { get: jest.fn(() => ({ width: 390, height: 844 })) },
+    PixelRatio: { get: jest.fn(() => 3), getFontScale: jest.fn(() => 1), getPixelSizeForLayoutSize: jest.fn((size) => size * 3), roundToNearestPixel: jest.fn((size) => size) },
+    Alert: { alert: jest.fn() },
+    Linking: { openURL: jest.fn(async () => {}), addEventListener: jest.fn(() => ({ remove: jest.fn() })) },
+    UIManager: { getViewManagerConfig: jest.fn(() => ({})), setLayoutAnimationEnabledExperimental: jest.fn() },
+    NativeModules: {},
+    NativeEventEmitter: jest.fn(() => ({ addListener: jest.fn(() => ({ remove: jest.fn() })), removeAllListeners: jest.fn() })),
+    // Core components as mock components
+    View: mockComponent('View'),
+    Text: mockComponent('Text'),
+    ScrollView: mockComponent('ScrollView'),
+    FlatList: (props) => {
+      const items = (props.data || []).map((item, index) =>
+        props.renderItem ? props.renderItem({ item, index, separators: {} }) : null
+      );
+      const empty = (!props.data || props.data.length === 0) && props.ListEmptyComponent
+        ? (typeof props.ListEmptyComponent === 'function' ? React.createElement(props.ListEmptyComponent) : props.ListEmptyComponent)
+        : null;
+      return React.createElement('FlatList', null, ...items, empty, props.ListFooterComponent || null);
+    },
+    SectionList: (props) => {
+      const items = [];
+      for (const section of (props.sections || [])) {
+        if (props.renderSectionHeader) {
+          items.push(props.renderSectionHeader({ section }));
+        }
+        for (let index = 0; index < section.data.length; index++) {
+          if (props.renderItem) {
+            items.push(props.renderItem({ item: section.data[index], index, section, separators: {} }));
+          }
+        }
+      }
+      const empty = (!props.sections || props.sections.length === 0 || props.sections.every((s) => s.data.length === 0))
+        && props.ListEmptyComponent
+        ? (typeof props.ListEmptyComponent === 'function' ? React.createElement(props.ListEmptyComponent) : props.ListEmptyComponent)
+        : null;
+      return React.createElement('SectionList', null, ...items, empty);
+    },
+    Pressable: mockComponent('Pressable'),
+    TouchableOpacity: mockComponent('TouchableOpacity'),
+    TextInput: mockComponent('TextInput'),
+    Switch: mockComponent('Switch'),
+    Modal: mockComponent('Modal'),
+    ActivityIndicator: mockComponent('ActivityIndicator'),
+    RefreshControl: mockComponent('RefreshControl'),
+    KeyboardAvoidingView: mockComponent('KeyboardAvoidingView'),
+    Image: mockComponent('Image'),
+    StatusBar: mockComponent('StatusBar'),
+    SafeAreaView: mockComponent('SafeAreaView'),
+  };
+});
+
+// ============================================================================
+// react-native-css-interop (NativeWind runtime)
+// ============================================================================
+
+/**
+ * WHY: NativeWind uses react-native-css-interop at runtime. The library
+ * accesses Appearance.getColorScheme() at import time, which fails in
+ * node environments. Mocking the entire package avoids this.
+ */
+jest.mock('react-native-css-interop', () => ({
+  cssInterop: jest.fn((component) => component),
+  remapProps: jest.fn((component) => component),
+  useColorScheme: jest.fn(() => ({ colorScheme: 'dark', setColorScheme: jest.fn(), toggleColorScheme: jest.fn() })),
+  useUnstableNativeVariable: jest.fn(() => ''),
+  vars: jest.fn((style) => style),
   StyleSheet: { create: (styles) => styles },
 }));
 
@@ -192,3 +277,14 @@ process.env.EXPO_PUBLIC_PROJECT_ID = 'test-project-id';
  * Call in beforeEach/afterEach in tests that use SecureStore.
  */
 global.__resetSecureStore = () => mockSecureStoreData.clear();
+
+// ============================================================================
+// requestAnimationFrame / cancelAnimationFrame polyfill
+// ============================================================================
+
+/**
+ * WHY: Some React Native code (e.g., PagerView setPage) uses requestAnimationFrame
+ * which is not available in the node test environment.
+ */
+global.requestAnimationFrame = (callback) => setTimeout(callback, 0);
+global.cancelAnimationFrame = (id) => clearTimeout(id);
