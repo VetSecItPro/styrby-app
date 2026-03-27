@@ -20,7 +20,7 @@ import * as SQLite from 'expo-sqlite';
  * In-memory store simulating the offline_storage SQLite table.
  * Each key is the command ID, value is the full row.
  */
-let mockStorageRows: Map<string, Record<string, unknown>> = new Map();
+const mockStorageRows: Map<string, Record<string, unknown>> = new Map();
 
 /** Track SQL calls for assertions */
 let sqlCalls: { sql: string; params: unknown[] }[] = [];

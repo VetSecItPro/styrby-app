@@ -37,7 +37,7 @@ jest.mock('styrby-shared', () => ({
  * In-memory store to simulate SQLite rows for the command_queue table.
  * We intercept runAsync/getFirstAsync/getAllAsync to manipulate this store.
  */
-let mockRows: Map<string, Record<string, unknown>> = new Map();
+const mockRows: Map<string, Record<string, unknown>> = new Map();
 
 /** Track SQL calls for assertion */
 let sqlCalls: { sql: string; params: unknown[] }[] = [];
