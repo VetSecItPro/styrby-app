@@ -115,7 +115,9 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ['var(--font-space-grotesk)', 'system-ui', 'sans-serif'],
+        /* Outfit: geometric display type for headlines and body copy */
+        sans: ['var(--font-outfit)', 'system-ui', 'sans-serif'],
+        /* JetBrains Mono: developer-grade monospace for code, costs, agent IDs */
         mono: ['var(--font-jetbrains)', 'ui-monospace', 'monospace'],
       },
       borderRadius: {
