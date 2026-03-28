@@ -41,6 +41,8 @@ export * from './factories';
  * - Gemini CLI (Google AI)
  * - OpenCode (terminal-based AI coding assistant)
  * - Aider (AI pair programming tool)
+ * - Goose (Block/Square, Apache 2.0, MCP-native)
+ * - Amp (Sourcegraph, deep mode with sub-agents)
  */
 export function initializeAgents(): void {
   // Import and register agents from factories
@@ -68,6 +70,22 @@ export function initializeAgents(): void {
     registerAiderAgent();
   } catch {
     // Aider factory not available
+  }
+
+  // Goose - Block/Square AI coding agent (Apache 2.0, MCP protocol)
+  try {
+    const { registerGooseAgent } = require('./factories/goose');
+    registerGooseAgent();
+  } catch {
+    // Goose factory not available
+  }
+
+  // Amp - Sourcegraph AI coding agent (deep mode with sub-agents)
+  try {
+    const { registerAmpAgent } = require('./factories/amp');
+    registerAmpAgent();
+  } catch {
+    // Amp factory not available
   }
 }
 

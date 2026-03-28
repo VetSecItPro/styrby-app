@@ -121,8 +121,10 @@ describe('useRelay', () => {
     }
 
     // Reset SecureStore
-    if (typeof global.__resetSecureStore === 'function') {
-      global.__resetSecureStore();
+    // WHY unknown cast: globalThis has no index signature in strict mode, but test
+    // infrastructure sets __resetSecureStore on global for cleanup purposes.
+    if (typeof (globalThis as unknown as Record<string, unknown>).__resetSecureStore === 'function') {
+      (globalThis as unknown as Record<string, () => void>).__resetSecureStore();
     }
 
     // Reset offline queue mock
@@ -323,13 +325,15 @@ describe('useRelay', () => {
     await act(async () => {
       await result.current.sendMessage({
         type: 'chat',
-        payload: { text: 'Hello' },
+        // WHY content/agent: ChatMessage.payload uses 'content' (not 'text') and
+        // requires an agent field per the RelayMessage type in styrby-shared.
+        payload: { content: 'Hello', agent: 'claude' },
       });
     });
 
     expect(mockRelayClient.send).toHaveBeenCalledWith({
       type: 'chat',
-      payload: { text: 'Hello' },
+      payload: { content: 'Hello', agent: 'claude' },
     });
   });
 
@@ -340,7 +344,7 @@ describe('useRelay', () => {
       act(async () => {
         await result.current.sendMessage({
           type: 'chat',
-          payload: { text: 'Hello' },
+          payload: { content: 'Hello', agent: 'claude' },
         });
       })
     ).rejects.toThrow('Not connected to relay');

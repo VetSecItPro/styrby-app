@@ -10,9 +10,20 @@ import * as path from 'path';
 import * as os from 'os';
 import * as readline from 'readline';
 import type { AgentType } from 'styrby-shared';
+import { getModelPriceSync, getModelPrice, type ModelPrice } from 'styrby-shared';
 
 /**
- * Model pricing per 1M tokens (USD)
+ * Legacy static pricing map — kept for backward compatibility only.
+ *
+ * @deprecated Use `getModelPriceSync()` or `getModelPrice()` from `styrby-shared`
+ * instead. Those functions draw from LiteLLM's live dataset with a multi-tier
+ * fallback chain, so pricing stays accurate as providers change their rates.
+ *
+ * This map is retained so that any external code that imports `MODEL_PRICING`
+ * directly still compiles without changes. It will NOT be updated when prices
+ * change — use the dynamic functions instead.
+ *
+ * Prices are USD per 1M tokens (historical Styrby format).
  */
 export const MODEL_PRICING: Record<string, { input: number; output: number; cacheRead?: number; cacheWrite?: number }> = {
   // Claude models (Anthropic)
@@ -32,6 +43,10 @@ export const MODEL_PRICING: Record<string, { input: number; output: number; cach
   'gemini-1.5-pro': { input: 1.25, output: 5.00 },
   'gemini-1.5-flash': { input: 0.075, output: 0.30 },
 };
+
+// Re-export the dynamic pricing types so dependents can migrate to them
+export type { ModelPrice };
+export { getModelPrice, getModelPriceSync };
 
 /**
  * Token usage from a single API call
@@ -67,26 +82,52 @@ export interface CostSummary {
 }
 
 /**
- * Returns model pricing, with optional environment variable overrides.
- * WHY: Allows urgent pricing updates without code release.
+ * Returns model pricing using the dynamic LiteLLM pricing module.
  *
- * @returns Merged pricing map (env overrides take precedence)
+ * Uses `getModelPriceSync()` from the shared pricing module, which draws from
+ * a 1-hour in-memory cache populated by `getModelPrice()` (async). On the
+ * very first call (cold cache), it falls back to the built-in static map.
+ *
+ * WHY: `calculateCost()` is called in a tight synchronous loop while parsing
+ * JSONL files. We cannot await here. The async `getModelPrice()` is called
+ * during session start to warm the cache, so sync lookups are accurate for
+ * any session that was started with the CLI connected.
+ *
+ * @param model - Model identifier from token usage
+ * @returns Pricing in the legacy per-1M-tokens format for backward compatibility
  */
-function getModelPricing(): Record<string, { input: number; output: number; cacheRead?: number; cacheWrite?: number }> {
-  const defaults = MODEL_PRICING;
-
+function getModelPricingForModel(model: string): { input: number; output: number; cacheRead?: number; cacheWrite?: number } | undefined {
+  // Check for env-var override first (keeps urgent-override escape hatch)
   const envOverride = process.env.STYRBY_MODEL_PRICING_JSON;
   if (envOverride) {
     try {
-      const overrides = JSON.parse(envOverride);
-      return { ...defaults, ...overrides };
+      const overrides = JSON.parse(envOverride) as Record<string, { input: number; output: number; cacheRead?: number; cacheWrite?: number }>;
+      if (overrides[model]) return overrides[model];
     } catch {
-      // Invalid JSON in env var — fall back to defaults
-      return defaults;
+      // Invalid JSON in env var — continue to dynamic lookup
     }
   }
 
-  return defaults;
+  // Use the dynamic LiteLLM pricing module (sync, uses in-memory cache)
+  const price = getModelPriceSync(model);
+
+  // Convert from per-1k (ModelPrice format) back to per-1M (legacy format)
+  // WHY: calculateCost() and calculateInputCost() use per-1M arithmetic. We
+  // keep that math untouched to avoid introducing conversion bugs; instead we
+  // adapt the data here at the boundary.
+  const per1M: { input: number; output: number; cacheRead?: number; cacheWrite?: number } = {
+    input: price.inputPer1k * 1000,
+    output: price.outputPer1k * 1000,
+  };
+
+  if (price.cachePer1k !== undefined) {
+    per1M.cacheRead = price.cachePer1k * 1000;
+  }
+  if (price.cacheWritePer1k !== undefined) {
+    per1M.cacheWrite = price.cacheWritePer1k * 1000;
+  }
+
+  return per1M;
 }
 
 /**
@@ -112,12 +153,20 @@ export function getAgentTypeForModel(model: string): AgentType | null {
 }
 
 /**
- * Calculate cost for token usage
+ * Calculate cost for token usage.
+ *
+ * Uses the LiteLLM dynamic pricing module via `getModelPricingForModel()`.
+ * The pricing cache is populated asynchronously; until it is warm, the
+ * built-in static fallback map is used so this function never blocks.
+ *
+ * @param usage - Token usage record from a parsed JSONL event
+ * @returns Total cost in USD
  */
 export function calculateCost(usage: TokenUsage): number {
-  const pricing = getModelPricing()[usage.model];
+  const pricing = getModelPricingForModel(usage.model);
   if (!pricing) {
-    // Default pricing if model unknown
+    // getModelPricingForModel() always returns a value; this branch is
+    // unreachable in practice but TypeScript needs the guard.
     return ((usage.inputTokens * 3) + (usage.outputTokens * 15)) / 1_000_000;
   }
 
@@ -145,9 +194,10 @@ export function calculateCost(usage: TokenUsage): number {
  * @returns Input-only cost in USD
  */
 export function calculateInputCost(usage: TokenUsage): number {
-  const pricing = getModelPricing()[usage.model];
+  const pricing = getModelPricingForModel(usage.model);
   if (!pricing) {
-    // Default pricing if model unknown (Sonnet-class input rate)
+    // getModelPricingForModel() always returns a value; this branch is
+    // unreachable in practice but TypeScript needs the guard.
     return (usage.inputTokens * 3) / 1_000_000;
   }
 
@@ -175,8 +225,8 @@ function parseJsonlLine(line: string): TokenUsage | null {
       return {
         inputTokens: usage.input_tokens || 0,
         outputTokens: usage.output_tokens || 0,
-        cacheReadTokens: usage.cache_read_input_tokens || usage.cache_creation_input_tokens || 0,
-        cacheWriteTokens: usage.cache_write_input_tokens || 0,
+        cacheReadTokens: usage.cache_read_input_tokens || 0,
+        cacheWriteTokens: usage.cache_creation_input_tokens || 0,
         model: data.message.model || 'unknown',
         timestamp: new Date(data.timestamp || Date.now()),
       };

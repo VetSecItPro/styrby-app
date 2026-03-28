@@ -49,6 +49,8 @@ const AGENT_COLORS: Record<AgentType, string> = {
   gemini: '#3b82f6',
   opencode: '#8b5cf6',
   aider: '#ec4899',
+  goose: '#06b6d4',
+  amp: '#f59e0b',
 };
 
 const TYPE_CONFIG: Record<NotificationType, { icon: keyof typeof Ionicons.glyphMap; color: string }> = {

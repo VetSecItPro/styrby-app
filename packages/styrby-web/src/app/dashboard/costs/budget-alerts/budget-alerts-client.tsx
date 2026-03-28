@@ -22,7 +22,7 @@ import { useFocusTrap } from '@/hooks/useFocusTrap';
 // ---------------------------------------------------------------------------
 
 /** Valid agent types matching the Postgres enum */
-type AgentType = 'claude' | 'codex' | 'gemini';
+type AgentType = 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp';
 
 /** Valid alert periods matching the database CHECK constraint */
 type AlertPeriod = 'daily' | 'weekly' | 'monthly';
@@ -114,6 +114,10 @@ const AGENT_COLORS: Record<AgentType, { bg: string; text: string }> = {
   claude: { bg: 'bg-orange-500/10', text: 'text-orange-400' },
   codex: { bg: 'bg-green-500/10', text: 'text-green-400' },
   gemini: { bg: 'bg-blue-500/10', text: 'text-blue-400' },
+  opencode: { bg: 'bg-purple-500/10', text: 'text-purple-400' },
+  aider: { bg: 'bg-pink-500/10', text: 'text-pink-400' },
+  goose: { bg: 'bg-teal-500/10', text: 'text-teal-400' },
+  amp: { bg: 'bg-amber-500/10', text: 'text-amber-400' },
 };
 
 // ---------------------------------------------------------------------------
@@ -581,7 +585,14 @@ export function BudgetAlertsClient({
                       {alert.percentage_used.toFixed(0)}%
                     </span>
                   </div>
-                  <div className="h-2 rounded-full bg-zinc-800 overflow-hidden">
+                  <div
+                    className="h-2 rounded-full bg-zinc-800 overflow-hidden"
+                    role="progressbar"
+                    aria-valuenow={Math.min(Math.round(alert.percentage_used), 100)}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label={`Budget usage: ${alert.percentage_used.toFixed(0)}% of $${alert.threshold_usd}`}
+                  >
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${progressColor}`}
                       style={{ width: `${Math.min(alert.percentage_used, 100)}%` }}

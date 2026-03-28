@@ -24,11 +24,13 @@ export interface BufferedMessage {
 /**
  * Message buffer for agent output.
  *
- * TODO: Replace with proper terminal UI
- * Options:
- * - Keep simple console.log for MVP
- * - Add Ink later for richer TUI
- * - Consider blessed or blessed-contrib
+ * WHY: Styrby uses console-based output rather than a full TUI framework.
+ * Ink (React for CLI) was evaluated but adds significant complexity and
+ * bundle weight for minimal gain — the mobile app is the rich UI layer.
+ * The MessageBuffer class persists for compatibility with any future Ink
+ * rendering paths (e.g., RemoteModeDisplay) that import this type. New
+ * TUI features should be built using the Ink components in `src/ui/ink/`
+ * rather than extending this buffer.
  */
 export class MessageBuffer {
   private messages: BufferedMessage[] = [];

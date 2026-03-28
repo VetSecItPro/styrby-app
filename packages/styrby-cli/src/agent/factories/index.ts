@@ -31,6 +31,22 @@ export {
   type OpenCodeBackendResult,
 } from './opencode';
 
+// Goose factory (Block/Square, Apache 2.0)
+export {
+  createGooseBackend,
+  registerGooseAgent,
+  type GooseBackendOptions,
+  type GooseBackendResult,
+} from './goose';
+
+// Amp factory (Sourcegraph)
+export {
+  createAmpBackend,
+  registerAmpAgent,
+  type AmpBackendOptions,
+  type AmpBackendResult,
+} from './amp';
+
 // Future factories:
 // export { createCodexBackend, registerCodexAgent, type CodexBackendOptions } from './codex';
 // export { createClaudeBackend, registerClaudeAgent, type ClaudeBackendOptions } from './claude';

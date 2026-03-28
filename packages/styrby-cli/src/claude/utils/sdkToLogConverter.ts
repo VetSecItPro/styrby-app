@@ -87,10 +87,13 @@ export class SDKToLogConverter {
         const timestamp = new Date().toISOString()
         let parentUuid = this.lastUuid;
         let isSidechain = false;
-        if (sdkMessage.parent_tool_use_id) {
+        const parentToolUseId = typeof sdkMessage['parent_tool_use_id'] === 'string'
+            ? sdkMessage['parent_tool_use_id']
+            : undefined;
+        if (parentToolUseId) {
             isSidechain = true;
-            parentUuid = this.sidechainLastUUID.get((sdkMessage as any).parent_tool_use_id) ?? null;
-            this.sidechainLastUUID.set((sdkMessage as any).parent_tool_use_id!, uuid);
+            parentUuid = this.sidechainLastUUID.get(parentToolUseId) ?? null;
+            this.sidechainLastUUID.set(parentToolUseId, uuid);
         }
         const baseFields = {
             parentUuid: parentUuid,
@@ -121,7 +124,9 @@ export class SDKToLogConverter {
                         if (content.type === 'tool_result' && content.tool_use_id && this.responses?.has(content.tool_use_id)) {
                             const response = this.responses.get(content.tool_use_id)
                             if (response?.mode) {
-                                (logMessage as any).mode = response.mode
+                                // WHY: RawJSONLines uses passthrough() in Zod so extra fields are valid
+                                // at runtime; TypeScript's discriminated union doesn't expose them statically.
+                                (logMessage as RawJSONLines & { mode?: string }).mode = response.mode
                             }
                         }
                     }
@@ -137,8 +142,8 @@ export class SDKToLogConverter {
                     ...baseFields,
                     type: 'assistant',
                     message: assistantMsg.message,
-                    // Assistant messages often have additional fields
-                    requestId: (assistantMsg as any).requestId
+                    // Assistant messages often have additional fields from the SDK
+                    requestId: typeof assistantMsg['requestId'] === 'string' ? assistantMsg['requestId'] : undefined
                 }
                 // if (assistantMsg.message.content && Array.isArray(assistantMsg.message.content)) {
                 //     for (const content of assistantMsg.message.content) {
@@ -166,8 +171,8 @@ export class SDKToLogConverter {
                     subtype: systemMsg.subtype,
                     model: systemMsg.model,
                     tools: systemMsg.tools,
-                    // Include all other fields
-                    ...(systemMsg as any)
+                    // Include all other fields from the SDK system message
+                    ...systemMsg
                 }
                 break
             }
@@ -181,24 +186,29 @@ export class SDKToLogConverter {
 
             // Handle tool use results (often comes as user messages)
             case 'tool_result': {
-                const toolMsg = sdkMessage as any
-                const baseLogMessage: any = {
+                // WHY: 'tool_result' is not a standard SDK message type — it appears in
+                // some legacy/synthetic message flows. We access fields through the index
+                // signature since SDKMessage has `[key: string]: unknown`.
+                const toolUseId = typeof sdkMessage['tool_use_id'] === 'string' ? sdkMessage['tool_use_id'] : undefined;
+                const toolContent = sdkMessage['content'];
+
+                const baseLogMessage: RawJSONLines & { mode?: string } = {
                     ...baseFields,
                     type: 'user',
+                    uuid: baseFields.uuid,
                     message: {
                         role: 'user',
                         content: [{
                             type: 'tool_result',
-                            tool_use_id: toolMsg.tool_use_id,
-                            content: toolMsg.content
+                            tool_use_id: toolUseId,
+                            content: toolContent
                         }]
                     },
-                    toolUseResult: toolMsg.content
                 }
 
                 // Add mode if available from responses
-                if (toolMsg.tool_use_id && this.responses?.has(toolMsg.tool_use_id)) {
-                    const response = this.responses.get(toolMsg.tool_use_id)
+                if (toolUseId && this.responses?.has(toolUseId)) {
+                    const response = this.responses.get(toolUseId)
                     if (response?.mode) {
                         baseLogMessage.mode = response.mode
                     }
@@ -209,12 +219,14 @@ export class SDKToLogConverter {
             }
 
             default:
-                // Unknown message type - pass through with all fields
+                // Unknown message type — pass through with all fields.
+                // The spread over SDKMessage (which has `[key: string]: unknown`) satisfies
+                // RawJSONLines' passthrough() Zod schema at runtime.
                 logMessage = {
                     ...baseFields,
                     ...sdkMessage,
-                    type: (sdkMessage as any).type // Override type last to ensure it's set
-                } as any
+                    type: sdkMessage.type
+                } as unknown as RawJSONLines
         }
 
         // Update last UUID for parent tracking

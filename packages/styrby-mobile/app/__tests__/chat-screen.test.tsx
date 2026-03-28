@@ -626,10 +626,12 @@ describe('ChatScreen', () => {
    * skip history loading gracefully and still render the screen.
    */
   it('renders without crashing when getUser returns no user', async () => {
+    // WHY as any: Simulating unauthenticated state where Supabase returns null user.
+    // The mock default type is non-null so we cast to test the null-handling path.
     mockGetUser.mockResolvedValue({
       data: { user: null },
       error: null,
-    });
+    } as any);
 
     let component: renderer.ReactTestRenderer;
     await renderer.act(async () => {

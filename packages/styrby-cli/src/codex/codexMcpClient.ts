@@ -53,7 +53,7 @@ export class CodexMcpClient {
     private connected: boolean = false;
     private sessionId: string | null = null;
     private conversationId: string | null = null;
-    private handler: ((event: any) => void) | null = null;
+    private handler: ((event: unknown) => void) | null = null;
     private permissionHandler: CodexPermissionHandler | null = null;
 
     constructor() {
@@ -74,7 +74,12 @@ export class CodexMcpClient {
         });
     }
 
-    setHandler(handler: ((event: any) => void) | null): void {
+    /**
+     * Set the event handler for Codex MCP notifications.
+     *
+     * @param handler - Callback receiving raw Codex event payloads, or null to remove
+     */
+    setHandler(handler: ((event: unknown) => void) | null): void {
         this.handler = handler;
     }
 
@@ -231,58 +236,68 @@ export class CodexMcpClient {
     }
 
 
-    private updateIdentifiersFromEvent(event: any): void {
+    private updateIdentifiersFromEvent(event: unknown): void {
         if (!event || typeof event !== 'object') {
             return;
         }
 
-        const candidates: any[] = [event];
-        if (event.data && typeof event.data === 'object') {
-            candidates.push(event.data);
+        const eventObj = event as Record<string, unknown>;
+        const candidates: Record<string, unknown>[] = [eventObj];
+        if (eventObj['data'] && typeof eventObj['data'] === 'object') {
+            candidates.push(eventObj['data'] as Record<string, unknown>);
         }
 
         for (const candidate of candidates) {
-            const sessionId = candidate.session_id ?? candidate.sessionId;
-            if (sessionId) {
+            const sessionId = candidate['session_id'] ?? candidate['sessionId'];
+            if (typeof sessionId === 'string') {
                 this.sessionId = sessionId;
                 logger.debug('[CodexMCP] Session ID extracted from event:', this.sessionId);
             }
 
-            const conversationId = candidate.conversation_id ?? candidate.conversationId;
-            if (conversationId) {
+            const conversationId = candidate['conversation_id'] ?? candidate['conversationId'];
+            if (typeof conversationId === 'string') {
                 this.conversationId = conversationId;
                 logger.debug('[CodexMCP] Conversation ID extracted from event:', this.conversationId);
             }
         }
     }
-    private extractIdentifiers(response: any): void {
-        const meta = response?.meta || {};
-        if (meta.sessionId) {
-            this.sessionId = meta.sessionId;
+
+    private extractIdentifiers(response: unknown): void {
+        if (!response || typeof response !== 'object') return;
+        const responseObj = response as Record<string, unknown>;
+        const meta = (responseObj['meta'] && typeof responseObj['meta'] === 'object'
+            ? responseObj['meta']
+            : {}) as Record<string, unknown>;
+
+        if (typeof meta['sessionId'] === 'string') {
+            this.sessionId = meta['sessionId'];
             logger.debug('[CodexMCP] Session ID extracted:', this.sessionId);
-        } else if (response?.sessionId) {
-            this.sessionId = response.sessionId;
+        } else if (typeof responseObj['sessionId'] === 'string') {
+            this.sessionId = responseObj['sessionId'];
             logger.debug('[CodexMCP] Session ID extracted:', this.sessionId);
         }
 
-        if (meta.conversationId) {
-            this.conversationId = meta.conversationId;
+        if (typeof meta['conversationId'] === 'string') {
+            this.conversationId = meta['conversationId'];
             logger.debug('[CodexMCP] Conversation ID extracted:', this.conversationId);
-        } else if (response?.conversationId) {
-            this.conversationId = response.conversationId;
+        } else if (typeof responseObj['conversationId'] === 'string') {
+            this.conversationId = responseObj['conversationId'];
             logger.debug('[CodexMCP] Conversation ID extracted:', this.conversationId);
         }
 
-        const content = response?.content;
+        const content = responseObj['content'];
         if (Array.isArray(content)) {
             for (const item of content) {
-                if (!this.sessionId && item?.sessionId) {
-                    this.sessionId = item.sessionId;
-                    logger.debug('[CodexMCP] Session ID extracted from content:', this.sessionId);
-                }
-                if (!this.conversationId && item && typeof item === 'object' && 'conversationId' in item && item.conversationId) {
-                    this.conversationId = item.conversationId;
-                    logger.debug('[CodexMCP] Conversation ID extracted from content:', this.conversationId);
+                if (item && typeof item === 'object') {
+                    const itemObj = item as Record<string, unknown>;
+                    if (!this.sessionId && typeof itemObj['sessionId'] === 'string') {
+                        this.sessionId = itemObj['sessionId'];
+                        logger.debug('[CodexMCP] Session ID extracted from content:', this.sessionId);
+                    }
+                    if (!this.conversationId && typeof itemObj['conversationId'] === 'string') {
+                        this.conversationId = itemObj['conversationId'];
+                        logger.debug('[CodexMCP] Conversation ID extracted from content:', this.conversationId);
+                    }
                 }
             }
         }

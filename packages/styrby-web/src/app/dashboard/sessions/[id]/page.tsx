@@ -15,6 +15,8 @@ import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
 import { SessionView } from './session-view';
 import { SessionTagEditor } from './session-tags';
+import { ContextBreakdown } from '@/components/context-breakdown';
+import { SessionExportButton } from './session-export-button';
 
 /**
  * Props for the session detail page.
@@ -119,7 +121,17 @@ export default async function SessionPage({ params }: SessionPageProps) {
                       ? 'bg-orange-500/10 text-orange-400'
                       : session.agent_type === 'codex'
                         ? 'bg-green-500/10 text-green-400'
-                        : 'bg-blue-500/10 text-blue-400'
+                        : session.agent_type === 'gemini'
+                          ? 'bg-blue-500/10 text-blue-400'
+                          : session.agent_type === 'opencode'
+                            ? 'bg-purple-500/10 text-purple-400'
+                            : session.agent_type === 'aider'
+                              ? 'bg-pink-500/10 text-pink-400'
+                              : session.agent_type === 'goose'
+                                ? 'bg-teal-500/10 text-teal-400'
+                                : session.agent_type === 'amp'
+                                  ? 'bg-amber-500/10 text-amber-400'
+                                  : 'bg-zinc-500/10 text-zinc-400'
                   }`}
                 >
                   {session.agent_type}
@@ -164,6 +176,11 @@ export default async function SessionPage({ params }: SessionPageProps) {
                 {session.project_path}
               </span>
             )}
+            {/* Export button — client component that downloads session as JSON */}
+            <SessionExportButton
+              session={session}
+              messages={messages ?? []}
+            />
           </div>
         </div>
 
@@ -181,13 +198,33 @@ export default async function SessionPage({ params }: SessionPageProps) {
         </div>
       </header>
 
-      {/* Session content with view mode switching */}
-      <SessionView
-        session={session}
-        messages={messages || []}
-        userId={user.id}
-        userTier={userTier}
-      />
+      {/* Main content: chat/replay view + sidebar panels */}
+      <div className="flex flex-1 min-h-0">
+        {/* Session chat / replay (takes remaining width) */}
+        <div className="flex-1 min-w-0">
+          <SessionView
+            session={session}
+            messages={messages || []}
+            userId={user.id}
+            userTier={userTier}
+          />
+        </div>
+
+        {/* Right sidebar: Context Budget (collapsed when session is active) */}
+        {/* WHY: The context breakdown is most useful for completed sessions where
+            users review what the agent loaded. For active sessions it would show
+            stale data, so we surface it only when the session is done. */}
+        {!isSessionActive && (
+          <aside className="hidden lg:flex w-80 shrink-0 flex-col gap-4 overflow-y-auto border-l border-zinc-800 bg-zinc-950 p-4">
+            {/* Context budget breakdown
+                WHY: context_breakdown is not a Supabase column — it is streamed
+                from the CLI via the relay and stored client-side. For now we
+                render the empty state on the server; a future real-time hook
+                will hydrate this once the relay delivers the breakdown. */}
+            <ContextBreakdown breakdown={null} />
+          </aside>
+        )}
+      </div>
     </div>
   );
 }

@@ -62,14 +62,14 @@ export class Query implements AsyncIterableIterator<SDKMessage> {
         return this.sdkMessages.next(...args)
     }
 
-    return(value?: any): Promise<IteratorResult<SDKMessage>> {
+    return(value?: SDKMessage): Promise<IteratorResult<SDKMessage>> {
         if (this.sdkMessages.return) {
             return this.sdkMessages.return(value)
         }
-        return Promise.resolve({ done: true, value: undefined })
+        return Promise.resolve({ done: true, value: undefined as unknown as SDKMessage })
     }
 
-    throw(e: any): Promise<IteratorResult<SDKMessage>> {
+    throw(e: unknown): Promise<IteratorResult<SDKMessage>> {
         if (this.sdkMessages.throw) {
             return this.sdkMessages.throw(e)
         }
@@ -381,16 +381,18 @@ export function query(config: {
     process.on('exit', cleanup)
 
     // Handle process exit
+    // WHY: Must always resolve — if the promise stays pending on non-zero exit,
+    // readMessages() hangs at `await this.processExitPromise`, inputStream.done()
+    // never fires, and consumers of the query stream hang indefinitely. We still
+    // call setError() so the stream propagates the error to consumers.
     const processExitPromise = new Promise<void>((resolve) => {
         child.on('close', (code) => {
             if (config.options?.abort?.aborted) {
                 query.setError(new AbortError('Claude Code process aborted by user'))
-            }
-            if (code !== 0) {
+            } else if (code !== 0) {
                 query.setError(new Error(`Claude Code process exited with code ${code}`))
-            } else {
-                resolve()
             }
+            resolve()
         })
     })
 

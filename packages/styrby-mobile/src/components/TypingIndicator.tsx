@@ -48,6 +48,8 @@ const AGENT_COLORS: Record<AgentType, string> = {
   gemini: '#3b82f6', // blue-500
   opencode: '#8b5cf6', // violet-500
   aider: '#ec4899', // pink-500
+  goose: '#06b6d4', // cyan-500
+  amp: '#f59e0b', // amber-500
 };
 
 /**
@@ -59,6 +61,8 @@ const AGENT_NAMES: Record<AgentType, string> = {
   gemini: 'Gemini',
   opencode: 'OpenCode',
   aider: 'Aider',
+  goose: 'Goose',
+  amp: 'Amp',
 };
 
 /**

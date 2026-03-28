@@ -20,7 +20,7 @@
  *
  * WHY: Matches the agent_type column in cost_records table.
  */
-export type AgentType = 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider';
+export type AgentType = 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp';
 
 /**
  * Cost summary for a time period.
@@ -102,6 +102,10 @@ export interface DailyCostDataPoint {
   opencode: number;
   /** Cost from Aider */
   aider: number;
+  /** Cost from Goose (Block/Square) */
+  goose: number;
+  /** Cost from Amp (Sourcegraph) */
+  amp: number;
 }
 
 // ============================================================================
@@ -184,6 +188,10 @@ export function getAgentColor(agent: AgentType): string {
       return 'bg-purple-500';
     case 'aider':
       return 'bg-pink-500';
+    case 'goose':
+      return 'bg-teal-500';
+    case 'amp':
+      return 'bg-amber-500';
     default:
       return 'bg-zinc-500';
   }

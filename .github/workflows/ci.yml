@@ -37,14 +37,9 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      # REQUIRED: Dependency Graph must be enabled in repo settings
-      # (Settings > Code security > Dependency graph > Enable)
-      # Without it, this step will fail on PRs.
+      # Dependency Graph is enabled in repo settings (Settings > Code security).
+      # Enabled 2026-03-27 via GitHub API — this step will now block PRs on high-severity CVEs.
       - uses: actions/dependency-review-action@v4
-        # WHY continue-on-error: Transitive CVEs in expo/eslint/jest toolchains
-        # cannot be fixed until upstream releases patches. These are build-time
-        # only and do not affect production runtime. Tracked in security report.
-        continue-on-error: true
         with:
           fail-on-severity: high
           allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, 0BSD, CC0-1.0, Unlicense
@@ -94,10 +89,10 @@ jobs:
         run: pnpm --filter styrby-web run typecheck
 
       - name: Type check mobile
-        # continue-on-error: Mobile uses React 18 types but web uses React 19 types.
-        # pnpm hoisting causes TS to pick up the wrong types. The mobile app builds
-        # fine - this is just a standalone typecheck issue. Fix requires pnpm overrides.
-        continue-on-error: true
+        # FIXED: React 18 vs 19 type conflict resolved via pnpm.packageExtensions in
+        # root package.json. Each Expo/React Native library now declares @types/react@~18.3.0
+        # as a peer dependency, preventing TypeScript from falling back to the React 19 types
+        # that live in .pnpm/node_modules/@types/react (shared by styrby-web's dependencies).
         run: pnpm --filter styrby-mobile run typecheck
 
   # ─── Shared unit tests ───
@@ -210,17 +205,17 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Dependency audit
-        # WHY: continue-on-error was removed (SEC-013-002) so CVEs fail CI.
-        # Known upstream unpatched CVEs to track until patches are released:
+        # WHY: Vulnerability alerts and automated security fixes are enabled
+        # (enabled 2026-03-27 via GitHub API). This step now hard-fails CI on
+        # high-severity CVEs so Dependabot PRs are the fix path.
+        # Known upstream unpatched CVEs — upgrade deps or add overrides if CI fails:
         #   @modelcontextprotocol/sdk:
         #     - GHSA-345p-7cg4-v4c7 (SSRF via fetch in MCP SDK)
         #   tar via expo -> cacache -> tar:
         #     - GHSA-8qq5-rm4j-mr97 (arbitrary file creation via symlink)
         #     - GHSA-r6q2-hw4h-h46w (path traversal in tar extraction)
         #     - GHSA-34x7-hfp2-rc4v (denial of service via crafted tar)
-        # If CI fails due to these, add --ignore-path overrides or upgrade deps.
         # Check current state with: pnpm audit
-        continue-on-error: true
         run: pnpm audit --audit-level=high
 
       - name: Secret pattern scan
@@ -607,14 +602,8 @@ jobs:
           check_job "Shared Tests" "${{ needs.test-shared.result }}"
           check_job "CLI Tests" "${{ needs.test-cli.result }}"
           check_job "Web Tests" "${{ needs.test-web.result }}"
-          # WHY: Security job uses continue-on-error for upstream transitive
-          # CVEs we can't fix. Its result is "failure" even though it's expected.
-          # Report it in summary but don't count it as a blocking failure.
-          if [ "${{ needs.security.result }}" = "success" ]; then
-            echo "| Security | :white_check_mark: passed |" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "| Security | :warning: upstream CVEs (non-blocking) |" >> $GITHUB_STEP_SUMMARY
-          fi
+          # Security job now hard-fails on high CVEs (continue-on-error removed 2026-03-27).
+          check_job "Security" "${{ needs.security.result }}"
           check_job "Build Shared" "${{ needs.build-shared.result }}"
           check_job "Build CLI" "${{ needs.build-cli.result }}"
           check_job "Build Web" "${{ needs.build-web.result }}"

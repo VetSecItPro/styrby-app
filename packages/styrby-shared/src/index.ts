@@ -24,3 +24,6 @@ export * as errors from './errors/index.js';
 
 // Re-export utilities
 export * from './utils/index.js';
+
+// Re-export pricing module
+export * from './pricing/index.js';

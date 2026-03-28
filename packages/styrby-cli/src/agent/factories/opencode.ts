@@ -25,6 +25,7 @@ import type {
 } from '../core';
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
+import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
 
 /**
  * Options for creating an OpenCode backend
@@ -299,7 +300,8 @@ class OpenCodeBackend implements AgentBackend {
    */
   private processStdout(data: Buffer): void {
     const text = data.toString();
-    this.lineBuffer += text;
+    // SECURITY: Cap line buffer size to prevent memory exhaustion
+    this.lineBuffer = safeBufferAppend(this.lineBuffer, text);
 
     // Process complete lines
     const lines = this.lineBuffer.split('\n');
@@ -387,24 +389,23 @@ class OpenCodeBackend implements AgentBackend {
       args.push('--session', this.openCodeSessionId);
     }
 
-    // Add extra args
+    // Add extra args (validated for shell safety — SEC-ARGS-001)
     if (this.options.extraArgs) {
-      args.push(...this.options.extraArgs);
+      args.push(...validateExtraArgs(this.options.extraArgs));
     }
 
     logger.debug(`[OpenCodeBackend] Spawning opencode with args:`, args);
 
     return new Promise<void>((resolve, reject) => {
       try {
-        // Spawn OpenCode process
+        // SECURITY: Use buildSafeEnv() to prevent leaking secrets to OpenCode subprocess.
         this.process = spawn('opencode', args, {
           cwd: this.options.cwd,
-          env: {
-            ...process.env,
+          env: buildSafeEnv({
             ...this.options.env,
             // Pass API key if provided
             ...(this.options.apiKey ? { ANTHROPIC_API_KEY: this.options.apiKey } : {}),
-          },
+          }),
           stdio: ['pipe', 'pipe', 'pipe'],
         });
 

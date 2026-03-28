@@ -26,6 +26,7 @@ import type {
 } from '../core';
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
+import { buildSafeEnv, validateExtraArgs } from '@/utils/safeEnv';
 
 /**
  * Options for creating an Aider backend
@@ -226,13 +227,19 @@ class AiderBackend implements AgentBackend {
       args.push('--model', this.options.model);
     }
 
-    // Add extra args
+    // Add extra args (validated for shell safety — SEC-ARGS-001)
     if (this.options.extraArgs) {
-      args.push(...this.options.extraArgs);
+      args.push(...validateExtraArgs(this.options.extraArgs));
     }
 
-    // Add files to context
+    // Add files to context (validated: must not contain path traversal)
     if (this.options.files && this.options.files.length > 0) {
+      for (const file of this.options.files) {
+        // SECURITY: Block path traversal attempts and absolute paths outside cwd
+        if (file.includes('..') || (file.startsWith('/') && this.options.cwd && !file.startsWith(this.options.cwd))) {
+          throw new Error(`Unsafe file path: "${file}". Path traversal is not allowed.`);
+        }
+      }
       args.push(...this.options.files);
     }
 
@@ -240,15 +247,14 @@ class AiderBackend implements AgentBackend {
 
     return new Promise<void>((resolve, reject) => {
       try {
-        // Spawn Aider process
+        // SECURITY: Use buildSafeEnv() to prevent leaking secrets to Aider subprocess.
         this.process = spawn('aider', args, {
           cwd: this.options.cwd,
-          env: {
-            ...process.env,
+          env: buildSafeEnv({
             ...this.options.env,
             // Pass API key if provided
             ...(this.options.apiKey ? { OPENAI_API_KEY: this.options.apiKey } : {}),
-          },
+          }),
           stdio: ['pipe', 'pipe', 'pipe'],
         });
 

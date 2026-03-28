@@ -33,6 +33,8 @@ const AGENT_ICONS: Record<AgentType, keyof typeof Ionicons.glyphMap> = {
   gemini: 'sparkles',
   opencode: 'logo-github',
   aider: 'git-branch',
+  goose: 'git-network',
+  amp: 'layers',
 };
 
 /**
@@ -79,7 +81,16 @@ export function AgentCostBar({ agent, cost, percentage, requestCount }: AgentCos
       </View>
 
       {/* Progress bar */}
-      <View className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+      <View
+        className="h-2 bg-zinc-800 rounded-full overflow-hidden"
+        accessibilityRole="progressbar"
+        accessibilityValue={{
+          min: 0,
+          max: 100,
+          now: Math.min(100, Math.max(0, Math.round(percentage))),
+          text: `${name}: ${percentage.toFixed(1)}% of total cost`,
+        }}
+      >
         <View
           className="h-full rounded-full"
           style={{

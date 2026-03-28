@@ -13,6 +13,23 @@
 import { createHash } from 'crypto';
 
 /**
+ * Represents any JSON-serializable value.
+ * Used as the accepted input type for deterministic JSON utilities.
+ */
+export type JsonValue =
+    | string
+    | number
+    | boolean
+    | null
+    | undefined
+    | JsonValue[]
+    | { [key: string]: JsonValue }
+    | Date
+    | RegExp
+    | bigint;
+
+
+/**
  * Options for deterministic JSON stringification
  */
 export interface DeterministicJsonOptions {
@@ -20,8 +37,8 @@ export interface DeterministicJsonOptions {
     undefinedBehavior?: 'omit' | 'null' | 'throw';
     /** Whether to sort array contents (default: false) */
     sortArrays?: boolean;
-    /** Custom replacer function */
-    replacer?: (key: string, value: any) => any;
+    /** Custom replacer function applied per key during traversal */
+    replacer?: (key: string, value: JsonValue) => JsonValue;
     /** Whether to include Symbol properties (default: false) */
     includeSymbols?: boolean;
 }
@@ -34,7 +51,7 @@ export interface DeterministicJsonOptions {
  * @returns Deterministic JSON string
  */
 export function deterministicStringify(
-    obj: any,
+    obj: JsonValue,
     options: DeterministicJsonOptions = {}
 ): string {
     const {
@@ -46,7 +63,7 @@ export function deterministicStringify(
 
     const seen = new WeakSet();
 
-    function processValue(value: any, key?: string): any {
+    function processValue(value: JsonValue, key?: string): JsonValue {
         // Handle replacer function
         if (replacer && key !== undefined) {
             value = replacer(key, value);
@@ -95,9 +112,12 @@ export function deterministicStringify(
             
             if (sortArrays) {
                 // Sort arrays by their stringified content for true determinism
+                // WHY: Values are already processed — use JSON.stringify directly
+                // to avoid double-processing (which would corrupt bigint "123n"
+                // strings and other already-converted special types).
                 processed.sort((a, b) => {
-                    const aStr = JSON.stringify(processValue(a));
-                    const bStr = JSON.stringify(processValue(b));
+                    const aStr = JSON.stringify(a);
+                    const bStr = JSON.stringify(b);
                     return aStr.localeCompare(bStr);
                 });
             }
@@ -108,7 +128,7 @@ export function deterministicStringify(
 
         // Handle objects
         if (value.constructor === Object || value.constructor === undefined) {
-            const processed: Record<string, any> = {};
+            const processed: Record<string, JsonValue> = {};
             const keys = Object.keys(value).sort();
 
             for (const k of keys) {
@@ -147,7 +167,7 @@ export function deterministicStringify(
  * @returns Hash string
  */
 export function hashObject(
-    obj: any,
+    obj: JsonValue,
     options?: DeterministicJsonOptions,
     encoding: 'hex' | 'base64' | 'base64url' = 'hex'
 ): string {
@@ -164,8 +184,8 @@ export function hashObject(
  * @returns True if objects are deeply equal
  */
 export function deepEqual(
-    a: any,
-    b: any,
+    a: JsonValue,
+    b: JsonValue,
     options?: DeterministicJsonOptions
 ): boolean {
     try {
@@ -183,7 +203,7 @@ export function deepEqual(
  * @returns Stable string key
  */
 export function objectKey(
-    obj: any,
+    obj: JsonValue,
     options?: DeterministicJsonOptions
 ): string {
     return hashObject(obj, options, 'base64url');
