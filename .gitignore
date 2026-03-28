@@ -58,7 +58,9 @@ notes/
 CLAUDE.md
 
 # Local docs (planning, marketing, audits — never pushed)
-docs/
+# WHY leading slash: /docs/ only matches the root docs/ directory.
+# Without it, git also ignores packages/styrby-web/src/app/docs/ (the web docs route).
+/docs/
 
 # IDE & editor
 .idea/
@@ -104,7 +106,7 @@ next-env.d.ts
 # ============================================
 CLAUDE.md
 ARCHITECTURE.md
-docs/
+/docs/
 
 # All markdown files (notes, plans, strategy)
 *.md

@@ -133,11 +133,11 @@ export function SocialProof() {
         <p className="mb-6 text-center text-sm text-muted-foreground">
           Works with 11 CLI coding agents you already use
         </p>
-        <div className="flex flex-wrap items-center justify-center gap-8 md:gap-12">
+        <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-4 lg:flex-nowrap lg:gap-x-6">
           {agents.map((agent) => (
-            <div key={agent.name} className="flex items-center gap-2.5">
-              <agent.Logo className={`h-5 w-5 ${agent.color}`} />
-              <span className={`text-sm font-medium tracking-tight ${agent.color}`}>
+            <div key={agent.name} className="flex items-center gap-1.5 shrink-0">
+              <agent.Logo className={`h-4 w-4 ${agent.color}`} />
+              <span className={`text-xs font-medium tracking-tight whitespace-nowrap ${agent.color}`}>
                 {agent.name}
               </span>
             </div>
