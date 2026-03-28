@@ -108,6 +108,10 @@ const AGENT_COLORS: Record<AgentType, string> = {
   aider: '#ec4899',
   goose: '#06b6d4',
   amp: '#f59e0b',
+  crush: '#f43f5e',
+  kilo: '#0ea5e9',
+  kiro: '#f97316',
+  droid: '#64748b',
 };
 
 /**

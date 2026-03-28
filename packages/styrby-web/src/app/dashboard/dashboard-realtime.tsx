@@ -4,6 +4,8 @@ import { useState, useCallback, useMemo } from 'react';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 import { ConnectionStatus } from '@/components/connection-status';
 import { CostTicker } from '@/components/cost-ticker';
+import { ActivityGraph } from '@/components/activity-graph';
+import { CloudTasksPanel } from '@/components/cloud-tasks';
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -239,6 +241,9 @@ export function DashboardRealtime({
         </div>
       </div>
 
+      {/* Activity Graph — 52-week contribution heatmap */}
+      <ActivityGraph className="mb-8" />
+
       {/* Recent sessions */}
       <div className="rounded-xl bg-zinc-900 border border-zinc-800">
         <div className="px-4 py-3 border-b border-zinc-800">
@@ -258,7 +263,25 @@ export function DashboardRealtime({
                           ? 'bg-orange-500/10 text-orange-400'
                           : session.agent_type === 'codex'
                             ? 'bg-green-500/10 text-green-400'
-                            : 'bg-blue-500/10 text-blue-400'
+                            : session.agent_type === 'gemini'
+                              ? 'bg-blue-500/10 text-blue-400'
+                              : session.agent_type === 'opencode'
+                                ? 'bg-purple-500/10 text-purple-400'
+                                : session.agent_type === 'aider'
+                                  ? 'bg-pink-500/10 text-pink-400'
+                                  : session.agent_type === 'goose'
+                                    ? 'bg-teal-500/10 text-teal-400'
+                                    : session.agent_type === 'amp'
+                                      ? 'bg-amber-500/10 text-amber-400'
+                                      : session.agent_type === 'crush'
+                                        ? 'bg-rose-500/10 text-rose-400'
+                                        : session.agent_type === 'kilo'
+                                          ? 'bg-sky-500/10 text-sky-400'
+                                          : session.agent_type === 'kiro'
+                                            ? 'bg-orange-500/10 text-orange-400'
+                                            : session.agent_type === 'droid'
+                                              ? 'bg-slate-500/10 text-slate-400'
+                                              : 'bg-zinc-500/10 text-zinc-400'
                       }`}
                     >
                       {session.agent_type}
@@ -335,6 +358,11 @@ export function DashboardRealtime({
             </p>
           </div>
         )}
+      </div>
+
+      {/* Cloud Tasks Panel — async agent task monitoring */}
+      <div className="mt-8 rounded-xl bg-zinc-900 border border-zinc-800 p-4">
+        <CloudTasksPanel userId={userId} />
       </div>
     </>
   );

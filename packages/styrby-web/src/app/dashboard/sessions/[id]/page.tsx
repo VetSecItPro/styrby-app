@@ -17,6 +17,8 @@ import { SessionView } from './session-view';
 import { SessionTagEditor } from './session-tags';
 import { ContextBreakdown } from '@/components/context-breakdown';
 import { SessionExportButton } from './session-export-button';
+import { SessionShareButton } from './session-share-button';
+import { SessionCheckpoints } from './session-checkpoints';
 
 /**
  * Props for the session detail page.
@@ -131,7 +133,15 @@ export default async function SessionPage({ params }: SessionPageProps) {
                                 ? 'bg-teal-500/10 text-teal-400'
                                 : session.agent_type === 'amp'
                                   ? 'bg-amber-500/10 text-amber-400'
-                                  : 'bg-zinc-500/10 text-zinc-400'
+                                  : session.agent_type === 'crush'
+                                    ? 'bg-rose-500/10 text-rose-400'
+                                    : session.agent_type === 'kilo'
+                                      ? 'bg-sky-500/10 text-sky-400'
+                                      : session.agent_type === 'kiro'
+                                        ? 'bg-orange-500/10 text-orange-400'
+                                        : session.agent_type === 'droid'
+                                          ? 'bg-slate-500/10 text-slate-400'
+                                          : 'bg-zinc-500/10 text-zinc-400'
                   }`}
                 >
                   {session.agent_type}
@@ -176,6 +186,11 @@ export default async function SessionPage({ params }: SessionPageProps) {
                 {session.project_path}
               </span>
             )}
+            {/* Share button — creates a shareable replay URL (Phase 7.10) */}
+            <SessionShareButton
+              sessionId={session.id}
+              machineId={(session as { machine_id?: string }).machine_id ?? null}
+            />
             {/* Export button — client component that downloads session as JSON */}
             <SessionExportButton
               session={session}
@@ -210,20 +225,28 @@ export default async function SessionPage({ params }: SessionPageProps) {
           />
         </div>
 
-        {/* Right sidebar: Context Budget (collapsed when session is active) */}
+        {/* Right sidebar: Context Budget + Checkpoints */}
         {/* WHY: The context breakdown is most useful for completed sessions where
             users review what the agent loaded. For active sessions it would show
-            stale data, so we surface it only when the session is done. */}
-        {!isSessionActive && (
-          <aside className="hidden lg:flex w-80 shrink-0 flex-col gap-4 overflow-y-auto border-l border-zinc-800 bg-zinc-950 p-4">
-            {/* Context budget breakdown
-                WHY: context_breakdown is not a Supabase column — it is streamed
-                from the CLI via the relay and stored client-side. For now we
-                render the empty state on the server; a future real-time hook
-                will hydrate this once the relay delivers the breakdown. */}
+            stale data, so we surface it only when the session is done.
+            Checkpoints are shown for all sessions (active or completed) because
+            users save checkpoints during active sessions too. */}
+        <aside className="hidden lg:flex w-80 shrink-0 flex-col gap-4 overflow-y-auto border-l border-zinc-800 bg-zinc-950 p-4">
+          {/* Context budget breakdown */}
+          {!isSessionActive && (
             <ContextBreakdown breakdown={null} />
-          </aside>
-        )}
+          )}
+
+          {/* Named session checkpoints
+              WHY: Checkpoints are surfaced in the sidebar so users can see
+              the session timeline branch points without leaving the main chat
+              view. The panel handles its own data fetching via the REST API. */}
+          <SessionCheckpoints
+            sessionId={session.id}
+            currentMessageCount={session.message_count ?? 0}
+            isSessionActive={isSessionActive}
+          />
+        </aside>
       </div>
     </div>
   );

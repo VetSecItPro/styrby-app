@@ -25,8 +25,8 @@ export type RelayChannelName = `relay:${string}`;
  */
 export type DeviceType = 'cli' | 'mobile' | 'web';
 
-// AgentType is imported from main types
-import type { AgentType } from '../types.js';
+// AgentType and code review types are imported from main types
+import type { AgentType, CodeReviewStatus, ReviewFile, ReviewComment } from '../types.js';
 export type { AgentType };
 
 // ============================================================================
@@ -251,6 +251,47 @@ export interface AckMessage extends BaseRelayMessage {
 }
 
 /**
+ * Code review request from CLI to mobile.
+ *
+ * WHY: The agent generates code changes and needs a human to review them.
+ * The CLI sends this message to notify the mobile app that a review is ready.
+ * The mobile reviewer then sends a code_review_response back with their decision.
+ */
+export interface CodeReviewRequestMessage extends BaseRelayMessage {
+  type: 'code_review_request';
+  payload: {
+    /** UUID of the code review */
+    review_id: string;
+    /** UUID of the session that generated these changes */
+    session_id: string;
+    /** Files changed with diffs */
+    files: ReviewFile[];
+    /** Optional summary of the changes */
+    summary?: string;
+    /** ISO 8601 timestamp when the review was created */
+    created_at: string;
+  };
+}
+
+/**
+ * Code review response from mobile to CLI.
+ *
+ * WHY: After the reviewer makes a decision (approve/reject/changes_requested),
+ * this message is sent back so the CLI can continue the agent workflow.
+ */
+export interface CodeReviewResponseMessage extends BaseRelayMessage {
+  type: 'code_review_response';
+  payload: {
+    /** UUID of the code review being responded to */
+    review_id: string;
+    /** The reviewer's decision */
+    status: CodeReviewStatus;
+    /** Optional reviewer comments */
+    comments?: ReviewComment[];
+  };
+}
+
+/**
  * Union type of all relay messages
  */
 export type RelayMessage =
@@ -261,7 +302,9 @@ export type RelayMessage =
   | SessionStateMessage
   | CostUpdateMessage
   | CommandMessage
-  | AckMessage;
+  | AckMessage
+  | CodeReviewRequestMessage
+  | CodeReviewResponseMessage;
 
 /**
  * Message type discriminator

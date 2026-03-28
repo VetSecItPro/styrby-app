@@ -263,6 +263,22 @@ jest.mock('@/components/StopButton', () => ({
   StopButtonIcon: 'StopButtonIcon',
 }));
 
+// WHY: VoiceInput uses Animated.Value and expo-av which are not fully available
+// in the Node jest environment. Mock it as a string so it renders as a
+// placeholder element without crashing react-test-renderer.
+jest.mock('@/components/VoiceInput', () => ({
+  VoiceInput: 'VoiceInput',
+}));
+
+// WHY: expo-secure-store is used in chat.tsx to load voice input config.
+// Mock it to return null (no stored config) so the VoiceInput button stays
+// hidden and the screen renders cleanly in tests.
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(async () => null),
+  setItemAsync: jest.fn(async () => {}),
+  deleteItemAsync: jest.fn(async () => {}),
+}));
+
 // ============================================================================
 // Component Import (must come after all jest.mock() declarations)
 // ============================================================================

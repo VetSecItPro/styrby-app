@@ -129,7 +129,7 @@ export function clearPersistedData(): void {
  */
 export interface StoredSession {
   sessionId: string;
-  agentType: 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp';
+  agentType: 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp' | 'crush' | 'kilo' | 'kiro' | 'droid';
   projectPath: string;
   createdAt: string;
   lastActivityAt: string;

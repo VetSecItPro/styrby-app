@@ -254,9 +254,68 @@ function parseJsonlLine(line: string): TokenUsage | null {
 }
 
 /**
- * Parse a JSONL file and extract all token usage
+ * Parse a JSONL file and extract all token usage.
+ *
+ * When `STYRBY_NATIVE_PARSER=true` is set in the environment and the
+ * `@styrby/native` Rust module is compiled and available for the current
+ * platform, this function delegates to the SIMD-accelerated Rust batch
+ * parser (`parseJsonlFileBatch`). On all other paths it falls back to the
+ * pure-JS readline parser.
+ *
+ * WHY: The Rust parser targets >500 MB/s on multi-core hardware vs ~100 MB/s
+ * for the JS readline parser. For large session files (>10 MB) this cuts
+ * parse time from hundreds of milliseconds to tens of milliseconds. The
+ * feature flag keeps the default path safe: the JS parser always works, even
+ * when the native module hasn't been compiled or is on an unsupported platform.
+ *
+ * @param filePath - Absolute or relative path to the `.jsonl` session file
+ * @returns Array of `TokenUsage` records extracted from the file
  */
 export async function parseJsonlFile(filePath: string): Promise<TokenUsage[]> {
+  // WHY: We only attempt the native parser when explicitly opted in via the
+  // env var. Defaulting to JS keeps CI green without requiring a Rust toolchain.
+  if (process.env.STYRBY_NATIVE_PARSER === 'true') {
+    try {
+      // WHY: We use a computed module specifier via `Function` to prevent
+      // TypeScript from statically resolving `@styrby/native`. The native
+      // package is an optional peer — it may not be installed in all
+      // environments (e.g., CI without a Rust toolchain). A static `import()`
+      // would cause `tsc --noEmit` to fail with TS2307 if the package isn't
+      // present, blocking typecheck for the entire CLI. Using an indirection
+      // keeps the import fully dynamic at runtime while satisfying TypeScript.
+      const specifier = '@styrby/native';
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval
+      const native = await (new Function('s', 'return import(s)'))(specifier) as {
+        isNativeLoaded: boolean;
+        parseJsonlFileBatch: (path: string) => Promise<Array<{
+          input_tokens: number;
+          output_tokens: number;
+          cache_read_tokens: number;
+          cache_write_tokens: number;
+          model: string;
+          timestamp: string;
+        }>>;
+      };
+      if (native.isNativeLoaded) {
+        const rawRecords = await native.parseJsonlFileBatch(filePath);
+        // Adapt NativeTokenUsage (snake_case, string timestamp) to TokenUsage
+        // (camelCase, Date timestamp) for drop-in compatibility with callers.
+        return rawRecords.map((r) => ({
+          inputTokens: r.input_tokens,
+          outputTokens: r.output_tokens,
+          cacheReadTokens: r.cache_read_tokens,
+          cacheWriteTokens: r.cache_write_tokens,
+          model: r.model,
+          timestamp: new Date(r.timestamp),
+        }));
+      }
+    } catch {
+      // Native module unavailable or failed to load — fall through to JS parser.
+      // No-op: the JS parser below is the guaranteed fallback path.
+    }
+  }
+
+  // --- Pure-JS readline parser (default path) ---
   const usages: TokenUsage[] = [];
 
   if (!fs.existsSync(filePath)) {

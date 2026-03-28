@@ -20,6 +20,7 @@ import { SessionSummary } from '../../src/components/SessionSummary';
 import { SessionReplay, type ReplayMessageData } from '../../src/components/SessionReplay';
 import { SessionTagEditor } from '../../src/components/SessionTagEditor';
 import { ContextBreakdown } from '../../src/components/ContextBreakdown';
+import { SessionCheckpoints } from '../../src/components/SessionCheckpoints';
 import { formatCost } from '../../src/hooks/useCosts';
 import type { SessionExport, SessionExportMetadata, SessionExportMessage, SessionExportCost } from 'styrby-shared';
 
@@ -157,6 +158,13 @@ export default function SessionDetailScreen() {
   }>>([]);
   const [isExporting, setIsExporting] = useState(false);
 
+  /**
+   * Share link state for session sharing (Phase 7.10).
+   * Holds the generated URL and share ID after creation.
+   */
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [isSharing, setIsSharing] = useState(false);
+
   // Fetch session data on mount
   useEffect(() => {
     async function loadSession() {
@@ -216,15 +224,28 @@ export default function SessionDetailScreen() {
               return 'assistant';
             };
 
-            const replayData: ReplayMessageData[] = messages.map((msg) => ({
-              id: msg.id,
-              role: typeToRole(msg.message_type),
-              agentType: sessionData.agent_type as 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp',
-              content: msg.content_encrypted || '[Encrypted message]',
-              createdAt: msg.created_at,
-              costUsd: undefined, // Costs are in cost_records, not session_messages
-              durationMs: msg.duration_ms ?? undefined,
-            }));
+            const replayData: ReplayMessageData[] = messages.map((msg) => {
+              // WHY: Compute per-message cost estimate from token counts stored on the
+              // message row (written by CLI at insertion time). Uses Sonnet-4 average
+              // pricing consistent with the web chat thread cost pill display.
+              const inputT = (msg as typeof msg & { input_tokens?: number }).input_tokens ?? 0;
+              const outputT = (msg as typeof msg & { output_tokens?: number }).output_tokens ?? 0;
+              const cacheT = (msg as typeof msg & { cache_tokens?: number }).cache_tokens ?? 0;
+              const totalTokens = inputT + outputT + cacheT;
+              const costUsd = totalTokens > 0
+                ? ((inputT * 3) + (outputT * 15) + (cacheT * 0.30)) / 1_000_000
+                : undefined;
+
+              return {
+                id: msg.id,
+                role: typeToRole(msg.message_type),
+                agentType: sessionData.agent_type as 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp' | 'crush' | 'kilo' | 'kiro' | 'droid',
+                content: msg.content_encrypted || '[Encrypted message]',
+                createdAt: msg.created_at,
+                costUsd,
+                durationMs: msg.duration_ms ?? undefined,
+              };
+            });
             setReplayMessages(replayData);
           }
         }
@@ -350,6 +371,76 @@ export default function SessionDetailScreen() {
       setIsExporting(false);
     }
   }, [session, rawMessages]);
+
+  /**
+   * Creates a shareable replay link via the Styrby API, then opens the
+   * native share sheet so the user can send the link via any app.
+   *
+   * The decryption key is presented separately in an Alert so the user
+   * understands it must be shared via a secure channel (Signal, etc.).
+   *
+   * WHY two-step share: If the link and key were in the same native share
+   * sheet, they would inevitably end up in the same message thread —
+   * defeating the security benefit of keeping them separate. The Alert
+   * forces the user to consciously choose how to share the key.
+   */
+  const handleShare = useCallback(async () => {
+    if (!session) return;
+    setIsSharing(true);
+
+    try {
+      // Get the current user's session token for the API call
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+      const token = authSession?.access_token;
+
+      if (!token) {
+        Alert.alert('Not Authenticated', 'Please log in to share sessions.');
+        return;
+      }
+
+      const appUrl = process.env.EXPO_PUBLIC_APP_URL ?? 'https://app.styrby.com';
+      const response = await fetch(`${appUrl}/api/sessions/${session.id}/share`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({})) as { message?: string };
+        throw new Error(data.message ?? 'Failed to create share link');
+      }
+
+      const data = await response.json() as { shareUrl: string };
+      setShareUrl(data.shareUrl);
+
+      // Step 1: Share the URL via the native share sheet
+      const shareResult = await Share.share({
+        title: `Session Replay: ${session.title || 'Untitled'}`,
+        message: `Check out this Styrby session replay:\n${data.shareUrl}`,
+        url: data.shareUrl,
+      });
+
+      if (shareResult.action === Share.sharedAction) {
+        // Step 2: Remind user about the decryption key
+        Alert.alert(
+          'Share the Decryption Key Separately',
+          'The session replay link has been shared. Remember to also send the decryption key via a secure channel (Signal, 1Password, etc.).\n\nThe key is on the CLI machine that ran this session.',
+          [{ text: 'Got it', style: 'default' }]
+        );
+      }
+    } catch (err) {
+      Alert.alert(
+        'Share Failed',
+        err instanceof Error ? err.message : 'Failed to create share link',
+      );
+      if (__DEV__) console.error('[SessionShare] Share error:', err);
+    } finally {
+      setIsSharing(false);
+    }
+  }, [session]);
 
   // Calculate derived values
   const agentConfig = session ? AGENT_CONFIG[session.agent_type] || { name: session.agent_type, color: '#71717a' } : null;
@@ -599,6 +690,32 @@ export default function SessionDetailScreen() {
             streams the data. The component renders its own empty state. */}
         <ContextBreakdown breakdown={null} />
 
+        {/* Named Session Checkpoints
+            WHY: Shown for all sessions (active and completed). During active
+            sessions the user can save checkpoints; for completed sessions they
+            can view the timeline markers and restore to a prior position. */}
+        <SessionCheckpoints
+          sessionId={session.id}
+          currentMessageCount={session.message_count}
+          isSessionActive={['starting', 'running', 'idle'].includes(session.status)}
+          onRestore={(checkpoint) => {
+            // WHY: On mobile, "restore" means showing an alert with the checkpoint
+            // context so the user knows what state the agent was in at that point.
+            // Full in-session rollback is a future feature requiring agent IPC.
+            Alert.alert(
+              `Checkpoint: ${checkpoint.name}`,
+              [
+                `Message: ${checkpoint.messageSequenceNumber}`,
+                `Tokens: ${checkpoint.contextSnapshot.totalTokens.toLocaleString()}`,
+                checkpoint.description ? `\n${checkpoint.description}` : '',
+              ]
+                .filter(Boolean)
+                .join('\n'),
+              [{ text: 'OK' }]
+            );
+          }}
+        />
+
         {/* Actions section */}
         <View className="mx-4 mb-8 gap-3">
           {/* Replay button (Pro+ feature) */}
@@ -612,6 +729,26 @@ export default function SessionDetailScreen() {
               <Ionicons name="play-circle" size={20} color="#f97316" />
               <Text className="text-orange-500 font-semibold ml-2">
                 {userTier === 'free' ? 'Replay (Pro)' : 'Replay Session'}
+              </Text>
+            </Pressable>
+          )}
+
+          {/* Share replay link button (Phase 7.10) */}
+          {isSessionComplete && (
+            <Pressable
+              onPress={handleShare}
+              disabled={isSharing}
+              className="flex-row items-center justify-center bg-blue-600/10 border border-blue-500/30 rounded-xl py-4 active:opacity-80 disabled:opacity-50"
+              accessibilityRole="button"
+              accessibilityLabel={isSharing ? 'Creating share link...' : 'Share session replay link'}
+            >
+              <Ionicons
+                name={isSharing ? 'hourglass-outline' : 'link-outline'}
+                size={20}
+                color="#3b82f6"
+              />
+              <Text className="text-blue-400 font-semibold ml-2">
+                {isSharing ? 'Creating Link…' : 'Share Replay Link'}
               </Text>
             </Pressable>
           )}

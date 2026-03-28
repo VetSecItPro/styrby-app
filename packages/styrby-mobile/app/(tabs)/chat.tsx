@@ -22,14 +22,16 @@ import { View, Text, FlatList, TextInput, Pressable, KeyboardAvoidingView, Platf
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as SecureStore from 'expo-secure-store';
 import { useRelay } from '../../src/hooks/useRelay';
 import { ChatMessage, type ChatMessageData } from '../../src/components/ChatMessage';
 import { PermissionCard, type PermissionRequest } from '../../src/components/PermissionCard';
 import { TypingIndicatorInline, type AgentState } from '../../src/components/TypingIndicator';
 import { StopButtonIcon } from '../../src/components/StopButton';
+import { VoiceInput } from '../../src/components/VoiceInput';
 import { supabase } from '../../src/lib/supabase';
 import { encryptMessage, decryptMessage } from '../../src/services/encryption';
-import type { AgentType } from 'styrby-shared';
+import type { AgentType, VoiceInputConfig } from 'styrby-shared';
 
 // ============================================================================
 // Types
@@ -83,10 +85,13 @@ const AGENT_CONFIG: Record<AgentType, { name: string; color: string; bgColor: st
   gemini: { name: 'Gemini', color: '#3b82f6', bgColor: 'rgba(59, 130, 246, 0.1)' },
   opencode: { name: 'OpenCode', color: '#8b5cf6', bgColor: 'rgba(139, 92, 246, 0.1)' },
   aider: { name: 'Aider', color: '#ec4899', bgColor: 'rgba(236, 72, 153, 0.1)' },
-  // WHY goose/amp: AgentType was extended in styrby-shared to include these agents.
-  // Using distinct brand colors until a full palette is confirmed.
+  // WHY goose/amp/crush/kilo/kiro/droid: AgentType was extended in styrby-shared to include these agents.
   goose: { name: 'Goose', color: '#06b6d4', bgColor: 'rgba(6, 182, 212, 0.1)' },
   amp: { name: 'Amp', color: '#f59e0b', bgColor: 'rgba(245, 158, 11, 0.1)' },
+  crush: { name: 'Crush', color: '#f43f5e', bgColor: 'rgba(244, 63, 94, 0.1)' },
+  kilo: { name: 'Kilo', color: '#0ea5e9', bgColor: 'rgba(14, 165, 233, 0.1)' },
+  kiro: { name: 'Kiro', color: '#f97316', bgColor: 'rgba(249, 115, 22, 0.1)' },
+  droid: { name: 'Droid', color: '#64748b', bgColor: 'rgba(100, 116, 139, 0.1)' },
 };
 
 /**
@@ -150,6 +155,13 @@ export default function ChatScreen() {
   );
 
   /**
+   * Voice input configuration loaded from SecureStore.
+   * WHY: Chat screen needs to read the config to show/hide the mic button
+   * and pass it to VoiceInput. Config is device-local (SecureStore), not DB.
+   */
+  const [voiceConfig, setVoiceConfig] = useState<VoiceInputConfig | null>(null);
+
+  /**
    * WHY: Track the current session ID so we can persist messages to the
    * correct session. Null means no session has been created yet -- the first
    * message will trigger session creation.
@@ -193,6 +205,22 @@ export default function ChatScreen() {
    */
   useEffect(() => {
     loadSessionHistory();
+    // Load voice input config from SecureStore alongside session history.
+    // WHY: Config is device-local — loading here avoids a separate hook and
+    // keeps the chat screen self-contained for voice support.
+    SecureStore.getItemAsync('styrby_voice_input_config')
+      .then((stored) => {
+        if (stored) {
+          try {
+            setVoiceConfig(JSON.parse(stored) as VoiceInputConfig);
+          } catch {
+            // Malformed — keep null (mic button hidden)
+          }
+        }
+      })
+      .catch(() => {
+        // SecureStore unavailable — silently disable voice
+      });
   }, []);
 
   /**
@@ -1097,22 +1125,33 @@ export default function ChatScreen() {
               accessibilityLabel="Stop agent generation"
             />
           ) : (
-            <Pressable
-              onPress={handleSend}
-              disabled={!canSend}
-              className={`ml-2 w-10 h-10 rounded-full items-center justify-center ${
-                canSend ? 'bg-brand' : 'bg-zinc-800'
-              }`}
-              accessibilityRole="button"
-              accessibilityLabel="Send message"
-              accessibilityState={{ disabled: !canSend }}
-            >
-              <Ionicons
-                name="send"
-                size={20}
-                color={canSend ? 'white' : '#71717a'}
+            <>
+              {/* WHY: Voice input button only shown when config is loaded and enabled.
+               * The VoiceInput component handles its own state (recording, transcribing,
+               * confirm modal). On transcript, we populate the input field so the user
+               * can review and edit before the normal handleSend flow kicks in. */}
+              <VoiceInput
+                config={voiceConfig}
+                onTranscript={(text) => setInputText(text)}
+                disabled={!isConnected}
               />
-            </Pressable>
+              <Pressable
+                onPress={handleSend}
+                disabled={!canSend}
+                className={`ml-2 w-10 h-10 rounded-full items-center justify-center ${
+                  canSend ? 'bg-brand' : 'bg-zinc-800'
+                }`}
+                accessibilityRole="button"
+                accessibilityLabel="Send message"
+                accessibilityState={{ disabled: !canSend }}
+              >
+                <Ionicons
+                  name="send"
+                  size={20}
+                  color={canSend ? 'white' : '#71717a'}
+                />
+              </Pressable>
+            </>
           )}
         </View>
       </View>

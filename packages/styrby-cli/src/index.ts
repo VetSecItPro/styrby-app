@@ -58,7 +58,7 @@ async function main(): Promise<void> {
   // Agent shorthand: `styrby codex` → `styrby start --agent codex`
   // WHY: Typing `styrby codex` is faster than `styrby start --agent codex`.
   // We detect known agent names and treat them as start commands.
-  const KNOWN_AGENTS = ['claude', 'codex', 'gemini', 'opencode', 'aider'];
+  const KNOWN_AGENTS = ['claude', 'codex', 'gemini', 'opencode', 'aider', 'goose', 'amp', 'crush', 'kilo', 'kiro', 'droid'];
 
   // No command → start with default agent (auto-onboard if needed)
   // Agent name as command → start with that agent
@@ -153,6 +153,11 @@ async function main(): Promise<void> {
 
     case 'import':
       await handleImportCommand(args.slice(1));
+      break;
+
+    case 'checkpoint':
+    case 'cp':
+      await handleCheckpointCommand(args.slice(1));
       break;
 
     case 'help':
@@ -578,7 +583,7 @@ async function handleStart(args: string[]): Promise<void> {
   const { saveSession } = await import('@/persistence');
   saveSession({
     sessionId: activeSession.sessionId,
-    agentType: agentType as 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp',
+    agentType: agentType as 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp' | 'crush' | 'kilo' | 'kiro' | 'droid',
     projectPath,
     createdAt: new Date().toISOString(),
     lastActivityAt: new Date().toISOString(),
@@ -632,7 +637,7 @@ async function handleStart(args: string[]): Promise<void> {
   // Update local session record
   saveSession({
     sessionId: activeSession.sessionId,
-    agentType: agentType as 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp',
+    agentType: agentType as 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp' | 'crush' | 'kilo' | 'kiro' | 'droid',
     projectPath,
     createdAt: new Date().toISOString(),
     lastActivityAt: new Date().toISOString(),
@@ -996,6 +1001,12 @@ Commands:
     export --all            Export all sessions (use --output <dir> for files)
     import <file>           Import a session from a JSON export file
 
+  Checkpoints
+    checkpoint save <name>  Save current session position as a named checkpoint
+    checkpoint list         List all checkpoints for the current session
+    checkpoint restore <n>  Show restore info for a checkpoint
+    checkpoint delete <n>   Delete a checkpoint (--force to skip confirmation)
+
   Daemon
     daemon install          Install daemon to start automatically on boot
     daemon uninstall        Remove daemon from auto-start
@@ -1140,6 +1151,17 @@ async function handleExportCommand(args: string[]): Promise<void> {
 async function handleImportCommand(args: string[]): Promise<void> {
   const { handleImport } = await import('@/commands/export');
   await handleImport(args);
+}
+
+/**
+ * Handle the 'checkpoint' command.
+ * Save, list, restore, and delete named session checkpoints.
+ *
+ * @param args - Command arguments (save|list|restore|delete)
+ */
+async function handleCheckpointCommand(args: string[]): Promise<void> {
+  const { handleCheckpointCommand: checkpoint } = await import('@/commands/checkpoint');
+  await checkpoint(args);
 }
 
 // Run main

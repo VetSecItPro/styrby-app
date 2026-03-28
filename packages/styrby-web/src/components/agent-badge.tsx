@@ -93,6 +93,30 @@ const AGENT_CONFIG: Record<
     bgColor: 'bg-amber-500/10',
     textColor: 'text-amber-400',
   },
+  crush: {
+    name: 'Crush',
+    color: '#f43f5e', // rose-500
+    bgColor: 'bg-rose-500/10',
+    textColor: 'text-rose-400',
+  },
+  kilo: {
+    name: 'Kilo',
+    color: '#0ea5e9', // sky-500
+    bgColor: 'bg-sky-500/10',
+    textColor: 'text-sky-400',
+  },
+  kiro: {
+    name: 'Kiro',
+    color: '#f97316', // orange-500
+    bgColor: 'bg-orange-500/10',
+    textColor: 'text-orange-400',
+  },
+  droid: {
+    name: 'Droid',
+    color: '#64748b', // slate-500
+    bgColor: 'bg-slate-500/10',
+    textColor: 'text-slate-400',
+  },
 };
 
 /**

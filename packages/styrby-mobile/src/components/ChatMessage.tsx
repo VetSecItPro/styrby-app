@@ -61,6 +61,10 @@ const AGENT_CONFIG: Record<AgentType, { name: string; color: string; bgColor: st
   aider: { name: 'Aider', color: '#ec4899', bgColor: 'rgba(236, 72, 153, 0.1)' },
   goose: { name: 'Goose', color: '#06b6d4', bgColor: 'rgba(6, 182, 212, 0.1)' },
   amp: { name: 'Amp', color: '#f59e0b', bgColor: 'rgba(245, 158, 11, 0.1)' },
+  crush: { name: 'Crush', color: '#f43f5e', bgColor: 'rgba(244, 63, 94, 0.1)' },
+  kilo: { name: 'Kilo', color: '#0ea5e9', bgColor: 'rgba(14, 165, 233, 0.1)' },
+  kiro: { name: 'Kiro', color: '#f97316', bgColor: 'rgba(249, 115, 22, 0.1)' },
+  droid: { name: 'Droid', color: '#64748b', bgColor: 'rgba(100, 116, 139, 0.1)' },
 };
 
 function CodeBlock({ content, language }: { content: string; language?: string }) {

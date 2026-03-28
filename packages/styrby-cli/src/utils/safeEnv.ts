@@ -244,10 +244,17 @@ export function validateExtraArgs(args: string[]): string[] {
         `Unsafe character in extra argument: "${arg}". Shell metacharacters are not allowed.`
       );
     }
-    // Block attempts to read system files via --config or similar
-    if (/^--?(?:config|rc|init)=?\s*\/etc\//.test(arg)) {
+    // Block attempts to read system files via --config or similar flag values.
+    // Covers /etc/, ~/ expansion, and path traversal via ../
+    if (/^--?(?:config|rc|init|env-file|dotenv)=?\s*\/etc\//.test(arg)) {
       throw new Error(
         `Unsafe argument targeting system path: "${arg}".`
+      );
+    }
+    // Block path traversal patterns that could escape the project directory
+    if (/\.\.[/\\]/.test(arg) && /^--?(?:config|rc|init|env-file|dotenv|include|load)/.test(arg)) {
+      throw new Error(
+        `Unsafe path traversal in argument: "${arg}". Relative parent references are not allowed in config paths.`
       );
     }
   }

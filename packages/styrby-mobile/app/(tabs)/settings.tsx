@@ -30,6 +30,7 @@ import { useRouter } from 'expo-router';
 import { supabase, signOut } from '../../src/lib/supabase';
 import { clearPairingInfo } from '../../src/services/pairing';
 import { THEME_PREFERENCE_KEY } from '../../src/contexts/ThemeContext';
+import type { VoiceInputConfig } from 'styrby-shared';
 
 // ============================================================================
 // Constants
@@ -41,6 +42,13 @@ import { THEME_PREFERENCE_KEY } from '../../src/contexts/ThemeContext';
  * across devices, so we store it in SecureStore rather than the database.
  */
 const HAPTIC_PREFERENCE_KEY = 'styrby_haptic_enabled';
+
+/**
+ * SecureStore key for the voice input configuration.
+ * WHY: Voice input config (endpoint URL, API key, mode) is device-local.
+ * The API key is security-sensitive and must never be synced to the database.
+ */
+const VOICE_INPUT_CONFIG_KEY = 'styrby_voice_input_config';
 
 /**
  * App version string derived from expo-constants.
@@ -416,6 +424,33 @@ export default function SettingsScreen() {
   const isPaidTier = subscriptionTier === 'pro' || subscriptionTier === 'power';
 
   // --------------------------------------------------------------------------
+  // Voice Input state
+  // --------------------------------------------------------------------------
+
+  /**
+   * Current voice input configuration stored in SecureStore.
+   * WHY: Loaded here so the Voice Input settings section can show live values
+   * and the VoiceInput component in chat reads them from context.
+   */
+  const [voiceConfig, setVoiceConfig] = useState<VoiceInputConfig>({
+    enabled: false,
+    mode: 'toggle',
+    transcriptionEndpoint: '',
+    transcriptionApiKey: '',
+  });
+
+  /**
+   * Whether the voice input endpoint/key edit modal is visible.
+   */
+  const [showVoiceConfigModal, setShowVoiceConfigModal] = useState(false);
+
+  /**
+   * Draft state for the voice configuration modal (not yet saved).
+   */
+  const [voiceEndpointDraft, setVoiceEndpointDraft] = useState('');
+  const [voiceApiKeyDraft, setVoiceApiKeyDraft] = useState('');
+
+  // --------------------------------------------------------------------------
   // Mount: Load user data and preferences
   // --------------------------------------------------------------------------
 
@@ -566,9 +601,10 @@ export default function SettingsScreen() {
    */
   const loadLocalPreferences = useCallback(async () => {
     try {
-      const [hapticValue, themeValue] = await Promise.all([
+      const [hapticValue, themeValue, voiceConfigValue] = await Promise.all([
         SecureStore.getItemAsync(HAPTIC_PREFERENCE_KEY),
         SecureStore.getItemAsync(THEME_PREFERENCE_KEY),
+        SecureStore.getItemAsync(VOICE_INPUT_CONFIG_KEY),
       ]);
 
       // WHY: If no value is stored, default to true (haptics enabled).
@@ -581,6 +617,16 @@ export default function SettingsScreen() {
       // current value. Default 'dark' if not set.
       if (themeValue === 'dark' || themeValue === 'light' || themeValue === 'system') {
         setThemePreferenceState(themeValue);
+      }
+
+      // Load persisted voice input config if it exists
+      if (voiceConfigValue) {
+        try {
+          const parsed = JSON.parse(voiceConfigValue) as VoiceInputConfig;
+          setVoiceConfig(parsed);
+        } catch {
+          // Malformed stored value — keep defaults
+        }
       }
     } catch (error) {
       if (__DEV__) {
@@ -987,6 +1033,70 @@ export default function SettingsScreen() {
       }
     }
   }, []);
+
+  // --------------------------------------------------------------------------
+  // Voice Input Handlers
+  // --------------------------------------------------------------------------
+
+  /**
+   * Toggles the voice input enabled flag and persists the updated config to
+   * SecureStore. The VoiceInput component reads from SecureStore on mount.
+   *
+   * @param value - Whether voice input should be enabled
+   */
+  const handleVoiceEnabledToggle = useCallback(async (value: boolean) => {
+    const updated: VoiceInputConfig = { ...voiceConfig, enabled: value };
+    setVoiceConfig(updated);
+    try {
+      await SecureStore.setItemAsync(VOICE_INPUT_CONFIG_KEY, JSON.stringify(updated));
+    } catch {
+      setVoiceConfig(voiceConfig); // Revert on storage failure
+    }
+  }, [voiceConfig]);
+
+  /**
+   * Switches the voice input interaction mode ('hold' | 'toggle') and saves.
+   *
+   * @param mode - The new interaction mode
+   */
+  const handleVoiceModeChange = useCallback(async (mode: 'hold' | 'toggle') => {
+    const updated: VoiceInputConfig = { ...voiceConfig, mode };
+    setVoiceConfig(updated);
+    try {
+      await SecureStore.setItemAsync(VOICE_INPUT_CONFIG_KEY, JSON.stringify(updated));
+    } catch {
+      setVoiceConfig(voiceConfig);
+    }
+  }, [voiceConfig]);
+
+  /**
+   * Opens the voice config modal and prefills drafts from current config.
+   */
+  const handleOpenVoiceConfigModal = useCallback(() => {
+    setVoiceEndpointDraft(voiceConfig.transcriptionEndpoint ?? '');
+    setVoiceApiKeyDraft(voiceConfig.transcriptionApiKey ?? '');
+    setShowVoiceConfigModal(true);
+  }, [voiceConfig]);
+
+  /**
+   * Saves the voice endpoint and API key drafts to SecureStore.
+   * Called when the user taps "Save" in the voice config modal.
+   */
+  const handleSaveVoiceConfig = useCallback(async () => {
+    const updated: VoiceInputConfig = {
+      ...voiceConfig,
+      transcriptionEndpoint: voiceEndpointDraft.trim() || undefined,
+      transcriptionApiKey: voiceApiKeyDraft.trim() || undefined,
+    };
+    setVoiceConfig(updated);
+    setShowVoiceConfigModal(false);
+    try {
+      await SecureStore.setItemAsync(VOICE_INPUT_CONFIG_KEY, JSON.stringify(updated));
+    } catch {
+      setVoiceConfig(voiceConfig);
+      Alert.alert('Error', 'Failed to save voice input settings.');
+    }
+  }, [voiceConfig, voiceEndpointDraft, voiceApiKeyDraft]);
 
   // --------------------------------------------------------------------------
   // Auto-Approve Handler
@@ -1673,6 +1783,73 @@ export default function SettingsScreen() {
         />
       </View>
 
+      {/* Voice Input Section */}
+      <SectionHeader title="Voice Input" />
+      <View className="bg-background-secondary">
+        <SettingRow
+          icon="mic"
+          iconColor="#f97316"
+          title="Voice Commands"
+          subtitle={voiceConfig.enabled ? 'Enabled' : 'Disabled'}
+          trailing={
+            <Switch
+              value={voiceConfig.enabled}
+              onValueChange={(v) => void handleVoiceEnabledToggle(v)}
+              trackColor={{ false: '#3f3f46', true: '#f9731650' }}
+              thumbColor={voiceConfig.enabled ? '#f97316' : '#71717a'}
+              accessibilityRole="switch"
+              accessibilityLabel="Toggle voice input"
+            />
+          }
+        />
+
+        {voiceConfig.enabled && (
+          <>
+            {/* Interaction mode selector */}
+            <View className="px-4 py-3">
+              <View className="flex-row items-center mb-2">
+                <View className="w-8 h-8 rounded-lg items-center justify-center mr-3" style={{ backgroundColor: '#f9731620' }}>
+                  <Ionicons name="hand-left" size={18} color="#f97316" />
+                </View>
+                <Text className="text-white font-medium flex-1">Interaction Mode</Text>
+              </View>
+              <View className="flex-row bg-zinc-800 rounded-xl p-1 ml-11">
+                {(['toggle', 'hold'] as const).map((option) => {
+                  const isSelected = voiceConfig.mode === option;
+                  const label = option === 'toggle' ? 'Tap Toggle' : 'Hold to Talk';
+                  return (
+                    <Pressable
+                      key={option}
+                      onPress={() => void handleVoiceModeChange(option)}
+                      className={`flex-1 py-2 rounded-lg items-center ${isSelected ? 'bg-brand' : ''}`}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: isSelected }}
+                      accessibilityLabel={`Set voice mode to ${label}`}
+                    >
+                      <Text className={`text-xs font-semibold ${isSelected ? 'text-white' : 'text-zinc-500'}`}>
+                        {label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <SettingRow
+              icon="cloud"
+              iconColor="#3b82f6"
+              title="Transcription Endpoint"
+              subtitle={
+                voiceConfig.transcriptionEndpoint
+                  ? voiceConfig.transcriptionEndpoint.replace(/https?:\/\//, '').slice(0, 40)
+                  : 'Not configured — tap to set'
+              }
+              onPress={handleOpenVoiceConfigModal}
+            />
+          </>
+        )}
+      </View>
+
       {/* Smart Notifications Section */}
       <SectionHeader title="Smart Notifications" />
       <View className="bg-background-secondary px-4 py-4">
@@ -2063,6 +2240,77 @@ export default function SettingsScreen() {
               ) : (
                 <Text className="text-white font-semibold">Submit Feedback</Text>
               )}
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+      {/* Voice Input Config Modal */}
+      <Modal
+        visible={showVoiceConfigModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowVoiceConfigModal(false)}
+        accessibilityViewIsModal
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          className="flex-1 justify-end"
+        >
+          <Pressable
+            className="flex-1"
+            onPress={() => setShowVoiceConfigModal(false)}
+            accessibilityLabel="Close voice input config modal"
+          />
+          <View className="bg-zinc-900 rounded-t-3xl px-6 pt-6 pb-10 border-t border-zinc-800">
+            <View className="flex-row items-center justify-between mb-4">
+              <Text className="text-white text-lg font-semibold">Transcription Settings</Text>
+              <Pressable
+                onPress={() => setShowVoiceConfigModal(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close voice config modal"
+              >
+                <Ionicons name="close" size={24} color="#71717a" />
+              </Pressable>
+            </View>
+
+            <Text className="text-zinc-400 text-sm mb-4">
+              Configure a Whisper-compatible API endpoint for speech-to-text transcription.
+              Compatible with OpenAI Whisper API or self-hosted alternatives.
+            </Text>
+
+            <Text className="text-zinc-500 text-xs mb-1">Transcription Endpoint URL</Text>
+            <TextInput
+              className="bg-zinc-800 text-white rounded-xl px-4 py-3 text-sm mb-4"
+              placeholder="https://api.openai.com/v1/audio/transcriptions"
+              placeholderTextColor="#52525b"
+              value={voiceEndpointDraft}
+              onChangeText={setVoiceEndpointDraft}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              accessibilityLabel="Transcription endpoint URL"
+            />
+
+            <Text className="text-zinc-500 text-xs mb-1">API Key (stored securely on device)</Text>
+            <TextInput
+              className="bg-zinc-800 text-white rounded-xl px-4 py-3 text-sm mb-6"
+              placeholder="sk-..."
+              placeholderTextColor="#52525b"
+              value={voiceApiKeyDraft}
+              onChangeText={setVoiceApiKeyDraft}
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry
+              accessibilityLabel="Transcription API key"
+            />
+
+            <Pressable
+              className="bg-brand py-3 rounded-xl items-center"
+              onPress={() => void handleSaveVoiceConfig()}
+              accessibilityRole="button"
+              accessibilityLabel="Save voice input configuration"
+            >
+              <Text className="text-white font-semibold">Save Configuration</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>

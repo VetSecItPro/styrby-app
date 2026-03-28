@@ -50,6 +50,10 @@ const AGENT_COLORS: Record<AgentType, string> = {
   aider: '#ec4899', // pink-500
   goose: '#06b6d4', // cyan-500
   amp: '#f59e0b', // amber-500
+  crush: '#f43f5e', // rose-500
+  kilo: '#84cc16', // lime-400
+  kiro: '#0ea5e9', // sky-500
+  droid: '#7c3aed', // violet-600
 };
 
 /**
@@ -63,6 +67,10 @@ const AGENT_NAMES: Record<AgentType, string> = {
   aider: 'Aider',
   goose: 'Goose',
   amp: 'Amp',
+  crush: 'Crush',
+  kilo: 'Kilo',
+  kiro: 'Kiro',
+  droid: 'Droid',
 };
 
 /**

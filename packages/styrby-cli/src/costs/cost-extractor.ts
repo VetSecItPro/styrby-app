@@ -88,11 +88,35 @@ export interface SessionCostSummary {
 }
 
 /**
+ * A per-message cost record that ties a CostRecord to a specific message ID.
+ *
+ * WHY: The base CostRecord captures session-level attribution, but the mobile
+ * and web UIs need to display a cost pill inline with each agent_response
+ * message. This struct carries the message ID alongside the cost so the relay
+ * can forward it to the mobile/web client which maps it to the right row.
+ */
+export interface MessageCostRecord extends CostRecord {
+  /**
+   * The session_messages.id of the agent_response this cost is attributed to.
+   * Null when the message has not yet been inserted (e.g., pre-reservation records).
+   */
+  messageId: string | null;
+}
+
+/**
  * Events emitted by the cost extractor
  */
 export interface CostExtractorEvents {
-  /** New cost record extracted */
+  /** New session-level cost record extracted */
   cost: CostRecord;
+  /**
+   * Per-message cost record — emitted alongside `cost` when the extractor
+   * knows which message ID the cost belongs to.
+   *
+   * WHY: This is a separate event so consumers can update only the specific
+   * message row in the UI without re-rendering the entire cost summary.
+   */
+  messageCost: MessageCostRecord;
   /** Error during extraction */
   error: { message: string; error?: Error };
 }
@@ -406,6 +430,48 @@ export class CostExtractor extends EventEmitter {
     this.records.push(record);
     this.emit('cost', record);
     this.log('Added cost:', record);
+
+    return record;
+  }
+
+  /**
+   * Add a cost record tied to a specific session_messages row.
+   *
+   * WHY: When the CLI inserts an agent_response message into Supabase, it
+   * gets back the message ID. Calling this method instead of `addUsage()`
+   * emits both the `cost` event (for budget tracking) and the `messageCost`
+   * event (for per-message cost pill display in the web/mobile chat thread).
+   *
+   * @param usage - Token usage data from the agent response
+   * @param messageId - The session_messages.id for this response
+   * @returns The created per-message cost record
+   *
+   * @example
+   * const record = extractor.addUsageForMessage(usage, insertedMessage.id);
+   * // Relay forwards record to mobile via Supabase Realtime
+   */
+  addUsageForMessage(usage: TokenUsage, messageId: string): MessageCostRecord {
+    const costUsd = calculateCost(usage);
+
+    const record: MessageCostRecord = {
+      sessionId: this.config.sessionId,
+      agentType: this.config.agentType,
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
+      costUsd,
+      timestamp: usage.timestamp,
+      messageId,
+    };
+
+    this.records.push(record);
+    // Emit the standard cost event so budget monitors still receive it
+    this.emit('cost', record);
+    // Emit the per-message cost event for inline UI display
+    this.emit('messageCost', record);
+    this.log('Added per-message cost:', record);
 
     return record;
   }

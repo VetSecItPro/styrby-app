@@ -35,6 +35,10 @@ const AGENT_ICONS: Record<AgentType, keyof typeof Ionicons.glyphMap> = {
   aider: 'git-branch',
   goose: 'git-network',
   amp: 'layers',
+  crush: 'terminal',
+  kilo: 'server',
+  kiro: 'cloud',
+  droid: 'swap-horizontal',
 };
 
 /**
