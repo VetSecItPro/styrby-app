@@ -1,14 +1,19 @@
 import type { Metadata, Viewport } from 'next';
-import { Space_Grotesk, JetBrains_Mono } from 'next/font/google';
+import { Outfit, JetBrains_Mono } from 'next/font/google';
 import { Toaster } from 'sonner';
 import './globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
 import { CookieConsent } from '@/components/cookie-consent';
 import { SWRegister } from '@/components/sw-register';
 
-const spaceGrotesk = Space_Grotesk({
+/**
+ * WHY Outfit: geometric sans-serif with tight tracking and optical weight that
+ * reads as premium at large display sizes. Space Grotesk was too neutral for
+ * the luxury-developer positioning; Outfit has stronger personality at 8xl+.
+ */
+const outfit = Outfit({
   subsets: ['latin'],
-  variable: '--font-space-grotesk',
+  variable: '--font-outfit',
 });
 
 const jetbrainsMono = JetBrains_Mono({
@@ -102,7 +107,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark scroll-smooth" suppressHydrationWarning>
       <body
-        className={`${spaceGrotesk.variable} ${jetbrainsMono.variable} font-sans antialiased noise-bg`}
+        className={`${outfit.variable} ${jetbrainsMono.variable} font-sans antialiased noise-bg`}
       >
         <a
           href="#main-content"

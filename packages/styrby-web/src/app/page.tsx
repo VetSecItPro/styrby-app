@@ -2,8 +2,10 @@ import type { Metadata } from 'next';
 import { Navbar } from '@/components/landing/navbar';
 import { Hero } from '@/components/landing/hero';
 import { SocialProof } from '@/components/landing/social-proof';
+import { ProblemSection } from '@/components/landing/problem-section';
 import { FeaturesSection } from '@/components/landing/features-section';
 import { MobileShowcase } from '@/components/landing/mobile-showcase';
+import { CostSavings } from '@/components/landing/cost-savings';
 import { HowItWorks } from '@/components/landing/how-it-works';
 import { PricingCTA } from '@/components/landing/pricing-cta';
 import { FAQSection } from '@/components/landing/faq-section';
@@ -165,13 +167,17 @@ const faqPageJsonLd = {
 /**
  * Marketing landing page - composed from modular section components.
  *
- * WHY this order: Hero establishes the value prop. Social proof builds
- * trust. Features shows the top 3 capabilities (full list on /features).
- * How It Works removes friction. Pricing drives action. FAQ handles
- * objections. Final CTA closes.
- *
- * Removed from homepage (moved to /features): ProblemSection, UseCases,
- * CostSavings. These added depth but created a wall-of-text effect.
+ * WHY this order:
+ * 1. Hero — establishes the remote control value prop
+ * 2. SocialProof — builds trust before asking for attention
+ * 3. ProblemSection — names the pain (no unified view, surprise bills, desk-tethered)
+ * 4. FeaturesSection — bento grid showing how Styrby solves each problem
+ * 5. MobileShowcase — makes the phone experience concrete: permission, voice, diff
+ * 6. CostSavings — supporting benefit positioned as "oh, and it does this too"
+ * 7. HowItWorks — removes setup friction with staggered timeline + CSS mockups
+ * 8. PricingCTA — drives plan selection after full value is established
+ * 9. FAQSection — handles remaining objections
+ * 10. CTABanner + Footer — closes
  */
 export default function LandingPage() {
   return (
@@ -189,8 +195,10 @@ export default function LandingPage() {
       <Navbar />
       <Hero />
       <SocialProof />
+      <ProblemSection />
       <FeaturesSection />
       <MobileShowcase />
+      <CostSavings />
       <HowItWorks />
       <PricingCTA />
       <FAQSection />

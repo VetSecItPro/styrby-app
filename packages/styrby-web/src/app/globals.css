@@ -97,8 +97,9 @@
 }
 
 /* ── Amber glow ── */
+/* Used on the Pro pricing card and other highlighted elements */
 .amber-glow {
-  box-shadow: 0 0 80px rgba(245, 158, 11, 0.08), 0 0 160px rgba(245, 158, 11, 0.04);
+  box-shadow: 0 0 60px rgba(245, 158, 11, 0.12), 0 0 120px rgba(245, 158, 11, 0.06);
 }
 
 /* ── Pulse animation for live indicators ── */

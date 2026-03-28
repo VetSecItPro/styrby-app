@@ -2,64 +2,110 @@ import Link from "next/link"
 import Image from "next/image"
 import { Shield } from "lucide-react"
 
-const links = [
+/**
+ * Footer navigation links — kept minimal to avoid a link farm.
+ *
+ * WHY only 6 links: More links dilute attention. These six cover the
+ * full user journey (explore → convert → legal) without visual noise.
+ */
+const productLinks = [
   { label: "Pricing", href: "/pricing" },
   { label: "Docs", href: "/docs" },
   { label: "Blog", href: "/blog" },
+]
+
+const legalLinks = [
   { label: "Privacy", href: "/privacy" },
   { label: "Terms", href: "/terms" },
 ]
 
+/**
+ * Site footer — minimal, premium, brand-forward.
+ *
+ * Layout: logo + wordmark on the left, two small link columns on the
+ * right, legal and credit row at the bottom. Generous padding to give
+ * the page a proper landing rather than being crowded by the footer.
+ *
+ * @returns The site footer element
+ */
 export function Footer() {
   return (
-    <footer className="border-t border-border/40 py-4">
-      <div className="mx-auto max-w-7xl px-6">
-        {/* Logo left, nav links centered, on the same line */}
-        <div className="relative flex items-center">
-          {/* Logo — left-aligned, taken out of flow so nav can center freely */}
-          <Link href="/" className="flex shrink-0 items-center gap-2 md:absolute md:left-0">
-            <Image
-              src="/logo.png"
-              alt="Styrby"
-              width={20}
-              height={20}
-              className="h-5 w-5"
-            />
-            <span className="text-sm font-bold text-foreground">Styrby</span>
-          </Link>
+    <footer className="border-t border-zinc-800/60">
+      <div className="mx-auto max-w-7xl px-6 py-16">
 
-          {/* Nav links — centered in the full width */}
-          <nav aria-label="Footer" className="hidden flex-1 flex-wrap items-center justify-center gap-x-4 gap-y-1 md:flex">
-            {links.map((link) => (
-              <Link
-                key={link.label}
-                href={link.href}
-                className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
-              >
-                {link.label}
-              </Link>
-            ))}
-          </nav>
+        {/* Main row: brand left, links right */}
+        <div className="flex flex-col gap-10 md:flex-row md:items-start md:justify-between">
+
+          {/* Brand mark */}
+          <div className="flex flex-col gap-4">
+            <Link href="/" className="flex items-center gap-2.5 group w-fit">
+              <Image
+                src="/icon-512.png"
+                alt="Styrby logo"
+                width={28}
+                height={28}
+                className="h-7 w-7 rounded-md"
+              />
+              <span className="text-base font-bold tracking-tight text-foreground group-hover:text-amber-400 transition-colors">
+                Styrby
+              </span>
+            </Link>
+            <p className="max-w-xs text-sm leading-relaxed text-muted-foreground">
+              Monitor, control, and understand your AI coding agents — from
+              your phone.
+            </p>
+          </div>
+
+          {/* Link columns */}
+          <div className="flex gap-16">
+            <div>
+              <p className="mb-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground/50">
+                Product
+              </p>
+              <ul className="space-y-3">
+                {productLinks.map((link) => (
+                  <li key={link.label}>
+                    <Link
+                      href={link.href}
+                      className="text-sm text-zinc-400 transition-colors hover:text-zinc-100"
+                    >
+                      {link.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div>
+              <p className="mb-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground/50">
+                Legal
+              </p>
+              <ul className="space-y-3">
+                {legalLinks.map((link) => (
+                  <li key={link.label}>
+                    <Link
+                      href={link.href}
+                      className="text-sm text-zinc-400 transition-colors hover:text-zinc-100"
+                    >
+                      {link.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
         </div>
 
-        {/* Mobile nav links — stacked below logo */}
-        <nav aria-label="Footer mobile" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 md:hidden">
-          {links.map((link) => (
-            <Link
-              key={link.label}
-              href={link.href}
-              className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
-            >
-              {link.label}
-            </Link>
-          ))}
-        </nav>
+        {/* Divider */}
+        <div className="mt-12 h-px bg-zinc-800/60" />
 
-        {/* Copyright row — centered */}
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-zinc-500">
-          <p>&copy; 2026 Steel Motion LLC</p>
-          <div className="flex items-center gap-1">
-            <Shield className="h-3 w-3 text-amber-500" />
+        {/* Bottom row: credit and veteran badge */}
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
+          <p className="text-xs text-zinc-500">
+            &copy; 2026 Steel Motion LLC. All rights reserved.
+          </p>
+          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+            <Shield className="h-3.5 w-3.5 text-amber-500/70" />
             <span>Veteran-Owned Business</span>
           </div>
         </div>

@@ -1,35 +1,40 @@
-import { EyeOff, SmartphoneNfc, Layers } from "lucide-react"
+import { Layers, SmartphoneNfc, AlertTriangle } from "lucide-react"
 
 /**
  * Problem Section — Hero + Supporting Pair Layout
  *
- * WHY 1+2 over equal 3-col: The primary pain point (blind spending) is the
- * emotional hook. Giving it a full-width hero card with larger typography
- * creates visual weight that matches its importance. The two secondary
- * problems sit below in a 2-column grid, establishing visual hierarchy
- * that guides the user: "here's the BIG problem, and two more."
+ * WHY 1+2 over equal 3-col: The primary pain point (fragmented multi-agent chaos)
+ * is the emotional hook for developers running production workloads. Giving it a
+ * full-width hero card with larger typography creates visual weight that matches
+ * its importance. The two secondary problems sit below in a 2-column grid,
+ * establishing visual hierarchy: "here is the BIG problem, and two more."
+ *
+ * WHY these three pain points: They map directly to the three product pillars.
+ * No unified view -> Multi-Agent Dashboard. No remote control -> Mobile Remote.
+ * Surprise costs -> Smart Cost Tracking. Each problem section primes the reader
+ * for the corresponding features section below.
  */
 
 const problems = [
   {
-    icon: EyeOff,
-    title: "Blind Spending",
+    icon: Layers,
+    title: "No Unified View",
     description:
-      "Most developers have no idea what their AI agents cost per session. By the time the invoice arrives, the damage is done.",
+      "Running 5+ agents across projects with no single place to see what is active, what is stuck, and what is burning tokens on a loop. You are context-switching between terminals to figure out basic status.",
     primary: true,
   },
   {
-    icon: SmartphoneNfc,
-    title: "No Remote Control",
+    icon: AlertTriangle,
+    title: "Surprise Bills",
     description:
-      "Your agent needs approval, but you stepped away. Now it sits idle until you walk back to your laptop.",
+      "Getting paged at 2am because an agent ran up $400 in tokens overnight. By the time the invoice arrives, the damage is done and there was no way to stop it remotely.",
     primary: false,
   },
   {
-    icon: Layers,
-    title: "Multi-Agent Chaos",
+    icon: SmartphoneNfc,
+    title: "Laptop-Tethered Approvals",
     description:
-      "Multiple agents across several projects on different machines. Which ones are active? Which are stuck? Which are burning tokens on a loop? You have no idea.",
+      "No way to approve risky permissions without being at your desk. Your agent sits idle for hours — or worse, proceeds without approval — while you are away from your machine.",
     primary: false,
   },
 ]
@@ -42,26 +47,28 @@ export function ProblemSection() {
     <section className="py-16">
       <div className="mx-auto max-w-7xl px-6">
         <h2 className="mx-auto max-w-3xl text-balance text-center text-3xl font-semibold tracking-tighter text-foreground md:text-4xl">
-          You{"'"}re Running AI Agents Blind.{" "}
-          <span className="text-amber-500">That Gets Expensive Fast.</span>
+          Running AI Agents at Scale{" "}
+          <span className="text-amber-500">Is Harder Than It Should Be.</span>
         </h2>
 
         <div className="mx-auto mt-16 max-w-5xl space-y-6">
           {/* Primary problem — full width, larger treatment */}
           <div className="gradient-border group rounded-xl bg-card/60 p-8 transition-all duration-200 hover:bg-card md:p-10">
             <div className="flex flex-col gap-5 md:flex-row md:items-start md:gap-8">
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/10">
                 <primary.icon className="h-7 w-7 text-amber-500" />
               </div>
               <div>
                 <h3 className="mb-2 text-xl font-semibold text-foreground">{primary.title}</h3>
-                <p className="max-w-xl text-base leading-relaxed text-muted-foreground">{primary.description}</p>
+                <p className="max-w-xl text-base leading-relaxed text-muted-foreground">
+                  {primary.description}
+                </p>
               </div>
             </div>
           </div>
 
           {/* Secondary problems — 2-column grid */}
-          <div className="grid gap-6 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             {secondary.map((problem) => (
               <div
                 key={problem.title}

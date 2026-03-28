@@ -128,9 +128,14 @@ const agents = [
 
 export function SocialProof() {
   return (
-    <section className="border-y border-border/40 py-10">
+    <section className="py-10">
+      {/* Top separator */}
       <div className="mx-auto max-w-7xl px-6">
-        <p className="mb-6 text-center text-sm text-muted-foreground">
+        <div className="h-px bg-zinc-800/60" />
+      </div>
+
+      <div className="mx-auto max-w-7xl px-6 py-10">
+        <p className="mb-6 text-center text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground/60">
           Works with 11 CLI coding agents you already use
         </p>
         <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-4 lg:flex-nowrap lg:gap-x-6">
@@ -158,6 +163,11 @@ export function SocialProof() {
             </span>
           ))}
         </div>
+      </div>
+
+      {/* Bottom separator */}
+      <div className="mx-auto max-w-7xl px-6">
+        <div className="h-px bg-zinc-800/60" />
       </div>
     </section>
   )

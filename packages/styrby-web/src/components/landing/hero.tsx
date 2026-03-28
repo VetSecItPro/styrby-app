@@ -1,74 +1,205 @@
 import Link from "next/link"
-import { ChevronDown, Lock, Shield, Smartphone, Zap } from "lucide-react"
+import Image from "next/image"
+import { ArrowRight, Lock, Shield, Smartphone, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
+/**
+ * Dashboard screenshot with a double-bezel frame treatment.
+ *
+ * WHY double bezel: a single thin border looks flat at large sizes. The
+ * outer ring provides contrast against the dark background; the inner ring
+ * (slightly brighter) creates a perception of depth and frames the screenshot
+ * like a physical device, which subconsciously signals premium hardware.
+ */
 function DashboardMockup() {
   return (
-    <div className="relative mx-auto mt-16 max-w-5xl px-4">
-      {/* Glow */}
-      <div className="absolute inset-0 -z-10 rounded-xl bg-amber-500/10 blur-[80px]" />
-      <img
-        src="/screenshots/dashboard-overview.png"
-        alt="Styrby dashboard showing real-time agent costs and session monitoring"
-        className="w-full rounded-xl border border-border/60 shadow-2xl"
-        width={1440}
-        height={900}
+    <div className="relative mx-auto mt-20 max-w-5xl px-4 md:px-0">
+      {/* Radial amber glow sitting behind the frame */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -inset-12 -z-10 rounded-3xl"
+        style={{
+          background:
+            "radial-gradient(ellipse 80% 50% at 50% 100%, rgba(245,158,11,0.12) 0%, transparent 70%)",
+        }}
       />
+      {/* Outer bezel — faint border ring */}
+      <div className="rounded-[18px] border border-white/[0.06] p-[3px] shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_32px_80px_rgba(0,0,0,0.7)]">
+        {/* Inner bezel — slightly brighter, adds depth */}
+        <div className="rounded-[15px] border border-white/[0.09] overflow-hidden">
+          <Image
+            src="/screenshots/dashboard-overview.png"
+            alt="Styrby dashboard showing real-time agent costs and session monitoring"
+            width={1440}
+            height={900}
+            className="w-full"
+            priority
+          />
+        </div>
+      </div>
     </div>
   )
 }
 
+/**
+ * Hero section for the Styrby landing page.
+ *
+ * WHY this headline: "11 Agents. One Dashboard. Your Phone." leads with the
+ * remote-control story — not costs. The competitive moat against Anthropic
+ * Channels / Dispatch is breadth (11 agents) + mobility (your phone). The
+ * headline lands that in four words before the user has time to bounce.
+ *
+ * WHY asymmetric layout (DESIGN_VARIANCE 7): centering everything reads as
+ * generic SaaS. Pinning the headline left with a constrained max-width creates
+ * editorial tension that feels intentional and premium.
+ */
 export function Hero() {
   return (
-    <section className="relative overflow-hidden pt-32 pb-20">
-      {/* Background effects */}
-      <div className="absolute inset-0 dot-grid" />
-      <div className="absolute left-1/2 top-0 h-[500px] w-[800px] -translate-x-1/2 rounded-full bg-amber-500/5 blur-[120px]" />
+    <section className="relative overflow-hidden pt-36 pb-24">
+      {/* ── Background: mesh gradient + dot grid ── */}
+      <div aria-hidden="true" className="absolute inset-0 dot-grid opacity-50" />
 
-      <div className="relative mx-auto max-w-7xl px-6 text-center">
-        {/* WHY this headline: Atlas strategy recommends leading with control + multi-agent.
-             Anthropic launched Channels (Claude-only via Telegram) and Dispatch (Claude-only
-             via their app). Our moat is 11 agents in one encrypted app. The headline must
-             communicate that immediately. */}
-        <h1 className="mx-auto max-w-4xl text-balance text-5xl font-semibold tracking-tighter text-foreground md:text-7xl">
-          One Dashboard for{" "}
-          <span className="text-amber-500">Every AI Agent You Run</span>
+      {/* Left-anchored amber plume — asymmetric, editorial */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-0 top-0 -z-10"
+        style={{
+          width: "900px",
+          height: "700px",
+          background:
+            "radial-gradient(ellipse 60% 55% at 15% 30%, rgba(245,158,11,0.07) 0%, transparent 65%)",
+        }}
+      />
+      {/* Subtle right-side cool counter-weight so it doesn't look accidental */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute right-0 bottom-0 -z-10"
+        style={{
+          width: "600px",
+          height: "500px",
+          background:
+            "radial-gradient(ellipse 70% 60% at 85% 80%, rgba(99,102,241,0.04) 0%, transparent 70%)",
+        }}
+      />
+
+      <div className="relative mx-auto max-w-7xl px-6">
+        {/* ── Eyebrow badge ── */}
+        <div className="mb-8 flex items-center gap-3">
+          <div
+            className={cn(
+              "inline-flex items-center gap-2 rounded-full px-3.5 py-1.5",
+              "border border-amber-500/20 bg-amber-500/[0.06]",
+              "text-xs font-medium tracking-wide text-amber-400"
+            )}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-live-pulse" />
+            Now supporting 11 AI coding agents
+          </div>
+        </div>
+
+        {/* ── Main headline — left-aligned, massive ── */}
+        {/*
+          WHY text-left: at DESIGN_VARIANCE 7 we break the centered-SaaS pattern.
+          The headline reads like editorial typesetting, not a template.
+          max-w-3xl keeps line lengths tight so the staggered line breaks read
+          as intentional rather than wrapping accidents.
+        */}
+        <h1
+          className={cn(
+            "max-w-3xl text-left",
+            "text-6xl md:text-[82px] font-bold leading-[0.92] tracking-tighter",
+            "text-zinc-50"
+          )}
+        >
+          {/* "11 Agents" gets the amber gradient — it's the moat, own it */}
+          <span
+            className="inline-block"
+            style={{
+              backgroundImage:
+                "linear-gradient(135deg, #F59E0B 0%, #FBBF24 45%, #FCD34D 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+            }}
+          >
+            11 Agents.
+          </span>
+          <br />
+          <span className="text-zinc-50">One Dashboard.</span>
+          <br />
+          <span className="text-zinc-300">Your Phone.</span>
         </h1>
 
-        <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground md:text-xl">
-          See what your AI coding agents are costing you. Approve risky actions from your phone. Set budget limits that actually stop runaway spend. All end-to-end encrypted. Supports 11 CLI agents.
+        {/* ── Subheadline — controlled width, left-aligned ── */}
+        <p className="mt-7 max-w-xl text-left text-lg leading-relaxed text-zinc-400 md:text-[18px]">
+          Control every AI coding agent from anywhere. Approve permissions on
+          your commute. Review code diffs in meetings. See exactly what each
+          response costs. All end-to-end encrypted.
         </p>
 
-        <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-          <Button asChild size="lg" className="bg-amber-500 px-8 text-background hover:bg-amber-600 font-semibold text-base h-12">
-            <Link href="/signup">Connect Your First Agent</Link>
+        {/* ── CTAs ── */}
+        <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <Button
+            asChild
+            size="lg"
+            className={cn(
+              "h-12 px-7 text-base font-semibold rounded-xl",
+              "bg-amber-500 text-zinc-950 hover:bg-amber-400",
+              "shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_4px_20px_rgba(245,158,11,0.35)]",
+              "transition-all duration-200 hover:shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_6px_28px_rgba(245,158,11,0.5)]",
+              "group"
+            )}
+          >
+            <Link href="/signup" className="flex items-center gap-2">
+              Connect Your First Agent
+              <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+            </Link>
           </Button>
-          <Button variant="ghost" size="lg" asChild className="gap-2 text-muted-foreground hover:text-foreground h-12">
-            <a href="#how-it-works">
-              See How It Works
-              <ChevronDown className="h-4 w-4" />
-            </a>
+
+          <Button
+            variant="ghost"
+            size="lg"
+            asChild
+            className={cn(
+              "h-12 px-7 text-base rounded-xl",
+              "border border-white/[0.10] text-zinc-400",
+              "hover:bg-white/[0.04] hover:text-zinc-200 hover:border-white/[0.16]",
+              "transition-all duration-200"
+            )}
+          >
+            <a href="#how-it-works">See How It Works</a>
           </Button>
         </div>
 
-        {/* Trust badges — WHY these 4: Each addresses a key buyer objection.
-             E2E Encrypted = security concern. Zero Knowledge = privacy concern.
-             5 Agents = multi-agent moat vs Anthropic's Claude-only tools.
-             Free Tier = lowers barrier to trial. */}
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-6">
+        {/* ── Trust badges ── */}
+        {/*
+          WHY these 4: each one neutralises a specific buyer objection.
+          E2E Encrypted = "can attackers read my code?" answered.
+          Zero touch servers = "does Styrby store my IP?" answered.
+          11 Agents = "will it work with my agent?" answered.
+          Free tier = "what does it cost to try?" answered.
+        */}
+        <div className="mt-10 flex flex-wrap items-center gap-x-7 gap-y-3">
           {[
             { icon: Lock, text: "E2E Encrypted" },
             { icon: Shield, text: "Your Code Never Touches Our Servers" },
             { icon: Smartphone, text: "11 Agents, 1 Dashboard" },
             { icon: Zap, text: "Free Forever on 1 Machine" },
           ].map(({ icon: Icon, text }) => (
-            <div key={text} className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Icon className="h-3.5 w-3.5 text-amber-500/70" />
-              {text}
+            <div
+              key={text}
+              className="flex items-center gap-2 text-[13px] text-zinc-500"
+            >
+              <Icon className="h-3.5 w-3.5 flex-shrink-0 text-amber-500/60" />
+              <span>{text}</span>
             </div>
           ))}
         </div>
+      </div>
 
+      {/* ── Dashboard mockup — full width within container ── */}
+      <div className="mx-auto max-w-7xl px-6">
         <DashboardMockup />
       </div>
     </section>

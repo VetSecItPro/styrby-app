@@ -1,28 +1,67 @@
 import Link from "next/link"
+import { ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
+/**
+ * CTA Banner — final conversion section before the footer.
+ *
+ * WHY minimal copy: visitors who scroll this far have already read the
+ * feature list and pricing. A single bold statement and one button
+ * removes friction. Extra copy at this stage adds noise, not value.
+ */
 export function CTABanner() {
   return (
-    <section className="py-12">
-      <div className="mx-auto max-w-7xl px-6">
-        <div className="relative mx-auto overflow-hidden rounded-2xl border border-border/60 bg-card/40 px-8 py-12 text-center md:max-w-[70%]">
-          <div className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent" />
-          <div className="absolute inset-0 dot-grid opacity-30" />
+    <section className="relative overflow-hidden py-28">
+      {/* Ambient amber mesh gradient */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(ellipse 80% 60% at 50% 50%, rgba(245,158,11,0.06) 0%, transparent 70%)",
+        }}
+        aria-hidden="true"
+      />
 
-          <div className="relative">
-            <h2 className="mx-auto max-w-2xl text-balance text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-              Your agents are running right now. Do you know what they cost?
-            </h2>
-            <p className="mx-auto mt-4 max-w-md text-muted-foreground leading-relaxed">
-              Install the CLI, scan the QR code, and find out in 90 seconds.
-            </p>
-            <div className="mt-8">
-              <Button asChild size="lg" className="bg-amber-500 px-10 text-background hover:bg-amber-600 font-semibold text-base h-12">
-                <Link href="/signup">Connect Your First Agent</Link>
-              </Button>
-            </div>
-          </div>
+      {/* Subtle dot grid texture */}
+      <div className="pointer-events-none absolute inset-0 dot-grid opacity-20" aria-hidden="true" />
+
+      {/* Top and bottom fade — blends into surrounding sections */}
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-24"
+        style={{
+          background: "linear-gradient(to bottom, hsl(240 6% 3.5%), transparent)",
+        }}
+        aria-hidden="true"
+      />
+      <div
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-24"
+        style={{
+          background: "linear-gradient(to top, hsl(240 6% 3.5%), transparent)",
+        }}
+        aria-hidden="true"
+      />
+
+      <div className="relative mx-auto max-w-3xl px-6 text-center">
+        <h2 className="text-balance text-4xl font-bold tracking-tight text-foreground md:text-5xl">
+          Start monitoring your agents in 90 seconds
+        </h2>
+
+        <div className="mt-10">
+          <Button
+            asChild
+            size="lg"
+            className="h-13 bg-amber-500 px-10 text-base font-semibold text-zinc-950 shadow-lg shadow-amber-500/20 hover:bg-amber-400 active:bg-amber-600 transition-colors"
+          >
+            <Link href="/signup">
+              Connect Your First Agent
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
         </div>
+
+        <p className="mt-4 text-sm text-muted-foreground/60">
+          Free plan available. No credit card required.
+        </p>
       </div>
     </section>
   )
