@@ -22,6 +22,14 @@ import {
   MonitorSmartphone,
   WifiOff,
   SlidersHorizontal,
+  Mic,
+  Cloud,
+  Code2,
+  Share2,
+  BookmarkCheck,
+  ActivitySquare,
+  LineChart,
+  Database,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/landing/navbar';
@@ -30,11 +38,11 @@ import { Footer } from '@/components/landing/footer';
 export const metadata: Metadata = {
   title: 'All Features',
   description:
-    'E2E encrypted remote control for Claude Code, Codex, Gemini CLI, OpenCode, and Aider. Cost tracking, permissions, session history, and team tools.',
+    'E2E encrypted remote control for 11 CLI coding agents including Claude Code, Codex, Gemini CLI, OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. Cost tracking, permissions, session history, voice commands, cloud monitoring, and team tools.',
   openGraph: {
     title: 'Styrby Features',
     description:
-      'E2E encrypted remote control for Claude Code, Codex, Gemini CLI, OpenCode, and Aider. Cost tracking, permissions, session history, and team tools.',
+      'E2E encrypted remote control for 11 CLI coding agents. Cost tracking, permissions, session history, voice commands, cloud monitoring, and team tools.',
     type: 'website',
     url: 'https://styrbyapp.com/features',
   },
@@ -42,7 +50,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Styrby Features',
     description:
-      'E2E encrypted remote control for Claude Code, Codex, Gemini CLI, OpenCode, and Aider. Cost tracking, permissions, session history, and team tools.',
+      'E2E encrypted remote control for 11 CLI coding agents. Cost tracking, permissions, session history, voice commands, cloud monitoring, and team tools.',
   },
 };
 
@@ -141,8 +149,29 @@ const featureCategories = [
         icon: BarChart3,
         title: 'Cost Tracking Across Every Agent',
         description:
-          'See spending per agent, per session, per model, and per tag. Daily trend charts, per-model breakdowns, and cost attribution across all five agents. Tag sessions by client or project to get a cost-by-tag breakdown for invoicing.',
+          'See spending per agent, per session, per model, and per tag. Daily trend charts, per-model breakdowns, and cost attribution across all eleven agents. Tag sessions by client or project to get a cost-by-tag breakdown for invoicing.',
         detail: 'Materialized views for sub-second dashboard loads. Cost by Tag section shows total spend and session count per tag.',
+      },
+      {
+        icon: LineChart,
+        title: 'Per-Message Cost Tracking',
+        description:
+          'See the cost of every individual message in a session, not just session totals. Know exactly which prompts drove your spend and optimize accordingly.',
+        detail: 'Available on Pro and above.',
+      },
+      {
+        icon: FileSearch,
+        title: 'Per-File Context Breakdown',
+        description:
+          'See which files were included in the agent context window and their relative size contribution. Understand why a session cost more than expected.',
+        detail: 'Available on Pro and above.',
+      },
+      {
+        icon: ActivitySquare,
+        title: 'Activity Graph',
+        description:
+          'GitHub-style contribution graph showing your daily agent activity over time. See usage patterns, identify heavy-use days, and track productivity trends.',
+        detail: 'Available on Pro and above.',
       },
       {
         icon: Eye,
@@ -156,19 +185,19 @@ const featureCategories = [
         title: 'Budget Alerts',
         description:
           'Set daily, weekly, or monthly spend limits. Choose what happens when a threshold is hit: get notified, slow the agent down, or stop it entirely.',
-        detail: 'Per-agent or global. Pro gets 3 alerts, Power gets 5.',
+        detail: 'Free gets 1 alert. Pro gets 3 alerts. Power gets 5.',
       },
     ],
   },
   {
     name: 'Multi-Agent Dashboard',
-    description: 'Claude Code, Codex, Gemini CLI, OpenCode, and Aider in one view.',
+    description: 'Claude Code, Codex, Gemini CLI, OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid in one view.',
     features: [
       {
         icon: LayoutDashboard,
         title: 'Unified Agent View',
         description:
-          'All five supported agents in a single dashboard. Color-coded status cards show active, idle, stuck, or failing states at a glance.',
+          'All eleven supported agents in a single dashboard. Color-coded status cards show active, idle, stuck, or failing states at a glance.',
         detail: 'Real-time updates via Supabase Realtime subscriptions.',
       },
       {
@@ -204,6 +233,20 @@ const featureCategories = [
         description:
           'Step through the full conversation between you and the agent. Every prompt, response, tool call, and permission request in chronological order.',
         detail: 'End-to-end encrypted. Decrypted only on your device.',
+      },
+      {
+        icon: BookmarkCheck,
+        title: 'Session Checkpoints',
+        description:
+          'Mark named save points within a long session. Return to a checkpoint later, compare progress between checkpoints, or share a specific moment in a conversation.',
+        detail: 'Available on Pro and above.',
+      },
+      {
+        icon: Share2,
+        title: 'Session Sharing',
+        description:
+          'Generate a share link for any session replay. Session data stays end-to-end encrypted and recipients need a separate decryption key you provide. Styrby never has access to the plaintext content.',
+        detail: 'Available on Pro and above.',
       },
       {
         icon: BarChart3,
@@ -242,8 +285,50 @@ const featureCategories = [
     ],
   },
   {
-    name: 'Team Collaboration',
+    name: 'Power Features',
     badge: 'Power',
+    description: 'Advanced capabilities for serious agent workflows.',
+    features: [
+      {
+        icon: Mic,
+        title: 'Voice Commands',
+        description:
+          'Dictate approvals, queries, or commands hands-free from your phone or browser. Approve a permission request while your hands are full.',
+        detail: 'Available on Power tier.',
+      },
+      {
+        icon: Cloud,
+        title: 'Cloud Monitoring',
+        description:
+          'Submit a cloud monitoring job, track its progress in real time, and receive a push notification when it finishes or encounters an error.',
+        detail: 'Available on Power tier.',
+      },
+      {
+        icon: Code2,
+        title: 'Code Review From Mobile',
+        description:
+          'Submit a code review request from your phone. Monitor progress, see inline comments, and get notified when the review completes.',
+        detail: 'Available on Power tier.',
+      },
+      {
+        icon: Database,
+        title: 'OTEL Export',
+        description:
+          'Send agent session metrics, cost data, and trace events to any OpenTelemetry-compatible observability platform: Grafana, Datadog, Honeycomb, and others.',
+        detail: 'Available on Power tier.',
+      },
+      {
+        icon: Zap,
+        title: 'Rust Parser',
+        description:
+          'High-performance Rust-based parser for session data processing. Handles large session files faster than the default parser with lower memory overhead.',
+        detail: 'Available on Power tier.',
+      },
+    ],
+  },
+  {
+    name: 'Team Collaboration',
+    badge: 'Pro',
     description: 'Share visibility across your engineering team.',
     features: [
       {
@@ -251,7 +336,7 @@ const featureCategories = [
         title: 'Team Members',
         description:
           'Invite up to 3 team members via email. Each gets their own login with role-based access: Owner, Admin, or Member. No shared credentials.',
-        detail: 'Invite flow with email verification.',
+        detail: 'Available on Pro and above. Invite flow with email verification.',
       },
       {
         icon: LayoutDashboard,
@@ -379,7 +464,7 @@ export default function FeaturesPage() {
               <div className="mt-8">
                 <img
                   src="/screenshots/agents-page.png"
-                  alt="Agent dashboard showing all five AI coding agents with status and daily costs"
+                  alt="Agent dashboard showing all supported AI coding agents with status and daily costs"
                   className="w-full rounded-xl border border-border/40 shadow-lg"
                   width={1440}
                   height={900}
@@ -401,6 +486,12 @@ export default function FeaturesPage() {
               { name: 'Gemini CLI', color: 'text-blue-400' },
               { name: 'OpenCode', color: 'text-cyan-400' },
               { name: 'Aider', color: 'text-purple-400' },
+              { name: 'Goose', color: 'text-teal-400' },
+              { name: 'Amp', color: 'text-yellow-400' },
+              { name: 'Crush', color: 'text-pink-400' },
+              { name: 'Kilo', color: 'text-indigo-400' },
+              { name: 'Kiro', color: 'text-sky-400' },
+              { name: 'Droid', color: 'text-rose-400' },
             ].map((agent) => (
               <div key={agent.name} className="flex items-center gap-2">
                 <div className={`h-2 w-2 rounded-full ${agent.color.replace('text-', 'bg-')}`} />

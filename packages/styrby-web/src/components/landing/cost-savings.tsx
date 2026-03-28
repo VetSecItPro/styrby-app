@@ -15,7 +15,7 @@ const valueProps = [
     icon: Eye,
     title: "Per-agent, per-session, per-model costs",
     description:
-      "Spend tracking across all five agents, updated on every page load. Tag sessions by client or project. See exactly which session is eating your budget today, not at the end of the month.",
+      "Spend tracking across all eleven agents, updated on every page load. Tag sessions by client or project. See exactly which session is eating your budget today, not at the end of the month.",
   },
   {
     icon: ShieldAlert,

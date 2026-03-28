@@ -8,7 +8,7 @@ export default function AiCodingAgentCostComparison2026() {
       <p>
         AI coding agents have different pricing models, token costs, and
         session behaviors. This article provides current pricing data for the
-        five agents Styrby supports, estimates typical session costs, and
+        agents Styrby supports, estimates typical session costs, and
         explains the variables that affect your monthly bill.
       </p>
 

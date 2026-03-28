@@ -29,7 +29,7 @@ const problems = [
     icon: Layers,
     title: "Multi-Agent Chaos",
     description:
-      "Five agents across three projects on two machines. Which ones are active? Which are stuck? Which are burning tokens on a loop? You have no idea.",
+      "Multiple agents across several projects on different machines. Which ones are active? Which are stuck? Which are burning tokens on a loop? You have no idea.",
     primary: false,
   },
 ]

@@ -28,7 +28,7 @@ export function Hero() {
       <div className="relative mx-auto max-w-7xl px-6 text-center">
         {/* WHY this headline: Atlas strategy recommends leading with control + multi-agent.
              Anthropic launched Channels (Claude-only via Telegram) and Dispatch (Claude-only
-             via their app). Our moat is 5 agents in one encrypted app. The headline must
+             via their app). Our moat is 11 agents in one encrypted app. The headline must
              communicate that immediately. */}
         <h1 className="mx-auto max-w-4xl text-balance text-5xl font-semibold tracking-tighter text-foreground md:text-7xl">
           One Dashboard for{" "}
@@ -36,7 +36,7 @@ export function Hero() {
         </h1>
 
         <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground md:text-xl">
-          See what Claude Code, Codex, Gemini CLI, OpenCode, and Aider are costing you. Approve risky actions from your phone. Set budget limits that actually stop runaway spend. All end-to-end encrypted.
+          See what your AI coding agents are costing you. Approve risky actions from your phone. Set budget limits that actually stop runaway spend. All end-to-end encrypted. Supports 11 CLI agents.
         </p>
 
         <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
@@ -59,7 +59,7 @@ export function Hero() {
           {[
             { icon: Lock, text: "E2E Encrypted" },
             { icon: Shield, text: "Your Code Never Touches Our Servers" },
-            { icon: Smartphone, text: "5 Agents, 1 Dashboard" },
+            { icon: Smartphone, text: "11 Agents, 1 Dashboard" },
             { icon: Zap, text: "Free Forever on 1 Machine" },
           ].map(({ icon: Icon, text }) => (
             <div key={text} className="flex items-center gap-2 text-xs text-muted-foreground">

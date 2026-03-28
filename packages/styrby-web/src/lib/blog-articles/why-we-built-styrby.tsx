@@ -128,8 +128,8 @@ export default function WhyWeBuiltStyrby() {
 
       <h2>Where We Are Now</h2>
       <p>
-        Styrby supports five agents: Claude Code, Codex, Gemini CLI, OpenCode,
-        and Aider. The CLI is in public beta. The iOS app is in development.
+        Styrby supports eleven agents: Claude Code, Codex, Gemini CLI, OpenCode,
+        Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. The CLI is in public beta. The iOS app is in development.
         The web dashboard is live. We are a small team, building carefully, and
         shipping features when they are ready.
       </p>

@@ -242,14 +242,15 @@ describe('Budget Alerts API', () => {
       expect(response.status).toBe(400);
     });
 
-    it('returns 403 when free user tries to create alert (limit 0)', async () => {
+    it('returns 403 when free user tries to create alert at limit (limit 1, count 1)', async () => {
       mockAuthenticated();
 
       // POST calls Promise.all with 2 parallel queries:
       // 1. getUserTier → subscriptions.select().eq().eq().single()
       fromCallQueue.push({ data: null, error: null }); // free tier
       // 2. count query → budget_alerts.select('id', { count: 'exact', head: true }).eq()
-      fromCallQueue.push({ count: 0, error: null });
+      // Free tier limit is 1, so having count=1 puts user at their limit.
+      fromCallQueue.push({ count: 1, error: null });
 
       const req = createNextRequest({ name: 'Daily budget', threshold_usd: 10, period: 'daily', action: 'notify' });
       const response = await POST(req);

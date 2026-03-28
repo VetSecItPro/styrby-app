@@ -23,9 +23,9 @@ const features = [
   },
   {
     icon: LayoutDashboard,
-    title: "Five Agents, One Dashboard",
+    title: "Eleven Agents, One Dashboard",
     description:
-      "Claude Code, Codex, Gemini CLI, OpenCode, and Aider in a single view. Live status, session history, and error attribution.",
+      "Claude Code, Codex, Gemini CLI, OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid in a single view. Live status, session history, and error attribution.",
   },
 ]
 

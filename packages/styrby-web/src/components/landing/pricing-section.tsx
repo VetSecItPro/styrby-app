@@ -17,26 +17,30 @@ const plans = [
     ctaVariant: "outline" as const,
     features: [
       "1 connected machine",
-      "1 AI agent",
+      "3 agents: Claude Code, Codex, Gemini CLI",
       "7-day session history",
       "1,000 messages/month",
-      "Basic cost view",
+      "Cost dashboard",
+      "1 budget alert",
+      "E2E encryption",
     ],
   },
   {
     name: "Pro",
-    monthly: 19,
-    annual: 190,
-    savings: 38,
+    monthly: 24,
+    annual: 240,
+    savings: 48,
     popular: true,
     cta: "Connect 3 Machines",
     ctaVariant: "default" as const,
     features: [
       "3 connected machines",
-      "All 5 AI agents",
+      "8 agents (adds OpenCode, Aider, Goose, Amp, Crush, Kilo)",
       "90-day session history",
       "25,000 messages/month",
       "Full cost dashboard",
+      "Session checkpoints and sharing",
+      "Team management (3 members)",
       "3 budget alerts",
       "Email support",
     ],
@@ -51,10 +55,14 @@ const plans = [
     ctaVariant: "default" as const,
     features: [
       "9 connected machines",
-      "All 5 AI agents",
+      "All 11 agents (adds Kiro and Droid)",
       "1-year session history",
       "100,000 messages/month",
       "Full cost dashboard",
+      "Voice commands",
+      "Cloud monitoring",
+      "Code review from mobile",
+      "OTEL export",
       "5 budget alerts",
       "3 team members",
       "API access",
@@ -96,6 +104,7 @@ export function PricingSection() {
           </button>
           <span className={cn("text-sm", annual ? "text-foreground" : "text-muted-foreground")}>
             Annual <span className="text-xs text-amber-500">(Save up to $98)</span>
+              {/* WHY $98: Power plan saves $98/year ($49 x 12 = $588 vs $490 annual) */}
           </span>
         </div>
 

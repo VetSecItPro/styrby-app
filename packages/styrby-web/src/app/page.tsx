@@ -20,11 +20,11 @@ export const metadata: Metadata = {
     absolute: 'Styrby - Control Your AI Agents From Your Phone',
   },
   description:
-    'Monitor costs, approve permissions, and manage Claude Code, Codex, Gemini CLI, and more from one encrypted mobile dashboard.',
+    'Monitor costs, approve permissions, and manage 11 CLI coding agents including Claude Code, Codex, Gemini CLI, and more from one encrypted mobile dashboard.',
   openGraph: {
     title: 'Styrby - Control Your AI Agents From Your Phone',
     description:
-      'Monitor costs, approve permissions, and manage Claude Code, Codex, Gemini CLI, and more from one encrypted mobile dashboard.',
+      'Monitor costs, approve permissions, and manage 11 CLI coding agents including Claude Code, Codex, Gemini CLI, and more from one encrypted mobile dashboard.',
     type: 'website',
     url: 'https://styrbyapp.com',
   },
@@ -32,7 +32,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Styrby - Control Your AI Agents From Your Phone',
     description:
-      'Monitor costs, approve permissions, and manage Claude Code, Codex, Gemini CLI, and more from one encrypted mobile dashboard.',
+      'Monitor costs, approve permissions, and manage 11 CLI coding agents including Claude Code, Codex, Gemini CLI, and more from one encrypted mobile dashboard.',
   },
 };
 
@@ -55,7 +55,7 @@ const softwareApplicationJsonLd = {
   applicationCategory: 'DeveloperApplication',
   operatingSystem: 'Web, iOS',
   description:
-    'Remote control dashboard for AI coding agents. Monitor costs, approve permissions, and manage Claude Code, Codex, Gemini CLI, OpenCode, and Aider from one encrypted mobile dashboard.',
+    'Remote control dashboard for AI coding agents. Monitor costs, approve permissions, and manage 11 CLI agents including Claude Code, Codex, Gemini CLI, OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid from one encrypted mobile dashboard.',
   url: 'https://styrbyapp.com',
   screenshot: 'https://styrbyapp.com/logo-full.png',
   featureList: [
@@ -63,10 +63,20 @@ const softwareApplicationJsonLd = {
     'Remote permission approval',
     'End-to-end encrypted sessions',
     'Budget alerts and spending limits',
-    'Multi-agent dashboard',
+    'Multi-agent dashboard (11 agents)',
     'Push notifications',
     'Session replay',
+    'Session checkpoints',
+    'Session sharing',
+    'Voice commands',
+    'Cloud monitoring',
+    'Code review from mobile',
+    'OTEL export',
+    'Activity graph',
+    'Per-message cost tracking',
+    'Per-file context breakdown',
     'Offline command queue',
+    'Team management',
   ],
   offers: {
     '@type': 'Offer',
@@ -114,7 +124,7 @@ const faqPageJsonLd = {
       name: 'Which AI agents are supported?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Five today: Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), OpenCode, and Aider. The Free plan includes one agent. Pro and Power plans unlock all five. We add new agents as the ecosystem grows.',
+        text: 'Eleven CLI coding agents: Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. The Free plan includes the first three. Pro unlocks eight agents. Power unlocks all eleven.',
       },
     },
     {
@@ -130,7 +140,7 @@ const faqPageJsonLd = {
       name: 'Can I use it with my team?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'The Power plan ($49/mo) supports up to 3 team members with shared dashboards, per-developer cost attribution, and team-level budget alerts.',
+        text: 'The Pro plan ($24/mo) and Power plan ($49/mo) both support up to 3 team members with shared dashboards and per-developer cost attribution. Power adds team-level budget alerts and OTEL export.',
       },
     },
     {
@@ -146,7 +156,7 @@ const faqPageJsonLd = {
       name: 'How is this different from checking my API provider\'s dashboard?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'API dashboards show you total spend after the fact, across all usage. Styrby shows per-agent, per-session, and per-model cost breakdowns with budget limits that automatically stop runaway sessions. It works across five different agents in one place.',
+        text: 'API dashboards show you total spend after the fact, across all usage. Styrby shows per-agent, per-session, per-message, and per-model cost breakdowns with per-file context breakdown and budget limits that automatically stop runaway sessions. It works across all eleven agents in one place.',
       },
     },
   ],

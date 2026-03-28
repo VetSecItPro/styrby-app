@@ -35,11 +35,11 @@ export default function StyrbyVsDispatch() {
         well.
       </p>
       <p>
-        Styrby connects to five agents: Claude Code, Codex, Gemini CLI,
-        OpenCode, and Aider. If you standardize on Claude Code exclusively,
-        this difference does not matter. If your team uses multiple agents, or
-        if you switch agents based on the task, Styrby&apos;s multi-agent
-        support becomes meaningful.
+        Styrby connects to eleven agents: Claude Code, Codex, Gemini CLI,
+        OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. If you
+        standardize on Claude Code exclusively, this difference does not matter.
+        If your team uses multiple agents, or if you switch agents based on the
+        task, Styrby&apos;s multi-agent support becomes meaningful.
       </p>
 
       <h2>Encryption Models</h2>
@@ -72,7 +72,7 @@ export default function StyrbyVsDispatch() {
       <p>
         Styrby intercepts permission requests at the CLI output level. It
         parses agent output to detect permission prompts and routes them to
-        your mobile device. This works across all five agents but depends on
+        your mobile device. This works across all eleven agents but depends on
         parsing each agent&apos;s output format. When an agent changes its
         output format, Styrby&apos;s parsers need updating.
       </p>
@@ -110,7 +110,7 @@ export default function StyrbyVsDispatch() {
       <h2>Where Styrby Wins</h2>
       <ul>
         <li>
-          <strong>Multi-agent support.</strong> Five agents in one dashboard vs.
+          <strong>Multi-agent support.</strong> Eleven agents in one dashboard vs.
           Claude only.
         </li>
         <li>

@@ -7,6 +7,7 @@
  */
 import type { ComponentType } from "react";
 
+import ElevenAgentsCheckpointsVoiceOtel from "./eleven-agents-checkpoints-voice-otel";
 import StyrbyVsClaudeCodeChannels from "./styrby-vs-claude-code-channels";
 import StyrbyVsDispatch from "./styrby-vs-dispatch";
 import AiCodingAgentCostComparison2026 from "./ai-coding-agent-cost-comparison-2026";
@@ -44,6 +45,7 @@ import FiveAgentsOneWorkflow from "./five-agents-one-workflow";
  * Used by the dynamic [slug] route to render the correct article.
  */
 export const blogContent: Record<string, ComponentType> = {
+  "eleven-agents-checkpoints-voice-otel": ElevenAgentsCheckpointsVoiceOtel,
   "styrby-vs-claude-code-channels": StyrbyVsClaudeCodeChannels,
   "styrby-vs-dispatch": StyrbyVsDispatch,
   "ai-coding-agent-cost-comparison-2026": AiCodingAgentCostComparison2026,

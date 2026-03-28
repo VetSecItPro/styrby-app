@@ -35,27 +35,39 @@ const plans = [
     ctaVariant: 'outline' as const,
     features: [
       '1 connected machine',
-      '1 AI agent (your choice)',
+      '3 agents: Claude Code, Codex, Gemini CLI',
       '7-day session history',
       '1,000 messages/month',
-      'Basic cost view',
+      'Cost dashboard',
+      '1 budget alert',
+      'E2E encryption',
+      'Push notifications',
+      'Offline queue',
+      'Device pairing',
     ],
   },
   {
     name: 'Pro',
     description: 'For developers who ship daily with AI',
-    monthly: 19,
-    annual: 190,
-    savings: 38,
+    monthly: 24,
+    annual: 240,
+    savings: 48,
     popular: true,
     cta: 'Sign Up for Pro',
     ctaVariant: 'default' as const,
     features: [
       '3 connected machines',
-      'All 5 AI agents',
+      '8 agents (adds OpenCode, Aider, Goose, Amp, Crush, Kilo)',
       '90-day session history',
       '25,000 messages/month',
       'Full cost dashboard',
+      'Per-message cost tracking',
+      'Session checkpoints',
+      'Session sharing',
+      'Export and import',
+      'Per-file context breakdown',
+      'Activity graph',
+      'Team management (3 members)',
       '3 budget alerts',
       'Email support',
     ],
@@ -71,11 +83,16 @@ const plans = [
     ctaVariant: 'default' as const,
     features: [
       '9 connected machines',
-      'All 5 AI agents',
+      'All 11 agents (adds Kiro and Droid)',
       '1-year session history',
       '100,000 messages/month',
       'Full cost dashboard',
       '5 budget alerts',
+      'OTEL export (Grafana, Datadog, and more)',
+      'Voice commands',
+      'Cloud monitoring',
+      'Code review from mobile',
+      'Rust parser',
       '3 team members',
       'API access',
       'Email support',
@@ -88,7 +105,7 @@ const comparisonCategories = [
     name: 'Usage & Limits',
     features: [
       { name: 'Connected machines', free: '1', pro: '3', power: '9' },
-      { name: 'AI agents supported', free: '1 (your choice)', pro: 'All 5', power: 'All 5' },
+      { name: 'AI agents supported', free: '3 (Claude Code, Codex, Gemini CLI)', pro: '8 agents', power: 'All 11 agents' },
       { name: 'Messages per month', free: '1,000', pro: '25,000', power: '100,000' },
       { name: 'Session history retention', free: '7 days', pro: '90 days', power: '1 year' },
       { name: 'Session bookmarks', free: '5', pro: 'Unlimited', power: 'Unlimited' },
@@ -102,10 +119,22 @@ const comparisonCategories = [
       { name: 'Cost breakdown by agent', free: false, pro: true, power: true },
       { name: 'Cost breakdown by model', free: false, pro: true, power: true },
       { name: 'Cost breakdown by project', free: false, pro: true, power: true },
-      { name: 'Budget alerts', free: false, pro: '3', power: '5' },
+      { name: 'Per-message cost tracking', free: false, pro: true, power: true },
+      { name: 'Per-file context breakdown', free: false, pro: true, power: true },
+      { name: 'Activity graph', free: false, pro: true, power: true },
+      { name: 'Budget alerts', free: '1', pro: '3', power: '5' },
       { name: 'Auto-pause on budget exceeded', free: false, pro: true, power: true },
       { name: 'Daily cost summary view', free: false, pro: true, power: true },
       { name: 'Cost export (CSV)', free: false, pro: false, power: true },
+    ],
+  },
+  {
+    name: 'Sessions',
+    features: [
+      { name: 'Session replay', free: true, pro: true, power: true },
+      { name: 'Session checkpoints', free: false, pro: true, power: true },
+      { name: 'Session sharing', free: false, pro: true, power: true },
+      { name: 'Export and import', free: false, pro: true, power: true },
     ],
   },
   {
@@ -117,7 +146,11 @@ const comparisonCategories = [
       { name: 'Agent-specific configuration', free: false, pro: true, power: true },
       { name: 'Auto-approve rules', free: false, pro: true, power: true },
       { name: 'Blocked tool lists', free: false, pro: true, power: true },
-      { name: 'Offline command queue', free: false, pro: true, power: true },
+      { name: 'Offline command queue', free: true, pro: true, power: true },
+      { name: 'Voice commands', free: false, pro: false, power: true },
+      { name: 'Cloud monitoring', free: false, pro: false, power: true },
+      { name: 'Code review from mobile', free: false, pro: false, power: true },
+      { name: 'Rust parser', free: false, pro: false, power: true },
     ],
   },
   {
@@ -125,7 +158,7 @@ const comparisonCategories = [
     features: [
       { name: 'Push notifications', free: true, pro: true, power: true },
       { name: 'Permission request alerts', free: true, pro: true, power: true },
-      { name: 'Budget threshold alerts', free: false, pro: true, power: true },
+      { name: 'Budget threshold alerts', free: true, pro: true, power: true },
       { name: 'Error and failure alerts', free: false, pro: true, power: true },
       { name: 'Quiet hours', free: false, pro: true, power: true },
       { name: 'Weekly summary emails', free: false, pro: true, power: true },
@@ -145,18 +178,19 @@ const comparisonCategories = [
   {
     name: 'Collaboration',
     features: [
-      { name: 'Team members', free: false, pro: false, power: '3' },
-      { name: 'Team invitations', free: false, pro: false, power: true },
-      { name: 'Role-based access (owner/admin/member)', free: false, pro: false, power: true },
-      { name: 'Shared cost dashboards', free: false, pro: false, power: true },
+      { name: 'Team members', free: false, pro: '3', power: '3' },
+      { name: 'Team invitations', free: false, pro: true, power: true },
+      { name: 'Role-based access (owner/admin/member)', free: false, pro: true, power: true },
+      { name: 'Shared cost dashboards', free: false, pro: true, power: true },
     ],
   },
   {
     name: 'Integrations',
     features: [
       { name: 'REST API access', free: false, pro: false, power: true },
-      { name: 'Webhooks', free: false, pro: false, power: true },
+      { name: 'Webhooks', free: false, pro: '3', power: '10' },
       { name: 'API key management', free: false, pro: false, power: true },
+      { name: 'OTEL export (Grafana, Datadog, and more)', free: false, pro: false, power: true },
     ],
   },
   {
@@ -169,28 +203,52 @@ const comparisonCategories = [
 
 const faqs = [
   {
-    q: 'Is my code data encrypted?',
-    a: 'Yes, all data is end-to-end encrypted using TweetNaCl. We use a zero-knowledge architecture, meaning we never see your code or prompts. Only metadata (costs, timestamps, status) is processed on our servers.',
+    q: 'What agents does Styrby support?',
+    a: 'Styrby supports eleven CLI coding agents: Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. The Free plan includes the first three. Pro unlocks eight. Power unlocks all eleven.',
   },
   {
-    q: 'Which AI agents are supported?',
-    a: 'Styrby supports five AI coding agents: Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), OpenCode, and Aider. All five are available on Pro and Power plans.',
+    q: 'Can I use my own API keys?',
+    a: 'Yes. Droid supports BYOK (bring your own key), so you can connect your own API credentials directly. Keys are hashed with bcrypt before storage and never stored in plaintext.',
+  },
+  {
+    q: 'Is my data encrypted?',
+    a: 'Yes. All session data is end-to-end encrypted using TweetNaCl with a zero-knowledge architecture. We never see your code or prompts. Only metadata (costs, timestamps, status) is processed on our servers. Exported sessions remain encrypted, and shared session links require a separate key that you provide to recipients.',
+  },
+  {
+    q: 'Can I use voice commands?',
+    a: 'Yes. Voice commands are available on the Power tier. Dictate approvals, queries, or commands hands-free from your phone or browser.',
+  },
+  {
+    q: 'Can I review code from my phone?',
+    a: 'Yes. Code review from mobile is a Power tier feature. Submit a review request, monitor its progress, and receive a push notification when it completes.',
+  },
+  {
+    q: 'What is OTEL export?',
+    a: 'OpenTelemetry (OTEL) export lets you send agent session metrics, cost data, and trace events to any compatible observability platform such as Grafana, Datadog, or Honeycomb. Available on the Power tier.',
+  },
+  {
+    q: 'Can I share session replays?',
+    a: 'Yes, on Pro and above you can generate a share link for any session replay. Session data remains end-to-end encrypted and recipients need a separate decryption key you provide. Styrby never has access to the plaintext content.',
+  },
+  {
+    q: 'What are session checkpoints?',
+    a: 'Session checkpoints are named save points within a session. Mark a point in a long session to return to it later, compare progress, or share a specific moment in the conversation. Available on Pro and above.',
+  },
+  {
+    q: 'How does cloud monitoring work?',
+    a: 'Submit a cloud monitoring job from the dashboard or mobile app, track its progress in real time, and receive a push notification when it finishes or encounters an error. Available on the Power tier.',
   },
   {
     q: 'Does it work offline?',
-    a: 'Yes! Commands queue offline and sync automatically when your connection is restored. You\'ll never lose a permission approval or cost record.',
+    a: 'Yes. Commands queue locally and sync automatically when your connection is restored. You will never lose a permission approval or cost record.',
   },
   {
     q: 'Can I use it with my team?',
-    a: 'Absolutely. The Power plan supports up to 3 team members with shared dashboards, cost attribution, and team-level budget alerts.',
-  },
-  {
-    q: 'What happens if I hit my message limit?',
-    a: 'You\'ll receive a notification well before hitting the limit. If you do reach it, monitoring continues in read-only mode. You can upgrade anytime to increase your limit.',
+    a: 'Pro and Power both support up to 3 team members with shared dashboards and per-developer cost attribution. Power adds team-level budget alerts and OTEL export for full observability.',
   },
   {
     q: 'Can I switch plans at any time?',
-    a: 'Yes. You can upgrade, downgrade, or cancel at any time. When upgrading, you\'ll be prorated for the remainder of the billing cycle. When downgrading, the change takes effect at the next billing date.',
+    a: 'Yes. You can upgrade, downgrade, or cancel at any time. When upgrading, you will be prorated for the remainder of the billing cycle. When downgrading, the change takes effect at the next billing date.',
   },
   {
     q: 'Is there a free trial for paid plans?',
@@ -198,7 +256,7 @@ const faqs = [
   },
   {
     q: 'Is there a mobile app?',
-    a: 'Our iOS app is launching soon. In the meantime, the web dashboard is fully responsive and works beautifully on mobile browsers. Android app is on the roadmap.',
+    a: 'Our iOS app is launching soon. In the meantime, the web dashboard is fully responsive and works on mobile browsers. Android is on the roadmap.',
   },
 ];
 
@@ -259,6 +317,7 @@ export default function PricingPage() {
             <span className={cn('text-sm', annual ? 'text-foreground font-medium' : 'text-muted-foreground')}>
               Annual{' '}
               <span className="text-xs text-amber-500 font-medium">(Save up to $98)</span>
+              {/* WHY $98: Power plan saves $98/year ($49 x 12 = $588 vs $490 annual) */}
             </span>
           </div>
         </div>

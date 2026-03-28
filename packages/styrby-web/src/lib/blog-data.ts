@@ -56,6 +56,16 @@ export interface BlogArticle {
  */
 export const blogArticles: BlogArticle[] = [
   {
+    slug: "eleven-agents-checkpoints-voice-otel",
+    title:
+      "Styrby Now Supports 11 CLI Coding Agents with Session Checkpoints, Voice Commands, and Enterprise OTEL Export",
+    date: "2026-03-27",
+    category: "company",
+    description:
+      "Four new agents (Crush, Kilo, Kiro, Droid) bring the total to 11. Plus session checkpoints, voice commands, per-message cost tracking, mobile code review, and OpenTelemetry export for Grafana, Datadog, and Honeycomb.",
+    readTime: 8,
+  },
+  {
     slug: "managing-ai-costs-dev-team",
     title: "Managing AI Agent Costs Across a Dev Team",
     date: "2026-03-20",
@@ -179,7 +189,7 @@ export const blogArticles: BlogArticle[] = [
     date: "2026-02-26",
     category: "comparison",
     description:
-      "How all five agents handle permissions differently, from Claude's allowlists to Codex's sandbox. Plus: when remote mobile approval makes sense.",
+      "How AI coding agents handle permissions differently, from Claude's allowlists to Codex's sandbox. Plus: when remote mobile approval makes sense.",
     readTime: 7,
   },
   {

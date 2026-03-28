@@ -1,7 +1,7 @@
 /**
  * Social Proof Section
  *
- * Shows the five supported AI coding agents with their brand colors
+ * Shows all eleven supported AI coding agents with their brand colors
  * and logos. Builds trust by showing compatibility with tools
  * developers already use.
  */
@@ -52,12 +52,78 @@ function AiderLogo({ className }: { className?: string }) {
   )
 }
 
+/** Goose uses a feather/quill style mark */
+function GooseLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5l6.74-6.76Z" />
+      <line x1="16" y1="8" x2="2" y2="22" />
+    </svg>
+  )
+}
+
+/** Amp uses a lightning-bolt style mark */
+function AmpLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8Z" />
+    </svg>
+  )
+}
+
+/** Crush uses a compact C-bracket style mark */
+function CrushLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M18 4a9 9 0 1 0 0 16" />
+    </svg>
+  )
+}
+
+/** Kilo uses a minimal K-letterform */
+function KiloLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <line x1="6" y1="4" x2="6" y2="20" />
+      <path d="M18 4 6 12l12 8" />
+    </svg>
+  )
+}
+
+/** Kiro uses a compass-direction style mark */
+function KiroLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
+    </svg>
+  )
+}
+
+/** Droid uses a robot-face style mark */
+function DroidLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <rect x="3" y="8" width="18" height="12" rx="2" />
+      <path d="M8 8V6a4 4 0 0 1 8 0v2" />
+      <circle cx="9" cy="14" r="1" fill="currentColor" />
+      <circle cx="15" cy="14" r="1" fill="currentColor" />
+    </svg>
+  )
+}
+
 const agents = [
   { name: "Claude Code", Logo: AnthropicLogo, color: "text-orange-400" },
   { name: "Codex", Logo: OpenAILogo, color: "text-green-400" },
   { name: "Gemini CLI", Logo: GeminiLogo, color: "text-blue-400" },
   { name: "OpenCode", Logo: OpenCodeLogo, color: "text-cyan-400" },
   { name: "Aider", Logo: AiderLogo, color: "text-purple-400" },
+  { name: "Goose", Logo: GooseLogo, color: "text-teal-400" },
+  { name: "Amp", Logo: AmpLogo, color: "text-yellow-400" },
+  { name: "Crush", Logo: CrushLogo, color: "text-pink-400" },
+  { name: "Kilo", Logo: KiloLogo, color: "text-indigo-400" },
+  { name: "Kiro", Logo: KiroLogo, color: "text-sky-400" },
+  { name: "Droid", Logo: DroidLogo, color: "text-rose-400" },
 ]
 
 export function SocialProof() {
@@ -65,7 +131,7 @@ export function SocialProof() {
     <section className="border-y border-border/40 py-10">
       <div className="mx-auto max-w-7xl px-6">
         <p className="mb-6 text-center text-sm text-muted-foreground">
-          Works with the agents you already use
+          Works with 11 CLI coding agents you already use
         </p>
         <div className="flex flex-wrap items-center justify-center gap-8 md:gap-12">
           {agents.map((agent) => (
@@ -75,6 +141,21 @@ export function SocialProof() {
                 {agent.name}
               </span>
             </div>
+          ))}
+        </div>
+        {/* Trust badges */}
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
+          {[
+            "11 CLI agents supported",
+            "E2E encrypted",
+            "Cross-platform: CLI + Web + Mobile",
+          ].map((badge) => (
+            <span
+              key={badge}
+              className="rounded-full border border-border/40 bg-card/60 px-3 py-1 text-xs font-medium text-muted-foreground"
+            >
+              {badge}
+            </span>
           ))}
         </div>
       </div>

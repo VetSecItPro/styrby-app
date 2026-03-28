@@ -206,11 +206,10 @@ describe('Teams API — /api/teams', () => {
       expect(body.teamLimit).toBe(1);
     });
 
-    it('returns canCreateTeam=false for pro tier', async () => {
+    it('returns canCreateTeam=true for pro tier', async () => {
       mockAuthenticated();
 
-      // WHY: Pro tier has teamMembers: 1 but cannot create teams — only Power can.
-      // This verifies the UI gets the correct signal to show upgrade prompts.
+      // WHY: Pro tier has teamMembers: 3 and can create teams (updated pricing sprint 2026-03-28).
       mockRpc.mockResolvedValueOnce({ data: [], error: null });
 
       // getUserTier: pro tier
@@ -220,9 +219,9 @@ describe('Teams API — /api/teams', () => {
       expect(response.status).toBe(200);
 
       const body = await response.json();
-      expect(body.canCreateTeam).toBe(false);
+      expect(body.canCreateTeam).toBe(true);
       expect(body.tier).toBe('pro');
-      expect(body.teamLimit).toBe(1);
+      expect(body.teamLimit).toBe(3);
     });
 
     it('returns 500 when rpc fails', async () => {
@@ -293,22 +292,26 @@ describe('Teams API — /api/teams', () => {
       expect(response.status).toBe(403);
 
       const body = await response.json();
-      expect(body.error).toContain('Power plan');
+      expect(body.error).toContain('Pro and Power plans');
     });
 
-    it('returns 403 for pro tier user', async () => {
+    it('creates team successfully for pro tier user', async () => {
       mockAuthenticated();
 
-      // WHY: Pro tier cannot create teams — only Power can. This prevents
-      // pro users from accessing team features without upgrading.
+      // WHY: Pro tier now has teamMembers: 3 and can create teams (updated 2026-03-28).
       fromCallQueue.push({ data: { tier: 'pro' }, error: null });
+
+      // Mock team insert
+      fromCallQueue.push({
+        data: { id: 'team-pro-123', name: 'My Team', owner_id: AUTH_USER.id },
+        error: null,
+      });
+      // Mock team_members insert
+      fromCallQueue.push({ data: null, error: null });
 
       const req = createNextRequest({ name: 'My Team' });
       const response = await POST(req);
-      expect(response.status).toBe(403);
-
-      const body = await response.json();
-      expect(body.error).toContain('Power plan');
+      expect(response.status).toBe(201);
     });
 
     it('creates team successfully for power tier user', async () => {

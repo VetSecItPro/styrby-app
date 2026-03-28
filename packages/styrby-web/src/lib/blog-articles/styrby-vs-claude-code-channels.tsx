@@ -37,7 +37,7 @@ export default function StyrbyVsClaudeCodeChannels() {
       <p>Here is what Styrby adds beyond what Channels provides:</p>
       <ul>
         <li>
-          <strong>Multi-agent support.</strong> One dashboard for all five
+          <strong>Multi-agent support.</strong> One dashboard for all eleven
           agents. If you use Claude Code and Codex on the same project, you see
           both sessions in one place.
         </li>
@@ -74,12 +74,12 @@ export default function StyrbyVsClaudeCodeChannels() {
           <tr>
             <td>Price</td>
             <td>Free (included with Claude Code)</td>
-            <td>Free tier + paid plans from $19/mo</td>
+            <td>Free tier + paid plans from $24/mo</td>
           </tr>
           <tr>
             <td>Agents supported</td>
             <td>Claude Code only</td>
-            <td>Claude Code, Codex, Gemini CLI, OpenCode, Aider</td>
+            <td>Claude Code, Codex, Gemini CLI, OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, Droid</td>
           </tr>
           <tr>
             <td>Setup</td>
