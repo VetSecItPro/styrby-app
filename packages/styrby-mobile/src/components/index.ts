@@ -48,3 +48,8 @@ export { OnboardingModal } from './OnboardingModal';
 
 export { SessionSummary } from './SessionSummary';
 export type { SessionSummaryProps } from './SessionSummary';
+
+export { ActivityGraph } from './ActivityGraph';
+export type { ActivityGraphProps } from './ActivityGraph';
+
+export { SessionCheckpoints } from './SessionCheckpoints';

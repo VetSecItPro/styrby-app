@@ -22,7 +22,7 @@ import { useFocusTrap } from '@/hooks/useFocusTrap';
 // ---------------------------------------------------------------------------
 
 /** Valid agent types matching the Postgres enum */
-type AgentType = 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp';
+type AgentType = 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp' | 'crush' | 'kilo' | 'kiro' | 'droid';
 
 /** Valid alert periods matching the database CHECK constraint */
 type AlertPeriod = 'daily' | 'weekly' | 'monthly';
@@ -118,6 +118,10 @@ const AGENT_COLORS: Record<AgentType, { bg: string; text: string }> = {
   aider: { bg: 'bg-pink-500/10', text: 'text-pink-400' },
   goose: { bg: 'bg-teal-500/10', text: 'text-teal-400' },
   amp: { bg: 'bg-amber-500/10', text: 'text-amber-400' },
+  crush: { bg: 'bg-rose-500/10', text: 'text-rose-400' },
+  kilo: { bg: 'bg-sky-500/10', text: 'text-sky-400' },
+  kiro: { bg: 'bg-orange-500/10', text: 'text-orange-400' },
+  droid: { bg: 'bg-slate-500/10', text: 'text-slate-400' },
 };
 
 // ---------------------------------------------------------------------------
@@ -797,7 +801,7 @@ export function BudgetAlertsClient({
                   >
                     All
                   </button>
-                  {(['claude', 'codex', 'gemini'] as AgentType[]).map((agent) => (
+                  {(['claude', 'codex', 'gemini', 'opencode', 'aider', 'goose', 'amp', 'crush', 'kilo', 'kiro', 'droid'] as AgentType[]).map((agent) => (
                     <button
                       key={agent}
                       type="button"

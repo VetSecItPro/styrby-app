@@ -43,6 +43,10 @@ export * from './factories';
  * - Aider (AI pair programming tool)
  * - Goose (Block/Square, Apache 2.0, MCP-native)
  * - Amp (Sourcegraph, deep mode with sub-agents)
+ * - Crush (Charmbracelet, ACP-compatible, charm TUI)
+ * - Kilo (Community, 500+ models, Memory Bank)
+ * - Kiro (AWS, per-prompt credit billing)
+ * - Droid (BYOK, multi-backend via LiteLLM)
  */
 export function initializeAgents(): void {
   // Import and register agents from factories
@@ -86,6 +90,38 @@ export function initializeAgents(): void {
     registerAmpAgent();
   } catch {
     // Amp factory not available
+  }
+
+  // Crush - Charmbracelet AI coding agent (ACP-compatible, charm TUI)
+  try {
+    const { registerCrushAgent } = require('./factories/crush');
+    registerCrushAgent();
+  } catch {
+    // Crush factory not available
+  }
+
+  // Kilo - Community AI coding agent (500+ models, Memory Bank)
+  try {
+    const { registerKiloAgent } = require('./factories/kilo');
+    registerKiloAgent();
+  } catch {
+    // Kilo factory not available
+  }
+
+  // Kiro - AWS AI coding agent (per-prompt credit billing)
+  try {
+    const { registerKiroAgent } = require('./factories/kiro');
+    registerKiroAgent();
+  } catch {
+    // Kiro factory not available
+  }
+
+  // Droid - BYOK AI coding agent (multi-backend via LiteLLM)
+  try {
+    const { registerDroidAgent } = require('./factories/droid');
+    registerDroidAgent();
+  } catch {
+    // Droid factory not available
   }
 }
 

@@ -20,7 +20,7 @@
  *
  * WHY: Matches the agent_type column in cost_records table.
  */
-export type AgentType = 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp';
+export type AgentType = 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp' | 'crush' | 'kilo' | 'kiro' | 'droid';
 
 /**
  * Cost summary for a time period.
@@ -106,6 +106,14 @@ export interface DailyCostDataPoint {
   goose: number;
   /** Cost from Amp (Sourcegraph) */
   amp: number;
+  /** Cost from Crush (Charmbracelet, ACP-compatible) */
+  crush: number;
+  /** Cost from Kilo (Community, 500+ models, Memory Bank) */
+  kilo: number;
+  /** Cost from Kiro (AWS, per-prompt credit billing) */
+  kiro: number;
+  /** Cost from Droid (BYOK, multi-backend via LiteLLM) */
+  droid: number;
 }
 
 // ============================================================================
@@ -192,6 +200,14 @@ export function getAgentColor(agent: AgentType): string {
       return 'bg-teal-500';
     case 'amp':
       return 'bg-amber-500';
+    case 'crush':
+      return 'bg-rose-500';
+    case 'kilo':
+      return 'bg-sky-500';
+    case 'kiro':
+      return 'bg-orange-500';
+    case 'droid':
+      return 'bg-slate-500';
     default:
       return 'bg-zinc-500';
   }

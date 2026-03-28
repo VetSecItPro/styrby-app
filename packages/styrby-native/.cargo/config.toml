@@ -1,0 +1,46 @@
+# Cargo configuration for the styrby-native crate.
+#
+# Target-specific linker and rustflags settings needed for cross-compilation
+# to macOS (Apple Silicon + Intel) and Linux targets.
+
+[build]
+# Use the system linker by default. CI overrides this per target.
+# WHY: On macOS with Xcode Command Line Tools, the default linker is `ld`
+# (Apple LD). For Linux cross-compilation we need to specify the correct
+# cross-linker in the target sections below.
+
+# ---------------------------------------------------------------------------
+# Apple Silicon (M1/M2/M3) — native build on arm64 macOS
+# ---------------------------------------------------------------------------
+[target.aarch64-apple-darwin]
+# WHY: NEON is the SIMD instruction set on ARM. Enabling it allows simd-json
+# to use NEON intrinsics instead of the scalar fallback path, giving ~4×
+# throughput improvement on Apple Silicon hardware.
+rustflags = ["-C", "target-feature=+neon"]
+
+# ---------------------------------------------------------------------------
+# Intel macOS — x86_64, targeting SSE4.2 + AVX2
+# ---------------------------------------------------------------------------
+[target.x86_64-apple-darwin]
+# WHY: simd-json auto-detects at runtime which SIMD level is available, but
+# setting target-cpu=native during local builds ensures the compiler emits
+# the fastest code for the build machine. CI uses a stable baseline instead.
+rustflags = ["-C", "target-cpu=native"]
+
+# ---------------------------------------------------------------------------
+# Linux x86_64 (musl — static binary for maximum portability)
+# ---------------------------------------------------------------------------
+[target.x86_64-unknown-linux-musl]
+# WHY: When building a static binary for Linux (e.g., inside a Docker
+# container or for npm distribution), we need the musl linker to avoid
+# glibc version dependencies that break on older distros.
+linker = "x86_64-linux-musl-gcc"
+
+# ---------------------------------------------------------------------------
+# Linux x86_64 (glibc — default for most Linux distros)
+# ---------------------------------------------------------------------------
+[target.x86_64-unknown-linux-gnu]
+# No special linker needed when compiling natively on Linux.
+# The rustflags below target the baseline CPU without AVX512 to ensure the
+# .node binary runs on older cloud VMs (e.g., AWS t2/t3 instances).
+rustflags = ["-C", "target-feature=+sse4.2,+avx2"]

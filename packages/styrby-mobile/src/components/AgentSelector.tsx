@@ -103,13 +103,41 @@ export const AGENT_CONFIG: Record<AgentType, AgentConfig> = {
     description: 'Sourcegraph Amp (Deep Mode)',
     icon: 'layers',
   },
+  crush: {
+    name: 'Crush',
+    color: '#f43f5e', // rose-500
+    bgColor: 'rgba(244, 63, 94, 0.1)',
+    description: 'Charmbracelet Crush (ACP-compatible)',
+    icon: 'terminal',
+  },
+  kilo: {
+    name: 'Kilo',
+    color: '#0ea5e9', // sky-500
+    bgColor: 'rgba(14, 165, 233, 0.1)',
+    description: 'Kilo (500+ Models, Memory Bank)',
+    icon: 'server',
+  },
+  kiro: {
+    name: 'Kiro',
+    color: '#f97316', // orange-500
+    bgColor: 'rgba(249, 115, 22, 0.1)',
+    description: 'Kiro (AWS, Per-Prompt Credits)',
+    icon: 'cloud',
+  },
+  droid: {
+    name: 'Droid',
+    color: '#64748b', // slate-500
+    bgColor: 'rgba(100, 116, 139, 0.1)',
+    description: 'Droid (BYOK, Multi-Backend)',
+    icon: 'swap-horizontal',
+  },
 };
 
 /**
  * Default list of all agents.
  * Includes all supported AI coding agents.
  */
-const ALL_AGENTS: AgentType[] = ['claude', 'codex', 'gemini', 'opencode', 'aider', 'goose', 'amp'];
+const ALL_AGENTS: AgentType[] = ['claude', 'codex', 'gemini', 'opencode', 'aider', 'goose', 'amp', 'crush', 'kilo', 'kiro', 'droid'];
 
 // ============================================================================
 // Component

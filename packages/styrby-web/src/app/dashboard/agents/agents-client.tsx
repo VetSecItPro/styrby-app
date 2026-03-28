@@ -11,7 +11,7 @@ import Link from 'next/link';
 /**
  * Agent type definition matching the Supabase agent_type column.
  */
-type AgentType = 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp';
+type AgentType = 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp' | 'crush' | 'kilo' | 'kiro' | 'droid';
 
 /**
  * Formats a timestamp to a human-readable "time ago" string.
@@ -47,6 +47,10 @@ const AGENT_META: Record<AgentType, { label: string; color: string }> = {
   aider: { label: 'Aider', color: '#EC4899' },
   goose: { label: 'Goose', color: '#14B8A6' },
   amp: { label: 'Amp', color: '#F59E0B' },
+  crush: { label: 'Crush', color: '#F43F5E' },
+  kilo: { label: 'Kilo', color: '#0EA5E9' },
+  kiro: { label: 'Kiro', color: '#F97316' },
+  droid: { label: 'Droid', color: '#64748B' },
 };
 
 interface Machine {

@@ -21,6 +21,7 @@ import { useOnboarding } from '../../src/hooks/useOnboarding';
 import { SessionCarousel, type ActiveSession } from '../../src/components/SessionCarousel';
 import { NotificationStream, type Notification } from '../../src/components/NotificationStream';
 import { OnboardingModal } from '../../src/components/OnboardingModal';
+import { ActivityGraph } from '../../src/components/ActivityGraph';
 import type { AgentType } from 'styrby-shared';
 
 /**
@@ -517,6 +518,12 @@ export default function DashboardScreen() {
             </Pressable>
           );
         })}
+      </View>
+
+      {/* Activity Graph — 52-week coding activity heatmap */}
+      <View className="mx-4 mt-6">
+        <Text className="text-zinc-400 text-sm font-medium mb-3">ACTIVITY</Text>
+        <ActivityGraph showTitle={false} />
       </View>
 
       {/* Notifications */}

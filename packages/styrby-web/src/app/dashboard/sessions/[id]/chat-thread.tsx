@@ -56,6 +56,21 @@ interface Message {
   tool_name: string | null;
   /** Response duration in ms */
   duration_ms: number | null;
+  /**
+   * Per-message cost granularity (Phase 7.9).
+   * Input tokens consumed by this message exchange (user prompt + context).
+   */
+  input_tokens: number | null;
+  /**
+   * Output tokens generated in the agent response for this message.
+   */
+  output_tokens: number | null;
+  /**
+   * Cache tokens (read + write) associated with this message.
+   * WHY: Cached tokens are billed at a significantly reduced rate — surfacing
+   * this lets users see how much the prompt cache is saving them per message.
+   */
+  cache_tokens: number | null;
   /** Extensible metadata */
   metadata: Record<string, unknown> | null;
   /** ISO 8601 timestamp */
@@ -151,6 +166,42 @@ function getMessageStyles(messageType: Message['message_type']): string {
     default:
       return 'bg-zinc-800 text-white';
   }
+}
+
+/**
+ * Formats a message-level cost into a compact display string.
+ *
+ * Returns null if there is no cost data to show (zero tokens or missing data).
+ *
+ * WHY: We show "< $0.0001" instead of "$0.0000" for very small but non-zero
+ * costs so users understand they were charged something. Showing "$0.0000"
+ * would imply the message was free, which is misleading.
+ *
+ * @param inputTokens - Number of input tokens for this message
+ * @param outputTokens - Number of output tokens for this message
+ * @param cacheTokens - Number of cache tokens for this message
+ * @returns Formatted cost string like "$0.0042" or "< $0.0001", or null if no data
+ */
+function formatMessageCost(
+  inputTokens: number | null,
+  outputTokens: number | null,
+  cacheTokens: number | null
+): string | null {
+  const totalTokens = (inputTokens ?? 0) + (outputTokens ?? 0) + (cacheTokens ?? 0);
+  if (totalTokens === 0) return null;
+
+  // WHY: We use a simple linear estimate here for display purposes only.
+  // The actual cost was calculated by the CLI with exact model pricing.
+  // This estimate uses an average of ~$3/M input, $15/M output, $0.30/M cache
+  // which covers the most common Claude Sonnet 4 pricing tier.
+  const input = inputTokens ?? 0;
+  const output = outputTokens ?? 0;
+  const cache = cacheTokens ?? 0;
+  const estimated = ((input * 3) + (output * 15) + (cache * 0.30)) / 1_000_000;
+
+  if (estimated === 0) return null;
+  if (estimated < 0.0001) return '< $0.0001';
+  return `$${estimated.toFixed(4)}`;
 }
 
 /**
@@ -345,10 +396,29 @@ const MessageRow = memo(function MessageRow({ message, decryptedContent, copiedI
         )}
       </div>
 
-      {/* Duration for agent responses */}
-      {message.duration_ms && (
-        <div className="mt-2 text-xs opacity-50">
-          {(message.duration_ms / 1000).toFixed(1)}s
+      {/* Footer: duration + per-message cost pill (Phase 7.9) */}
+      {(message.duration_ms || message.input_tokens || message.output_tokens) && (
+        <div className="mt-2 flex items-center gap-2 text-xs opacity-50">
+          {message.duration_ms && (
+            <span>{(message.duration_ms / 1000).toFixed(1)}s</span>
+          )}
+          {/* Cost pill — only shown for agent responses with token data */}
+          {message.message_type === 'agent_response' && (() => {
+            const costStr = formatMessageCost(
+              message.input_tokens,
+              message.output_tokens,
+              message.cache_tokens
+            );
+            return costStr ? (
+              <span
+                className="inline-flex items-center rounded-full bg-zinc-700/60 px-1.5 py-0.5 text-[10px] font-mono text-zinc-400"
+                title={`Input: ${message.input_tokens ?? 0} | Output: ${message.output_tokens ?? 0} | Cache: ${message.cache_tokens ?? 0}`}
+                aria-label={`Message cost: ${costStr}`}
+              >
+                {costStr}
+              </span>
+            ) : null;
+          })()}
         </div>
       )}
     </div>

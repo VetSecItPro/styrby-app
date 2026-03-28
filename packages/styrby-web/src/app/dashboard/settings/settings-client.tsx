@@ -7,6 +7,8 @@ import { createClient } from '@/lib/supabase/client';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { SupportModal } from '@/components/dashboard/support-modal';
 import { FeedbackDialog } from '@/components/dashboard/feedback-dialog';
+import { OtelSettings } from '@/components/dashboard/otel-settings';
+import type { OtelUserConfig } from '@/lib/otel-config';
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -1496,6 +1498,14 @@ export function SettingsClient({
             </button>
           </div>
         </div>
+      </section>
+
+      {/* OTEL Metrics Export */}
+      <section className="mb-8">
+        <OtelSettings
+          isPaidTier={isPaidTier}
+          initialConfig={(profile as Record<string, unknown> | null)?.['otel_config'] as OtelUserConfig | null ?? null}
+        />
       </section>
 
       {/* Danger Zone */}

@@ -19,10 +19,16 @@ import { renderHook, act, waitFor } from '@testing-library/react-native';
 
 const mockRouterPush = jest.fn();
 
+// WHY: useRouter must return a stable object reference across renders.
+// If the factory returns a new object literal each call, React's useCallback
+// sees a new `router` dep on every render, causing navigateToScreen and
+// handleNotificationResponse to be recreated, which re-triggers the useEffect,
+// which calls register(), which sets state, which re-renders — an infinite loop
+// that consumes unbounded memory and causes an OOM crash.
+const mockRouterInstance = { push: mockRouterPush };
+
 jest.mock('expo-router', () => ({
-  useRouter: jest.fn(() => ({
-    push: mockRouterPush,
-  })),
+  useRouter: jest.fn(() => mockRouterInstance),
 }));
 
 /** Stores the callback for addNotificationReceivedListener */

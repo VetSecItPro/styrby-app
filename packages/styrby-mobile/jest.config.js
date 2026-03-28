@@ -15,6 +15,16 @@
 module.exports = {
   testEnvironment: 'node',
   testMatch: ['**/__tests__/**/*.test.ts', '**/__tests__/**/*.test.tsx'],
+  // WHY workerIdleMemoryLimit: The mobile test suite accumulates heap across
+  // all test files in a single worker (>4 GB) causing OOM crashes. Setting a
+  // 512 MB idle limit recycles the worker process between files, keeping memory
+  // manageable. Each worker still grows to 4 GB+ before recycling, so we also
+  // use maxWorkers=1 to ensure only one worker processes files at a time.
+  workerIdleMemoryLimit: '512MB',
+  // WHY maxWorkers 1: With multiple workers each consuming 4 GB simultaneously,
+  // the host machine runs out of RAM. Serializing test files through a single
+  // worker ensures the GC can reclaim memory between suites.
+  maxWorkers: 1,
   moduleNameMapper: {
     // Map the @/ path alias to src/ (mirrors tsconfig.json paths)
     '^@/(.*)$': '<rootDir>/src/$1',

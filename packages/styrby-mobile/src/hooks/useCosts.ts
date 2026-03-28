@@ -102,6 +102,14 @@ export interface DailyCostDataPoint {
   goose: number;
   /** Cost from Amp (Sourcegraph) */
   amp: number;
+  /** Cost from Crush (Charmbracelet) */
+  crush: number;
+  /** Cost from Kilo (Community, Memory Bank) */
+  kilo: number;
+  /** Cost from Kiro (AWS, per-prompt credits) */
+  kiro: number;
+  /** Cost from Droid (BYOK, multi-backend via LiteLLM) */
+  droid: number;
 }
 
 /** Valid time range options in days for the cost dashboard. */
@@ -372,6 +380,10 @@ function deriveDailyCosts(records: RawCostRecord[], days: number = 7): DailyCost
       aider: 0,
       goose: 0,
       amp: 0,
+      crush: 0,
+      kilo: 0,
+      kiro: 0,
+      droid: 0,
     });
   }
 
@@ -405,6 +417,18 @@ function deriveDailyCosts(records: RawCostRecord[], days: number = 7): DailyCost
         break;
       case 'amp':
         existing.amp += cost;
+        break;
+      case 'crush':
+        existing.crush += cost;
+        break;
+      case 'kilo':
+        existing.kilo += cost;
+        break;
+      case 'kiro':
+        existing.kiro += cost;
+        break;
+      case 'droid':
+        existing.droid += cost;
         break;
       default:
         // WHY: Unknown agent types are bucketed into opencode as a catch-all.
@@ -792,6 +816,14 @@ export function getAgentHexColor(agent: AgentType): string {
       return '#14b8a6'; // teal-500
     case 'amp':
       return '#f59e0b'; // amber-500
+    case 'crush':
+      return '#f43f5e'; // rose-500
+    case 'kilo':
+      return '#0ea5e9'; // sky-500
+    case 'kiro':
+      return '#f97316'; // orange-500
+    case 'droid':
+      return '#64748b'; // slate-500
     default:
       return '#71717a'; // zinc-500
   }
@@ -819,6 +851,14 @@ export function getAgentDisplayName(agent: AgentType): string {
       return 'Goose';
     case 'amp':
       return 'Amp';
+    case 'crush':
+      return 'Crush';
+    case 'kilo':
+      return 'Kilo';
+    case 'kiro':
+      return 'Kiro';
+    case 'droid':
+      return 'Droid';
     default:
       return agent;
   }

@@ -81,6 +81,10 @@ function createDefaultAgentStatus(): Record<AgentType, AgentStatus> {
     aider: { online: false, cost: 0 },
     goose: { online: false, cost: 0 },
     amp: { online: false, cost: 0 },
+    crush: { online: false, cost: 0 },
+    kilo: { online: false, cost: 0 },
+    kiro: { online: false, cost: 0 },
+    droid: { online: false, cost: 0 },
   };
 }
 
@@ -418,6 +422,10 @@ export function useDashboardData(
       aider: 0,
       goose: 0,
       amp: 0,
+      crush: 0,
+      kilo: 0,
+      kiro: 0,
+      droid: 0,
     };
     if (!user) return costs;
 

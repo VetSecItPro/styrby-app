@@ -3,6 +3,11 @@
   "compilerOptions": {
     "strict": true,
     "skipLibCheck": true,
+    // WHY module ESNext: Dynamic imports (import()) require module to be set to
+    // ESNext or similar. Without this, TypeScript rejects dynamic imports even
+    // though Expo/Metro handles them correctly at runtime. This matches the
+    // expo/tsconfig.base "lib": ["ESNext"] setting.
+    "module": "ESNext",
     // WHY baseUrl: Required when using 'paths' with moduleResolution: "node".
     // Without it, TypeScript ignores the paths mappings entirely.
     "baseUrl": ".",

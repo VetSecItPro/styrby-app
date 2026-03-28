@@ -1,0 +1,50 @@
+{
+  "name": "@styrby/native",
+  "version": "0.1.0",
+  "description": "Rust native module for Styrby — SIMD-accelerated JSONL parsing and file watching",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VetSecItPro/styrby-app.git",
+    "directory": "packages/styrby-native"
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "build:all": "napi build --platform --release --target aarch64-apple-darwin --target x86_64-apple-darwin --target x86_64-unknown-linux-gnu",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "napi build --platform --release"
+  },
+  "napi": {
+    "name": "styrby-native",
+    "triples": {
+      "defaults": false,
+      "additional": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-unknown-linux-gnu"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.0.0",
+    "@types/node": "~22.15.0",
+    "typescript": "5.9.3",
+    "vitest": "^3.2.4",
+    "tsx": "^4.20.6"
+  },
+  "peerDependencies": {
+    "styrby-cli": "workspace:*"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "styrby-native.*.node"
+  ]
+}

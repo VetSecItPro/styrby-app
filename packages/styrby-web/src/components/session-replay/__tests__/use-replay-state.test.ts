@@ -48,6 +48,9 @@ function createMessage(
     permission_granted: null,
     tool_name: null,
     duration_ms: null,
+    input_tokens: null,
+    output_tokens: null,
+    cache_tokens: null,
     metadata: null,
     created_at: new Date(baseTime + offsetMs).toISOString(),
   };

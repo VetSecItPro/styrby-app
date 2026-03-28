@@ -47,6 +47,38 @@ export {
   type AmpBackendResult,
 } from './amp';
 
+// Crush factory (Charmbracelet, ACP-compatible)
+export {
+  createCrushBackend,
+  registerCrushAgent,
+  type CrushBackendOptions,
+  type CrushBackendResult,
+} from './crush';
+
+// Kilo factory (Community, 500+ models, Memory Bank)
+export {
+  createKiloBackend,
+  registerKiloAgent,
+  type KiloBackendOptions,
+  type KiloBackendResult,
+} from './kilo';
+
+// Kiro factory (AWS, per-prompt credit billing)
+export {
+  createKiroBackend,
+  registerKiroAgent,
+  type KiroBackendOptions,
+  type KiroBackendResult,
+} from './kiro';
+
+// Droid factory (BYOK, multi-backend via LiteLLM)
+export {
+  createDroidBackend,
+  registerDroidAgent,
+  type DroidBackendOptions,
+  type DroidBackendResult,
+} from './droid';
+
 // Future factories:
 // export { createCodexBackend, registerCodexAgent, type CodexBackendOptions } from './codex';
 // export { createClaudeBackend, registerClaudeAgent, type ClaudeBackendOptions } from './claude';

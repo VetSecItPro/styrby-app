@@ -25,7 +25,7 @@ import { z } from 'zod';
  * Valid AI agent identifiers.
  * Matches the `agent_type` enum in the database and the AgentType union in styrby-shared.
  */
-const AgentTypeSchema = z.enum(['claude', 'codex', 'gemini', 'opencode', 'aider']);
+const AgentTypeSchema = z.enum(['claude', 'codex', 'gemini', 'opencode', 'aider', 'goose', 'amp', 'crush', 'kilo', 'kiro', 'droid']);
 
 /**
  * Valid session lifecycle statuses.
