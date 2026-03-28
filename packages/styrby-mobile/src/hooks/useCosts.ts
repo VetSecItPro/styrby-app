@@ -96,6 +96,12 @@ export interface DailyCostDataPoint {
   codex: number;
   gemini: number;
   opencode: number;
+  /** Cost from Aider */
+  aider: number;
+  /** Cost from Goose (Block/Square) */
+  goose: number;
+  /** Cost from Amp (Sourcegraph) */
+  amp: number;
 }
 
 /** Valid time range options in days for the cost dashboard. */
@@ -363,6 +369,9 @@ function deriveDailyCosts(records: RawCostRecord[], days: number = 7): DailyCost
       codex: 0,
       gemini: 0,
       opencode: 0,
+      aider: 0,
+      goose: 0,
+      amp: 0,
     });
   }
 
@@ -385,7 +394,22 @@ function deriveDailyCosts(records: RawCostRecord[], days: number = 7): DailyCost
       case 'gemini':
         existing.gemini += cost;
         break;
+      case 'opencode':
+        existing.opencode += cost;
+        break;
+      case 'aider':
+        existing.aider += cost;
+        break;
+      case 'goose':
+        existing.goose += cost;
+        break;
+      case 'amp':
+        existing.amp += cost;
+        break;
       default:
+        // WHY: Unknown agent types are bucketed into opencode as a catch-all.
+        // This should rarely happen since agent_type is an enum, but handles
+        // forward-compatibility if a new agent is added before this code updates.
         existing.opencode += cost;
     }
 
@@ -764,6 +788,10 @@ export function getAgentHexColor(agent: AgentType): string {
       return '#a855f7'; // purple-500
     case 'aider':
       return '#ec4899'; // pink-500
+    case 'goose':
+      return '#14b8a6'; // teal-500
+    case 'amp':
+      return '#f59e0b'; // amber-500
     default:
       return '#71717a'; // zinc-500
   }
@@ -787,6 +815,10 @@ export function getAgentDisplayName(agent: AgentType): string {
       return 'OpenCode';
     case 'aider':
       return 'Aider';
+    case 'goose':
+      return 'Goose';
+    case 'amp':
+      return 'Amp';
     default:
       return agent;
   }

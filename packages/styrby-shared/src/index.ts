@@ -24,3 +24,8 @@ export * as errors from './errors/index.js';
 
 // Re-export utilities
 export * from './utils/index.js';
+
+// WHY: Pricing module is NOT re-exported from the barrel.
+// litellm-pricing.ts uses Node.js builtins (node:path, node:os, node:fs, node:crypto)
+// which break webpack/Next.js client bundles. Import directly from
+// '@styrby/shared/pricing' or 'styrby-shared/src/pricing' in CLI code only.

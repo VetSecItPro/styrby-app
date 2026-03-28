@@ -89,13 +89,27 @@ export const AGENT_CONFIG: Record<AgentType, AgentConfig> = {
     description: 'Aider Pair Programming',
     icon: 'people',
   },
+  goose: {
+    name: 'Goose',
+    color: '#14b8a6', // teal-500
+    bgColor: 'rgba(20, 184, 166, 0.1)',
+    description: 'Block Goose (MCP-native)',
+    icon: 'git-network',
+  },
+  amp: {
+    name: 'Amp',
+    color: '#f59e0b', // amber-500
+    bgColor: 'rgba(245, 158, 11, 0.1)',
+    description: 'Sourcegraph Amp (Deep Mode)',
+    icon: 'layers',
+  },
 };
 
 /**
  * Default list of all agents.
  * Includes all supported AI coding agents.
  */
-const ALL_AGENTS: AgentType[] = ['claude', 'codex', 'gemini', 'opencode', 'aider'];
+const ALL_AGENTS: AgentType[] = ['claude', 'codex', 'gemini', 'opencode', 'aider', 'goose', 'amp'];
 
 // ============================================================================
 // Component

@@ -136,8 +136,8 @@ export function parseClaudeOutput(output: string): TokenUsage | null {
     return {
       inputTokens: usage.input_tokens || 0,
       outputTokens: usage.output_tokens || 0,
-      cacheReadTokens: usage.cache_read_input_tokens || usage.cache_creation_input_tokens || 0,
-      cacheWriteTokens: usage.cache_write_input_tokens || 0,
+      cacheReadTokens: usage.cache_read_input_tokens || 0,
+      cacheWriteTokens: usage.cache_creation_input_tokens || 0,
       model,
       timestamp: new Date(),
     };

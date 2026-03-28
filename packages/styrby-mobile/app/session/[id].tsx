@@ -11,7 +11,7 @@
  * @route /session/:id
  */
 
-import { View, Text, ScrollView, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, Pressable, ActivityIndicator, Share, Alert } from 'react-native';
 import { useLocalSearchParams, Stack, router } from 'expo-router';
 import { useEffect, useState, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,7 +19,9 @@ import { supabase } from '../../src/lib/supabase';
 import { SessionSummary } from '../../src/components/SessionSummary';
 import { SessionReplay, type ReplayMessageData } from '../../src/components/SessionReplay';
 import { SessionTagEditor } from '../../src/components/SessionTagEditor';
+import { ContextBreakdown } from '../../src/components/ContextBreakdown';
 import { formatCost } from '../../src/hooks/useCosts';
+import type { SessionExport, SessionExportMetadata, SessionExportMessage, SessionExportCost } from 'styrby-shared';
 
 // ============================================================================
 // Types
@@ -60,6 +62,10 @@ const AGENT_CONFIG: Record<string, { name: string; color: string }> = {
   claude: { name: 'Claude', color: '#f97316' },
   codex: { name: 'Codex', color: '#22c55e' },
   gemini: { name: 'Gemini', color: '#3b82f6' },
+  opencode: { name: 'OpenCode', color: '#8b5cf6' },
+  aider: { name: 'Aider', color: '#ec4899' },
+  goose: { name: 'Goose', color: '#06b6d4' },
+  amp: { name: 'Amp', color: '#f59e0b' },
 };
 
 /**
@@ -132,6 +138,24 @@ export default function SessionDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('details');
   const [replayMessages, setReplayMessages] = useState<ReplayMessageData[]>([]);
+  /**
+   * Raw message rows preserved for session export.
+   * WHY: The replayMessages array converts message types to roles and drops
+   * encryption data. For export we need the original rows with all fields.
+   */
+  const [rawMessages, setRawMessages] = useState<Array<{
+    id: string;
+    sequence_number: number;
+    message_type: string;
+    content_encrypted: string | null;
+    encryption_nonce: string | null;
+    duration_ms: number | null;
+    input_tokens: number;
+    output_tokens: number;
+    cache_tokens: number;
+    created_at: string;
+  }>>([]);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Fetch session data on mount
   useEffect(() => {
@@ -172,15 +196,19 @@ export default function SessionDetailScreen() {
         // Fetch messages for replay if session is completed
         const isSessionComplete = ['stopped', 'error', 'expired'].includes(sessionData.status);
         if (isSessionComplete && sessionData.message_count > 0) {
-          // WHY: session_messages has message_type (not role) and no cost_usd
-          // (costs live in cost_records table). Use actual column names.
+          // WHY: We fetch extra columns (sequence_number, encryption_nonce, token
+          // counts) so the same fetch can serve both the replay viewer and the
+          // session export. Fetching once avoids a double-read on open.
           const { data: messages } = await supabase
             .from('session_messages')
-            .select('id, message_type, content_encrypted, created_at, duration_ms')
+            .select('id, sequence_number, message_type, content_encrypted, encryption_nonce, created_at, duration_ms, input_tokens, output_tokens, cache_tokens')
             .eq('session_id', id)
             .order('sequence_number', { ascending: true });
 
           if (messages && messages.length > 0) {
+            // Store raw rows for export
+            setRawMessages(messages as typeof rawMessages);
+
             // Convert message_type to role for the replay viewer
             const typeToRole = (type: string): 'user' | 'assistant' | 'system' => {
               if (type === 'user-input' || type === 'user') return 'user';
@@ -191,7 +219,7 @@ export default function SessionDetailScreen() {
             const replayData: ReplayMessageData[] = messages.map((msg) => ({
               id: msg.id,
               role: typeToRole(msg.message_type),
-              agentType: sessionData.agent_type as 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider',
+              agentType: sessionData.agent_type as 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp',
               content: msg.content_encrypted || '[Encrypted message]',
               createdAt: msg.created_at,
               costUsd: undefined, // Costs are in cost_records, not session_messages
@@ -226,6 +254,102 @@ export default function SessionDetailScreen() {
   const handleExitReplay = useCallback(() => {
     setViewMode('details');
   }, []);
+
+  /**
+   * Export the session as a JSON file and share it via the native Share sheet.
+   *
+   * WHY: Mobile users want to archive sessions or send them to teammates.
+   * The native Share sheet lets them save to Files, AirDrop, email, Slack,
+   * etc. without us needing to handle every platform specifically.
+   *
+   * Messages are kept encrypted in the export payload because:
+   * 1. The E2E key is never stored on the mobile app — decryption would
+   *    require the CLI-side key material.
+   * 2. Keeping content encrypted means the export file is safe to share
+   *    without accidentally leaking session transcript content.
+   */
+  const handleExport = useCallback(async () => {
+    if (!session) return;
+    setIsExporting(true);
+    try {
+      const exportMessages: SessionExportMessage[] = rawMessages.map((m) => ({
+        id: m.id,
+        sequenceNumber: m.sequence_number,
+        messageType: m.message_type,
+        contentEncrypted: m.content_encrypted,
+        encryptionNonce: m.encryption_nonce,
+        riskLevel: null,
+        toolName: null,
+        durationMs: m.duration_ms,
+        inputTokens: m.input_tokens,
+        outputTokens: m.output_tokens,
+        cacheTokens: m.cache_tokens,
+        createdAt: m.created_at,
+      }));
+
+      const exportMetadata: SessionExportMetadata = {
+        id: session.id,
+        title: session.title,
+        summary: session.summary,
+        agentType: session.agent_type,
+        model: null,
+        status: session.status,
+        projectPath: session.project_path,
+        gitBranch: session.git_branch,
+        gitRemoteUrl: null,
+        tags: session.tags ?? [],
+        startedAt: session.started_at,
+        endedAt: session.ended_at,
+        messageCount: session.message_count,
+        contextWindowUsed: null,
+        contextWindowLimit: null,
+      };
+
+      const exportCost: SessionExportCost = {
+        totalCostUsd: Number(session.total_cost_usd),
+        totalInputTokens: session.total_input_tokens,
+        totalOutputTokens: session.total_output_tokens,
+        totalCacheTokens: 0,
+        model: null,
+        agentType: session.agent_type,
+      };
+
+      const exportData: SessionExport = {
+        exportVersion: 1,
+        exportedAt: new Date().toISOString(),
+        generatedBy: 'styrby-mobile',
+        session: exportMetadata,
+        messages: exportMessages,
+        cost: exportCost,
+        contextBreakdown: null,
+      };
+
+      const json = JSON.stringify(exportData, null, 2);
+      const dateStr = session.started_at.slice(0, 10);
+      const filename = `styrby-session-${session.id.slice(0, 8)}-${dateStr}.json`;
+
+      // Use React Native's Share API to open the native share sheet.
+      // WHY: expo-file-system + expo-sharing would require additional deps.
+      // For text content, the built-in Share API is sufficient and works
+      // across iOS and Android without extra native modules.
+      const result = await Share.share({
+        title: filename,
+        message: json,
+      });
+
+      if (__DEV__ && result.action === Share.dismissedAction) {
+        console.log('[SessionExport] User dismissed share sheet');
+      }
+    } catch (err) {
+      Alert.alert(
+        'Export Failed',
+        err instanceof Error ? err.message : 'Failed to export session',
+      );
+      if (__DEV__) console.error('[SessionExport] Export error:', err);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [session, rawMessages]);
 
   // Calculate derived values
   const agentConfig = session ? AGENT_CONFIG[session.agent_type] || { name: session.agent_type, color: '#71717a' } : null;
@@ -469,8 +593,14 @@ export default function SessionDetailScreen() {
           )}
         </View>
 
+        {/* Context Budget Breakdown */}
+        {/* WHY: context_breakdown is populated by the CLI relay during active
+            sessions. For completed sessions it will be null until the relay
+            streams the data. The component renders its own empty state. */}
+        <ContextBreakdown breakdown={null} />
+
         {/* Actions section */}
-        <View className="mx-4 mb-8 space-y-3">
+        <View className="mx-4 mb-8 gap-3">
           {/* Replay button (Pro+ feature) */}
           {canReplay && (
             <Pressable
@@ -485,6 +615,24 @@ export default function SessionDetailScreen() {
               </Text>
             </Pressable>
           )}
+
+          {/* Export button — share session JSON via native share sheet */}
+          <Pressable
+            onPress={handleExport}
+            disabled={isExporting}
+            className="flex-row items-center justify-center bg-zinc-800 border border-zinc-700 rounded-xl py-4 active:opacity-80 disabled:opacity-50"
+            accessibilityRole="button"
+            accessibilityLabel={isExporting ? 'Exporting session...' : 'Export session as JSON'}
+          >
+            <Ionicons
+              name={isExporting ? 'hourglass-outline' : 'share-outline'}
+              size={20}
+              color="#a1a1aa"
+            />
+            <Text className="text-zinc-300 font-semibold ml-2">
+              {isExporting ? 'Exporting…' : 'Export Session'}
+            </Text>
+          </Pressable>
 
           {/* View chat button */}
           <Pressable

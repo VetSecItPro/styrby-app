@@ -65,7 +65,7 @@ export abstract class BaseReasoningProcessor {
     protected currentCallId: string | null = null;
     protected toolCallStarted: boolean = false;
     protected currentTitle: string | null = null;
-    protected onMessage: ((message: any) => void) | null = null;
+    protected onMessage: ((message: ReasoningOutput) => void) | null = null;
 
     /**
      * Returns the tool name for this processor.
@@ -77,15 +77,17 @@ export abstract class BaseReasoningProcessor {
      */
     protected abstract getLogPrefix(): string;
 
-    constructor(onMessage?: (message: any) => void) {
+    constructor(onMessage?: (message: ReasoningOutput) => void) {
         this.onMessage = onMessage || null;
         this.reset();
     }
 
     /**
      * Set the message callback for sending messages directly.
+     *
+     * @param callback - Function to receive reasoning output messages
      */
-    setMessageCallback(callback: (message: any) => void): void {
+    setMessageCallback(callback: (message: ReasoningOutput) => void): void {
         this.onMessage = callback;
     }
 

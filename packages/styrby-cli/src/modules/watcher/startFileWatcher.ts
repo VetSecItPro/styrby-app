@@ -17,11 +17,12 @@ export function startFileWatcher(file: string, onFileChange: (file: string) => v
                     logger.debug(`[FILE_WATCHER] File changed: ${file}`);
                     onFileChange(file);
                 }
-            } catch (e: any) {
+            } catch (e: unknown) {
                 if (abortController.signal.aborted) {
                     return;
                 }
-                logger.debug(`[FILE_WATCHER] Watch error: ${e.message}, restarting watcher in a second`);
+                const errMsg = e instanceof Error ? e.message : String(e);
+                logger.debug(`[FILE_WATCHER] Watch error: ${errMsg}, restarting watcher in a second`);
                 await delay(1000);
             }
         }

@@ -207,12 +207,24 @@ export async function runCodex(opts: {
     // Debug helper: log active handles/requests if DEBUG is enabled
     function logActiveHandles(tag: string) {
         if (!process.env.DEBUG) return;
-        const anyProc: any = process as any;
-        const handles = typeof anyProc._getActiveHandles === 'function' ? anyProc._getActiveHandles() : [];
-        const requests = typeof anyProc._getActiveRequests === 'function' ? anyProc._getActiveRequests() : [];
+        // WHY: Node.js internal _getActiveHandles/_getActiveRequests are not in the
+        // official TypeScript types but are available at runtime in all Node versions.
+        // We cast through unknown to safely access these undocumented internals.
+        const nodeProc = process as unknown as Record<string, unknown>;
+        const handles = typeof nodeProc['_getActiveHandles'] === 'function'
+            ? (nodeProc['_getActiveHandles'] as () => unknown[])()
+            : [];
+        const requests = typeof nodeProc['_getActiveRequests'] === 'function'
+            ? (nodeProc['_getActiveRequests'] as () => unknown[])()
+            : [];
         logger.debug(`[codex][handles] ${tag}: handles=${handles.length} requests=${requests.length}`);
         try {
-            const kinds = handles.map((h: any) => (h && h.constructor ? h.constructor.name : typeof h));
+            const kinds = handles.map((h: unknown) => {
+                if (h && typeof h === 'object' && 'constructor' in h && h.constructor) {
+                    return (h.constructor as { name?: string }).name ?? typeof h;
+                }
+                return typeof h;
+            });
             logger.debug(`[codex][handles] kinds=${JSON.stringify(kinds)}`);
         } catch { /* Intentional: JSON.stringify may fail on circular refs */ }
     }
@@ -317,7 +329,7 @@ export async function runCodex(opts: {
 
     const messageBuffer = new MessageBuffer();
     const hasTTY = process.stdout.isTTY && process.stdin.isTTY;
-    let inkInstance: any = null;
+    let inkInstance: ReturnType<typeof render> | null = null;
 
     if (hasTTY) {
         console.clear();

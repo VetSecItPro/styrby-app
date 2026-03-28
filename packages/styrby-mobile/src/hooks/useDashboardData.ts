@@ -79,6 +79,8 @@ function createDefaultAgentStatus(): Record<AgentType, AgentStatus> {
     gemini: { online: false, cost: 0 },
     opencode: { online: false, cost: 0 },
     aider: { online: false, cost: 0 },
+    goose: { online: false, cost: 0 },
+    amp: { online: false, cost: 0 },
   };
 }
 
@@ -414,6 +416,8 @@ export function useDashboardData(
       gemini: 0,
       opencode: 0,
       aider: 0,
+      goose: 0,
+      amp: 0,
     };
     if (!user) return costs;
 

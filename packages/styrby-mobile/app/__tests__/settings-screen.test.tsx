@@ -97,7 +97,10 @@ jest.mock('expo-constants', () => ({
 }));
 
 // -- expo-secure-store --
-const mockGetItemAsync = jest.fn(async (_key: string) => null);
+// WHY explicit return type: TypeScript infers `null` from the default implementation,
+// which causes TS2345 when mockImplementation returns `string | null`. The explicit
+// type annotation allows all SecureStore values (string or null) to be returned.
+const mockGetItemAsync = jest.fn(async (_key: string): Promise<string | null> => null);
 const mockSetItemAsync = jest.fn(async () => {});
 const mockDeleteItemAsync = jest.fn(async () => {});
 
@@ -330,7 +333,9 @@ describe('SettingsScreen', () => {
   });
 
   it('shows "Not signed in" when getUser returns no user', async () => {
-    mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: null });
+    // WHY as any: Simulating unauthenticated state where Supabase returns null user.
+    // The mock default type is non-null so we cast to test the null-handling path.
+    mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: null } as any);
     const { tree } = await renderSettingsScreen();
     expect(hasText(tree, 'Not signed in')).toBe(true);
   });
@@ -341,7 +346,9 @@ describe('SettingsScreen', () => {
         user: {
           id: 'test-user-id',
           email: 'nodisplay@example.com',
-          user_metadata: {},
+          // WHY empty string: user_metadata.display_name is typed as required string.
+          // An empty string represents "no display name set" which triggers the placeholder.
+          user_metadata: { display_name: '' },
         },
       },
       error: null,

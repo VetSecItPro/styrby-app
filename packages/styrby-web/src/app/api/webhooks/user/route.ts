@@ -42,10 +42,15 @@ const WebhookEventEnum = z.enum([
 /**
  * Validates that a URL is not targeting internal/private networks.
  *
- * WHY (FIX-027 + FIX-042): Webhook URLs must point to public HTTPS endpoints.
- * Without this check, an attacker could register a webhook targeting
- * localhost, cloud metadata services (169.254.169.254), or RFC 1918
+ * WHY (FIX-027 + FIX-042 + SEC-SSRF-002): Webhook URLs must point to public
+ * HTTPS endpoints. Without this check, an attacker could register a webhook
+ * targeting localhost, cloud metadata services (169.254.169.254), or RFC 1918
  * private IPs to perform SSRF attacks against our infrastructure.
+ *
+ * SEC-SSRF-002 FIX: This function previously had weaker checks than the Edge
+ * Function's validateWebhookUrl(). It now mirrors the full blocklist from
+ * supabase/functions/deliver-webhook/index.ts to prevent registration-time
+ * bypass of SSRF protections. Both layers must agree on what is blocked.
  *
  * @param url - The URL to validate
  * @returns True if the URL is safe for external requests
@@ -59,28 +64,76 @@ function isSafeWebhookUrl(url: string): boolean {
 
     const hostname = parsed.hostname.toLowerCase();
 
-    // Block localhost
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0') {
+    // Block localhost and loopback — including the full 127.0.0.0/8 range
+    // WHY: 127.0.0.2 through 127.255.255.255 are also loopback addresses
+    if (
+      hostname === 'localhost' ||
+      hostname === '0.0.0.0' ||
+      hostname === '::1' ||
+      hostname === '[::1]' ||
+      hostname === '127.0.0.1' ||
+      hostname.startsWith('127.')
+    ) {
       return false;
     }
 
-    // Block cloud metadata services
-    if (hostname === '169.254.169.254' || hostname === 'metadata.google.internal') {
-      return false;
+    // Block internal hostnames (common patterns for service discovery)
+    // WHY: Cloud providers and orchestrators use predictable internal hostnames
+    // that an attacker could target to reach internal services
+    const internalPatterns = [
+      /\.internal$/i,
+      /\.local$/i,
+      /\.localdomain$/i,
+      /^(metadata|kubernetes|kube-|internal-|priv-)/i,
+    ];
+    for (const pattern of internalPatterns) {
+      if (pattern.test(hostname)) return false;
     }
 
-    // Block RFC 1918 private IPs
-    const ipMatch = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+    // Block cloud metadata services (explicit hostname check)
+    if (hostname === 'metadata.google.internal') return false;
+
+    // Block hex (0x7f000001), octal (0177.0.0.1), and other non-standard IP notations
+    // WHY: Attackers can encode IPs in hex (0x7f000001) or octal (0177.0.0.1) to
+    // bypass naive dotted-decimal regex checks. The safest approach is to reject
+    // any hostname that looks like a non-standard numeric IP encoding.
+    if (/^0x[0-9a-f]+$/i.test(hostname)) return false;        // Pure hex IP (e.g., 0x7f000001)
+    if (/^0[0-7]+(\.[0-7]+)*$/.test(hostname)) return false;  // Octal IP (e.g., 0177.0.0.1)
+    // Block any dotted-numeric hostname with an octet that has a leading zero
+    // WHY: Leading-zero octets are ambiguous — some resolvers treat them as octal.
+    // A hostname like "0177.0.0.01" could resolve to 127.0.0.1 depending on the
+    // system's DNS/IP parsing. Normal decimal IPs never have leading zeros.
+    if (/^[\d.]+$/.test(hostname) && /\b0\d/.test(hostname)) return false;
+    // Block hex-dotted notation (e.g., 0x7f.0.0.1)
+    if (/0x[0-9a-f]/i.test(hostname) && /^[0-9a-fx.]+$/i.test(hostname)) return false;
+
+    // Block RFC 1918 private IPs, loopback range, link-local, and broadcast
+    const ipMatch = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
     if (ipMatch) {
-      const [, a, b] = ipMatch.map(Number);
-      if (a === 10) return false;                    // 10.0.0.0/8
-      if (a === 172 && b >= 16 && b <= 31) return false; // 172.16.0.0/12
-      if (a === 192 && b === 168) return false;      // 192.168.0.0/16
-      if (a === 169 && b === 254) return false;      // Link-local
+      const octets = ipMatch.slice(1).map(Number);
+      if (octets[0] === 10) return false;                              // 10.0.0.0/8
+      if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) return false; // 172.16.0.0/12
+      if (octets[0] === 192 && octets[1] === 168) return false;       // 192.168.0.0/16
+      if (octets[0] === 127) return false;                             // 127.0.0.0/8 loopback
+      if (octets[0] === 169 && octets[1] === 254) return false;       // 169.254.0.0/16 link-local + metadata
+      if (octets.every((o) => o === 255)) return false;                // 255.255.255.255 broadcast
     }
 
-    // Block IPv6-mapped IPv4 private addresses
-    if (hostname.startsWith('::ffff:')) return false;
+    // Block IPv6 private/reserved ranges
+    // WHY: URL parser strips brackets from IPv6 addresses in hostname
+    const cleanIp = hostname.replace(/[\[\]]/g, '');
+    if (cleanIp.includes(':') || hostname.startsWith('[')) {
+      // IPv6 loopback
+      if (cleanIp === '::1') return false;
+      // IPv6 link-local (fe80::/10)
+      if (cleanIp.startsWith('fe80:')) return false;
+      // IPv6 unique-local (fc00::/7 — covers fc00:: and fd00::)
+      if (/^f[cd]/i.test(cleanIp)) return false;
+      // IPv4-mapped IPv6 (::ffff:x.x.x.x) — recurse to check the IPv4 portion
+      if (cleanIp.startsWith('::ffff:')) {
+        return isSafeWebhookUrl(`https://${cleanIp.slice(7)}/`);
+      }
+    }
 
     return true;
   } catch {

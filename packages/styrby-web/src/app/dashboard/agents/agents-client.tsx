@@ -11,7 +11,7 @@ import Link from 'next/link';
 /**
  * Agent type definition matching the Supabase agent_type column.
  */
-type AgentType = 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider';
+type AgentType = 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp';
 
 /**
  * Formats a timestamp to a human-readable "time ago" string.
@@ -43,8 +43,10 @@ const AGENT_META: Record<AgentType, { label: string; color: string }> = {
   claude: { label: 'Claude Code', color: '#F97316' },
   codex: { label: 'Codex', color: '#22C55E' },
   gemini: { label: 'Gemini CLI', color: '#3B82F6' },
-  opencode: { label: 'OpenCode', color: '#06B6D4' },
-  aider: { label: 'Aider', color: '#8B5CF6' },
+  opencode: { label: 'OpenCode', color: '#8B5CF6' },
+  aider: { label: 'Aider', color: '#EC4899' },
+  goose: { label: 'Goose', color: '#14B8A6' },
+  amp: { label: 'Amp', color: '#F59E0B' },
 };
 
 interface Machine {
@@ -98,17 +100,19 @@ interface AgentsClientProps {
  * @param activeSessions - Currently active sessions for status indicator
  */
 export function AgentsClient({ machines, agentConfigs: _agentConfigs, todayCosts, activeSessions }: AgentsClientProps) {
-  // Aggregate cost per agent type
-  const costByAgent = todayCosts.reduce<Record<string, number>>((acc, r) => {
+  // Aggregate cost per agent type — memoized to avoid creating a new object on every render
+  // WHY: Without useMemo, costByAgent and activeByAgent would be new references each render,
+  // which would defeat the downstream useMemo on agentCards.
+  const costByAgent = useMemo(() => todayCosts.reduce<Record<string, number>>((acc, r) => {
     acc[r.agent_type] = (acc[r.agent_type] || 0) + Number(r.cost_usd);
     return acc;
-  }, {});
+  }, {}), [todayCosts]);
 
   // Count active sessions per agent type
-  const activeByAgent = activeSessions.reduce<Record<string, number>>((acc, s) => {
+  const activeByAgent = useMemo(() => activeSessions.reduce<Record<string, number>>((acc, s) => {
     acc[s.agent_type] = (acc[s.agent_type] || 0) + 1;
     return acc;
-  }, {});
+  }, {}), [activeSessions]);
 
   // Build agent cards data — memoized so it only recomputes when props change.
   // WHY: agentCards derives from machines, costByAgent, and activeByAgent. Without

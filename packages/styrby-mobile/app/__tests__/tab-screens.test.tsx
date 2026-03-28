@@ -566,10 +566,12 @@ describe('TeamScreen', () => {
     mockTeamManagement.error = null;
     mockTeamManagement.members = [];
     mockTeamManagement.invitations = [];
+    // WHY as any: Providing minimal user data for the team screen test.
+    // Only id is needed; full user shape cast to satisfy TypeScript's mock type.
     mockGetUser.mockResolvedValue({
       data: { user: { id: 'test-user-id' } },
       error: null,
-    });
+    } as any);
   });
 
   it('renders without crashing', () => {

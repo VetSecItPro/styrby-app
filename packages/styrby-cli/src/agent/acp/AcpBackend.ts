@@ -8,6 +8,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { Readable, Writable } from 'node:stream';
+import { buildSafeEnv } from '@/utils/safeEnv';
 import {
   ClientSideConnection,
   ndJsonStream,
@@ -334,20 +335,25 @@ export class AcpBackend implements AgentBackend {
       // Spawn the ACP agent process
       const args = this.options.args || [];
       
-      // On Windows, spawn via cmd.exe to handle .cmd files and PATH resolution
-      // This ensures proper stdio piping without shell buffering
+      // SECURITY: Use buildSafeEnv() to prevent leaking secrets to agent subprocesses.
+      const safeEnv = buildSafeEnv(this.options.env);
+
+      // On Windows, spawn via cmd.exe to handle .cmd files and PATH resolution.
+      // SECURITY: Each argument is passed as a separate element to cmd.exe /c
+      // to prevent shell metacharacter injection. Previously, args were joined
+      // with spaces which would allow `;`, `&`, `|` in arguments to execute
+      // arbitrary commands.
       if (process.platform === 'win32') {
-        const fullCommand = [this.options.command, ...args].join(' ');
-        this.process = spawn('cmd.exe', ['/c', fullCommand], {
+        this.process = spawn('cmd.exe', ['/c', this.options.command, ...args], {
           cwd: this.options.cwd,
-          env: { ...process.env, ...this.options.env },
+          env: safeEnv,
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true,
         });
       } else {
         this.process = spawn(this.options.command, args, {
           cwd: this.options.cwd,
-          env: { ...process.env, ...this.options.env },
+          env: safeEnv,
           // Use 'pipe' for all stdio to capture output without printing to console
           // stdout and stderr will be handled by our event listeners
           stdio: ['pipe', 'pipe', 'pipe'],
@@ -573,10 +579,10 @@ export class AcpBackend implements AgentBackend {
               if (result.decision === 'approved' || result.decision === 'approved_for_session') {
                 // Find the appropriate optionId from the request options
                 // Look for 'proceed_once' or 'proceed_always' in options
-                const proceedOnceOption = options.find((opt: any) => 
+                const proceedOnceOption = options.find((opt) =>
                   opt.optionId === 'proceed_once' || opt.name?.toLowerCase().includes('once')
                 );
-                const proceedAlwaysOption = options.find((opt: any) => 
+                const proceedAlwaysOption = options.find((opt) =>
                   opt.optionId === 'proceed_always' || opt.name?.toLowerCase().includes('always')
                 );
                 
@@ -599,7 +605,7 @@ export class AcpBackend implements AgentBackend {
                 });
               } else {
                 // Denied or aborted - find cancel option
-                const cancelOption = options.find((opt: any) => 
+                const cancelOption = options.find((opt) =>
                   opt.optionId === 'cancel' || opt.name?.toLowerCase().includes('cancel')
                 );
                 if (cancelOption) {

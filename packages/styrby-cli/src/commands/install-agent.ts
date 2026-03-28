@@ -148,9 +148,12 @@ function installWithNpm(
 
     log(`Running: npm install -g ${packageInfo.packageName}`);
 
+    // SECURITY: shell: false prevents command injection through package names.
+    // The npmCommand is platform-resolved ('npm' or 'npm.cmd') and args are
+    // from a hardcoded config, so shell=false is safe and more secure.
     const proc = spawn(npmCommand, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: true,
+      shell: false,
     });
 
     let stderr = '';

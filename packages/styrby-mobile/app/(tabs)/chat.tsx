@@ -83,6 +83,10 @@ const AGENT_CONFIG: Record<AgentType, { name: string; color: string; bgColor: st
   gemini: { name: 'Gemini', color: '#3b82f6', bgColor: 'rgba(59, 130, 246, 0.1)' },
   opencode: { name: 'OpenCode', color: '#8b5cf6', bgColor: 'rgba(139, 92, 246, 0.1)' },
   aider: { name: 'Aider', color: '#ec4899', bgColor: 'rgba(236, 72, 153, 0.1)' },
+  // WHY goose/amp: AgentType was extended in styrby-shared to include these agents.
+  // Using distinct brand colors until a full palette is confirmed.
+  goose: { name: 'Goose', color: '#06b6d4', bgColor: 'rgba(6, 182, 212, 0.1)' },
+  amp: { name: 'Amp', color: '#f59e0b', bgColor: 'rgba(245, 158, 11, 0.1)' },
 };
 
 /**

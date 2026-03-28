@@ -29,9 +29,9 @@ export interface DiffToolResult {
 
 export class DiffProcessor {
     private previousDiff: string | null = null;
-    private onMessage: ((message: any) => void) | null = null;
+    private onMessage: ((message: DiffToolCall | DiffToolResult) => void) | null = null;
 
-    constructor(onMessage?: (message: any) => void) {
+    constructor(onMessage?: (message: DiffToolCall | DiffToolResult) => void) {
         this.onMessage = onMessage || null;
     }
 
@@ -86,9 +86,11 @@ export class DiffProcessor {
     }
 
     /**
-     * Set the message callback for sending messages directly
+     * Set the message callback for sending messages directly.
+     *
+     * @param callback - Function to receive diff tool call/result messages
      */
-    setMessageCallback(callback: (message: any) => void): void {
+    setMessageCallback(callback: (message: DiffToolCall | DiffToolResult) => void): void {
         this.onMessage = callback;
     }
 

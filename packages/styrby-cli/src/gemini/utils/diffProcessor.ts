@@ -34,9 +34,9 @@ export interface DiffToolResult {
 
 export class GeminiDiffProcessor {
     private previousDiffs = new Map<string, string>(); // Track diffs per file path
-    private onMessage: ((message: any) => void) | null = null;
+    private onMessage: ((message: DiffToolCall | DiffToolResult) => void) | null = null;
 
-    constructor(onMessage?: (message: any) => void) {
+    constructor(onMessage?: (message: DiffToolCall | DiffToolResult) => void) {
         this.onMessage = onMessage || null;
     }
 
@@ -58,24 +58,35 @@ export class GeminiDiffProcessor {
     }
 
     /**
-     * Process a tool result that may contain diff information
+     * Process a tool result that may contain diff information.
+     *
+     * @param toolName - Name of the tool that produced the result
+     * @param result - Arbitrary tool result object (shape varies by tool)
+     * @param callId - The tool call ID for correlation
      */
-    processToolResult(toolName: string, result: any, callId: string): void {
+    processToolResult(toolName: string, result: unknown, callId: string): void {
         // Check if result contains diff information
         if (result && typeof result === 'object') {
+            const resultObj = result as Record<string, unknown>;
             // Look for common diff fields
-            const diff = result.diff || result.unified_diff || result.patch;
-            const path = result.path || result.file;
-            
-            if (diff && path) {
+            const diff = resultObj['diff'] || resultObj['unified_diff'] || resultObj['patch'];
+            const path = resultObj['path'] || resultObj['file'];
+
+            if (typeof diff === 'string' && typeof path === 'string') {
                 logger.debug(`[GeminiDiffProcessor] Found diff in tool result: ${toolName} (${callId})`);
-                this.processDiff(path, diff, result.description);
-            } else if (result.changes && typeof result.changes === 'object') {
+                const description = typeof resultObj['description'] === 'string' ? resultObj['description'] : undefined;
+                this.processDiff(path, diff, description);
+            } else if (resultObj['changes'] && typeof resultObj['changes'] === 'object') {
                 // Handle multiple file changes (like patch operations)
-                for (const [filePath, change] of Object.entries(result.changes)) {
-                    const changeDiff = (change as any).diff || (change as any).unified_diff || 
-                                     JSON.stringify(change);
-                    this.processDiff(filePath, changeDiff, (change as any).description);
+                for (const [filePath, change] of Object.entries(resultObj['changes'] as Record<string, unknown>)) {
+                    if (change && typeof change === 'object') {
+                        const changeObj = change as Record<string, unknown>;
+                        const changeDiff = typeof changeObj['diff'] === 'string' ? changeObj['diff'] :
+                                           typeof changeObj['unified_diff'] === 'string' ? changeObj['unified_diff'] :
+                                           JSON.stringify(change);
+                        const changeDesc = typeof changeObj['description'] === 'string' ? changeObj['description'] : undefined;
+                        this.processDiff(filePath, changeDiff, changeDesc);
+                    }
                 }
             }
         }
@@ -136,9 +147,11 @@ export class GeminiDiffProcessor {
     }
 
     /**
-     * Set the message callback for sending messages directly
+     * Set the message callback for sending messages directly.
+     *
+     * @param callback - Function to receive diff tool call/result messages
      */
-    setMessageCallback(callback: (message: any) => void): void {
+    setMessageCallback(callback: (message: DiffToolCall | DiffToolResult) => void): void {
         this.onMessage = callback;
     }
 

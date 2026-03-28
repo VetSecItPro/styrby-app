@@ -3,10 +3,33 @@
   "compilerOptions": {
     "strict": true,
     "skipLibCheck": true,
+    // WHY baseUrl: Required when using 'paths' with moduleResolution: "node".
+    // Without it, TypeScript ignores the paths mappings entirely.
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      // WHY styrby-shared alias: The monorepo package is published as @styrby/shared
+      // but all source files import it as 'styrby-shared' (legacy bare specifier).
+      // This paths mapping tells TypeScript where to find the types without requiring
+      // a rename of every import statement across the codebase.
+      // Points to the @styrby/shared symlink in local node_modules (resolved by pnpm).
+      "styrby-shared": ["./node_modules/@styrby/shared"],
+      "styrby-shared/*": ["./node_modules/@styrby/shared/*"]
     },
-    "types": ["nativewind/types", "jest"]
+    "types": ["nativewind/types", "jest", "node"],
+    // WHY typeRoots: The monorepo root node_modules may contain a hoisted
+    // @types/react@19 (from styrby-web), but styrby-mobile requires @types/react@18.
+    // By listing the local node_modules FIRST in typeRoots, TypeScript resolves
+    // @types/react from this package's own devDependency (18.3.x) rather than any
+    // hoisted root copy (19.x). Without this prioritization, TypeScript walks up
+    // the directory tree and may find React 19 types, causing TS2786 errors
+    // ("cannot be used as a JSX component") on every Expo/React Native component
+    // because React 19 added 'bigint' to ReactNode which is incompatible with
+    // React 18's ReactNode type used by Expo's compiled type declarations.
+    "typeRoots": [
+      "./node_modules/@types",
+      "../../node_modules/@types"
+    ]
   },
   "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts", "nativewind-env.d.ts"]
 }

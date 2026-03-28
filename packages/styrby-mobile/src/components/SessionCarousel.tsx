@@ -58,6 +58,8 @@ const AGENT_CONFIG: Record<AgentType, { name: string; color: string; bgColor: st
   gemini: { name: 'Gemini', color: '#3b82f6', bgColor: 'rgba(59, 130, 246, 0.15)', icon: 'sparkles' },
   opencode: { name: 'OpenCode', color: '#8b5cf6', bgColor: 'rgba(139, 92, 246, 0.15)', icon: 'code-working' },
   aider: { name: 'Aider', color: '#ec4899', bgColor: 'rgba(236, 72, 153, 0.15)', icon: 'people' },
+  goose: { name: 'Goose', color: '#06b6d4', bgColor: 'rgba(6, 182, 212, 0.15)', icon: 'bug' },
+  amp: { name: 'Amp', color: '#f59e0b', bgColor: 'rgba(245, 158, 11, 0.15)', icon: 'flash' },
 };
 
 export function SessionCarousel({ sessions, onSessionPress, onApprove, onDeny }: SessionCarouselProps) {

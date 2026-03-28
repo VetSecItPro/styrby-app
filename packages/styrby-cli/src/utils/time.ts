@@ -14,7 +14,7 @@ export type BackoffFunc = <T>(callback: () => Promise<T>) => Promise<T>;
 
 export function createBackoff(
     opts?: {
-        onError?: (e: any, failuresCount: number) => void,
+        onError?: (e: unknown, failuresCount: number) => void,
         minDelay?: number,
         maxDelay?: number,
         maxFailureCount?: number

@@ -153,15 +153,26 @@ function validateWebhookUrl(url: string): boolean {
   const parsed = new URL(url);
   const hostname = parsed.hostname.toLowerCase();
 
-  // Block localhost and loopback
+  // Block localhost and loopback — including 0.0.0.0 which some systems route
+  // to localhost and which could be used to bypass naive localhost checks.
+  // WHY (SEC-SSRF-002 parity): route.ts blocks these; both layers must agree.
   if (
     hostname === 'localhost' ||
+    hostname === '0.0.0.0' ||
     hostname === '127.0.0.1' ||
     hostname.startsWith('127.') ||
     hostname === '::1' ||
     hostname === '[::1]'
   ) {
     throw new Error('Webhook URL cannot target localhost');
+  }
+
+  // Block cloud metadata service explicitly by hostname
+  // WHY (SEC-SSRF-002 parity): GCP metadata is reachable via this hostname inside
+  // GKE / Cloud Run. The IP-based check (169.254.x.x) catches it when given as an
+  // IP, but a hostname bypass is only caught here.
+  if (hostname === 'metadata.google.internal') {
+    throw new Error('Webhook URL cannot target cloud metadata services');
   }
 
   // Block internal hostnames (common patterns)

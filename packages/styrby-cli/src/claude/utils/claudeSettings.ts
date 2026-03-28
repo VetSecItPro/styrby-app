@@ -11,8 +11,10 @@ import { homedir } from 'node:os';
 import { logger } from '@/ui/logger';
 
 export interface ClaudeSettings {
+  /** Whether to include Co-Authored-By lines in commit messages */
   includeCoAuthoredBy?: boolean;
-  [key: string]: any;
+  /** Additional settings from Claude's settings.json — shape varies by Claude version */
+  [key: string]: unknown;
 }
 
 /**

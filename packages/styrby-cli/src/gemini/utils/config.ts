@@ -167,18 +167,21 @@ export function saveGeminiModelToConfig(model: string): void {
     }
     
     // Read existing config or create new one
-    let config: any = {};
+    let config: Record<string, unknown> = {};
     if (existsSync(configPath)) {
       try {
-        config = JSON.parse(readFileSync(configPath, 'utf-8'));
+        const parsed: unknown = JSON.parse(readFileSync(configPath, 'utf-8'));
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          config = parsed as Record<string, unknown>;
+        }
       } catch (error) {
         logger.debug(`[Gemini] Failed to read existing config, creating new one`);
         config = {};
       }
     }
-    
+
     // Update model in config
-    config.model = model;
+    config['model'] = model;
     
     // Write config back
     writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
@@ -209,18 +212,21 @@ export function saveGoogleCloudProjectToConfig(projectId: string, email?: string
     let config: Record<string, unknown> = {};
     if (existsSync(configPath)) {
       try {
-        config = JSON.parse(readFileSync(configPath, 'utf-8'));
+        const parsed: unknown = JSON.parse(readFileSync(configPath, 'utf-8'));
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          config = parsed as Record<string, unknown>;
+        }
       } catch {
         config = {};
       }
     }
-    
+
     // Update project in config
-    config.googleCloudProject = projectId;
-    
+    config['googleCloudProject'] = projectId;
+
     // Store the associated email if provided
     if (email) {
-      config.googleCloudProjectEmail = email;
+      config['googleCloudProjectEmail'] = email;
     }
     
     // Write config back

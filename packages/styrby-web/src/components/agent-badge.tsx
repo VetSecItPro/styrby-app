@@ -81,6 +81,18 @@ const AGENT_CONFIG: Record<
     bgColor: 'bg-pink-500/10',
     textColor: 'text-pink-400',
   },
+  goose: {
+    name: 'Goose',
+    color: '#14b8a6', // teal-500
+    bgColor: 'bg-teal-500/10',
+    textColor: 'text-teal-400',
+  },
+  amp: {
+    name: 'Amp',
+    color: '#f59e0b', // amber-500
+    bgColor: 'bg-amber-500/10',
+    textColor: 'text-amber-400',
+  },
 };
 
 /**

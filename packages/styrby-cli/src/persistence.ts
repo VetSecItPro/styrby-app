@@ -16,6 +16,41 @@ import { CONFIG_DIR, ensureConfigDir } from './configuration';
 import { logger } from '@/ui/logger';
 
 // ============================================================================
+// Security Helpers
+// ============================================================================
+
+/**
+ * UUID v4 validation regex for session IDs.
+ *
+ * WHY (SEC-PATH-001): Session IDs are used to construct file paths via
+ * `path.join(SESSIONS_DIR, sessionId + '.json')`. Without validation, an
+ * attacker who controls the sessionId (e.g., via a crafted import file or
+ * malicious relay message) could inject path traversal characters like
+ * `../../etc/crontab` to read, overwrite, or delete arbitrary files.
+ *
+ * Restricting to UUID format guarantees the resulting filename is safe:
+ * only hex digits and hyphens, no slashes or dots.
+ */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Validates that a session ID is a well-formed UUID v4 string.
+ *
+ * @param sessionId - The session ID to validate
+ * @returns true if the ID is a valid UUID
+ * @throws {Error} If the ID contains path traversal or invalid characters
+ */
+function validateSessionId(sessionId: string): boolean {
+  if (!UUID_REGEX.test(sessionId)) {
+    throw new Error(
+      `Invalid session ID format: "${sessionId}". ` +
+        'Session IDs must be UUID v4 format (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).'
+    );
+  }
+  return true;
+}
+
+// ============================================================================
 // Persisted Data (Auth & Machine Info)
 // ============================================================================
 
@@ -94,7 +129,7 @@ export function clearPersistedData(): void {
  */
 export interface StoredSession {
   sessionId: string;
-  agentType: 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider';
+  agentType: 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp';
   projectPath: string;
   createdAt: string;
   lastActivityAt: string;
@@ -122,6 +157,7 @@ function ensureSessionsDir(): void {
  * @param session - Session to save
  */
 export function saveSession(session: StoredSession): void {
+  validateSessionId(session.sessionId);
   ensureSessionsDir();
   const filePath = path.join(SESSIONS_DIR, `${session.sessionId}.json`);
   fs.writeFileSync(filePath, JSON.stringify(session, null, 2));
@@ -135,6 +171,12 @@ export function saveSession(session: StoredSession): void {
  * @returns Session or null if not found
  */
 export function loadSession(sessionId: string): StoredSession | null {
+  try {
+    validateSessionId(sessionId);
+  } catch {
+    logger.error('Invalid session ID format', { sessionId });
+    return null;
+  }
   const filePath = path.join(SESSIONS_DIR, `${sessionId}.json`);
   try {
     if (fs.existsSync(filePath)) {
@@ -153,6 +195,12 @@ export function loadSession(sessionId: string): StoredSession | null {
  * @param sessionId - Session ID to delete
  */
 export function deleteSession(sessionId: string): void {
+  try {
+    validateSessionId(sessionId);
+  } catch {
+    logger.error('Invalid session ID format — refusing to delete', { sessionId });
+    return;
+  }
   const filePath = path.join(SESSIONS_DIR, `${sessionId}.json`);
   try {
     if (fs.existsSync(filePath)) {

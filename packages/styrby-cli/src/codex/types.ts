@@ -18,7 +18,8 @@ export interface CodexToolResponse {
     content: Array<{
         type: 'text' | 'image' | 'resource';
         text?: string;
-        data?: any;
+        /** Raw binary/base64 data for image and resource content types */
+        data?: unknown;
         mimeType?: string;
     }>;
     isError?: boolean;

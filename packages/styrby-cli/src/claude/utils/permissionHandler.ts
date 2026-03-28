@@ -34,7 +34,7 @@ interface PendingRequest {
 }
 
 export class PermissionHandler {
-    private toolCalls: { id: string, name: string, input: any, used: boolean }[] = [];
+    private toolCalls: { id: string, name: string, input: unknown, used: boolean }[] = [];
     private responses = new Map<string, PermissionResponse>();
     private pendingRequests = new Map<string, PendingRequest>();
     private session: Session;
@@ -260,9 +260,13 @@ export class PermissionHandler {
     }
 
     /**
-     * Resolves tool call ID based on tool name and input
+     * Resolves tool call ID based on tool name and input.
+     *
+     * @param name - The tool name to match
+     * @param args - The tool input arguments to match
+     * @returns The matching tool call ID, or null if not found
      */
-    private resolveToolCallId(name: string, args: any): string | null {
+    private resolveToolCallId(name: string, args: unknown): string | null {
         // Search in reverse (most recent first)
         for (let i = this.toolCalls.length - 1; i >= 0; i--) {
             const call = this.toolCalls[i];

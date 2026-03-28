@@ -30,7 +30,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
 
     // Configure terminal
     let messageBuffer = new MessageBuffer();
-    let inkInstance: any = null;
+    let inkInstance: ReturnType<typeof render> | null = null;
 
     if (hasTTY) {
         console.clear();

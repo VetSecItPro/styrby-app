@@ -1252,73 +1252,6 @@ export default function SettingsScreen() {
   // --------------------------------------------------------------------------
 
   /**
-   * Initiates the account deletion flow with a two-step confirmation.
-   *
-   * Step 1: Alert explaining what will be deleted
-   * Step 2: Prompt to type "DELETE MY ACCOUNT" to confirm
-   *
-   * On confirmation, calls the web app's DELETE /api/account/delete endpoint
-   * which performs a soft-delete (data recoverable for 30 days) and bans the user.
-   *
-   * WHY two-step: Account deletion is irreversible after the 30-day grace period.
-   * Requiring a typed confirmation prevents accidental deletions and satisfies
-   * compliance requirements for explicit user consent.
-   *
-   * WHY web API: The delete endpoint requires a Supabase service role key to ban
-   * the user in auth.users. Mobile apps must never contain service role keys,
-   * so we delegate to the server-side endpoint.
-   */
-  const handleDeleteAccount = useCallback(() => {
-    // Step 1: Initial confirmation
-    Alert.alert(
-      'Delete Account?',
-      'This will permanently delete your account and all associated data, including sessions, cost records, team memberships, and preferences.\n\nYour data will be recoverable for 30 days, after which it is permanently removed.\n\nThis action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Continue',
-          style: 'destructive',
-          onPress: () => {
-            // Step 2: Type confirmation
-            // WHY: Alert.prompt is iOS-only but this is an iOS app (Expo).
-            // On Android, we use a simpler confirmation since Alert.prompt is unavailable.
-            if (Platform.OS === 'ios') {
-              Alert.prompt(
-                'Confirm Deletion',
-                'Type "DELETE MY ACCOUNT" to confirm.',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Delete',
-                    style: 'destructive',
-                    onPress: (input?: string) => {
-                      if (input?.trim() === 'DELETE MY ACCOUNT') {
-                        executeAccountDeletion();
-                      } else {
-                        Alert.alert(
-                          'Confirmation Failed',
-                          'You must type "DELETE MY ACCOUNT" exactly to proceed.',
-                        );
-                      }
-                    },
-                  },
-                ],
-                'plain-text',
-              );
-            } else {
-              // WHY: Alert.prompt is iOS-only (React Native limitation). On Android
-              // we open a custom modal that renders a TextInput so the user still
-              // must type the exact phrase — same security bar as iOS.
-              setDeleteConfirmText('');
-              setShowDeleteModal(true);
-            }
-          },
-        },
-      ],
-    );
-  }, [executeAccountDeletion]);
-
-  /**
    * Executes the account deletion by calling the web API endpoint and
    * signing the user out on success.
    *
@@ -1384,6 +1317,73 @@ export default function SettingsScreen() {
       setIsDeletingAccount(false);
     }
   }, []);
+
+  /**
+   * Initiates the account deletion flow with a two-step confirmation.
+   *
+   * Step 1: Alert explaining what will be deleted
+   * Step 2: Prompt to type "DELETE MY ACCOUNT" to confirm
+   *
+   * On confirmation, calls the web app's DELETE /api/account/delete endpoint
+   * which performs a soft-delete (data recoverable for 30 days) and bans the user.
+   *
+   * WHY two-step: Account deletion is irreversible after the 30-day grace period.
+   * Requiring a typed confirmation prevents accidental deletions and satisfies
+   * compliance requirements for explicit user consent.
+   *
+   * WHY web API: The delete endpoint requires a Supabase service role key to ban
+   * the user in auth.users. Mobile apps must never contain service role keys,
+   * so we delegate to the server-side endpoint.
+   */
+  const handleDeleteAccount = useCallback(() => {
+    // Step 1: Initial confirmation
+    Alert.alert(
+      'Delete Account?',
+      'This will permanently delete your account and all associated data, including sessions, cost records, team memberships, and preferences.\n\nYour data will be recoverable for 30 days, after which it is permanently removed.\n\nThis action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          style: 'destructive',
+          onPress: () => {
+            // Step 2: Type confirmation
+            // WHY: Alert.prompt is iOS-only but this is an iOS app (Expo).
+            // On Android, we use a simpler confirmation since Alert.prompt is unavailable.
+            if (Platform.OS === 'ios') {
+              Alert.prompt(
+                'Confirm Deletion',
+                'Type "DELETE MY ACCOUNT" to confirm.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: (input?: string) => {
+                      if (input?.trim() === 'DELETE MY ACCOUNT') {
+                        executeAccountDeletion();
+                      } else {
+                        Alert.alert(
+                          'Confirmation Failed',
+                          'You must type "DELETE MY ACCOUNT" exactly to proceed.',
+                        );
+                      }
+                    },
+                  },
+                ],
+                'plain-text',
+              );
+            } else {
+              // WHY: Alert.prompt is iOS-only (React Native limitation). On Android
+              // we open a custom modal that renders a TextInput so the user still
+              // must type the exact phrase — same security bar as iOS.
+              setDeleteConfirmText('');
+              setShowDeleteModal(true);
+            }
+          },
+        },
+      ],
+    );
+  }, [executeAccountDeletion]);
 
   // --------------------------------------------------------------------------
   // Render

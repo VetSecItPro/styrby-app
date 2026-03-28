@@ -6,10 +6,11 @@
  */
 
 import { AsyncLock } from '@/utils/lock';
+import type { RawJSONLines } from '@/claude/types';
 
 interface QueueItem {
     id: number;                    // Incremental ID for ordering
-    logMessage: any;               
+    logMessage: RawJSONLines;
     delayed: boolean;              // Whether this message should be delayed
     delayMs: number;               // Delay duration (e.g., 250ms)
     toolCallIds?: string[];        // Tool calls to track for early release
@@ -23,17 +24,20 @@ export class OutgoingMessageQueue {
     private lock = new AsyncLock();
     private processTimer?: NodeJS.Timeout;
     private delayTimers = new Map<number, NodeJS.Timeout>();
-    
-    constructor(private sendFunction: (message: any) => void) {}
-    
+
+    constructor(private sendFunction: (message: RawJSONLines) => void) {}
+
     /**
-     * Add message to queue
+     * Add message to queue.
+     *
+     * @param logMessage - The log message to enqueue
+     * @param options - Optional delay and tool call tracking options
      */
-    enqueue(logMessage: any, options?: {
+    async enqueue(logMessage: RawJSONLines, options?: {
         delay?: number,
         toolCallIds?: string[]
     }) {
-        this.lock.inLock(async () => {
+        await this.lock.inLock(async () => {
             const item: QueueItem = {
                 id: this.nextId++,
                 logMessage,
@@ -43,9 +47,9 @@ export class OutgoingMessageQueue {
                 released: !options?.delay,  // Not delayed = already released
                 sent: false
             };
-            
+
             this.queue.push(item);
-            
+
             // If delayed, set timer to release it
             if (item.delayed) {
                 const timer = setTimeout(() => {
@@ -54,8 +58,8 @@ export class OutgoingMessageQueue {
                 this.delayTimers.set(item.id, timer);
             }
         });
-        
-        // Try to process queue
+
+        // Try to process queue (only after lock is released and item is in queue)
         this.scheduleProcessing();
     }
     

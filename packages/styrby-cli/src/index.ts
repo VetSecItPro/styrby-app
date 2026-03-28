@@ -147,6 +147,14 @@ async function main(): Promise<void> {
       await handleTemplateCommand(args.slice(1));
       break;
 
+    case 'export':
+      await handleExportCommand(args.slice(1));
+      break;
+
+    case 'import':
+      await handleImportCommand(args.slice(1));
+      break;
+
     case 'help':
     case '--help':
     case '-h':
@@ -570,7 +578,7 @@ async function handleStart(args: string[]): Promise<void> {
   const { saveSession } = await import('@/persistence');
   saveSession({
     sessionId: activeSession.sessionId,
-    agentType: agentType as 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider',
+    agentType: agentType as 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp',
     projectPath,
     createdAt: new Date().toISOString(),
     lastActivityAt: new Date().toISOString(),
@@ -624,7 +632,7 @@ async function handleStart(args: string[]): Promise<void> {
   // Update local session record
   saveSession({
     sessionId: activeSession.sessionId,
-    agentType: agentType as 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider',
+    agentType: agentType as 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp',
     projectPath,
     createdAt: new Date().toISOString(),
     lastActivityAt: new Date().toISOString(),
@@ -983,6 +991,11 @@ Commands:
     template use <name>     Render template with variable substitution
     template delete <name>  Delete a template (with confirmation)
 
+  Session Export / Import
+    export <sessionId>      Export a session as JSON (stdout or --output file)
+    export --all            Export all sessions (use --output <dir> for files)
+    import <file>           Import a session from a JSON export file
+
   Daemon
     daemon install          Install daemon to start automatically on boot
     daemon uninstall        Remove daemon from auto-start
@@ -1105,6 +1118,28 @@ Homepage:  https://styrbyapp.com
 Source:    https://github.com/VetSecItPro/styrby-app
 Issues:    https://github.com/VetSecItPro/styrby-app/issues
 `);
+}
+
+/**
+ * Handle the 'export' command.
+ * Export one or all sessions as portable JSON.
+ *
+ * @param args - Command arguments (sessionId, --all, --output, --compact)
+ */
+async function handleExportCommand(args: string[]): Promise<void> {
+  const { handleExport } = await import('@/commands/export');
+  await handleExport(args);
+}
+
+/**
+ * Handle the 'import' command.
+ * Import a session from a previously exported JSON file.
+ *
+ * @param args - Command arguments (<file>)
+ */
+async function handleImportCommand(args: string[]): Promise<void> {
+  const { handleImport } = await import('@/commands/export');
+  await handleImport(args);
 }
 
 // Run main
