@@ -8,31 +8,51 @@ import {
 const faqs = [
   {
     q: "Can you see my code or prompts?",
-    a: "No. Styrby uses end-to-end encryption (TweetNaCl) with a zero-knowledge architecture. Your code and prompts are encrypted on your machine before anything leaves it. Our servers only process metadata: costs, timestamps, and session status. We literally cannot read your data, even if compelled to.",
+    a: "No. Styrby uses end-to-end encryption (TweetNaCl) with a zero-knowledge architecture. Your code and prompts are encrypted on your machine before anything leaves it. Our servers only process metadata: costs, timestamps, and session status. We cannot read your data, even if compelled to. Exported sessions remain encrypted, and shared session links require a separate key you control.",
   },
   {
-    q: "Which AI agents are supported?",
-    a: "Five today: Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), OpenCode, and Aider. The Free plan includes one agent. Pro and Power plans unlock all five. We add new agents as the ecosystem grows.",
+    q: "What agents does Styrby support?",
+    a: "Eleven CLI coding agents: Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. The Free plan includes the first three (Claude Code, Codex, Gemini CLI). Pro unlocks eight agents. Power unlocks all eleven.",
+  },
+  {
+    q: "Can I use my own API keys?",
+    a: "Yes. Droid supports BYOK (bring your own key), so you can connect your own API credentials directly rather than routing through a provider. Your keys are hashed with bcrypt before storage and never stored in plaintext.",
   },
   {
     q: "Does it work offline?",
     a: "Yes. Commands queue locally and sync the moment your connection returns. Permission approvals, cost records, session data: nothing is lost. This matters because agents do not wait for stable WiFi, and neither should your workflow.",
   },
   {
+    q: "Can I use voice commands?",
+    a: "Yes, voice commands are available on the Power tier. Dictate approvals, queries, or commands hands-free from your phone or browser.",
+  },
+  {
+    q: "Can I review code from my phone?",
+    a: "Yes. Code review from mobile is a Power tier feature. Submit a review request from your phone, monitor progress, and receive push notifications when the review completes.",
+  },
+  {
+    q: "What are session checkpoints?",
+    a: "Session checkpoints are named save points within a session. You can mark a point in a long session as a checkpoint to return to it later, compare progress, or share a specific moment in the conversation. Available on Pro and above.",
+  },
+  {
+    q: "Can I share session replays?",
+    a: "Yes, on Pro and above you can generate a share link for any session replay. The session data remains end-to-end encrypted, and the recipient needs a separate decryption key that you provide. Styrby never has access to the plaintext content.",
+  },
+  {
+    q: "What is OTEL export?",
+    a: "OpenTelemetry (OTEL) export lets you send your agent session metrics, cost data, and trace events to any compatible observability platform: Grafana, Datadog, Honeycomb, and others. Available on the Power tier.",
+  },
+  {
+    q: "How does cloud monitoring work?",
+    a: "Submit a cloud monitoring job from the dashboard or mobile app, track its progress in real time, and receive a push notification when it finishes or encounters an error. Available on the Power tier.",
+  },
+  {
     q: "Can I use it with my team?",
-    a: "The Power plan ($49/mo) supports up to 3 team members with shared dashboards, per-developer cost attribution, and team-level budget alerts. You will know exactly who spent what and whether they stayed within budget.",
-  },
-  {
-    q: "What happens if I hit my message limit?",
-    a: "You get a warning well before the limit. If you do hit it, monitoring continues in read-only mode so you never lose visibility. Upgrading is instant, takes effect immediately, and does not require restarting your agents.",
-  },
-  {
-    q: "Is there a mobile app?",
-    a: "The iOS app launches soon. Until then, the web dashboard is fully responsive and optimized for mobile browsers. You can approve permissions, check costs, and monitor agents from any phone today. Android is on the roadmap.",
+    a: "The Pro plan ($24/mo) supports up to 3 team members with shared dashboards and per-developer cost attribution. The Power plan ($49/mo) adds team-level budget alerts and OTEL export for full observability across your team.",
   },
   {
     q: "How is this different from checking my API provider's dashboard?",
-    a: "API dashboards show you total spend after the fact, across all usage. Styrby shows you per-agent, per-session, and per-model cost breakdowns. Tag sessions by client or project to see a Cost by Tag breakdown you can use for invoicing. Charts update on each page load. You can also set budget limits that automatically stop runaway sessions, and it works across five different agents in one place. No provider dashboard does that.",
+    a: "API dashboards show you total spend after the fact, across all usage. Styrby shows you per-agent, per-session, per-message, and per-model cost breakdowns with per-file context breakdown. Tag sessions by client or project to get a cost-by-tag breakdown for invoicing. You can also set budget limits that automatically stop runaway sessions, and it works across all eleven agents in one place. No provider dashboard does that.",
   },
 ]
 

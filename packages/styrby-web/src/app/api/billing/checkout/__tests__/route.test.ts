@@ -45,7 +45,7 @@ const { mockGetUser, mockCheckoutCreate, MOCK_TIERS } = vi.hoisted(() => ({
         machines: 1,
         historyDays: 7,
         messagesPerMonth: 1000,
-        budgetAlerts: 0,
+        budgetAlerts: 1,
         webhooks: 0,
         teamMembers: 1,
         apiKeys: 0,
@@ -54,7 +54,7 @@ const { mockGetUser, mockCheckoutCreate, MOCK_TIERS } = vi.hoisted(() => ({
     pro: {
       id: 'pro' as const,
       name: 'Pro',
-      price: { monthly: 19, annual: 190 },
+      price: { monthly: 24, annual: 240 },
       polarProductId: {
         monthly: 'polar_test_pro_monthly',
         annual: 'polar_test_pro_annual',
@@ -66,7 +66,7 @@ const { mockGetUser, mockCheckoutCreate, MOCK_TIERS } = vi.hoisted(() => ({
         messagesPerMonth: 25000,
         budgetAlerts: 3,
         webhooks: 3,
-        teamMembers: 1,
+        teamMembers: 3,
         apiKeys: 0,
       },
     },

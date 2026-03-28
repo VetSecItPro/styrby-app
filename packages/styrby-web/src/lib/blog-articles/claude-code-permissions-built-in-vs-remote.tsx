@@ -8,12 +8,12 @@ export default function ClaudeCodePermissionsBuiltInVsRemote() {
       <p>
         Every AI coding agent has some form of permission control. Claude Code
         has the most granular built-in system. The others range from sandboxed
-        execution to simple yes/no prompts. This article compares how all five
+        execution to simple yes/no prompts. This article compares how these
         agents handle permissions, then covers how remote approval works as an
         alternative layer.
       </p>
 
-      <h2>Permission Models Across All Five Agents</h2>
+      <h2>Permission Models Across AI Coding Agents</h2>
       <table>
         <thead>
           <tr>

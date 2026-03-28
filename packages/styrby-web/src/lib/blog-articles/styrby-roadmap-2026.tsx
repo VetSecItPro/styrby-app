@@ -18,7 +18,7 @@ export default function StyrbyRoadmap2026() {
         launch:
       </p>
       <ul>
-        <li>Live session monitoring for all five supported agents</li>
+        <li>Live session monitoring for all eleven supported agents</li>
         <li>Remote permission approval with risk badges</li>
         <li>Push notifications for budget alerts, errors, and permission requests</li>
         <li>Session replay with encrypted content</li>

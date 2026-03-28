@@ -142,7 +142,7 @@ export default function TrackingAiCostsSpreadsheetsVsAutomation() {
       <h3>What Costs You</h3>
       <ul>
         <li>
-          <strong>Subscription fee.</strong> Styrby Pro is $19/month. That is
+          <strong>Subscription fee.</strong> Styrby Pro is $24/month. That is
           the cost of the tool that helps you control costs on the tools you
           are tracking. The math only works if your AI spend is high enough to
           justify it.
@@ -171,7 +171,7 @@ export default function TrackingAiCostsSpreadsheetsVsAutomation() {
       </p>
       <p>
         For teams, the math is clearer. Five developers at $200/month each is
-        $1,000/month in AI costs. Spending $19/month for visibility into that
+        $1,000/month in AI costs. Spending $24/month for visibility into that
         $1,000 is a straightforward decision.
       </p>
 

@@ -150,7 +150,7 @@ describe('resend email client', () => {
       await sendSubscriptionConfirmedEmail({
         email: 'user@example.com',
         tier: 'pro',
-        amount: '$19',
+        amount: '$24',
         billingCycle: 'monthly',
         nextBillingDate: '2026-03-01',
       });
@@ -186,7 +186,7 @@ describe('resend email client', () => {
       await sendPaymentFailedEmail({
         email: 'user@example.com',
         tier: 'pro',
-        amount: '$19',
+        amount: '$24',
         retryDate: '2026-02-08',
       });
 

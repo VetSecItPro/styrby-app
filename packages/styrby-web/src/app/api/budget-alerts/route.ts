@@ -372,11 +372,12 @@ export async function POST(request: NextRequest) {
     const currentCount = countResult.count ?? 0;
 
     if (currentCount >= alertLimit) {
-      // WHY: Free users (limit 0) get a different message than paid users who
-      // have hit their limit. This helps guide them toward the right action.
-      if (alertLimit === 0) {
+      // WHY: Free users (limit 1) get a different message than paid users who
+      // have hit their limit. Free gets 1 alert; Pro gets 3; Power gets 5.
+      // This message guides them toward the right upgrade action.
+      if (tier === 'free') {
         return NextResponse.json(
-          { error: 'Budget alerts are not available on the Free plan. Upgrade to Pro to create budget alerts.' },
+          { error: 'You have reached your limit of 1 budget alert on the Free plan. Upgrade to Pro for 3 budget alerts.' },
           { status: 403 }
         );
       }

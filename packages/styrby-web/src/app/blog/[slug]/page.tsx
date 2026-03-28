@@ -193,7 +193,7 @@ export default async function BlogPostPage({
         </h2>
         <p className="mt-2 text-muted-foreground">
           Styrby gives you cost tracking, remote permissions, and session replay
-          across five agents.
+          across 11 CLI coding agents.
         </p>
         <div className="mt-6 flex justify-center gap-4">
           <Link

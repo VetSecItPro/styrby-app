@@ -28,7 +28,7 @@ describe('Polar Billing Module', () => {
           machines: 1,
           historyDays: 7,
           messagesPerMonth: 1_000,
-          budgetAlerts: 0,
+          budgetAlerts: 1,
           webhooks: 0,
           teamMembers: 1,
           apiKeys: 0,
@@ -61,14 +61,14 @@ describe('Polar Billing Module', () => {
           messagesPerMonth: 25_000,
           budgetAlerts: 3,
           webhooks: 3,
-          teamMembers: 1,
+          teamMembers: 3,
           apiKeys: 0,
         });
       });
 
       it('should have correct pricing', () => {
-        expect(TIERS.pro.price.monthly).toBe(19);
-        expect(TIERS.pro.price.annual).toBe(190);
+        expect(TIERS.pro.price.monthly).toBe(24);
+        expect(TIERS.pro.price.annual).toBe(240);
       });
 
       it('should have correct metadata', () => {
@@ -157,8 +157,8 @@ describe('Polar Billing Module', () => {
         const proMonthlyTotal = TIERS.pro.price.monthly * 12;
         expect(TIERS.pro.price.annual).toBeLessThan(proMonthlyTotal);
         // Should be equivalent to ~10 months
-        expect(TIERS.pro.price.annual).toBe(190);
-        expect(proMonthlyTotal).toBe(228);
+        expect(TIERS.pro.price.annual).toBe(240);
+        expect(proMonthlyTotal).toBe(288);
       });
 
       it('should give Power users ~2 months free (annual < 12 * monthly)', () => {
@@ -251,10 +251,10 @@ describe('Polar Billing Module', () => {
         });
       });
 
-      it('should return $19/month for pro tier', () => {
+      it('should return $24/month for pro tier', () => {
         const price = getDisplayPrice('pro', 'monthly');
         expect(price).toEqual({
-          amount: 19,
+          amount: 24,
           period: '/month',
         });
       });
@@ -277,10 +277,10 @@ describe('Polar Billing Module', () => {
         });
       });
 
-      it('should return $190/year for pro tier', () => {
+      it('should return $240/year for pro tier', () => {
         const price = getDisplayPrice('pro', 'annual');
         expect(price).toEqual({
-          amount: 190,
+          amount: 240,
           period: '/year',
         });
       });

@@ -100,10 +100,22 @@ CREATE INDEX IF NOT EXISTS idx_session_checkpoints_user_id
 
 -- WHY: updated_at is maintained via trigger rather than application code so
 -- it is always accurate even for direct SQL mutations (admin, migrations).
+-- We use a custom trigger function rather than moddatetime() because the
+-- moddatetime extension is not enabled on this Supabase project.
+CREATE OR REPLACE FUNCTION session_checkpoints_set_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$;
+
 CREATE OR REPLACE TRIGGER session_checkpoints_updated_at
   BEFORE UPDATE ON session_checkpoints
   FOR EACH ROW
-  EXECUTE FUNCTION moddatetime(updated_at);
+  EXECUTE FUNCTION session_checkpoints_set_updated_at();
 
 -- ============================================================================
 -- Row-Level Security
