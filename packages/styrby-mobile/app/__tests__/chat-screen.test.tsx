@@ -547,7 +547,6 @@ describe('ChatScreen', () => {
       order: jest.fn(async () => ({ data: [], error: null })),
     };
 
-    let callCount = 0;
     supabase.from.mockImplementation((table: string) => {
       if (table === 'sessions') {
         return sessionChain;
