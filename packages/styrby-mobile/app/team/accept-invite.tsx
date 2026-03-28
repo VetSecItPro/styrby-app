@@ -73,8 +73,8 @@ type ScreenState =
   | { status: 'loading' }
   | { status: 'invalid'; reason: string }
   | { status: 'ready'; invitation: InvitationRow }
-  | { status: 'accepting' }
-  | { status: 'declining' }
+  | { status: 'accepting'; invitation: InvitationRow }
+  | { status: 'declining'; invitation: InvitationRow }
   | { status: 'accepted' }
   | { status: 'declined' }
   | { status: 'error'; message: string };
@@ -232,7 +232,7 @@ export default function AcceptInviteScreen() {
    * @param invitation - The validated invitation to accept
    */
   const handleAccept = useCallback(async (invitation: InvitationRow) => {
-    setState({ status: 'accepting' });
+    setState({ status: 'accepting', invitation });
 
     try {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -290,7 +290,7 @@ export default function AcceptInviteScreen() {
    * @param invitation - The validated invitation to decline
    */
   const handleDecline = useCallback(async (invitation: InvitationRow) => {
-    setState({ status: 'declining' });
+    setState({ status: 'declining', invitation });
 
     try {
       const { error } = await supabase
