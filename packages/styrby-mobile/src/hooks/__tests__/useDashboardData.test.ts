@@ -15,7 +15,22 @@
  * - Error handling
  */
 
-import { renderHook, act, waitFor } from '@testing-library/react-native';
+import { renderHook, act, waitFor, cleanup } from '@testing-library/react-native';
+import React from 'react';
+
+/**
+ * Non-strict wrapper to prevent React Strict Mode from doubling effect runs.
+ *
+ * WHY: @testing-library/react-native v12 wraps components in React.StrictMode,
+ * which causes effects to run twice (mount → unmount → remount) in development.
+ * useDashboardData's useEffect starts async supabase queries on mount. With
+ * Strict Mode, these queries start TWICE per test. Across 36 tests, this
+ * accumulates to 216 pending Promises that pile up in the microtask queue,
+ * growing at ~100 MB/test until the worker OOMs at 4 GB.
+ * Using a plain React.Fragment wrapper bypasses the Strict Mode double-effect.
+ */
+const wrapper = ({ children }: { children: React.ReactNode }) =>
+  React.createElement(React.Fragment, null, children);
 
 // ============================================================================
 // Mock Setup
@@ -115,6 +130,12 @@ function makeRelayMessage(type: string, payload: Record<string, unknown>, id: st
   return { id, type, payload, timestamp: new Date().toISOString(), sender_device_id: 'cli-1', sender_type: 'cli' };
 }
 
+// WHY: useDashboardData's useEffect depends on the connectedDevices array reference.
+// Passing `[]` inline inside renderHook() creates a new array on every render,
+// causing the effect to re-fire → state update → re-render → infinite loop → OOM.
+// Using a stable module-level constant breaks the cycle.
+const EMPTY_DEVICES: never[] = [];
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -130,8 +151,24 @@ describe('useDashboardData', () => {
     mockQueryError = null;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     (console.error as jest.Mock).mockRestore();
+    // WHY: Unmount all rendered components first so React stops processing updates.
+    cleanup();
+    // WHY flushPromises: useDashboardData starts async supabase queries on mount.
+    // After cleanup() unmounts the component, those queries' Promises continue
+    // resolving in the microtask queue. Over 36 tests, 108+ pending Promises
+    // accumulate (3 supabase queries × 36 tests), each holding references to
+    // unmounted React state setters. This causes ~100 MB/test memory growth
+    // that OOMs the Jest worker. Flushing all pending microtasks after each
+    // test prevents this accumulation.
+    await act(async () => {
+      // Multiple yields to ensure deeply chained Promises all resolve.
+      // useDashboardData has 3-deep async chains (getUser → from(table) → resolve).
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
+    });
   });
 
   // --------------------------------------------------------------------------
@@ -139,7 +176,7 @@ describe('useDashboardData', () => {
   // --------------------------------------------------------------------------
 
   it('starts in loading state', () => {
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
     expect(result.current.isLoading).toBe(true);
   });
 
@@ -148,7 +185,7 @@ describe('useDashboardData', () => {
     mockAuditLogData = [makeAuditLogRow()];
     mockCostRecordsData = [makeCostRecordRow('claude', 2.0)];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -160,7 +197,7 @@ describe('useDashboardData', () => {
   it('returns empty data when user is not authenticated', async () => {
     mockAuthUser = null;
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -177,7 +214,7 @@ describe('useDashboardData', () => {
       makeSessionRow({ id: 's1', agent_type: 'claude', status: 'running', title: 'Claude Session' }),
     ];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -191,7 +228,7 @@ describe('useDashboardData', () => {
   it('maps "starting" status to "running"', async () => {
     mockSessionsData = [makeSessionRow({ status: 'starting' })];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -201,7 +238,7 @@ describe('useDashboardData', () => {
   it('maps "paused" status to "idle"', async () => {
     mockSessionsData = [makeSessionRow({ status: 'paused' })];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -211,7 +248,7 @@ describe('useDashboardData', () => {
   it('maps unknown status to "idle"', async () => {
     mockSessionsData = [makeSessionRow({ status: 'unknown_status' })];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -221,7 +258,7 @@ describe('useDashboardData', () => {
   it('uses "Untitled Session" for null title', async () => {
     mockSessionsData = [makeSessionRow({ title: null })];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -235,7 +272,7 @@ describe('useDashboardData', () => {
   it('maps session_created audit log to session_start notification', async () => {
     mockAuditLogData = [makeAuditLogRow({ action: 'session_created', metadata: { agent_type: 'claude' } })];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -248,7 +285,7 @@ describe('useDashboardData', () => {
   it('maps session_deleted audit log to session_end notification', async () => {
     mockAuditLogData = [makeAuditLogRow({ action: 'session_deleted', metadata: { agent_type: 'gemini' } })];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -261,7 +298,7 @@ describe('useDashboardData', () => {
       makeAuditLogRow({ action: 'subscription_changed', metadata: { new_tier: 'pro' } }),
     ];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -274,7 +311,7 @@ describe('useDashboardData', () => {
       makeAuditLogRow({ action: 'machine_paired', metadata: { device_name: 'MacBook Pro' } }),
     ];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -288,7 +325,7 @@ describe('useDashboardData', () => {
       makeAuditLogRow({ id: 'a2', action: 'logout', metadata: null }),
     ];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -302,7 +339,7 @@ describe('useDashboardData', () => {
       makeAuditLogRow({ action: 'unknown_action' }),
     ];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -314,7 +351,7 @@ describe('useDashboardData', () => {
       makeAuditLogRow({ resource_type: 'session', resource_id: 'ses-abc' }),
     ];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -326,7 +363,7 @@ describe('useDashboardData', () => {
       makeAuditLogRow({ resource_type: 'user', resource_id: 'user-abc' }),
     ];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -338,7 +375,7 @@ describe('useDashboardData', () => {
       makeAuditLogRow({ action: 'settings_updated', metadata: {} }),
     ];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -356,7 +393,7 @@ describe('useDashboardData', () => {
       makeCostRecordRow('codex', 2.0),
     ];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -370,7 +407,7 @@ describe('useDashboardData', () => {
       makeSessionRow({ agent_type: 'claude', status: 'running' }),
     ];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -385,7 +422,7 @@ describe('useDashboardData', () => {
       makeCostRecordRow('gemini', 0.5),
     ];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -398,7 +435,7 @@ describe('useDashboardData', () => {
       makeSessionRow({ id: 's2', agent_type: 'codex', status: 'running' }),
     ];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -406,7 +443,7 @@ describe('useDashboardData', () => {
   });
 
   it('returns zero quick stats with no data', async () => {
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -423,7 +460,7 @@ describe('useDashboardData', () => {
       { device_id: 'cli-1', device_type: 'cli', active_agent: 'gemini' },
     ];
 
-    const { result } = renderHook(() => useDashboardData(null, devices as never[]));
+    const { result } = renderHook(() => useDashboardData(null, devices as never[]), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -435,7 +472,7 @@ describe('useDashboardData', () => {
       { device_id: 'mobile-1', device_type: 'mobile', active_agent: 'claude' },
     ];
 
-    const { result } = renderHook(() => useDashboardData(null, devices as never[]));
+    const { result } = renderHook(() => useDashboardData(null, devices as never[]), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -445,6 +482,18 @@ describe('useDashboardData', () => {
   // --------------------------------------------------------------------------
   // Real-Time: session_state Messages
   // --------------------------------------------------------------------------
+  //
+  // WHY use rerender pattern: These tests inject a relay message AFTER the
+  // sessions have loaded. The hook's message-processing effect (effect #3) only
+  // updates sessions that are already in the activeSessions list. If the message
+  // is present on the INITIAL render, the sessions haven't loaded yet (they're
+  // fetched asynchronously), so the effect finds no matching session and
+  // triggers a full refresh instead. After the refresh loads the sessions from
+  // the mock, the message has already been marked as processed (via the ref)
+  // and won't be re-applied.
+  //
+  // Correct flow: render with null message → wait for sessions to load →
+  // rerender with the message → verify state update.
 
   it('updates session status on session_state message', async () => {
     mockSessionsData = [makeSessionRow({ id: 's1', status: 'running' })];
@@ -455,11 +504,19 @@ describe('useDashboardData', () => {
       state: 'idle',
     });
 
-    const { result } = renderHook(() => useDashboardData(msg as never, []));
+    const { result, rerender } = renderHook(
+      ({ message }: { message: typeof msg | null }) =>
+        useDashboardData(message as never, EMPTY_DEVICES),
+      { initialProps: { message: null as typeof msg | null }, wrapper }
+    );
 
+    // Wait for sessions to load first
     await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.activeSessions[0].status).toBe('running');
 
-    // The session_state message should update the session's status
+    // Now inject the relay message
+    rerender({ message: msg });
+
     await waitFor(() => {
       const session = result.current.activeSessions.find((s) => s.id === 's1');
       expect(session?.status).toBe('idle');
@@ -475,9 +532,14 @@ describe('useDashboardData', () => {
       state: 'thinking',
     });
 
-    const { result } = renderHook(() => useDashboardData(msg as never, []));
+    const { result, rerender } = renderHook(
+      ({ message }: { message: typeof msg | null }) =>
+        useDashboardData(message as never, EMPTY_DEVICES),
+      { initialProps: { message: null as typeof msg | null }, wrapper }
+    );
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
+    rerender({ message: msg });
 
     await waitFor(() => {
       const session = result.current.activeSessions.find((s) => s.id === 's1');
@@ -494,9 +556,14 @@ describe('useDashboardData', () => {
       state: 'executing',
     });
 
-    const { result } = renderHook(() => useDashboardData(msg as never, []));
+    const { result, rerender } = renderHook(
+      ({ message }: { message: typeof msg | null }) =>
+        useDashboardData(message as never, EMPTY_DEVICES),
+      { initialProps: { message: null as typeof msg | null }, wrapper }
+    );
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
+    rerender({ message: msg });
 
     await waitFor(() => {
       const session = result.current.activeSessions.find((s) => s.id === 's1');
@@ -513,9 +580,14 @@ describe('useDashboardData', () => {
       state: 'waiting_permission',
     });
 
-    const { result } = renderHook(() => useDashboardData(msg as never, []));
+    const { result, rerender } = renderHook(
+      ({ message }: { message: typeof msg | null }) =>
+        useDashboardData(message as never, EMPTY_DEVICES),
+      { initialProps: { message: null as typeof msg | null }, wrapper }
+    );
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
+    rerender({ message: msg });
 
     await waitFor(() => {
       const session = result.current.activeSessions.find((s) => s.id === 's1');
@@ -538,9 +610,14 @@ describe('useDashboardData', () => {
       cost_usd: 0.5,
     });
 
-    const { result } = renderHook(() => useDashboardData(msg as never, []));
+    const { result, rerender } = renderHook(
+      ({ message }: { message: typeof msg | null }) =>
+        useDashboardData(message as never, EMPTY_DEVICES),
+      { initialProps: { message: null as typeof msg | null }, wrapper }
+    );
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
+    rerender({ message: msg });
 
     // Cost should be initial 1.0 + incremental 0.5 = 1.5
     await waitFor(() => {
@@ -558,9 +635,14 @@ describe('useDashboardData', () => {
       cost_usd: 0.5,
     });
 
-    const { result } = renderHook(() => useDashboardData(msg as never, []));
+    const { result, rerender } = renderHook(
+      ({ message }: { message: typeof msg | null }) =>
+        useDashboardData(message as never, EMPTY_DEVICES),
+      { initialProps: { message: null as typeof msg | null }, wrapper }
+    );
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
+    rerender({ message: msg });
 
     await waitFor(() => {
       const session = result.current.activeSessions.find((s) => s.id === 's1');
@@ -582,9 +664,14 @@ describe('useDashboardData', () => {
       description: 'Run npm install',
     });
 
-    const { result } = renderHook(() => useDashboardData(msg as never, []));
+    const { result, rerender } = renderHook(
+      ({ message }: { message: typeof msg | null }) =>
+        useDashboardData(message as never, EMPTY_DEVICES),
+      { initialProps: { message: null as typeof msg | null }, wrapper }
+    );
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
+    rerender({ message: msg });
 
     await waitFor(() => {
       const session = result.current.activeSessions.find((s) => s.id === 's1');
@@ -611,8 +698,8 @@ describe('useDashboardData', () => {
     }, 'same-msg-id');
 
     const { result, rerender } = renderHook(
-      ({ message }) => useDashboardData(message as never, []),
-      { initialProps: { message: msg } }
+      ({ message }) => useDashboardData(message as never, EMPTY_DEVICES),
+      { initialProps: { message: msg }, wrapper }
     );
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -631,7 +718,7 @@ describe('useDashboardData', () => {
   it('refresh re-fetches all data', async () => {
     mockSessionsData = [makeSessionRow()];
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.activeSessions).toHaveLength(1);
@@ -656,7 +743,7 @@ describe('useDashboardData', () => {
   it('handles fetch errors gracefully', async () => {
     mockQueryError = { message: 'Network error' };
 
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -670,7 +757,7 @@ describe('useDashboardData', () => {
   // --------------------------------------------------------------------------
 
   it('includes all five agent types in default status', async () => {
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -682,7 +769,7 @@ describe('useDashboardData', () => {
   });
 
   it('all agents default to offline with zero cost', async () => {
-    const { result } = renderHook(() => useDashboardData(null, []));
+    const { result } = renderHook(() => useDashboardData(null, EMPTY_DEVICES), { wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
