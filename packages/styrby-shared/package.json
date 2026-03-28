@@ -16,6 +16,10 @@
     "./relay": {
       "types": "./dist/relay/index.d.ts",
       "import": "./dist/relay/index.js"
+    },
+    "./pricing": {
+      "types": "./dist/pricing/index.d.ts",
+      "import": "./dist/pricing/index.js"
     }
   },
   "scripts": {

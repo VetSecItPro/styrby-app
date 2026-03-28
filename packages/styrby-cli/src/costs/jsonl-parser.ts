@@ -10,10 +10,10 @@ import * as path from 'path';
 import * as os from 'os';
 import * as readline from 'readline';
 import type { AgentType } from 'styrby-shared';
-// WHY: Import pricing directly from subpath, not the barrel export.
+// WHY: Import from the dedicated ./pricing subpath, NOT the barrel export.
 // litellm-pricing uses Node.js builtins (node:path, node:os) that break
 // webpack in the web package if re-exported from styrby-shared's barrel.
-import { getModelPriceSync, getModelPrice, type ModelPrice } from 'styrby-shared/src/pricing/litellm-pricing.js';
+import { getModelPriceSync, getModelPrice, type ModelPrice } from '@styrby/shared/pricing';
 
 /**
  * Legacy static pricing map — kept for backward compatibility only.

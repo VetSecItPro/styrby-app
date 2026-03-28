@@ -24,7 +24,8 @@
     "baseUrl": "./src",
     "paths": {
       "@/*": ["./*"],
-      "styrby-shared": ["../../styrby-shared/dist"]
+      "styrby-shared": ["../../styrby-shared/dist"],
+      "@styrby/shared/pricing": ["../../styrby-shared/dist/pricing/index"]
     }
   },
   "include": ["src/**/*"],
