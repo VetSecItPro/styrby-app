@@ -10,8 +10,8 @@ const steps = [
   },
   {
     number: "02",
-    title: "Scan the QR Code",
-    description: "Pair your phone or browser to your machine. No account forms, no email verification. Just scan and go.",
+    title: "Sign In and Pair",
+    description: "Sign in with GitHub or email, then scan the QR code to connect your phone. The CLI walks you through it.",
     icon: QrCode,
     code: null,
   },
