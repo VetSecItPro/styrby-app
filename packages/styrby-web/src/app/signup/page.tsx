@@ -1,23 +1,21 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Github } from 'lucide-react';
+import { Github, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Footer } from '@/components/landing/footer';
+import { isDisposableEmail, DISPOSABLE_EMAIL_ERROR } from '@/lib/disposable-emails';
 
 /**
- * Sign up page wrapper - provides Suspense boundary for useSearchParams().
- *
- * WHY Suspense: Next.js requires useSearchParams() to be wrapped in a
- * Suspense boundary for static generation. Without it, the build fails
- * because the page cannot be prerendered.
+ * Sign up page wrapper with Suspense boundary for useSearchParams().
  */
 export default function SignUpPage() {
   return (
@@ -32,96 +30,149 @@ export default function SignUpPage() {
 }
 
 /**
- * Sign up page inner content - creates a new Styrby account.
+ * Minimum milliseconds between OTP requests.
+ */
+const OTP_COOLDOWN_MS = 30_000;
+
+/**
+ * Sign up page with OTP-based account creation.
  *
- * WHY email/password + GitHub: Unlike login (magic link), signup collects
- * a password for users who prefer credential-based auth. GitHub OAuth is
- * offered as an alternative for frictionless onboarding.
+ * WHY OTP instead of password: Login uses OTP (6-digit code via email).
+ * If signup collected a password, it would never be used again since
+ * login is passwordless. Removing the password field reduces friction
+ * and keeps one consistent auth pattern across the app.
  *
- * Supports ?plan=pro or ?plan=power query param. When present, the post-signup
- * redirect goes to /dashboard?plan=X, which triggers the Polar checkout flow
- * after the user confirms their email.
+ * Flow: enter name + email, agree to terms, receive OTP, type code, done.
  */
 function SignUpPageInner() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [step, setStep] = useState<'info' | 'otp'>('info');
   const [agreed, setAgreed] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [lastSentAt, setLastSentAt] = useState(0);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const otpInputRef = useRef<HTMLInputElement>(null);
+
   const searchParams = useSearchParams();
   const plan = searchParams.get('plan');
   const redirectPath = plan ? `/dashboard?plan=${plan}` : '/dashboard';
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
+  const router = useRouter();
   const supabase = createClient();
 
   /**
-   * Validates password strength beyond the HTML minLength=8 attribute.
-   *
-   * WHY: Supabase Auth accepts any 8+ char password, but weak passwords
-   * (all lowercase, no digits) are trivially brute-forced. Checking
-   * client-side gives instant feedback without a server round-trip.
-   *
-   * @param pw - The password to validate
-   * @returns Error message if invalid, or null if valid
+   * Step 1: Send OTP to create the account.
+   * Uses signInWithOtp with shouldCreateUser: true.
    */
-  function validatePassword(pw: string): string | null {
-    if (pw.length < 8) return 'Password must be at least 8 characters.';
-    if (!/[A-Z]/.test(pw)) return 'Password must include an uppercase letter.';
-    if (!/[a-z]/.test(pw)) return 'Password must include a lowercase letter.';
-    if (!/[0-9]/.test(pw)) return 'Password must include a number.';
-    return null;
-  }
-
-  /**
-   * Creates a new account with email and password.
-   *
-   * @param e - Form submit event
-   */
-  async function handleSignUp(e: React.FormEvent) {
+  async function handleSendOtp(e: React.FormEvent) {
     e.preventDefault();
+
+    if (isDisposableEmail(email)) {
+      setMessage({ type: 'error', text: DISPOSABLE_EMAIL_ERROR });
+      return;
+    }
 
     if (!agreed) {
       setMessage({ type: 'error', text: 'Please agree to the Terms of Service and Privacy Policy.' });
       return;
     }
 
-    const passwordError = validatePassword(password);
-    if (passwordError) {
-      setMessage({ type: 'error', text: passwordError });
+    const now = Date.now();
+    if (now - lastSentAt < OTP_COOLDOWN_MS) {
+      const secsLeft = Math.ceil((OTP_COOLDOWN_MS - (now - lastSentAt)) / 1000);
+      setMessage({ type: 'error', text: `Please wait ${secsLeft}s before requesting another code.` });
       return;
     }
 
     setLoading(true);
     setMessage(null);
 
-    const { error } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signInWithOtp({
       email,
-      password,
       options: {
+        shouldCreateUser: true,
         data: {
           full_name: name,
         },
-        emailRedirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirectPath)}`,
       },
     });
 
     if (error) {
       setMessage({ type: 'error', text: error.message });
     } else {
+      setLastSentAt(Date.now());
+      setStep('otp');
       setMessage({
         type: 'success',
-        text: plan
-          ? `Check your email to confirm your account. After confirming, you'll be redirected to complete your ${plan.charAt(0).toUpperCase() + plan.slice(1)} checkout.`
-          : 'Check your email to confirm your account!',
+        text: 'Check your email for a 6-digit verification code.',
       });
+      setTimeout(() => otpInputRef.current?.focus(), 100);
     }
 
     setLoading(false);
   }
 
   /**
-   * Initiates GitHub OAuth flow for signup.
+   * Step 2: Verify the OTP code to complete account creation.
+   */
+  async function handleVerifyOtp(e: React.FormEvent) {
+    e.preventDefault();
+
+    if (otpCode.length !== 6) {
+      setMessage({ type: 'error', text: 'Please enter the full 6-digit code.' });
+      return;
+    }
+
+    setLoading(true);
+    setMessage(null);
+
+    const { error } = await supabase.auth.verifyOtp({
+      email,
+      token: otpCode,
+      type: 'email',
+    });
+
+    if (error) {
+      setMessage({ type: 'error', text: 'Invalid or expired code. Please try again.' });
+      setLoading(false);
+    } else {
+      router.push(redirectPath);
+    }
+  }
+
+  /**
+   * Resend the OTP code.
+   */
+  async function handleResendOtp() {
+    const now = Date.now();
+    if (now - lastSentAt < OTP_COOLDOWN_MS) {
+      const secsLeft = Math.ceil((OTP_COOLDOWN_MS - (now - lastSentAt)) / 1000);
+      setMessage({ type: 'error', text: `Please wait ${secsLeft}s before requesting another code.` });
+      return;
+    }
+
+    setMessage(null);
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        shouldCreateUser: true,
+        data: { full_name: name },
+      },
+    });
+
+    if (error) {
+      setMessage({ type: 'error', text: error.message });
+    } else {
+      setLastSentAt(Date.now());
+      setOtpCode('');
+      setMessage({ type: 'success', text: 'New code sent. Check your email.' });
+    }
+  }
+
+  /**
+   * GitHub OAuth signup.
    */
   async function handleGitHubSignUp() {
     if (!agreed) {
@@ -148,7 +199,6 @@ function SignUpPageInner() {
   return (
     <div className="flex min-h-screen flex-col">
       <div className="flex flex-1 items-center justify-center px-4">
-        {/* Background effects */}
         <div className="fixed inset-0 -z-10" />
         <div className="fixed left-1/2 top-1/3 -z-10 h-[400px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-500/5 blur-[120px]" />
 
@@ -157,29 +207,33 @@ function SignUpPageInner() {
             {/* Logo */}
             <div className="mb-8 flex flex-col items-center">
               <div className="mb-4 flex items-center gap-2">
-                <Image src="/logo.png" alt="Styrby" width={32} height={32} className="h-8 w-8 " />
+                <Image src="/icon-512.png" alt="Styrby" width={32} height={32} className="h-8 w-8 rounded-md" />
                 <span className="text-xl font-bold text-foreground">Styrby</span>
               </div>
               <h1 className="text-2xl font-bold text-foreground">
-                {plan === 'pro'
+                {step === 'otp'
+                  ? 'Verify your email'
+                  : plan === 'pro'
                   ? 'Create your Pro account'
                   : plan === 'power'
                   ? 'Create your Power account'
                   : 'Create your free account'}
               </h1>
               <p className="mt-1 text-xs text-muted-foreground text-center">
-                {plan
-                  ? 'Confirm your email, then complete checkout'
+                {step === 'otp'
+                  ? `We sent a 6-digit code to ${email}`
+                  : plan
+                  ? 'Verify your email, then complete checkout'
                   : 'You can upgrade to Pro or Power anytime'}
               </p>
-              {plan && (
+              {plan && step === 'info' && (
                 <span className="mt-2 inline-flex items-center rounded-full bg-amber-500/10 border border-amber-500/20 px-3 py-0.5 text-xs font-medium text-amber-500">
                   {plan.charAt(0).toUpperCase() + plan.slice(1)} Plan
                 </span>
               )}
             </div>
 
-            {/* Message display */}
+            {/* Message */}
             {message && (
               <div
                 role="alert"
@@ -193,90 +247,128 @@ function SignUpPageInner() {
               </div>
             )}
 
-            {/* Sign up form */}
-            <form onSubmit={handleSignUp} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="name" className="text-foreground">Full name</Label>
-                <Input
-                  id="name"
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Alex Morgan"
-                  required
-                  autoComplete="name"
-                  className="bg-secondary/60 border-border/60 text-foreground placeholder:text-muted-foreground focus-visible:ring-amber-500"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email" className="text-foreground">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  required
-                  autoComplete="email"
-                  className="bg-secondary/60 border-border/60 text-foreground placeholder:text-muted-foreground focus-visible:ring-amber-500"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password" className="text-foreground">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Create a strong password"
-                  required
-                  minLength={8}
-                  autoComplete="new-password"
-                  className="bg-secondary/60 border-border/60 text-foreground placeholder:text-muted-foreground focus-visible:ring-amber-500"
-                />
-              </div>
+            {step === 'info' ? (
+              <>
+                {/* Name + Email form */}
+                <form onSubmit={handleSendOtp} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name" className="text-foreground">Full name</Label>
+                    <Input
+                      id="name"
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Alex Morgan"
+                      required
+                      autoComplete="name"
+                      className="bg-secondary/60 border-border/60 text-foreground placeholder:text-muted-foreground focus-visible:ring-amber-500"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email" className="text-foreground">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      required
+                      autoComplete="email"
+                      className="bg-secondary/60 border-border/60 text-foreground placeholder:text-muted-foreground focus-visible:ring-amber-500"
+                    />
+                  </div>
 
-              <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-secondary/30 p-3">
-                <Checkbox
-                  id="terms"
-                  checked={agreed}
-                  onCheckedChange={(checked) => setAgreed(checked === true)}
-                  className="mt-0.5 h-5 w-5 border-2 border-zinc-500 data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500 data-[state=checked]:text-background"
-                />
-                <Label htmlFor="terms" className="text-sm text-muted-foreground leading-relaxed cursor-pointer">
-                  I agree to the{' '}
-                  <Link href="/terms" className="text-amber-500 hover:text-amber-400 transition-colors">Terms of Service</Link>
-                  {' '}and{' '}
-                  <Link href="/privacy" className="text-amber-500 hover:text-amber-400 transition-colors">Privacy Policy</Link>
-                </Label>
-              </div>
+                  <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-secondary/30 p-3">
+                    <Checkbox
+                      id="terms"
+                      checked={agreed}
+                      onCheckedChange={(checked) => setAgreed(checked === true)}
+                      className="mt-0.5 h-5 w-5 border-2 border-zinc-500 data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500 data-[state=checked]:text-background"
+                    />
+                    <Label htmlFor="terms" className="text-sm text-muted-foreground leading-relaxed cursor-pointer">
+                      I agree to the{' '}
+                      <Link href="/terms" className="text-amber-500 hover:text-amber-400 transition-colors">Terms of Service</Link>
+                      {' '}and{' '}
+                      <Link href="/privacy" className="text-amber-500 hover:text-amber-400 transition-colors">Privacy Policy</Link>
+                    </Label>
+                  </div>
 
-              <Button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-amber-500 text-background hover:bg-amber-600 font-medium"
-              >
-                {loading ? 'Creating account...' : 'Create Account'}
-              </Button>
-            </form>
+                  <Button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full bg-amber-500 text-background hover:bg-amber-600 font-medium gap-2"
+                  >
+                    <Mail className="h-4 w-4" />
+                    {loading ? 'Sending...' : 'Continue with Email'}
+                  </Button>
+                </form>
 
-            {/* Divider */}
-            <div className="my-6 flex items-center gap-3">
-              <div className="h-px flex-1 bg-border/40" />
-              <span className="text-xs text-muted-foreground">or continue with</span>
-              <div className="h-px flex-1 bg-border/40" />
-            </div>
+                {/* Divider */}
+                <div className="my-6 flex items-center gap-3">
+                  <div className="h-px flex-1 bg-border/40" />
+                  <span className="text-xs text-muted-foreground">or continue with</span>
+                  <div className="h-px flex-1 bg-border/40" />
+                </div>
 
-            {/* OAuth */}
-            <Button
-              variant="outline"
-              onClick={handleGitHubSignUp}
-              disabled={loading}
-              className="w-full gap-2 border-border/60 text-foreground bg-transparent hover:bg-accent"
-            >
-              <Github className="h-4 w-4" />
-              Continue with GitHub
-            </Button>
+                {/* GitHub OAuth */}
+                <Button
+                  variant="outline"
+                  onClick={handleGitHubSignUp}
+                  disabled={loading}
+                  className="w-full gap-2 border-border/60 text-foreground bg-transparent hover:bg-accent"
+                >
+                  <Github className="h-4 w-4" />
+                  Continue with GitHub
+                </Button>
+              </>
+            ) : (
+              <>
+                {/* OTP verification */}
+                <form onSubmit={handleVerifyOtp} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="otp" className="text-foreground">6-digit code</Label>
+                    <Input
+                      ref={otpInputRef}
+                      id="otp"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]{6}"
+                      maxLength={6}
+                      value={otpCode}
+                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="000000"
+                      required
+                      autoComplete="one-time-code"
+                      className="bg-secondary/60 border-border/60 text-foreground placeholder:text-muted-foreground focus-visible:ring-amber-500 text-center text-2xl font-mono tracking-[0.3em]"
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    disabled={loading || otpCode.length !== 6}
+                    className="w-full bg-amber-500 text-background hover:bg-amber-600 font-medium"
+                  >
+                    {loading ? 'Verifying...' : 'Create Account'}
+                  </Button>
+                </form>
+
+                <div className="mt-4 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => { setStep('info'); setOtpCode(''); setMessage(null); }}
+                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Use a different email
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResendOtp}
+                    className="text-sm text-amber-500 hover:text-amber-400 transition-colors"
+                  >
+                    Resend code
+                  </button>
+                </div>
+              </>
+            )}
 
             {/* Bottom link */}
             <p className="mt-6 text-center text-sm text-muted-foreground">
