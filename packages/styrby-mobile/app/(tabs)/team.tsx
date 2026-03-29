@@ -34,6 +34,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTeamManagement } from '../../src/hooks/useTeamManagement';
 import { supabase } from '../../src/lib/supabase';
+import { SITE_URLS } from '../../src/lib/config';
 import { SubscriptionTierRowSchema } from '../../src/lib/schemas';
 import type { ValidatedTeamMember, ValidatedTeamInvitation } from '../../src/lib/schemas';
 import type { SubscriptionTier } from 'styrby-shared';
@@ -244,7 +245,7 @@ function InvitationCard({ invitation }: { invitation: ValidatedTeamInvitation })
 const POLAR_CUSTOMER_PORTAL_URL = 'https://polar.sh/styrby/portal';
 
 /** Pricing page URL for users who want to learn more before upgrading. */
-const PRICING_URL = 'https://styrbyapp.com/pricing';
+const PRICING_URL = SITE_URLS.pricing;
 
 /**
  * Power plan price displayed in the upgrade prompt.

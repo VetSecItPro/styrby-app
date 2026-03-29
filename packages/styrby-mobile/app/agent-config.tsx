@@ -1,9 +1,9 @@
 /**
  * Agent Configuration Screen
  *
- * Dynamic screen that accepts an `agent` route param ('claude' | 'codex' | 'gemini')
- * and displays per-agent settings: model selection, auto-approve rules, blocked tools,
- * cost limits, and custom system prompts.
+ * Dynamic screen that accepts an `agent` route param (any of the 11 supported
+ * AgentType values) and displays per-agent settings: model selection,
+ * auto-approve rules, blocked tools, cost limits, and custom system prompts.
  *
  * Data is persisted to the Supabase `agent_configs` table. On mount, fetches the
  * existing config for the user+agent combo, or shows defaults if none exists. Tracks
@@ -27,16 +27,23 @@ import {
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../src/lib/supabase';
+import type { AgentType } from 'styrby-shared';
 
 // ============================================================================
 // Constants & Types
 // ============================================================================
 
 /**
- * Union type for supported agent identifiers.
- * Maps 1:1 with the Supabase `agent_type` enum.
+ * All supported agent identifiers, in display order.
+ * Drives both AGENT_META lookups and the route-param validation guard below.
+ *
+ * WHY: Defined as a const array so we can use `.includes()` for runtime
+ * validation of the untrusted `agent` URL param without duplicating the union.
  */
-type AgentType = 'claude' | 'codex' | 'gemini';
+const ALL_AGENT_IDS: AgentType[] = [
+  'claude', 'codex', 'gemini', 'opencode', 'aider',
+  'goose', 'amp', 'crush', 'kilo', 'kiro', 'droid',
+];
 
 /**
  * Metadata for each agent type: display name, brand color, Ionicons icon name,
@@ -57,6 +64,9 @@ interface AgentMeta {
  * WHY: We define agent metadata statically because the list of supported agents
  * and their models is fixed at build time. This avoids a network round-trip and
  * ensures the UI renders immediately while the config loads from Supabase.
+ *
+ * Model lists reflect each agent's current default/supported models as of the
+ * Styrby 1.0 launch. Update when providers release new models.
  */
 const AGENT_META: Record<AgentType, AgentMeta> = {
   claude: {
@@ -72,10 +82,69 @@ const AGENT_META: Record<AgentType, AgentMeta> = {
     models: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'],
   },
   gemini: {
-    displayName: 'Gemini',
+    displayName: 'Gemini CLI',
     color: '#3b82f6',
     icon: 'terminal',
     models: ['gemini-2.5-pro', 'gemini-2.5-flash'],
+  },
+  opencode: {
+    displayName: 'OpenCode',
+    color: '#8b5cf6',
+    icon: 'code-working',
+    models: ['gpt-4o', 'claude-sonnet-4', 'gemini-2.5-pro'],
+  },
+  aider: {
+    displayName: 'Aider',
+    color: '#ec4899',
+    icon: 'people',
+    // WHY: Aider supports any OpenAI-compatible or Anthropic model via --model flag.
+    // We list the most commonly-used defaults to cover 90% of user setups.
+    models: ['claude-sonnet-4', 'gpt-4o', 'gemini-2.5-pro'],
+  },
+  goose: {
+    displayName: 'Goose',
+    color: '#14b8a6',
+    icon: 'git-network',
+    models: ['claude-sonnet-4', 'gpt-4o', 'gemini-2.5-pro'],
+  },
+  amp: {
+    displayName: 'Amp',
+    color: '#f59e0b',
+    icon: 'layers',
+    models: ['claude-sonnet-4', 'claude-opus-4', 'gpt-4o'],
+  },
+  crush: {
+    displayName: 'Crush',
+    color: '#f43f5e',
+    icon: 'terminal',
+    // WHY: Crush is Charmbracelet's ACP-compatible CLI agent — supports the same
+    // Anthropic model IDs as Claude Code since it routes through the Anthropic API.
+    models: ['claude-sonnet-4', 'claude-opus-4', 'claude-haiku-3.5'],
+  },
+  kilo: {
+    displayName: 'Kilo',
+    color: '#0ea5e9',
+    icon: 'server',
+    // WHY: Kilo supports 500+ models. We list the most popular defaults; users
+    // can type a custom model ID if their preferred model isn't listed.
+    models: ['claude-sonnet-4', 'gpt-4o', 'gemini-2.5-pro', 'o3-mini'],
+  },
+  kiro: {
+    displayName: 'Kiro',
+    color: '#f97316',
+    icon: 'cloud',
+    // WHY: Kiro is an AWS-backed agent using per-prompt credits. Model choice
+    // affects credit cost, so we list all available tiers.
+    models: ['claude-sonnet-4', 'claude-haiku-3.5'],
+  },
+  droid: {
+    displayName: 'Droid',
+    color: '#64748b',
+    icon: 'swap-horizontal',
+    // WHY: Droid is a BYOK (bring-your-own-key) multi-backend agent. The models
+    // listed are common starting points; the user configures their actual backend
+    // in Droid's own settings.
+    models: ['gpt-4o', 'claude-sonnet-4', 'gemini-2.5-pro', 'gpt-4o-mini'],
   },
 };
 
@@ -405,12 +474,13 @@ export default function AgentConfigScreen() {
   // --------------------------------------------------------------------------
 
   /**
-   * WHY: We cast the route param to AgentType after validation. If the param
-   * is missing or invalid (e.g., a typo in a deep link), we fall back to 'claude'
-   * to avoid crashing, but this should never happen in normal app flow.
+   * WHY: We cast the route param to AgentType after validating it against
+   * ALL_AGENT_IDS. If the param is missing or invalid (e.g., a typo in a
+   * deep link), we fall back to 'claude' to avoid crashing. In normal app
+   * flow this guard should never trigger — AgentSelector only emits valid ids.
    */
   const agentType: AgentType =
-    params.agent && ['claude', 'codex', 'gemini'].includes(params.agent)
+    params.agent && (ALL_AGENT_IDS as string[]).includes(params.agent)
       ? (params.agent as AgentType)
       : 'claude';
 

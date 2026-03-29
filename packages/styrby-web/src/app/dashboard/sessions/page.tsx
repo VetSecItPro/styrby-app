@@ -44,29 +44,44 @@ export default async function SessionsPage() {
     redirect('/login');
   }
 
-  // Fetch initial page of sessions (newest first), scoped to the current user.
-  // WHY: The initial query is always user-scoped. Team scope is toggled client-side
-  // which triggers a separate fetch from the SessionsFilter component.
-  const { data: sessions } = await supabase
-    .from('sessions')
-    .select('id, title, agent_type, status, total_cost_usd, message_count, created_at, summary, tags')
-    .eq('user_id', user.id)
-    .is('deleted_at', null)
-    .order('created_at', { ascending: false })
-    .limit(INITIAL_PAGE_SIZE);
+  // Fetch initial page of sessions, bookmark IDs, and team membership in
+  // parallel to keep SSR as fast as possible.
+  const [sessionsResult, bookmarksResult, teamCountResult] = await Promise.all([
+    supabase
+      .from('sessions')
+      .select('id, title, agent_type, status, total_cost_usd, message_count, created_at, summary, tags')
+      .eq('user_id', user.id)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(INITIAL_PAGE_SIZE),
 
-  // Check if the user belongs to a team (determines whether scope filter is shown).
-  // WHY: The scope filter (My Sessions / Team Sessions) should only be visible
-  // to users who actually have a team. We check for any session with a non-null
-  // team_id as a lightweight proxy - no separate team membership table needed.
-  const { count: teamSessionCount } = await supabase
-    .from('sessions')
-    .select('id', { count: 'exact', head: true })
-    .not('team_id', 'is', null)
-    .eq('user_id', user.id)
-    .limit(1);
+    // WHY: We fetch only the session_id from bookmarks so the client can
+    // initialise star icons without a client-side round-trip. Capped at 200
+    // because even Power tier users have at most unlimited bookmarks but we
+    // only show INITIAL_PAGE_SIZE sessions; this is a reasonable upper bound.
+    supabase
+      .from('session_bookmarks')
+      .select('session_id')
+      .eq('user_id', user.id)
+      .limit(200),
 
-  const hasTeam = (teamSessionCount ?? 0) > 0;
+    // Check if the user belongs to a team (determines whether scope filter is shown).
+    // WHY: The scope filter (My Sessions / Team Sessions) should only be visible
+    // to users who actually have a team. We check for any session with a non-null
+    // team_id as a lightweight proxy - no separate team membership table needed.
+    supabase
+      .from('sessions')
+      .select('id', { count: 'exact', head: true })
+      .not('team_id', 'is', null)
+      .eq('user_id', user.id)
+      .limit(1),
+  ]);
+
+  const sessions = sessionsResult.data;
+  const hasTeam = (teamCountResult.count ?? 0) > 0;
+  const bookmarkedIds = new Set(
+    (bookmarksResult.data ?? []).map((b) => b.session_id as string)
+  );
 
   return (
     <SessionsRealtime
@@ -74,6 +89,7 @@ export default async function SessionsPage() {
       userId={user.id}
       hasTeam={hasTeam}
       initialHasMore={(sessions?.length ?? 0) >= INITIAL_PAGE_SIZE}
+      initialBookmarkedIds={bookmarkedIds}
     />
   );
 }

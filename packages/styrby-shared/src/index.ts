@@ -25,7 +25,11 @@ export * as errors from './errors/index.js';
 // Re-export utilities
 export * from './utils/index.js';
 
-// WHY: Pricing module is NOT re-exported from the barrel.
+// WHY: The full pricing module is NOT re-exported from the barrel.
 // litellm-pricing.ts uses Node.js builtins (node:path, node:os, node:fs, node:crypto)
 // which break webpack/Next.js client bundles. Import directly from
 // '@styrby/shared/pricing' or 'styrby-shared/src/pricing' in CLI code only.
+//
+// The static-pricing subset IS safe for all environments and is re-exported here.
+export type { ModelProvider, ModelPricingEntry } from './pricing/static-pricing.js';
+export { MODEL_PRICING_TABLE, PROVIDER_DISPLAY_NAMES, STATIC_PRICING_LAST_VERIFIED } from './pricing/static-pricing.js';

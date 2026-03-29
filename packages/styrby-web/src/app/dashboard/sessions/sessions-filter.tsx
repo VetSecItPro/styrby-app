@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { SessionBookmarkButton } from './[id]/session-bookmark-button';
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -36,6 +37,11 @@ interface SessionsFilterProps {
   hasTeam: boolean;
   /** Whether there are more sessions beyond the initial page */
   initialHasMore: boolean;
+  /**
+   * Set of session IDs that the user has bookmarked, fetched during SSR.
+   * Used for the initial state of star icons and the Bookmarked filter.
+   */
+  initialBookmarkedIds: Set<string>;
 }
 
 /**
@@ -223,10 +229,13 @@ export function SessionsFilter({
   userId,
   hasTeam,
   initialHasMore,
+  initialBookmarkedIds,
 }: SessionsFilterProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [agentFilter, setAgentFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState('all');
+  /** When true, only sessions that the user has bookmarked are shown. */
+  const [showBookmarkedOnly, setShowBookmarkedOnly] = useState(false);
   const [scope, setScope] = useState<SessionScope>('mine');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -272,13 +281,26 @@ export function SessionsFilter({
   const debouncedSearch = useDebouncedValue(searchQuery, 300);
 
   /**
-   * Filters sessions by agent type, tag, and debounced search query.
-   * Search matches against title, summary, and tags (case-insensitive).
+   * Filters sessions by bookmarked state, agent type, tag, and debounced
+   * search query.
+   *
+   * WHY bookmark filter: The `initialBookmarkedIds` set was fetched during SSR,
+   * so no extra client-side fetch is needed to show "Bookmarked" sessions in
+   * the list. For newly bookmarked sessions in this same page view we rely on
+   * the optimistic star toggle in SessionBookmarkButton (visual only); the
+   * filter reflects the SSR snapshot and refreshes on next page load.
    *
    * @returns Filtered session array matching all active criteria
    */
   const filteredSessions = useMemo(() => {
     let result = allSessions;
+
+    // Filter by bookmark state
+    if (showBookmarkedOnly) {
+      result = result.filter((session) =>
+        initialBookmarkedIds.has(session.id)
+      );
+    }
 
     // Filter by agent type
     if (agentFilter !== 'all') {
@@ -309,7 +331,7 @@ export function SessionsFilter({
     }
 
     return result;
-  }, [allSessions, agentFilter, tagFilter, debouncedSearch]);
+  }, [allSessions, showBookmarkedOnly, initialBookmarkedIds, agentFilter, tagFilter, debouncedSearch]);
 
   /**
    * Groups filtered sessions by their creation date for display.
@@ -330,10 +352,15 @@ export function SessionsFilter({
     setSearchQuery('');
     setAgentFilter('all');
     setTagFilter('all');
+    setShowBookmarkedOnly(false);
     inputRef.current?.focus();
   }, []);
 
-  const hasActiveFilters = searchQuery.trim() !== '' || agentFilter !== 'all' || tagFilter !== 'all';
+  const hasActiveFilters =
+    searchQuery.trim() !== '' ||
+    agentFilter !== 'all' ||
+    tagFilter !== 'all' ||
+    showBookmarkedOnly;
 
   // ── Scope switching ──
 
@@ -506,6 +533,38 @@ export function SessionsFilter({
                 </button>
               )}
             </div>
+
+            {/* Bookmarked filter toggle */}
+            {/* WHY: A toggle button is used instead of a select/checkbox so the
+                "Bookmarked" filter visually matches the scope filter tabs for
+                consistency. The star icon provides immediate visual affordance
+                for what the filter does. */}
+            <button
+              onClick={() => setShowBookmarkedOnly((prev) => !prev)}
+              aria-pressed={showBookmarkedOnly}
+              aria-label={
+                showBookmarkedOnly
+                  ? 'Showing bookmarked sessions — click to show all'
+                  : 'Show only bookmarked sessions'
+              }
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                showBookmarkedOnly
+                  ? 'border-orange-500/50 bg-orange-500/10 text-orange-400'
+                  : 'border-zinc-700 bg-zinc-900 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
+              }`}
+            >
+              {/* Filled star when active, outline when inactive */}
+              {showBookmarkedOnly ? (
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                </svg>
+              ) : (
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                </svg>
+              )}
+              Bookmarked
+            </button>
 
             <select
               value={agentFilter}
@@ -696,6 +755,12 @@ export function SessionsFilter({
                       </div>
 
                       <div className="flex flex-col items-end gap-1 text-sm text-zinc-500 ml-4">
+                        {/* Bookmark star — click to toggle without navigating to detail */}
+                        <SessionBookmarkButton
+                          sessionId={session.id}
+                          initialBookmarked={initialBookmarkedIds.has(session.id)}
+                          size="sm"
+                        />
                         <span>{session.message_count} messages</span>
                         <span>
                           ${Number(session.total_cost_usd).toFixed(4)}

@@ -86,7 +86,8 @@ const AGENT_CONFIG: Record<AgentType, { name: string; color: string; bgColor: st
   opencode: { name: 'OpenCode', color: '#8b5cf6', bgColor: 'rgba(139, 92, 246, 0.1)' },
   aider: { name: 'Aider', color: '#ec4899', bgColor: 'rgba(236, 72, 153, 0.1)' },
   // WHY goose/amp/crush/kilo/kiro/droid: AgentType was extended in styrby-shared to include these agents.
-  goose: { name: 'Goose', color: '#06b6d4', bgColor: 'rgba(6, 182, 212, 0.1)' },
+  // Color aligned with AgentSelector.tsx (#14b8a6 teal-500 — previously #06b6d4 was an inconsistency).
+  goose: { name: 'Goose', color: '#14b8a6', bgColor: 'rgba(20, 184, 166, 0.1)' },
   amp: { name: 'Amp', color: '#f59e0b', bgColor: 'rgba(245, 158, 11, 0.1)' },
   crush: { name: 'Crush', color: '#f43f5e', bgColor: 'rgba(244, 63, 94, 0.1)' },
   kilo: { name: 'Kilo', color: '#0ea5e9', bgColor: 'rgba(14, 165, 233, 0.1)' },
@@ -95,10 +96,15 @@ const AGENT_CONFIG: Record<AgentType, { name: string; color: string; bgColor: st
 };
 
 /**
- * Only these agents are shown in the selector bar for now.
- * WHY: opencode and aider are not yet integrated into the CLI relay.
+ * All agents available for selection in the chat header picker.
+ * WHY: All 11 AgentType values are now fully supported by the CLI relay.
+ * The list matches AgentSelector.tsx's ALL_AGENTS constant so both
+ * picker surfaces stay in sync.
  */
-const SELECTABLE_AGENTS: AgentType[] = ['claude', 'codex', 'gemini'];
+const SELECTABLE_AGENTS: AgentType[] = [
+  'claude', 'codex', 'gemini', 'opencode', 'aider',
+  'goose', 'amp', 'crush', 'kilo', 'kiro', 'droid',
+];
 
 /**
  * Placeholder shown when a message cannot be decrypted.
@@ -619,6 +625,7 @@ export default function ChatScreen() {
           riskLevel: p.risk_level,
           timestamp: p.expires_at,
           filePath: p.affected_files?.[0],
+          nonce: p.nonce,
         };
         setPendingPermissions((prev) => [...prev, permData]);
 
@@ -802,6 +809,7 @@ export default function ChatScreen() {
           payload: {
             request_id: id,
             approved: true,
+            request_nonce: permission.nonce,
           },
         });
 
@@ -838,6 +846,7 @@ export default function ChatScreen() {
           payload: {
             request_id: id,
             approved: false,
+            request_nonce: permission.nonce,
           },
         });
 

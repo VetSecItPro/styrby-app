@@ -16,22 +16,19 @@ describe('Runtime Detection', () => {
         }
     });
 
-    it('detects Bun runtime correctly', () => {
-        if (process.versions.bun) {
-            expect(getRuntime()).toBe('bun');
-            expect(isNode()).toBe(false);
-            expect(isBun()).toBe(true);
-            expect(isDeno()).toBe(false);
-        }
+    // WHY: skipIf makes the skip visible in CI output instead of silently passing
+    it.skipIf(!process.versions.bun)('detects Bun runtime correctly', () => {
+        expect(getRuntime()).toBe('bun');
+        expect(isNode()).toBe(false);
+        expect(isBun()).toBe(true);
+        expect(isDeno()).toBe(false);
     });
 
-    it('detects Deno runtime correctly', () => {
-        if (process.versions.deno) {
-            expect(getRuntime()).toBe('deno');
-            expect(isNode()).toBe(false);
-            expect(isBun()).toBe(false);
-            expect(isDeno()).toBe(true);
-        }
+    it.skipIf(!process.versions.deno)('detects Deno runtime correctly', () => {
+        expect(getRuntime()).toBe('deno');
+        expect(isNode()).toBe(false);
+        expect(isBun()).toBe(false);
+        expect(isDeno()).toBe(true);
     });
 
     it('returns valid runtime type', () => {

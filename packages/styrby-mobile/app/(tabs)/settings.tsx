@@ -30,7 +30,15 @@ import { useRouter } from 'expo-router';
 import { supabase, signOut } from '../../src/lib/supabase';
 import { clearPairingInfo } from '../../src/services/pairing';
 import { THEME_PREFERENCE_KEY } from '../../src/contexts/ThemeContext';
+import { getApiBaseUrl, SITE_URLS } from '../../src/lib/config';
 import type { VoiceInputConfig } from 'styrby-shared';
+import {
+  type OtelUserConfig,
+  type OtelPreset,
+  defaultOtelConfig,
+  validateOtelConfig,
+  OTEL_PRESETS,
+} from '../../src/lib/otel-config';
 
 // ============================================================================
 // Constants
@@ -185,10 +193,10 @@ function SectionHeader({ title }: { title: string }) {
  */
 const POLAR_CUSTOMER_PORTAL_URL = 'https://polar.sh/styrby/portal';
 
-/** External URLs for support and legal pages */
-const HELP_URL = 'https://styrbyapp.com/help';
-const PRIVACY_URL = 'https://styrbyapp.com/privacy';
-const TERMS_URL = 'https://styrbyapp.com/terms';
+/** External URLs for support and legal pages — always point to production site */
+const HELP_URL = SITE_URLS.help;
+const PRIVACY_URL = SITE_URLS.privacy;
+const TERMS_URL = SITE_URLS.terms;
 
 /**
  * Formats a time string from HH:MM:SS database format to human-readable
@@ -451,6 +459,50 @@ export default function SettingsScreen() {
   const [voiceApiKeyDraft, setVoiceApiKeyDraft] = useState('');
 
   // --------------------------------------------------------------------------
+  // OTEL Metrics Export state (P11)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Current OTEL configuration loaded from profiles.otel_config JSONB column.
+   * WHY: Stored on profiles (same as the web dashboard) so changes made on web
+   * are immediately visible on mobile. The column is a JSONB field on the
+   * profiles table that the web app already reads/writes.
+   */
+  const [otelConfig, setOtelConfig] = useState<OtelUserConfig>(defaultOtelConfig());
+
+  /**
+   * Whether the OTEL settings modal is open.
+   */
+  const [showOtelModal, setShowOtelModal] = useState(false);
+
+  /**
+   * Draft OTEL config being edited inside the modal (not yet saved).
+   */
+  const [otelDraft, setOtelDraft] = useState<OtelUserConfig>(defaultOtelConfig());
+
+  /**
+   * Raw text of the headers JSON textarea inside the OTEL modal.
+   * WHY: We keep the raw string separately so the user can type partial JSON
+   * without it being clobbered mid-keystroke.
+   */
+  const [otelHeadersRaw, setOtelHeadersRaw] = useState('');
+
+  /**
+   * The selected preset ID in the OTEL modal.
+   */
+  const [otelPresetId, setOtelPresetId] = useState('custom');
+
+  /**
+   * Field-level validation errors for the OTEL form.
+   */
+  const [otelValidationErrors, setOtelValidationErrors] = useState<Record<string, string>>({});
+
+  /**
+   * Whether the OTEL config save is in progress.
+   */
+  const [isSavingOtel, setIsSavingOtel] = useState(false);
+
+  // --------------------------------------------------------------------------
   // Mount: Load user data and preferences
   // --------------------------------------------------------------------------
 
@@ -518,7 +570,7 @@ export default function SettingsScreen() {
         setPriorityThreshold(notifPrefs.priority_threshold ?? 3);
       }
 
-      // Fetch auto-approve setting from default agent config
+      // Fetch auto-approve setting from agent_configs
       const { data: agentConfig } = await supabase
         .from('agent_configs')
         .select('auto_approve_low_risk')
@@ -528,6 +580,21 @@ export default function SettingsScreen() {
 
       if (agentConfig) {
         setAutoApproveEnabled(agentConfig.auto_approve_low_risk ?? false);
+      }
+
+      // Fetch OTEL config from profiles.otel_config JSONB column.
+      // WHY: The web dashboard stores otel_config on profiles so both platforms
+      // share the same config row. The column is nullable JSONB — null means
+      // the user has never configured OTEL.
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('otel_config')
+        .eq('id', user.id)
+        .single();
+
+      if (profileData && (profileData as Record<string, unknown>)['otel_config']) {
+        const loadedOtelConfig = (profileData as Record<string, unknown>)['otel_config'] as OtelUserConfig;
+        setOtelConfig(loadedOtelConfig);
       }
     } catch (error) {
       // Non-fatal: UI will show fallback values
@@ -955,7 +1022,7 @@ export default function SettingsScreen() {
 
       // WHY POST: The web export endpoint is POST (not GET) because it writes
       // an audit log entry and should not be cached or prefetched.
-      const response = await fetch('https://styrbyapp.com/api/account/export', {
+      const response = await fetch(`${getApiBaseUrl()}/api/account/export`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
@@ -1138,6 +1205,159 @@ export default function SettingsScreen() {
       }
     }
   }, [userInfo]);
+
+  // --------------------------------------------------------------------------
+  // OTEL Handlers (P11)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Open the OTEL settings modal, pre-populating the draft from the current config.
+   *
+   * WHY: We copy into a draft state so the user can edit freely without
+   * touching the live config until they press "Save".
+   */
+  const handleOpenOtelModal = useCallback(() => {
+    setOtelDraft({ ...otelConfig });
+    setOtelHeadersRaw(
+      Object.keys(otelConfig.headers).length > 0
+        ? JSON.stringify(otelConfig.headers, null, 2)
+        : '',
+    );
+    setOtelPresetId('custom');
+    setOtelValidationErrors({});
+    setShowOtelModal(true);
+  }, [otelConfig]);
+
+  /**
+   * Apply a preset template to the OTEL draft config.
+   * Pre-fills endpoint and headers for well-known OTLP backends.
+   *
+   * @param presetId - The preset identifier from OTEL_PRESETS
+   */
+  const handleOtelPresetChange = useCallback((presetId: string) => {
+    const preset = OTEL_PRESETS.find((p) => p.id === presetId);
+    if (!preset) return;
+
+    setOtelPresetId(presetId);
+    setOtelDraft((prev) => ({
+      ...prev,
+      endpoint: preset.endpoint,
+      headers: preset.headersTemplate,
+    }));
+    setOtelHeadersRaw(
+      Object.keys(preset.headersTemplate).length > 0
+        ? JSON.stringify(preset.headersTemplate, null, 2)
+        : '',
+    );
+  }, []);
+
+  /**
+   * Parse the raw headers textarea string into a Record<string, string>.
+   *
+   * @param raw - Raw JSON string from the headers textarea
+   * @returns Parsed headers object, or empty object on parse error
+   */
+  const parseOtelHeaders = useCallback((raw: string): Record<string, string> => {
+    if (!raw.trim()) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        return parsed as Record<string, string>;
+      }
+    } catch {
+      // Validation will surface the JSON error
+    }
+    return {};
+  }, []);
+
+  /**
+   * Validate and persist the OTEL config to Supabase profiles.otel_config.
+   *
+   * WHY: We save to profiles.otel_config (JSONB) to match the web dashboard.
+   * Config changes on mobile are immediately visible on the web and vice versa.
+   * RLS ensures only the authenticated user can write to their own profiles row.
+   */
+  const handleSaveOtelConfig = useCallback(async () => {
+    const parsedHeaders = parseOtelHeaders(otelHeadersRaw);
+
+    // Validate headers JSON separately
+    if (otelHeadersRaw.trim() && Object.keys(parsedHeaders).length === 0) {
+      setOtelValidationErrors({ headers: 'Headers must be a valid JSON object' });
+      return;
+    }
+
+    const fullConfig: OtelUserConfig = { ...otelDraft, headers: parsedHeaders };
+    const validation = validateOtelConfig(fullConfig);
+
+    if (!validation.isValid) {
+      setOtelValidationErrors(validation.errors);
+      return;
+    }
+
+    setOtelValidationErrors({});
+    setIsSavingOtel(true);
+
+    try {
+      if (!userInfo) return;
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({ otel_config: fullConfig } as Record<string, unknown>)
+        .eq('id', userInfo.id);
+
+      if (error) {
+        Alert.alert('Save Failed', `Could not save OTEL config: ${error.message}`);
+        if (__DEV__) {
+          console.error('[Settings] Failed to save OTEL config:', error);
+        }
+      } else {
+        setOtelConfig(fullConfig);
+        setShowOtelModal(false);
+      }
+    } catch (err) {
+      Alert.alert('Save Failed', 'An unexpected error occurred. Please try again.');
+      if (__DEV__) {
+        console.error('[Settings] OTEL save error:', err);
+      }
+    } finally {
+      setIsSavingOtel(false);
+    }
+  }, [otelDraft, otelHeadersRaw, parseOtelHeaders, userInfo]);
+
+  /**
+   * Toggle OTEL export on/off and immediately persist the change.
+   *
+   * WHY: Allows fast enable/disable from the settings row without
+   * opening the full OTEL modal.
+   *
+   * @param value - New enabled state
+   */
+  const handleOtelEnabledToggle = useCallback(async (value: boolean) => {
+    const updated = { ...otelConfig, enabled: value };
+    setOtelConfig(updated);
+
+    try {
+      if (!userInfo) return;
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({ otel_config: updated } as Record<string, unknown>)
+        .eq('id', userInfo.id);
+
+      if (error) {
+        // Revert on failure
+        setOtelConfig((prev) => ({ ...prev, enabled: !value }));
+        if (__DEV__) {
+          console.error('[Settings] Failed to toggle OTEL:', error);
+        }
+      }
+    } catch (err) {
+      setOtelConfig((prev) => ({ ...prev, enabled: !value }));
+      if (__DEV__) {
+        console.error('[Settings] OTEL toggle error:', err);
+      }
+    }
+  }, [otelConfig, userInfo]);
 
   // --------------------------------------------------------------------------
   // Quiet Hours Handler
@@ -1382,9 +1602,11 @@ export default function SettingsScreen() {
         return;
       }
 
-      // WHY: The web app at styrbyapp.com hosts the account deletion endpoint
-      // which uses the Supabase admin client to ban the user and soft-delete data.
-      const response = await fetch('https://styrbyapp.com/api/account/delete', {
+      // WHY: The web app hosts the account deletion endpoint which uses the
+      // Supabase admin client to ban the user and soft-delete data. We read
+      // the base URL from config so staging builds hit the staging web app,
+      // not production.
+      const response = await fetch(`${getApiBaseUrl()}/api/account/delete`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
@@ -1660,6 +1882,25 @@ export default function SettingsScreen() {
           title="Context Templates"
           subtitle="Reusable project context"
           onPress={() => router.push('/templates')}
+        />
+      </View>
+
+      {/* Developer Tools Section */}
+      <SectionHeader title="Developer Tools" />
+      <View className="bg-background-secondary">
+        <SettingRow
+          icon="git-network"
+          iconColor="#8b5cf6"
+          title="Webhooks"
+          subtitle="Real-time event notifications (Power)"
+          onPress={() => router.push('/webhooks')}
+        />
+        <SettingRow
+          icon="code-slash"
+          iconColor="#3b82f6"
+          title="API Keys"
+          subtitle="Programmatic API access (Power)"
+          onPress={() => router.push('/api-keys')}
         />
       </View>
 
@@ -1945,6 +2186,70 @@ export default function SettingsScreen() {
             </Pressable>
           </View>
         )}
+      </View>
+
+      {/* Devices Section (P12) */}
+      <SectionHeader title="Devices" />
+      <View className="bg-background-secondary">
+        <SettingRow
+          icon="hardware-chip"
+          iconColor="#f97316"
+          title="Paired Devices"
+          subtitle="Manage your paired CLI machines"
+          onPress={() => router.push('/devices')}
+        />
+      </View>
+
+      {/* OTEL Metrics Export Section (P11) */}
+      <SectionHeader title="Metrics Export" />
+      <View className="bg-background-secondary">
+        {/* Power-only gate */}
+        {subscriptionTier !== 'power' && (
+          <View className="mx-4 my-2 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/20">
+            <Text className="text-xs text-purple-400">
+              OTEL metrics export requires the Power plan.
+            </Text>
+          </View>
+        )}
+        {/* Enable / disable OTEL toggle */}
+        <SettingRow
+          icon="pulse"
+          iconColor="#8b5cf6"
+          title="Enable OTEL Export"
+          subtitle={
+            subscriptionTier !== 'power'
+              ? 'Power plan required'
+              : otelConfig.enabled
+                ? 'Exporting to ' +
+                  (otelConfig.endpoint
+                    ? otelConfig.endpoint.replace(/https?:\/\//, '').slice(0, 30) + '…'
+                    : 'endpoint not set')
+                : 'Disabled'
+          }
+          trailing={
+            <Switch
+              value={otelConfig.enabled && subscriptionTier === 'power'}
+              onValueChange={(v) => void handleOtelEnabledToggle(v)}
+              disabled={subscriptionTier !== 'power'}
+              trackColor={{ false: '#3f3f46', true: '#8b5cf650' }}
+              thumbColor={otelConfig.enabled && subscriptionTier === 'power' ? '#8b5cf6' : '#71717a'}
+              accessibilityRole="switch"
+              accessibilityLabel="Toggle OTEL metrics export"
+            />
+          }
+        />
+        {/* Configure OTEL row — navigates to modal */}
+        <SettingRow
+          icon="settings"
+          iconColor="#71717a"
+          title="Configure Endpoint"
+          subtitle={
+            otelConfig.endpoint
+              ? otelConfig.endpoint.replace(/https?:\/\//, '').slice(0, 38)
+              : 'Not configured'
+          }
+          onPress={subscriptionTier === 'power' ? handleOpenOtelModal : undefined}
+        />
       </View>
 
       {/* Support Section */}
@@ -2244,6 +2549,193 @@ export default function SettingsScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* OTEL Configuration Modal (P11) */}
+      {/* WHY: A bottom-sheet modal keeps the user in context while editing a
+          multi-field form. The scroll view inside handles the case where the
+          form is taller than the screen (especially on small phones). */}
+      <Modal
+        visible={showOtelModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowOtelModal(false)}
+        accessibilityViewIsModal
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          className="flex-1 justify-end"
+        >
+          <Pressable
+            className="flex-1"
+            onPress={() => setShowOtelModal(false)}
+            accessibilityLabel="Close OTEL configuration modal"
+          />
+          <View className="bg-zinc-900 rounded-t-3xl border-t border-zinc-800 max-h-[90%]">
+            {/* Modal Header */}
+            <View className="flex-row items-center justify-between px-6 pt-6 pb-4">
+              <View>
+                <Text className="text-white text-lg font-semibold">Metrics Export (OTEL)</Text>
+                <Text className="text-zinc-500 text-xs mt-0.5">
+                  Power plan — configure your OTLP endpoint
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setShowOtelModal(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close OTEL modal"
+              >
+                <Ionicons name="close" size={24} color="#71717a" />
+              </Pressable>
+            </View>
+
+            <ScrollView
+              className="px-6"
+              contentContainerStyle={{ paddingBottom: 32 }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {/* Preset picker */}
+              <Text className="text-zinc-400 text-xs font-semibold uppercase mb-1">Provider Preset</Text>
+              <View className="flex-row flex-wrap mb-4">
+                {OTEL_PRESETS.map((preset: OtelPreset) => (
+                  <Pressable
+                    key={preset.id}
+                    onPress={() => handleOtelPresetChange(preset.id)}
+                    className={`px-3 py-1.5 rounded-full mr-2 mb-2 ${
+                      otelPresetId === preset.id ? 'bg-purple-500/20' : 'bg-zinc-800'
+                    }`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Select ${preset.name} preset`}
+                    accessibilityState={{ selected: otelPresetId === preset.id }}
+                  >
+                    <Text
+                      className="text-xs font-medium"
+                      style={{ color: otelPresetId === preset.id ? '#a855f7' : '#a1a1aa' }}
+                    >
+                      {preset.name}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              {/* Help text for selected preset */}
+              {otelPresetId !== 'custom' && (
+                <Text className="text-zinc-500 text-xs mb-4">
+                  {OTEL_PRESETS.find((p: OtelPreset) => p.id === otelPresetId)?.helpText ?? ''}
+                </Text>
+              )}
+
+              {/* Endpoint URL */}
+              <Text className="text-zinc-400 text-xs font-semibold uppercase mb-1">OTLP Endpoint</Text>
+              <TextInput
+                className={`bg-zinc-800 text-white rounded-xl px-4 py-3 text-sm font-mono mb-1 ${
+                  otelValidationErrors['endpoint'] ? 'border border-red-500' : ''
+                }`}
+                placeholder="https://otlp.example.com/v1/metrics"
+                placeholderTextColor="#52525b"
+                value={otelDraft.endpoint}
+                onChangeText={(v) => setOtelDraft((prev) => ({ ...prev, endpoint: v }))}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                returnKeyType="next"
+                accessibilityLabel="OTLP endpoint URL"
+              />
+              {otelValidationErrors['endpoint'] ? (
+                <Text className="text-red-400 text-xs mb-3">{otelValidationErrors['endpoint']}</Text>
+              ) : (
+                <View className="mb-3" />
+              )}
+
+              {/* Auth Headers (raw JSON) */}
+              <Text className="text-zinc-400 text-xs font-semibold uppercase mb-1">
+                Authentication Headers (JSON)
+              </Text>
+              <TextInput
+                className={`bg-zinc-800 text-white rounded-xl px-4 py-3 text-xs font-mono min-h-[80px] mb-1 ${
+                  otelValidationErrors['headers'] ? 'border border-red-500' : ''
+                }`}
+                placeholder={'{\n  "Authorization": "Bearer <token>"\n}'}
+                placeholderTextColor="#52525b"
+                value={otelHeadersRaw}
+                onChangeText={setOtelHeadersRaw}
+                multiline
+                textAlignVertical="top"
+                autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
+                accessibilityLabel="Authentication headers JSON"
+              />
+              {otelValidationErrors['headers'] ? (
+                <Text className="text-red-400 text-xs mb-3">{otelValidationErrors['headers']}</Text>
+              ) : (
+                <View className="mb-3" />
+              )}
+
+              {/* Service Name */}
+              <Text className="text-zinc-400 text-xs font-semibold uppercase mb-1">Service Name</Text>
+              <TextInput
+                className={`bg-zinc-800 text-white rounded-xl px-4 py-3 text-sm mb-1 ${
+                  otelValidationErrors['serviceName'] ? 'border border-red-500' : ''
+                }`}
+                placeholder="styrby-cli"
+                placeholderTextColor="#52525b"
+                value={otelDraft.serviceName}
+                onChangeText={(v) => setOtelDraft((prev) => ({ ...prev, serviceName: v }))}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="next"
+                accessibilityLabel="OTLP service name"
+              />
+              {otelValidationErrors['serviceName'] ? (
+                <Text className="text-red-400 text-xs mb-3">{otelValidationErrors['serviceName']}</Text>
+              ) : (
+                <View className="mb-3" />
+              )}
+
+              {/* Timeout */}
+              <Text className="text-zinc-400 text-xs font-semibold uppercase mb-1">Timeout (ms)</Text>
+              <TextInput
+                className={`bg-zinc-800 text-white rounded-xl px-4 py-3 text-sm mb-1 w-36 ${
+                  otelValidationErrors['timeoutMs'] ? 'border border-red-500' : ''
+                }`}
+                placeholder="5000"
+                placeholderTextColor="#52525b"
+                value={String(otelDraft.timeoutMs)}
+                onChangeText={(v) =>
+                  setOtelDraft((prev) => ({ ...prev, timeoutMs: parseInt(v, 10) || 5000 }))
+                }
+                keyboardType="number-pad"
+                returnKeyType="done"
+                accessibilityLabel="OTLP export timeout in milliseconds"
+              />
+              {otelValidationErrors['timeoutMs'] ? (
+                <Text className="text-red-400 text-xs mb-3">{otelValidationErrors['timeoutMs']}</Text>
+              ) : (
+                <View className="mb-4" />
+              )}
+
+              {/* Save Button */}
+              <Pressable
+                onPress={handleSaveOtelConfig}
+                disabled={isSavingOtel}
+                className={`py-3 rounded-xl items-center ${
+                  isSavingOtel ? 'bg-zinc-700' : 'bg-purple-600 active:opacity-80'
+                }`}
+                accessibilityRole="button"
+                accessibilityLabel="Save OTEL configuration"
+              >
+                {isSavingOtel ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text className="text-white font-semibold">Save Configuration</Text>
+                )}
+              </Pressable>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {/* Voice Input Config Modal */}
       <Modal
         visible={showVoiceConfigModal}

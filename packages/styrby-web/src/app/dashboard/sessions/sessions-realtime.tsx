@@ -57,6 +57,13 @@ interface SessionsRealtimeProps {
    * Drives the infinite scroll behaviour in SessionsFilter.
    */
   initialHasMore: boolean;
+
+  /**
+   * Set of session IDs that the user has bookmarked, fetched during SSR.
+   * Passed through to SessionsFilter so star icons and the Bookmarked
+   * filter can be initialised without a client-side fetch.
+   */
+  initialBookmarkedIds: Set<string>;
 }
 
 /* ──────────────────────────── Component ──────────────────────────── */
@@ -86,6 +93,7 @@ export function SessionsRealtime({
   userId,
   hasTeam,
   initialHasMore,
+  initialBookmarkedIds,
 }: SessionsRealtimeProps) {
   const [sessions, setSessions] = useState(initialSessions);
 
@@ -136,6 +144,7 @@ export function SessionsRealtime({
         userId={userId}
         hasTeam={hasTeam}
         initialHasMore={initialHasMore}
+        initialBookmarkedIds={initialBookmarkedIds}
       />
     </>
   );

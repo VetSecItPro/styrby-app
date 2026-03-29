@@ -19,6 +19,7 @@ import { ContextBreakdown } from '@/components/context-breakdown';
 import { SessionExportButton } from './session-export-button';
 import { SessionShareButton } from './session-share-button';
 import { SessionCheckpoints } from './session-checkpoints';
+import { SessionBookmarkButton } from './session-bookmark-button';
 
 /**
  * Props for the session detail page.
@@ -71,14 +72,25 @@ export default async function SessionPage({ params }: SessionPageProps) {
     .order('sequence_number', { ascending: true })
     .limit(500);
 
-  // Fetch user's subscription tier for feature gating
-  const { data: subscription } = await supabase
-    .from('subscriptions')
-    .select('tier')
-    .eq('user_id', user.id)
-    .single();
+  // Fetch user's subscription tier for feature gating, and bookmark status
+  // for this session — run both in parallel.
+  const [subscriptionResult, bookmarkResult] = await Promise.all([
+    supabase
+      .from('subscriptions')
+      .select('tier')
+      .eq('user_id', user.id)
+      .single(),
+    supabase
+      .from('session_bookmarks')
+      .select('id')
+      .eq('session_id', id)
+      .eq('user_id', user.id)
+      .maybeSingle(),
+  ]);
 
-  const userTier = (subscription?.tier as 'free' | 'pro' | 'power') || 'free';
+  const userTier =
+    (subscriptionResult.data?.tier as 'free' | 'pro' | 'power') || 'free';
+  const isBookmarked = bookmarkResult.data !== null;
 
   // Determine if session is active for the header status display
   const isSessionActive = ['starting', 'running', 'idle', 'paused'].includes(
@@ -186,6 +198,13 @@ export default async function SessionPage({ params }: SessionPageProps) {
                 {session.project_path}
               </span>
             )}
+
+            {/* Bookmark button — toggles bookmark state with optimistic UI */}
+            <SessionBookmarkButton
+              sessionId={session.id}
+              initialBookmarked={isBookmarked}
+              size="md"
+            />
             {/* Share button - Pro+ only. Free users see an upgrade link instead.
                 WHY: Session sharing creates shareable URLs with E2E encrypted
                 content. This is a Pro feature and must be gated at both the

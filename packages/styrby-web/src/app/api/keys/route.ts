@@ -136,8 +136,14 @@ async function logAuditEvent(
  * @error 401 { error: 'Unauthorized' }
  * @error 500 { error: 'Failed to fetch API keys' }
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    // SEC-API-001 FIX: Add rate limiting to GET (POST/DELETE already had it)
+    const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.budgetAlerts, 'api-keys-get');
+    if (!allowed) {
+      return rateLimitResponse(retryAfter!);
+    }
+
     const supabase = await createClient();
 
     const {

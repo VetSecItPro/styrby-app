@@ -50,6 +50,13 @@ export interface PermissionRequest {
   timestamp: string;
   filePath?: string;
   command?: string;
+  /**
+   * Cryptographic nonce from the CLI's permission_request message.
+   * MUST be echoed back as `request_nonce` in the permission_response
+   * so the CLI can verify this response matches the original request
+   * and is not a replay attack.
+   */
+  nonce: string;
 }
 
 /**

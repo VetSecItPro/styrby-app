@@ -16,13 +16,14 @@ import { useLocalSearchParams, Stack, router } from 'expo-router';
 import { useEffect, useState, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../src/lib/supabase';
+import { useBookmarks } from '../../src/hooks/useBookmarks';
 import { SessionSummary } from '../../src/components/SessionSummary';
 import { SessionReplay, type ReplayMessageData } from '../../src/components/SessionReplay';
 import { SessionTagEditor } from '../../src/components/SessionTagEditor';
 import { ContextBreakdown } from '../../src/components/ContextBreakdown';
 import { SessionCheckpoints } from '../../src/components/SessionCheckpoints';
 import { formatCost } from '../../src/hooks/useCosts';
-import type { SessionExport, SessionExportMetadata, SessionExportMessage, SessionExportCost } from 'styrby-shared';
+import type { AgentType, SessionExport, SessionExportMetadata, SessionExportMessage, SessionExportCost } from 'styrby-shared';
 
 // ============================================================================
 // Types
@@ -58,6 +59,8 @@ interface SessionData {
 
 /**
  * Visual configuration for each supported AI agent.
+ * Covers all 11 AgentType values so the session detail screen renders
+ * the correct brand color regardless of which agent ran the session.
  */
 const AGENT_CONFIG: Record<string, { name: string; color: string }> = {
   claude: { name: 'Claude', color: '#f97316' },
@@ -65,8 +68,12 @@ const AGENT_CONFIG: Record<string, { name: string; color: string }> = {
   gemini: { name: 'Gemini', color: '#3b82f6' },
   opencode: { name: 'OpenCode', color: '#8b5cf6' },
   aider: { name: 'Aider', color: '#ec4899' },
-  goose: { name: 'Goose', color: '#06b6d4' },
+  goose: { name: 'Goose', color: '#14b8a6' },
   amp: { name: 'Amp', color: '#f59e0b' },
+  crush: { name: 'Crush', color: '#f43f5e' },
+  kilo: { name: 'Kilo', color: '#0ea5e9' },
+  kiro: { name: 'Kiro', color: '#f97316' },
+  droid: { name: 'Droid', color: '#64748b' },
 };
 
 /**
@@ -135,6 +142,19 @@ export default function SessionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [session, setSession] = useState<SessionData | null>(null);
   const [userTier, setUserTier] = useState<'free' | 'pro' | 'power'>('free');
+
+  /**
+   * Bookmark hook — provides the user's bookmarked session IDs and toggle fn.
+   * WHY: We use the shared hook so bookmark state is consistent if the user
+   * navigates back to the sessions list (both views share the same fetched set
+   * via independent hook instances that both call /api/bookmarks on mount).
+   */
+  const {
+    bookmarkedIds,
+    togglingIds,
+    toggleErrors,
+    toggleBookmark,
+  } = useBookmarks();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('details');
@@ -239,7 +259,7 @@ export default function SessionDetailScreen() {
               return {
                 id: msg.id,
                 role: typeToRole(msg.message_type),
-                agentType: sessionData.agent_type as 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp' | 'crush' | 'kilo' | 'kiro' | 'droid',
+                agentType: sessionData.agent_type as AgentType,
                 content: msg.content_encrypted || '[Encrypted message]',
                 createdAt: msg.created_at,
                 costUsd,
@@ -539,10 +559,42 @@ export default function SessionDetailScreen() {
       <ScrollView className="flex-1 bg-background">
         {/* Header section */}
         <View className="px-4 pt-4 pb-2">
-          {/* Title and status */}
-          <Text className="text-white text-xl font-bold mb-2">
-            {session.title || 'Untitled Session'}
-          </Text>
+          {/* Title row with bookmark button */}
+          <View className="flex-row items-start justify-between mb-2">
+            <Text className="text-white text-xl font-bold flex-1 mr-3">
+              {session.title || 'Untitled Session'}
+            </Text>
+
+            {/* Bookmark star button
+                WHY: Large touch target (44×44) ensures easy tapping.
+                Placed in the header title row so it's immediately visible. */}
+            <Pressable
+              onPress={() => toggleBookmark(session.id)}
+              disabled={togglingIds.has(session.id)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={
+                bookmarkedIds.has(session.id)
+                  ? 'Remove bookmark'
+                  : 'Bookmark this session'
+              }
+              accessibilityState={{ checked: bookmarkedIds.has(session.id) }}
+              style={{ opacity: togglingIds.has(session.id) ? 0.4 : 1, padding: 4 }}
+            >
+              <Ionicons
+                name={bookmarkedIds.has(session.id) ? 'star' : 'star-outline'}
+                size={24}
+                color={bookmarkedIds.has(session.id) ? '#f97316' : '#52525b'}
+              />
+            </Pressable>
+          </View>
+
+          {/* Bookmark toggle error */}
+          {toggleErrors.get(session.id) && (
+            <Text className="text-red-400 text-xs mb-2">
+              {toggleErrors.get(session.id)}
+            </Text>
+          )}
 
           {/* Badges row */}
           <View className="flex-row items-center flex-wrap gap-2 mb-4">

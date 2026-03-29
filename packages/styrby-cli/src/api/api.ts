@@ -14,6 +14,7 @@
  * @module api/api
  */
 
+import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ApiConnectionState, ApiSession, ApiMessage } from './types';
 import type { RelayClient } from 'styrby-shared';
@@ -365,6 +366,7 @@ export class StyrbyApi {
         description: request.description,
         affected_files: request.affectedFiles,
         expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        nonce: randomUUID(),
       },
     });
   }

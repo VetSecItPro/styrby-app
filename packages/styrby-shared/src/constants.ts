@@ -88,7 +88,11 @@ export const TIER_LIMITS = {
     budgetAlerts: true,
   },
   power: {
-    maxAgents: 3,
+    // SEC-BIZ-003 FIX: Aligned with polar.ts TIERS.power.limits.machines (9)
+    // WHY: Previously 3, which contradicted the billing definition. Power tier
+    // users on mobile would see a cap of 3 agents while their subscription
+    // entitles them to 9.
+    maxAgents: 9,
     maxSessionsPerDay: Infinity,
     costDashboard: 'full',
     budgetAlerts: true,

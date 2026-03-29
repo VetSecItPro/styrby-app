@@ -186,11 +186,17 @@ if (typeof setInterval !== 'undefined' && !isRedisConfigured && process.env.NODE
  * @returns The client's IP address or 'unknown' if not determinable
  */
 export function getClientIp(request: Request): string {
-  return (
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    request.headers.get('x-real-ip') ||
-    'unknown'
-  );
+  // SEC-002 FIX: Use the LAST entry in x-forwarded-for, not the first.
+  // WHY: Behind Vercel's CDN, the last entry is the CDN-appended trusted IP.
+  // The first entry is user-controlled and can be spoofed by setting a custom
+  // X-Forwarded-For header, allowing attackers to bypass IP-based rate limits
+  // by rotating fake IPs. Vercel always appends the real client IP at the end.
+  const xff = request.headers.get('x-forwarded-for');
+  if (xff) {
+    const ips = xff.split(',').map(ip => ip.trim()).filter(Boolean);
+    return ips[ips.length - 1] || 'unknown';
+  }
+  return request.headers.get('x-real-ip') || 'unknown';
 }
 
 /**

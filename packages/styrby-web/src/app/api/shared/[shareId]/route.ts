@@ -148,7 +148,19 @@ export async function GET(request: Request, context: RouteContext) {
       .eq('access_count', shareRow.access_count); // optimistic concurrency
 
     if (updateError) {
-      // Non-fatal: log and continue - the viewer still gets the data
+      // SEC-BIZ-001 FIX: Treat optimistic-concurrency conflict as an expired link.
+      // WHY: When max_accesses is 1 (single-view links), two concurrent requests can
+      // both pass the access_count check above. The optimistic concurrency guard
+      // (eq('access_count', shareRow.access_count)) causes one to fail. Previously
+      // we served content anyway, defeating the single-view guarantee. Now we return
+      // 410 Gone for the losing request.
+      if (shareRow.max_accesses && shareRow.max_accesses > 0) {
+        return NextResponse.json(
+          { error: 'EXPIRED', message: 'This share link has reached its maximum number of views' },
+          { status: 410 }
+        );
+      }
+      // For unlimited links, a failed increment is non-fatal
       console.error('Failed to increment share access count:', updateError.message);
     }
 

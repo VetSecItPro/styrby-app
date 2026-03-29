@@ -78,6 +78,12 @@ export interface SessionRow {
 }
 
 /**
+ * Date range filter options for the sessions list.
+ * 'all' means no date restriction.
+ */
+export type DateRangeFilter = 'today' | 'week' | 'month' | 'all';
+
+/**
  * Combined filter state for the sessions list.
  */
 export interface SessionFilters {
@@ -89,6 +95,11 @@ export interface SessionFilters {
   scope: 'mine' | 'team' | null;
   /** Team ID to filter by (only used when scope is 'team') */
   teamId: string | null;
+  /**
+   * Date range filter applied to started_at column.
+   * 'all' (or null) means no date restriction.
+   */
+  dateRange: DateRangeFilter | null;
 }
 
 /**
@@ -159,6 +170,7 @@ export function useSessions(): UseSessionsReturn {
     agent: null,
     scope: null,
     teamId: null,
+    dateRange: null,
   });
 
   // WHY: Tracks whether the Supabase Realtime channel is actively receiving
@@ -249,6 +261,36 @@ export function useSessions(): UseSessionsReturn {
       // ---- Agent filter ----
       if (currentFilters.agent) {
         query = query.eq('agent_type', currentFilters.agent);
+      }
+
+      // ---- Date range filter ----
+      // WHY: We filter by started_at (not updated_at) so the user is filtering
+      // when the session actually began. The BRIN index on started_at makes these
+      // range queries fast even on large tables.
+      if (currentFilters.dateRange && currentFilters.dateRange !== 'all') {
+        const now = new Date();
+        let rangeStart: Date;
+
+        switch (currentFilters.dateRange) {
+          case 'today': {
+            rangeStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            break;
+          }
+          case 'week': {
+            // WHY: Start of the current calendar week (Sunday at midnight local time).
+            const dayOfWeek = now.getDay();
+            rangeStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek);
+            break;
+          }
+          case 'month': {
+            rangeStart = new Date(now.getFullYear(), now.getMonth(), 1);
+            break;
+          }
+          default:
+            rangeStart = new Date(0); // epoch — effectively no filter
+        }
+
+        query = query.gte('started_at', rangeStart.toISOString());
       }
 
       // ---- Search filter ----
