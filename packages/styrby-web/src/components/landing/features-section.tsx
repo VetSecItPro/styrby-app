@@ -12,11 +12,11 @@ import {
 } from "lucide-react"
 
 /**
- * Features Section (Homepage) — Bento Grid Layout
+ * Features Section (Homepage) - Bento Grid Layout
  *
  * WHY bento over equal-column grid: The multi-agent dashboard is the primary
  * differentiator and deserves visual dominance. A 2-col spanning hero card
- * establishes hierarchy — visitors immediately understand the core value prop
+ * establishes hierarchy - visitors immediately understand the core value prop
  * before reading secondary features. The asymmetric sizing also creates visual
  * interest that encourages scanning all eight cards.
  *
@@ -35,9 +35,9 @@ interface BentoFeature {
   icon: React.ComponentType<{ className?: string }>
   title: string
   description: string
-  /** CSS grid column span — applied on md+ only */
+  /** CSS grid column span - applied on md+ only */
   colSpan?: "col-span-1" | "col-span-2"
-  /** CSS grid row span — applied on md+ only */
+  /** CSS grid row span - applied on md+ only */
   rowSpan?: "row-span-1" | "row-span-2"
 }
 
@@ -46,7 +46,7 @@ const features: BentoFeature[] = [
     icon: LayoutDashboard,
     title: "Multi-Agent Dashboard",
     description:
-      "Monitor all 11 CLI coding agents from one place. Claude Code, Codex, Gemini CLI, OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. Live status, session history, error attribution, and per-agent metrics — all in a single encrypted view.",
+      "Monitor all 11 CLI coding agents from one place. Claude Code, Codex, Gemini CLI, OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. Live status, session history, error attribution, and per-agent metrics, all in a single encrypted view.",
     colSpan: "col-span-2",
     rowSpan: "row-span-2",
   },
@@ -62,7 +62,7 @@ const features: BentoFeature[] = [
     icon: FolderOpen,
     title: "Session Management",
     description:
-      "Checkpoints, sharing, export, and replay — all encrypted end-to-end with TweetNaCl.",
+      "Checkpoints, sharing, export, and replay. All encrypted end-to-end with TweetNaCl.",
     colSpan: "col-span-1",
     rowSpan: "row-span-1",
   },
@@ -102,7 +102,7 @@ const features: BentoFeature[] = [
     icon: Code2,
     title: "Code Review",
     description:
-      "Diff viewer with syntax highlighting. Review what your agent changed before it commits — from mobile.",
+      "Diff viewer with syntax highlighting. Review what your agent changed before it commits, from mobile.",
     colSpan: "col-span-1",
     rowSpan: "row-span-1",
   },
@@ -139,7 +139,7 @@ export function FeaturesSection() {
           Everything You Need to Run Agents in Production
         </h2>
         <p className="mx-auto mt-4 max-w-xl text-center text-sm leading-relaxed text-muted-foreground">
-          Remote control, session management, and full observability — for all 11 agents at once.
+          Remote control, session management, and full observability for all 11 agents at once.
         </p>
 
         {/*
@@ -148,7 +148,7 @@ export function FeaturesSection() {
           All other cards are 1×1.
         */}
         <div className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-3 md:grid-rows-[auto_auto_auto]">
-          {/* Hero card — multi-agent dashboard */}
+          {/* Hero card - multi-agent dashboard */}
           <div className={cardClasses(heroFeature, 0)}>
             {/* Subtle amber radial glow in the background */}
             <div

@@ -146,7 +146,7 @@ const PolarWebhookEventSchema = z
 
 /**
  * Schema for subscription event data (created, updated, revoked/canceled).
- * WHY: Subscription events drive billing state changes — we must guarantee
+ * WHY: Subscription events drive billing state changes - we must guarantee
  * the minimum fields exist before upserting into the subscriptions table.
  */
 const SubscriptionDataSchema = z
@@ -254,7 +254,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // WHY: Return 200 for unrecognized event types — Polar retries on non-2xx
+    // WHY: Return 200 for unrecognized event types - Polar retries on non-2xx
     // responses, so rejecting unknown types would cause infinite retry loops.
     const knownTypes = new Set<string>([
       'subscription.created',
@@ -290,13 +290,13 @@ export async function POST(request: Request) {
         // WHY parallel strategy: when both identifiers are present we fire both
         // queries concurrently and pick the first that returns a valid ID.
         // This shaves one full round-trip in the common case where user_id is set
-        // and the profile exists — the customer_id result is simply discarded.
+        // and the profile exists - the customer_id result is simply discarded.
         // When only one identifier is available we fall through to the single
         // query path without wasting an unnecessary network call.
         let profileId: string | null = null;
 
         if (data.user_id && data.customer_id) {
-          // Both identifiers present — fire in parallel, use first non-null result
+          // Both identifiers present - fire in parallel, use first non-null result
           const [profileResult, customerResult] = await Promise.all([
             supabase.from('profiles').select('id').eq('id', data.user_id).single(),
             supabase
@@ -324,7 +324,7 @@ export async function POST(request: Request) {
         }
 
         if (!profileId) {
-          if (isDev) console.log('No user found for subscription event — Polar may be ahead of signup');
+          if (isDev) console.log('No user found for subscription event - Polar may be ahead of signup');
           return NextResponse.json({ received: true });
         }
 
@@ -333,11 +333,11 @@ export async function POST(request: Request) {
         const productId = data.product_id || '';
         const tier = getTierFromProductId(productId);
         if (!tier) {
-          console.error(`Unrecognized Polar product_id: ${productId} — skipping upsert to prevent tier corruption`);
+          console.error(`Unrecognized Polar product_id: ${productId} - skipping upsert to prevent tier corruption`);
           return NextResponse.json({ received: true });
         }
 
-        // FIX-007: Downgrade protection — don't silently downgrade paid users
+        // FIX-007: Downgrade protection - don't silently downgrade paid users
         // WHY: If a user is on 'power' and this event says 'pro', it may be
         // a stale webhook or Polar issue. Log a warning and skip the downgrade.
         const tierRank: Record<string, number> = { free: 0, pro: 1, power: 2 };
@@ -359,19 +359,19 @@ export async function POST(request: Request) {
           // Structured logging with explicit fields prevents accidental leakage.
           console.warn(
             'Webhook processing warning: downgrade detected',
-            `user tier='${existingSub.tier}' event tier='${tier}' — skipping upsert`
+            `user tier='${existingSub.tier}' event tier='${tier}' - skipping upsert`
           );
           return NextResponse.json({ received: true });
         }
 
         // Upsert subscription
         // WHY: is_annual boolean matches the actual subscriptions table schema.
-        // WHY onConflict: 'polar_subscription_id' — webhooks must be idempotent.
+        // WHY onConflict: 'polar_subscription_id' - webhooks must be idempotent.
         // Polar may deliver the same subscription.created event more than once
         // (retries, network issues). Conflicting on polar_subscription_id ensures
         // that a duplicate event updates the existing row rather than creating a
         // second subscription for the user, which would corrupt billing state.
-        // Using user_id here was wrong — a user can have multiple historical
+        // Using user_id here was wrong - a user can have multiple historical
         // subscriptions and the conflict target must uniquely identify THIS
         // subscription, not the user.
         await supabase.from('subscriptions').upsert(
@@ -385,7 +385,7 @@ export async function POST(request: Request) {
             // SEC-LOGIC-008: Map Polar statuses to our subscriptions table status column.
             // The subscriptions table supports 'active' and 'canceled' statuses.
             // 'past_due' is intentionally mapped to 'canceled' because our schema does
-            // not have a 'past_due' status — past_due subscriptions have lapsed billing
+            // not have a 'past_due' status - past_due subscriptions have lapsed billing
             // and should be treated as no longer active. If the payment succeeds later,
             // Polar sends a subscription.updated event with status='active' which
             // restores access. This is a deliberate lossy mapping, not an oversight.
@@ -408,11 +408,11 @@ export async function POST(request: Request) {
         const isDev = process.env.NODE_ENV === 'development';
 
         // WHY: When a subscription is canceled, access should continue until the
-        // end of the paid billing period — not cut off immediately. We record
+        // end of the paid billing period - not cut off immediately. We record
         // current_period_end (or ended_at as a fallback) so the scheduled cron
         // job can check this timestamp and downgrade the user's tier to 'free'
         // only after the period expires. Downgrading the tier here immediately
-        // would be a billing violation — the user paid for the full period.
+        // would be a billing violation - the user paid for the full period.
         //
         // CRON JOB REQUIRED: A scheduled job must run daily and execute:
         //   UPDATE subscriptions
@@ -424,7 +424,7 @@ export async function POST(request: Request) {
         // the subscription truly ends.
         // WHY: Polar's webhook payload includes current_period_end for active
         // subscriptions. We also check ended_at via a safe cast in case the
-        // payload schema evolves — defensive coding against provider changes.
+        // payload schema evolves - defensive coding against provider changes.
         const periodEnd =
           data.current_period_end ||
           (data as Record<string, unknown>).ended_at as string | undefined ||
@@ -436,7 +436,7 @@ export async function POST(request: Request) {
             status: 'canceled',
             canceled_at: data.canceled_at || new Date().toISOString(),
             // Preserve the paid-through date so the cron job knows when to
-            // actually downgrade the tier. Do not null this out — it is the
+            // actually downgrade the tier. Do not null this out - it is the
             // authoritative "access until" timestamp.
             ...(periodEnd ? { current_period_end: periodEnd } : {}),
           })

@@ -135,10 +135,10 @@ styrby`}</code>
       </p>
       <pre className="mt-3 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm font-mono text-zinc-300 ring-1 ring-zinc-800">
         <code>{`styrby doctor
-#   ✓ [PASS] Node.js version — 20.x.x (>= 18 required)
-#   ✓ [PASS] Configuration — Config file loaded successfully
-#   ✓ [PASS] Authentication — Authenticated
-#   ✓ [PASS] AI Agents — 2 agent(s) found: Claude Code, Codex`}</code>
+#   ✓ [PASS] Node.js version: 20.x.x (>= 18 required)
+#   ✓ [PASS] Configuration: Config file loaded successfully
+#   ✓ [PASS] Authentication: Authenticated
+#   ✓ [PASS] AI Agents: 2 agent(s) found: Claude Code, Codex`}</code>
       </pre>
 
       {/* install */}
@@ -280,6 +280,12 @@ styrby daemon status     # Check auto-start status`}</code>
         <li><strong className="text-zinc-300">Gemini CLI</strong> (gemini)</li>
         <li><strong className="text-zinc-300">OpenCode</strong> (opencode)</li>
         <li><strong className="text-zinc-300">Aider</strong> (aider)</li>
+        <li><strong className="text-zinc-300">Goose</strong> (goose)</li>
+        <li><strong className="text-zinc-300">Amp</strong> (amp)</li>
+        <li><strong className="text-zinc-300">Crush</strong> (crush)</li>
+        <li><strong className="text-zinc-300">Kilo</strong> (kilo)</li>
+        <li><strong className="text-zinc-300">Kiro</strong> (kiro)</li>
+        <li><strong className="text-zinc-300">Droid</strong> (droid)</li>
       </ul>
       <p className="mt-2 text-sm text-zinc-500">
         Use{" "}

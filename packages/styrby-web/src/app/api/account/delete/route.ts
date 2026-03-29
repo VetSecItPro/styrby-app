@@ -135,7 +135,7 @@ export async function DELETE(request: Request) {
     // SEC-INTEG-001 FIX: Hard-delete data that references auth.users directly
     // (not via profiles). These tables do NOT cascade from profiles.deleted_at
     // and would remain accessible until the retention cron fires 30 days later.
-    // Since the user is banned immediately, API access is blocked — but for
+    // Since the user is banned immediately, API access is blocked - but for
     // defense in depth, we remove sensitive data now rather than waiting.
     //
     // Tables verified to cascade from profiles ON DELETE CASCADE (handled by
@@ -145,14 +145,14 @@ export async function DELETE(request: Request) {
     //   notification_preferences, prompt_templates, offline_command_queue,
     //   audit_log, user_feedback, api_keys, webhooks -> webhook_deliveries
     //
-    // Tables that reference auth.users DIRECTLY (not profiles) — these must
+    // Tables that reference auth.users DIRECTLY (not profiles) - these must
     // be handled explicitly here or they persist until auth.users hard-delete:
     await Promise.allSettled([
       // context_templates: references auth.users ON DELETE CASCADE, but we
       // purge immediately since templates have no recovery value.
       supabase.from('context_templates').delete().eq('user_id', user.id),
 
-      // notification_logs: analytics/debug logs — no recovery value, purge now.
+      // notification_logs: analytics/debug logs - no recovery value, purge now.
       // References auth.users ON DELETE CASCADE.
       supabase.from('notification_logs').delete().eq('user_id', user.id),
 
@@ -186,7 +186,7 @@ export async function DELETE(request: Request) {
     // Banning via admin API ensures the JWT is invalidated immediately.
     const adminClient = createAdminClient();
     await adminClient.auth.admin.updateUserById(user.id, {
-      ban_duration: '720h', // 30 days — matches hard-delete grace period
+      ban_duration: '720h', // 30 days - matches hard-delete grace period
     });
 
     // Sign out the user

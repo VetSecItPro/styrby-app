@@ -13,7 +13,7 @@ import { Footer } from '@/components/landing/footer';
  *
  * WHY public (no auth required): Moving pricing out from behind the auth wall
  * lets prospective users compare plans before signing up. This reduces friction
- * in the acquisition funnel — users can see exactly what they get before
+ * in the acquisition funnel - users can see exactly what they get before
  * creating an account.
  *
  * WHY decoy layout: Pro is visually highlighted as the recommended choice, but
@@ -56,22 +56,16 @@ const plans = [
     monthly: 24,
     annual: 240,
     savings: 48,
-    popular: true,
+    popular: false,
     cta: 'Sign Up for Pro',
     ctaVariant: 'amber' as const,
     included: [
       '3 connected machines',
-      '8 agents (+ OpenCode, Aider, Goose, Amp, Crush, Kilo)',
+      '9 agents (+ OpenCode, Aider, Goose, Amp, Crush, Kilo)',
       '90-day session history',
       '25,000 messages/month',
-      'Full cost dashboard',
-      'Per-message cost tracking',
-      'Context breakdown by file',
-      'Session checkpoints',
-      'Session sharing',
+      'Cost dashboard',
       'Export and import',
-      'Activity graph',
-      'Team management — 3 members',
       '3 budget alerts',
       'Email support',
     ],
@@ -80,28 +74,22 @@ const plans = [
   {
     name: 'Power',
     description: 'For teams and power users',
-    monthly: 49,
-    annual: 490,
+    monthly: 59,
+    annual: 590,
     savings: 98,
     popular: false,
     cta: 'Sign Up for Power',
     ctaVariant: 'outline' as const,
     included: [
-      '9 connected machines',
+      'Everything in Pro, plus:',
       'All 11 agents (+ Kiro and Droid)',
-      '1-year session history',
-      '100,000 messages/month',
-      'Full cost dashboard',
-      '5 budget alerts',
-      'OTEL export — Grafana, Datadog, and more',
-      'Voice commands',
-      'Cloud monitoring',
+      '9 machines, 5 budget alerts',
+      'Session checkpoints and sharing',
+      'Per-message costs and context breakdown',
+      'Voice commands and cloud monitoring',
       'Code review from mobile',
-      'Rust parser',
-      '3 team members',
-      'API access',
-      'Audit trail export',
-      'Email support',
+      'OTEL export (Grafana, Datadog, and more)',
+      'Team management (3 members) and API access',
     ],
     notIncluded: [],
   },
@@ -112,7 +100,7 @@ const comparisonCategories = [
     name: 'Usage & Limits',
     features: [
       { name: 'Connected machines', free: '1', pro: '3', power: '9' },
-      { name: 'AI agents supported', free: '3 (Claude Code, Codex, Gemini CLI)', pro: '8 agents', power: 'All 11 agents' },
+      { name: 'AI agents supported', free: '3 (Claude Code, Codex, Gemini CLI)', pro: '9 agents', power: 'All 11 agents' },
       { name: 'Messages per month', free: '1,000', pro: '25,000', power: '100,000' },
       { name: 'Session history retention', free: '7 days', pro: '90 days', power: '1 year' },
       { name: 'Session bookmarks', free: '5', pro: 'Unlimited', power: 'Unlimited' },
@@ -123,15 +111,15 @@ const comparisonCategories = [
     name: 'Cost Management',
     features: [
       { name: 'Real-time cost tracking', free: 'Basic', pro: 'Full dashboard', power: 'Full dashboard' },
-      { name: 'Cost breakdown by agent', free: false, pro: true, power: true },
-      { name: 'Cost breakdown by model', free: false, pro: true, power: true },
-      { name: 'Cost breakdown by project', free: false, pro: true, power: true },
-      { name: 'Per-message cost tracking', free: false, pro: true, power: true },
-      { name: 'Per-file context breakdown', free: false, pro: true, power: true },
-      { name: 'Activity graph', free: false, pro: true, power: true },
+      { name: 'Cost breakdown by agent', free: false, pro: false, power: true },
+      { name: 'Cost breakdown by model', free: false, pro: false, power: true },
+      { name: 'Cost breakdown by project', free: false, pro: false, power: true },
+      { name: 'Per-message cost tracking', free: false, pro: false, power: true },
+      { name: 'Per-file context breakdown', free: false, pro: false, power: true },
+      { name: 'Activity graph', free: false, pro: false, power: true },
       { name: 'Budget alerts', free: '1', pro: '3', power: '5' },
-      { name: 'Auto-pause on budget exceeded', free: false, pro: true, power: true },
-      { name: 'Daily cost summary view', free: false, pro: true, power: true },
+      { name: 'Auto-pause on budget exceeded', free: false, pro: false, power: true },
+      { name: 'Daily cost summary view', free: false, pro: false, power: true },
       { name: 'Cost export (CSV)', free: false, pro: false, power: true },
     ],
   },
@@ -139,8 +127,8 @@ const comparisonCategories = [
     name: 'Sessions',
     features: [
       { name: 'Session replay', free: true, pro: true, power: true },
-      { name: 'Session checkpoints', free: false, pro: true, power: true },
-      { name: 'Session sharing', free: false, pro: true, power: true },
+      { name: 'Session checkpoints', free: false, pro: false, power: true },
+      { name: 'Session sharing', free: false, pro: false, power: true },
       { name: 'Export and import', free: false, pro: true, power: true },
     ],
   },
@@ -157,7 +145,7 @@ const comparisonCategories = [
       { name: 'Voice commands', free: false, pro: false, power: true },
       { name: 'Cloud monitoring', free: false, pro: false, power: true },
       { name: 'Code review from mobile', free: false, pro: false, power: true },
-      { name: 'Rust parser', free: false, pro: false, power: true },
+      { name: 'Rust parser', free: true, pro: true, power: true },
     ],
   },
   {
@@ -185,10 +173,10 @@ const comparisonCategories = [
   {
     name: 'Collaboration',
     features: [
-      { name: 'Team members', free: false, pro: '3', power: '3' },
-      { name: 'Team invitations', free: false, pro: true, power: true },
-      { name: 'Role-based access (owner/admin/member)', free: false, pro: true, power: true },
-      { name: 'Shared cost dashboards', free: false, pro: true, power: true },
+      { name: 'Team members', free: false, pro: false, power: '3' },
+      { name: 'Team invitations', free: false, pro: false, power: true },
+      { name: 'Role-based access (owner/admin/member)', free: false, pro: false, power: true },
+      { name: 'Shared cost dashboards', free: false, pro: false, power: true },
     ],
   },
   {
@@ -235,11 +223,11 @@ const faqs = [
   },
   {
     q: 'Can I share session replays?',
-    a: 'Yes, on Pro and above you can generate a share link for any session replay. Session data remains end-to-end encrypted and recipients need a separate decryption key you provide. Styrby never has access to the plaintext content.',
+    a: 'Yes, on the Power tier you can generate a share link for any session replay. Session data remains end-to-end encrypted and recipients need a separate decryption key you provide. Styrby never has access to the plaintext content.',
   },
   {
     q: 'What are session checkpoints?',
-    a: 'Session checkpoints are named save points within a session. Mark a point in a long session to return to it later, compare progress, or share a specific moment in the conversation. Available on Pro and above.',
+    a: 'Session checkpoints are named save points within a session. Mark a point in a long session to return to it later, compare progress, or share a specific moment in the conversation. Available on the Power tier.',
   },
   {
     q: 'How does cloud monitoring work?',
@@ -251,7 +239,7 @@ const faqs = [
   },
   {
     q: 'Can I use it with my team?',
-    a: 'Pro and Power both support up to 3 team members with shared dashboards and per-developer cost attribution. Power adds team-level budget alerts and OTEL export for full observability.',
+    a: 'Team management is available on the Power tier. Power supports up to 3 team members with shared dashboards and per-developer cost attribution, plus OTEL export for full observability. Pro is a single-user plan.',
   },
   {
     q: 'Can I switch plans at any time?',
@@ -343,9 +331,9 @@ function PricingCard({
   return (
     <div
       className={cn(
-        'relative flex flex-col rounded-2xl p-8 transition-all duration-300',
+        'relative flex flex-col rounded-2xl px-8 py-6 transition-all duration-300',
         plan.popular
-          ? 'border border-amber-500/40 bg-zinc-950 amber-glow md:-my-4 md:py-12 z-10'
+          ? 'border border-amber-500/40 bg-zinc-950 amber-glow z-10'
           : 'border border-zinc-800/80 bg-zinc-950/60 hover:border-zinc-700/80',
       )}
     >
@@ -370,12 +358,9 @@ function PricingCard({
         </div>
       )}
 
-      <div className={cn(!plan.popular && 'pt-8')}>
+      <div className="text-center">
         <h3
-          className={cn(
-            'text-lg font-semibold',
-            plan.popular ? 'text-amber-400' : 'text-foreground',
-          )}
+          className="text-2xl font-bold tracking-tight text-foreground"
         >
           {plan.name}
         </h3>
@@ -394,11 +379,11 @@ function PricingCard({
         )}
       </div>
 
-      {/* Annual savings — reserved height prevents layout shift */}
+      {/* Annual savings - reserved height prevents layout shift */}
       <div className="mt-1 h-4">
         {annual && plan.savings ? (
           <p className="text-xs text-amber-500/80">
-            ${plan.annual}/year — save ${plan.savings}
+            ${plan.annual}/year (save ${plan.savings})
           </p>
         ) : null}
       </div>
@@ -414,14 +399,19 @@ function PricingCard({
         {plan.included.map((feature) => (
           <li
             key={feature}
-            className="flex items-start gap-3 text-sm text-zinc-300"
+            className={cn(
+              'flex items-start gap-3 text-sm',
+              feature.endsWith('plus:') ? 'font-semibold text-zinc-200 pb-1 border-b border-zinc-800/60' : 'text-zinc-300',
+            )}
           >
-            <Check
-              className={cn(
-                'mt-0.5 h-4 w-4 shrink-0',
-                plan.popular ? 'text-amber-400' : 'text-amber-500/70',
-              )}
-            />
+            {!feature.endsWith('plus:') && (
+              <Check
+                className={cn(
+                  'mt-0.5 h-4 w-4 shrink-0',
+                  plan.popular ? 'text-amber-400' : 'text-amber-500/70',
+                )}
+              />
+            )}
             {feature}
           </li>
         ))}
@@ -436,31 +426,21 @@ function PricingCard({
         ))}
       </ul>
 
-      <div className="mt-8">
-        {plan.ctaVariant === 'amber' && (
-          <Button
-            asChild
-            className="w-full bg-amber-500 font-semibold text-zinc-950 hover:bg-amber-400 active:bg-amber-600 transition-colors"
-          >
-            <Link href={`/signup?plan=${plan.name.toLowerCase()}`}>{plan.cta}</Link>
-          </Button>
-        )}
-        {plan.ctaVariant === 'outline' && (
+      <div className="mt-8 flex justify-center">
+        {plan.ctaVariant === 'ghost' ? (
           <Button
             variant="outline"
             asChild
-            className="w-full border-zinc-700 bg-transparent font-medium text-zinc-300 hover:border-zinc-500 hover:text-foreground"
-          >
-            <Link href={`/signup?plan=${plan.name.toLowerCase()}`}>{plan.cta}</Link>
-          </Button>
-        )}
-        {plan.ctaVariant === 'ghost' && (
-          <Button
-            variant="ghost"
-            asChild
-            className="w-full font-medium text-muted-foreground hover:text-foreground"
+            className="rounded-full px-6 border-zinc-700 bg-transparent font-medium text-zinc-300 hover:border-zinc-500 hover:text-foreground transition-colors"
           >
             <Link href="/signup">{plan.cta}</Link>
+          </Button>
+        ) : (
+          <Button
+            asChild
+            className="rounded-full px-6 bg-amber-500 font-semibold text-zinc-950 hover:bg-amber-400 active:bg-amber-600 transition-colors"
+          >
+            <Link href={`/signup?plan=${plan.name.toLowerCase()}`}>{plan.cta}</Link>
           </Button>
         )}
       </div>
@@ -535,7 +515,7 @@ export default function PricingPage() {
               <span className="ml-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-amber-400">
                 Save 2 months
               </span>
-              {/* WHY $98: Power plan saves $98/year ($49 x 12 = $588 vs $490 annual) */}
+              {/* WHY $118: Power plan saves $98/year ($59 x 12 = $708 vs $590 annual) */}
             </span>
           </div>
         </div>
@@ -544,7 +524,7 @@ export default function PricingPage() {
       {/* Pricing Cards */}
       <section className="py-12">
         <div className="mx-auto max-w-7xl px-6">
-          <div className="grid gap-4 md:grid-cols-3 md:items-center">
+          <div className="grid gap-4 md:grid-cols-3 md:items-stretch">
             {plans.map((plan) => (
               <PricingCard key={plan.name} plan={plan} annual={annual} />
             ))}
@@ -593,7 +573,7 @@ export default function PricingPage() {
         </div>
       </section>
 
-      {/* FAQ — two-column interactive layout */}
+      {/* FAQ - two-column interactive layout */}
       <section className="py-24 border-t border-zinc-800/40">
         <div className="mx-auto max-w-7xl px-6">
           <div className="mx-auto max-w-2xl text-center">

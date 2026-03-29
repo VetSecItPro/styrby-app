@@ -7,7 +7,7 @@
  * decryption key, then decrypts and displays the messages.
  *
  * WHY: Messages are NaCl-box encrypted. The key lives on the CLI machine
- * that ran the session — it is never stored in Supabase. The viewer
+ * that ran the session - it is never stored in Supabase. The viewer
  * enters the key here so decryption happens in-browser without the key
  * ever touching Styrby's servers.
  */
@@ -200,7 +200,7 @@ export function SharedSessionViewer({ shareId }: SharedSessionViewerProps) {
       try {
         secretKey = decodeBase64(keyInput.trim());
       } catch {
-        setDecryptError('Invalid key format — must be a base64-encoded decryption key');
+        setDecryptError('Invalid key format. Must be a base64-encoded decryption key.');
         return;
       }
 
@@ -213,7 +213,7 @@ export function SharedSessionViewer({ shareId }: SharedSessionViewerProps) {
       // encrypted messages using the mobile device's public key and its own
       // secret key. For the share viewer, we attempt decryption using the
       // provided key as the recipient secret key. A production implementation
-      // would also need the sender's public key — here we use a best-effort
+      // would also need the sender's public key - here we use a best-effort
       // approach with the secret key directly via nacl.secretbox or a
       // symmetric key derived from the session, depending on the share creation
       // flow. For the current MVP we decode the content_encrypted as UTF-8
@@ -236,7 +236,7 @@ export function SharedSessionViewer({ shareId }: SharedSessionViewerProps) {
           //
           // For MVP: attempt decryptFromStorage with a zero public key placeholder.
           // This succeeds only if the message was encrypted with the zero key
-          // (which it won't be in production) — in that case we fall back to
+          // (which it won't be in production) - in that case we fall back to
           // showing the base64 as-is with a "key mismatch" indicator.
           //
           // The correct full-stack fix is tracked as SHARE-001: implement a
@@ -251,13 +251,13 @@ export function SharedSessionViewer({ shareId }: SharedSessionViewerProps) {
           decryptedCount++;
           return { ...m, content: decrypted };
         } catch {
-          // Decryption failed — wrong key or incompatible format
+          // Decryption failed - wrong key or incompatible format
           return { ...m, content: null };
         }
       });
 
       if (decryptedCount === 0 && messages.some((m) => m.wasEncrypted)) {
-        setDecryptError('Decryption failed — incorrect key or incompatible key format');
+        setDecryptError('Decryption failed. Incorrect key or incompatible key format.');
         return;
       }
 
@@ -355,7 +355,7 @@ export function SharedSessionViewer({ shareId }: SharedSessionViewerProps) {
 
       {/* Main content */}
       <main className="mx-auto max-w-4xl px-6 py-6">
-        {/* Key entry panel — shown when messages are encrypted and not yet decrypted */}
+        {/* Key entry panel - shown when messages are encrypted and not yet decrypted */}
         {hasEncryptedMessages && !isDecrypted && (
           <div className="mb-6 rounded-xl border border-zinc-700 bg-zinc-900 p-6">
             <h2 className="text-base font-semibold text-zinc-100 mb-1">Enter Decryption Key</h2>
@@ -394,7 +394,7 @@ export function SharedSessionViewer({ shareId }: SharedSessionViewerProps) {
           )}
 
           {messages.map((message) => {
-            // Skip permission responses (they update the card — not shown in replay)
+            // Skip permission responses (they update the card - not shown in replay)
             if (message.messageType === 'permission_response') return null;
 
             const isUser = message.messageType === 'user_prompt';
@@ -476,7 +476,7 @@ export function SharedSessionViewer({ shareId }: SharedSessionViewerProps) {
           <a href="https://styrby.com" className="hover:text-zinc-400 transition-colors">
             Styrby
           </a>
-          {' '}— AI coding session management
+          {' '}(AI coding session management)
         </div>
       </main>
     </div>

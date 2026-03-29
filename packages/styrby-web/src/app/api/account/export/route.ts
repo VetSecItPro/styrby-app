@@ -90,7 +90,7 @@ export async function POST(request: Request) {
     ] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', user.id).single(),
       supabase.from('sessions').select('*').eq('user_id', user.id).limit(10000),
-      // WHY: session_messages has no user_id column — query via session_id IN
+      // WHY: session_messages has no user_id column - query via session_id IN
       sessionIds.length > 0
         ? supabase.from('session_messages').select('*').in('session_id', sessionIds).limit(50000)
         : Promise.resolve({ data: [], error: null }),
@@ -109,9 +109,9 @@ export async function POST(request: Request) {
       supabase.from('team_invitations').select('*').eq('invited_user_id', user.id).limit(1000),
       // Webhooks (migration 004)
       supabase.from('webhooks').select('*').eq('user_id', user.id).limit(1000),
-      // API keys — exclude key_hash for security
+      // API keys - exclude key_hash for security
       supabase.from('api_keys').select('id, user_id, name, key_prefix, scopes, last_used_at, last_used_ip, request_count, expires_at, revoked_at, revoked_reason, created_at').eq('user_id', user.id).limit(1000),
-      // Audit log — contains IP addresses and user agents (personal data)
+      // Audit log - contains IP addresses and user agents (personal data)
       supabase.from('audit_log').select('*').eq('user_id', user.id).limit(10000),
       // User's custom prompt templates (not system templates)
       supabase.from('prompt_templates').select('*').eq('user_id', user.id).limit(1000),

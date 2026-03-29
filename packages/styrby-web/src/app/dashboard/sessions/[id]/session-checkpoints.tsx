@@ -29,7 +29,7 @@ interface SessionCheckpointsProps {
   sessionId: string;
   /** User's API key or Supabase access token for authenticated requests */
   apiKey?: string;
-  /** Current message count — used when saving a new checkpoint */
+  /** Current message count - used when saving a new checkpoint */
   currentMessageCount?: number;
   /** Whether the session is active (controls save button visibility) */
   isSessionActive?: boolean;

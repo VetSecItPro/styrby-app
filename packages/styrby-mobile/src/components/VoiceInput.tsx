@@ -22,6 +22,20 @@
  * widely available (OpenAI, self-hosted, enterprise) and the config-driven
  * approach keeps Styrby vendor-neutral.
  *
+ * TIER GATE (mobile-side): Voice commands are a Power-only feature.
+ * When integrating this component into the chat screen or settings screen,
+ * the caller MUST check the user's subscription tier before rendering the
+ * VoiceInput button. Free and Pro users should see a locked state or an
+ * upgrade prompt instead. The `config` prop being null is not sufficient
+ * — it must be explicitly blocked based on tier.
+ *
+ * Example (in the chat screen):
+ *   {userTier === 'power' ? (
+ *     <VoiceInput config={voiceConfig} onTranscript={handleTranscript} />
+ *   ) : (
+ *     <UpgradePrompt feature="Voice commands" requiredTier="power" />
+ *   )}
+ *
  * @module components/VoiceInput
  */
 

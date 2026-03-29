@@ -85,15 +85,12 @@ export default function VoiceDocsPage() {
           <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-300">
             multipart/form-data
           </code>{" "}
-          POST requests with an{" "}
+          POST requests with a{" "}
           <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-300">
-            audio
+            file
           </code>{" "}
-          field and return a JSON response with a{" "}
-          <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-300">
-            text
-          </code>{" "}
-          field. The OpenAI Whisper API format is the default.
+          field and return a text response. The OpenAI Whisper API format is
+          the default.
         </li>
         <li>
           <strong className="text-zinc-300">An API key or access token</strong>{" "}
@@ -267,15 +264,11 @@ docker run -d -p 9000:9000 \
                 <code className="rounded bg-zinc-800 px-1 py-0.5 text-xs text-zinc-300">
                   multipart/form-data
                 </code>{" "}
-                with an{" "}
+                with a{" "}
                 <code className="rounded bg-zinc-800 px-1 py-0.5 text-xs text-zinc-300">
-                  audio
+                  file
                 </code>{" "}
-                field and return{" "}
-                <code className="rounded bg-zinc-800 px-1 py-0.5 text-xs text-zinc-300">
-                  {"{ text: string }"}
-                </code>
-                .
+                field and return a text response.
               </td>
             </tr>
             <tr>

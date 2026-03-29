@@ -34,6 +34,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/landing/navbar';
 import { Footer } from '@/components/landing/footer';
+import { SocialProof } from '@/components/landing/social-proof';
 
 export const metadata: Metadata = {
   title: 'All Features',
@@ -157,21 +158,21 @@ const featureCategories = [
         title: 'Per-Message Cost Tracking',
         description:
           'See the cost of every individual message in a session, not just session totals. Know exactly which prompts drove your spend and optimize accordingly.',
-        detail: 'Available on Pro and above.',
+        detail: 'Available on Power tier only.',
       },
       {
         icon: FileSearch,
         title: 'Per-File Context Breakdown',
         description:
           'See which files were included in the agent context window and their relative size contribution. Understand why a session cost more than expected.',
-        detail: 'Available on Pro and above.',
+        detail: 'Available on Power tier only.',
       },
       {
         icon: ActivitySquare,
         title: 'Activity Graph',
         description:
           'GitHub-style contribution graph showing your daily agent activity over time. See usage patterns, identify heavy-use days, and track productivity trends.',
-        detail: 'Available on Pro and above.',
+        detail: 'Available on Power tier only.',
       },
       {
         icon: Eye,
@@ -239,14 +240,14 @@ const featureCategories = [
         title: 'Session Checkpoints',
         description:
           'Mark named save points within a long session. Return to a checkpoint later, compare progress between checkpoints, or share a specific moment in a conversation.',
-        detail: 'Available on Pro and above.',
+        detail: 'Available on Power tier only.',
       },
       {
         icon: Share2,
         title: 'Session Sharing',
         description:
           'Generate a share link for any session replay. Session data stays end-to-end encrypted and recipients need a separate decryption key you provide. Styrby never has access to the plaintext content.',
-        detail: 'Available on Pro and above.',
+        detail: 'Available on Power tier only.',
       },
       {
         icon: BarChart3,
@@ -294,41 +295,41 @@ const featureCategories = [
         title: 'Voice Commands',
         description:
           'Dictate approvals, queries, or commands hands-free from your phone or browser. Approve a permission request while your hands are full.',
-        detail: 'Available on Power tier.',
+        detail: 'Available on Power tier only.',
       },
       {
         icon: Cloud,
         title: 'Cloud Monitoring',
         description:
           'Submit a cloud monitoring job, track its progress in real time, and receive a push notification when it finishes or encounters an error.',
-        detail: 'Available on Power tier.',
+        detail: 'Available on Power tier only.',
       },
       {
         icon: Code2,
         title: 'Code Review From Mobile',
         description:
           'Submit a code review request from your phone. Monitor progress, see inline comments, and get notified when the review completes.',
-        detail: 'Available on Power tier.',
+        detail: 'Available on Power tier only.',
       },
       {
         icon: Database,
         title: 'OTEL Export',
         description:
           'Send agent session metrics, cost data, and trace events to any OpenTelemetry-compatible observability platform: Grafana, Datadog, Honeycomb, and others.',
-        detail: 'Available on Power tier.',
+        detail: 'Available on Power tier only.',
       },
       {
         icon: Zap,
         title: 'Rust Parser',
         description:
           'High-performance Rust-based parser for session data processing. Handles large session files faster than the default parser with lower memory overhead.',
-        detail: 'Available on Power tier.',
+        detail: 'Available on all tiers.',
       },
     ],
   },
   {
     name: 'Team Collaboration',
-    badge: 'Pro',
+    badge: 'Power',
     description: 'Share visibility across your engineering team.',
     features: [
       {
@@ -336,7 +337,7 @@ const featureCategories = [
         title: 'Team Members',
         description:
           'Invite up to 3 team members via email. Each gets their own login with role-based access: Owner, Admin, or Member. No shared credentials.',
-        detail: 'Available on Pro and above. Invite flow with email verification.',
+        detail: 'Available on Power tier only. Invite flow with email verification.',
       },
       {
         icon: LayoutDashboard,
@@ -475,30 +476,11 @@ export default function FeaturesPage() {
         </section>
       ))}
 
-      {/* Supported agents strip */}
+      {/* Supported agents strip - matches homepage social proof pattern */}
       <section className="py-12 border-t border-border/30">
-        <div className="mx-auto max-w-4xl px-6 text-center">
+        <div className="mx-auto max-w-7xl px-6 text-center">
           <h2 className="text-lg font-semibold text-foreground mb-6">Supported Agents</h2>
-          <div className="flex flex-wrap items-center justify-center gap-6">
-            {[
-              { name: 'Claude Code', color: 'text-orange-400' },
-              { name: 'Codex', color: 'text-green-400' },
-              { name: 'Gemini CLI', color: 'text-blue-400' },
-              { name: 'OpenCode', color: 'text-cyan-400' },
-              { name: 'Aider', color: 'text-purple-400' },
-              { name: 'Goose', color: 'text-teal-400' },
-              { name: 'Amp', color: 'text-yellow-400' },
-              { name: 'Crush', color: 'text-pink-400' },
-              { name: 'Kilo', color: 'text-indigo-400' },
-              { name: 'Kiro', color: 'text-sky-400' },
-              { name: 'Droid', color: 'text-rose-400' },
-            ].map((agent) => (
-              <div key={agent.name} className="flex items-center gap-2">
-                <div className={`h-2 w-2 rounded-full ${agent.color.replace('text-', 'bg-')}`} />
-                <span className={`text-sm font-medium ${agent.color}`}>{agent.name}</span>
-              </div>
-            ))}
-          </div>
+          <SocialProof />
         </div>
       </section>
 

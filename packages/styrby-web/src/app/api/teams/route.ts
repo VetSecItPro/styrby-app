@@ -76,7 +76,7 @@ async function getUserTier(
  * @returns True if the tier includes team features
  */
 function tierHasTeamFeatures(tier: TierId): boolean {
-  return tier === 'pro' || tier === 'power';
+  return tier === 'power';
 }
 
 // ---------------------------------------------------------------------------
@@ -265,7 +265,7 @@ export async function POST(request: NextRequest) {
     if (!tierHasTeamFeatures(tier)) {
       return NextResponse.json(
         {
-          error: 'Team collaboration is only available on Pro and Power plans. Upgrade to create and manage teams.',
+          error: 'Team collaboration is only available on the Power plan. Upgrade to Power to create and manage teams.',
         },
         { status: 403 }
       );

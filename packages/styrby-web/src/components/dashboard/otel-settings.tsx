@@ -33,10 +33,15 @@ import { createClient } from '@/lib/supabase/client';
  */
 export interface OtelSettingsProps {
   /**
-   * Whether the current user is on a Pro or Power tier.
-   * OTEL settings are shown but disabled for free-tier users.
+   * Whether the current user is on the Power tier.
+   * OTEL export is a Power-only feature - Pro and Free users see the section
+   * in a disabled/blurred state with an upgrade prompt.
+   *
+   * WHY Power-only: OTEL export to external observability platforms (Grafana,
+   * Datadog, Honeycomb) is an advanced infrastructure feature targeted at
+   * teams and power users. It is listed as Power-only in the TIERS config.
    */
-  isPaidTier: boolean;
+  isPowerTier: boolean;
 
   /**
    * Initial OTEL config loaded from Supabase profiles row.
@@ -135,9 +140,9 @@ function Toggle({
  * @param props - Component props
  *
  * @example
- * <OtelSettings isPaidTier={true} initialConfig={profile?.otel_config ?? null} />
+ * <OtelSettings isPowerTier={true} initialConfig={profile?.otel_config ?? null} />
  */
-export function OtelSettings({ isPaidTier, initialConfig }: OtelSettingsProps) {
+export function OtelSettings({ isPowerTier, initialConfig }: OtelSettingsProps) {
   const supabase = createClient();
 
   // ── Form state ──────────────────────────────────────────────────────────────
@@ -281,8 +286,8 @@ export function OtelSettings({ isPaidTier, initialConfig }: OtelSettingsProps) {
         <h2 id="otel-settings-heading" className="text-base font-semibold text-foreground">
           Metrics Export (OTEL)
         </h2>
-        <span className="inline-flex items-center rounded-full bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-500 uppercase tracking-wider">
-          Pro
+        <span className="inline-flex items-center rounded-full bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 text-[10px] font-semibold text-purple-400 uppercase tracking-wider">
+          Power
         </span>
       </div>
       <p className="text-sm text-muted-foreground mb-6">
@@ -290,18 +295,19 @@ export function OtelSettings({ isPaidTier, initialConfig }: OtelSettingsProps) {
         Configure your endpoint below, then copy the generated env vars into your shell profile.
       </p>
 
-      {!isPaidTier && (
-        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4 mb-6">
-          <p className="text-sm text-amber-500">
-            OTEL metrics export is available on Pro and Power plans.{' '}
-            <a href="/dashboard/plan-checkout" className="underline hover:no-underline">
-              Upgrade to enable
-            </a>.
+      {!isPowerTier && (
+        <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-4 mb-6">
+          <p className="text-sm text-purple-400">
+            OTEL metrics export is available on the Power plan.{' '}
+            <a href="/pricing" className="underline hover:no-underline">
+              Upgrade to Power
+            </a>{' '}
+            to enable.
           </p>
         </div>
       )}
 
-      <div className={`space-y-5 ${!isPaidTier ? 'opacity-50 pointer-events-none select-none' : ''}`}>
+      <div className={`space-y-5 ${!isPowerTier ? 'opacity-50 pointer-events-none select-none' : ''}`}>
 
         {/* Enable/Disable Toggle */}
         <div className="flex items-center justify-between rounded-lg border border-border/40 bg-card/60 px-4 py-3">
@@ -314,7 +320,7 @@ export function OtelSettings({ isPaidTier, initialConfig }: OtelSettingsProps) {
           <Toggle
             checked={config.enabled}
             onChange={(v) => setConfig((prev) => ({ ...prev, enabled: v }))}
-            disabled={!isPaidTier}
+            disabled={!isPowerTier}
             label="Enable OTEL metrics export"
           />
         </div>

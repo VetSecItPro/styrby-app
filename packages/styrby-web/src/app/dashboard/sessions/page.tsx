@@ -1,5 +1,5 @@
 // WHY: force-dynamic ensures this page is always server-rendered at request time.
-// Session lists are user-specific and change frequently — caching would show
+// Session lists are user-specific and change frequently - caching would show
 // stale session status and costs to the user.
 export const dynamic = 'force-dynamic';
 
@@ -58,7 +58,7 @@ export default async function SessionsPage() {
   // Check if the user belongs to a team (determines whether scope filter is shown).
   // WHY: The scope filter (My Sessions / Team Sessions) should only be visible
   // to users who actually have a team. We check for any session with a non-null
-  // team_id as a lightweight proxy — no separate team membership table needed.
+  // team_id as a lightweight proxy - no separate team membership table needed.
   const { count: teamSessionCount } = await supabase
     .from('sessions')
     .select('id', { count: 'exact', head: true })

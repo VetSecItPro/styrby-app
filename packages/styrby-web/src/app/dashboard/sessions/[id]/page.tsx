@@ -186,12 +186,29 @@ export default async function SessionPage({ params }: SessionPageProps) {
                 {session.project_path}
               </span>
             )}
-            {/* Share button — creates a shareable replay URL (Phase 7.10) */}
-            <SessionShareButton
-              sessionId={session.id}
-              machineId={(session as { machine_id?: string }).machine_id ?? null}
-            />
-            {/* Export button — client component that downloads session as JSON */}
+            {/* Share button - Pro+ only. Free users see an upgrade link instead.
+                WHY: Session sharing creates shareable URLs with E2E encrypted
+                content. This is a Pro feature and must be gated at both the
+                UI and API layers. */}
+            {userTier === 'free' ? (
+              <a
+                href="/pricing"
+                className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-zinc-500 hover:text-orange-400 transition-colors"
+                title="Upgrade to Pro to share sessions"
+                aria-label="Session sharing requires Pro plan"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                <span>Share</span>
+              </a>
+            ) : (
+              <SessionShareButton
+                sessionId={session.id}
+                machineId={(session as { machine_id?: string }).machine_id ?? null}
+              />
+            )}
+            {/* Export button - client component that downloads session as JSON */}
             <SessionExportButton
               session={session}
               messages={messages ?? []}
@@ -230,22 +247,62 @@ export default async function SessionPage({ params }: SessionPageProps) {
             users review what the agent loaded. For active sessions it would show
             stale data, so we surface it only when the session is done.
             Checkpoints are shown for all sessions (active or completed) because
-            users save checkpoints during active sessions too. */}
+            users save checkpoints during active sessions too. Both features are
+            Pro+ gated - Free users see locked upgrade prompts so they understand
+            what they are missing without losing screen real estate. */}
         <aside className="hidden lg:flex w-80 shrink-0 flex-col gap-4 overflow-y-auto border-l border-zinc-800 bg-zinc-950 p-4">
-          {/* Context budget breakdown */}
-          {!isSessionActive && (
+          {/* Context budget breakdown - Pro+ gate */}
+          {!isSessionActive && userTier === 'free' ? (
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <svg className="h-4 w-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-500">Context Breakdown</h3>
+              </div>
+              <p className="text-xs text-zinc-500 mb-3">
+                Per-file context usage is a Pro feature.
+              </p>
+              <a
+                href="/pricing"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-orange-500/10 border border-orange-500/20 px-3 py-1.5 text-xs font-medium text-orange-400 hover:bg-orange-500/20 transition-colors"
+              >
+                Upgrade to Pro
+              </a>
+            </div>
+          ) : !isSessionActive ? (
             <ContextBreakdown breakdown={null} />
-          )}
+          ) : null}
 
-          {/* Named session checkpoints
+          {/* Named session checkpoints - Pro+ gate
               WHY: Checkpoints are surfaced in the sidebar so users can see
               the session timeline branch points without leaving the main chat
               view. The panel handles its own data fetching via the REST API. */}
-          <SessionCheckpoints
-            sessionId={session.id}
-            currentMessageCount={session.message_count ?? 0}
-            isSessionActive={isSessionActive}
-          />
+          {userTier === 'free' ? (
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <svg className="h-4 w-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-500">Checkpoints</h3>
+              </div>
+              <p className="text-xs text-zinc-500 mb-3">
+                Session checkpoints are a Pro feature.
+              </p>
+              <a
+                href="/pricing"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-orange-500/10 border border-orange-500/20 px-3 py-1.5 text-xs font-medium text-orange-400 hover:bg-orange-500/20 transition-colors"
+              >
+                Upgrade to Pro
+              </a>
+            </div>
+          ) : (
+            <SessionCheckpoints
+              sessionId={session.id}
+              currentMessageCount={session.message_count ?? 0}
+              isSessionActive={isSessionActive}
+            />
+          )}
         </aside>
       </div>
     </div>

@@ -24,9 +24,9 @@ function DashboardMockup() {
             "radial-gradient(ellipse 80% 50% at 50% 100%, rgba(245,158,11,0.12) 0%, transparent 70%)",
         }}
       />
-      {/* Outer bezel — faint border ring */}
+      {/* Outer bezel - faint border ring */}
       <div className="rounded-[18px] border border-white/[0.06] p-[3px] shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_32px_80px_rgba(0,0,0,0.7)]">
-        {/* Inner bezel — slightly brighter, adds depth */}
+        {/* Inner bezel - slightly brighter, adds depth */}
         <div className="rounded-[15px] border border-white/[0.09] overflow-hidden">
           <Image
             src="/screenshots/dashboard-overview.png"
@@ -46,7 +46,7 @@ function DashboardMockup() {
  * Hero section for the Styrby landing page.
  *
  * WHY this headline: "11 Agents. One Dashboard. Your Phone." leads with the
- * remote-control story — not costs. The competitive moat against Anthropic
+ * remote-control story - not costs. The competitive moat against Anthropic
  * Channels / Dispatch is breadth (11 agents) + mobility (your phone). The
  * headline lands that in four words before the user has time to bounce.
  *
@@ -60,7 +60,7 @@ export function Hero() {
       {/* ── Background: mesh gradient + dot grid ── */}
       <div aria-hidden="true" className="absolute inset-0 dot-grid opacity-50" />
 
-      {/* Left-anchored amber plume — asymmetric, editorial */}
+      {/* Left-anchored amber plume - asymmetric, editorial */}
       <div
         aria-hidden="true"
         className="pointer-events-none absolute left-0 top-0 -z-10"
@@ -84,21 +84,7 @@ export function Hero() {
       />
 
       <div className="relative mx-auto max-w-7xl px-6">
-        {/* ── Eyebrow badge ── */}
-        <div className="mb-8 flex items-center gap-3">
-          <div
-            className={cn(
-              "inline-flex items-center gap-2 rounded-full px-3.5 py-1.5",
-              "border border-amber-500/20 bg-amber-500/[0.06]",
-              "text-xs font-medium tracking-wide text-amber-400"
-            )}
-          >
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-live-pulse" />
-            Now supporting 11 AI coding agents
-          </div>
-        </div>
-
-        {/* ── Main headline — left-aligned, massive ── */}
+        {/* ── Main headline - left-aligned, massive ── */}
         {/*
           WHY text-left: at DESIGN_VARIANCE 7 we break the centered-SaaS pattern.
           The headline reads like editorial typesetting, not a template.
@@ -108,13 +94,13 @@ export function Hero() {
         <h1
           className={cn(
             "max-w-3xl text-left",
-            "text-6xl md:text-[82px] font-bold leading-[0.92] tracking-tighter",
+            "text-6xl md:text-[82px] font-bold leading-[1.15] tracking-tighter",
             "text-zinc-50"
           )}
         >
-          {/* "11 Agents" gets the amber gradient — it's the moat, own it */}
+          {/* "11 Agents" gets the amber gradient - it's the moat, own it */}
           <span
-            className="inline-block"
+            className="inline-block pb-1"
             style={{
               backgroundImage:
                 "linear-gradient(135deg, #F59E0B 0%, #FBBF24 45%, #FCD34D 100%)",
@@ -131,7 +117,7 @@ export function Hero() {
           <span className="text-zinc-300">Your Phone.</span>
         </h1>
 
-        {/* ── Subheadline — controlled width, left-aligned ── */}
+        {/* ── Subheadline - controlled width, left-aligned ── */}
         <p className="mt-7 max-w-xl text-left text-lg leading-relaxed text-zinc-400 md:text-[18px]">
           Control every AI coding agent from anywhere. Approve permissions on
           your commute. Review code diffs in meetings. See exactly what each
@@ -198,7 +184,7 @@ export function Hero() {
         </div>
       </div>
 
-      {/* ── Dashboard mockup — full width within container ── */}
+      {/* ── Dashboard mockup - full width within container ── */}
       <div className="mx-auto max-w-7xl px-6">
         <DashboardMockup />
       </div>

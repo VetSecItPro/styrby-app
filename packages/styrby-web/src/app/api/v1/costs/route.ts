@@ -116,7 +116,7 @@ async function handler(
 
   const supabase = createApiAdminClient();
 
-  // WHY: Run cost records and session count queries in parallel — they are independent.
+  // WHY: Run cost records and session count queries in parallel - they are independent.
   // This cuts round-trip latency roughly in half on every API call.
   const [costResult, sessionCountResult] = await Promise.all([
     // WHY: .limit(10000) prevents unbounded memory on serverless functions.

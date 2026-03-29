@@ -81,6 +81,12 @@ interface DashboardRealtimeProps {
    */
   userId: string;
 
+  /**
+   * User's subscription tier. Controls visibility of tier-gated dashboard features:
+   * - Activity graph: Pro+
+   * - Cloud Tasks panel: Power only
+   */
+  userTier: 'free' | 'pro' | 'power';
 }
 
 /* ──────────────────────────── Component ──────────────────────────── */
@@ -102,6 +108,7 @@ export function DashboardRealtime({
   initialTodaySpend,
   initialMachines,
   userId,
+  userTier,
 }: DashboardRealtimeProps) {
   const [sessions, setSessions] = useState(initialSessions);
   const [todaySpend, setTodaySpend] = useState(initialTodaySpend);
@@ -241,8 +248,30 @@ export function DashboardRealtime({
         </div>
       </div>
 
-      {/* Activity Graph — 52-week contribution heatmap */}
-      <ActivityGraph className="mb-8" />
+      {/* Activity Graph - 52-week contribution heatmap - Pro+ only
+          WHY: The activity graph is listed as a Pro feature in the TIERS config.
+          Free users see a locked upgrade card that teases the feature. */}
+      {userTier === 'free' ? (
+        <div className="mb-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <svg className="h-5 w-5 text-zinc-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <div>
+              <p className="text-sm font-medium text-zinc-300">Activity Graph</p>
+              <p className="text-xs text-zinc-500">52-week coding activity heatmap. Available on Pro.</p>
+            </div>
+          </div>
+          <a
+            href="/pricing"
+            className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-orange-500/10 border border-orange-500/20 px-3 py-1.5 text-xs font-medium text-orange-400 hover:bg-orange-500/20 transition-colors"
+          >
+            Upgrade to Pro
+          </a>
+        </div>
+      ) : (
+        <ActivityGraph className="mb-8" />
+      )}
 
       {/* Recent sessions */}
       <div className="rounded-xl bg-zinc-900 border border-zinc-800">
@@ -360,10 +389,32 @@ export function DashboardRealtime({
         )}
       </div>
 
-      {/* Cloud Tasks Panel — async agent task monitoring */}
-      <div className="mt-8 rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-        <CloudTasksPanel userId={userId} />
-      </div>
+      {/* Cloud Tasks Panel - async agent task monitoring - Power tier only
+          WHY: Cloud Monitoring is listed as a Power-exclusive feature in the TIERS
+          config. Pro users see a locked upgrade card; Free users also see it. */}
+      {userTier === 'power' ? (
+        <div className="mt-8 rounded-xl bg-zinc-900 border border-zinc-800 p-4">
+          <CloudTasksPanel userId={userId} />
+        </div>
+      ) : (
+        <div className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <svg className="h-5 w-5 text-zinc-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <div>
+              <p className="text-sm font-medium text-zinc-300">Cloud Monitoring</p>
+              <p className="text-xs text-zinc-500">Real-time cloud task monitoring. Available on Power.</p>
+            </div>
+          </div>
+          <a
+            href="/pricing"
+            className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20 px-3 py-1.5 text-xs font-medium text-purple-400 hover:bg-purple-500/20 transition-colors"
+          >
+            Upgrade to Power
+          </a>
+        </div>
+      )}
     </>
   );
 }

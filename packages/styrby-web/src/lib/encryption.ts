@@ -17,7 +17,7 @@
  * localStorage is acceptable here because:
  * 1. The keys protect session message content, not financial credentials
  * 2. An attacker with localStorage access already has the auth session cookie
- * 3. This matches the threat model — E2E encryption protects data in transit
+ * 3. This matches the threat model - E2E encryption protects data in transit
  *    and at rest on the server, not against local device compromise
  */
 
@@ -100,7 +100,7 @@ export function getOrCreateWebKeyPair(): NaClKeyPair {
       };
       return cachedKeyPair;
     } catch {
-      // Corrupted keypair — regenerate
+      // Corrupted keypair - regenerate
       localStorage.removeItem(KEYPAIR_STORAGE_KEY);
     }
   }
@@ -268,7 +268,7 @@ export async function tryDecryptMessage(
     return { content: contentEncrypted, wasEncrypted: false };
   }
 
-  // Message is encrypted — attempt decryption
+  // Message is encrypted - attempt decryption
   if (!machineId) {
     return { content: null, wasEncrypted: true };
   }
@@ -290,7 +290,7 @@ export async function tryDecryptMessage(
 
     return { content: plaintext, wasEncrypted: true };
   } catch {
-    // Decryption failed — message was encrypted for a different device
+    // Decryption failed - message was encrypted for a different device
     // WHY: This is expected behavior when messages were encrypted for the
     // mobile device, not the web. NaCl box.open returns null for wrong keys.
     return { content: null, wasEncrypted: true };

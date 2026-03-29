@@ -2,7 +2,7 @@
  * POST /api/sessions/[id]/share
  *
  * Creates a shareable link for a session. The session content remains
- * E2E encrypted — the viewer needs the decryption key (shared separately)
+ * E2E encrypted - the viewer needs the decryption key (shared separately)
  * to read the messages.
  *
  * WHY separate key: Session messages in Supabase are encrypted with NaCl
@@ -23,9 +23,11 @@
  *   shareUrl: string
  * }
  *
+ * @tier Power only (Free users receive 403 TIER_RESTRICTED)
+ *
  * @error 400 { error: 'VALIDATION_ERROR', message: string }
  * @error 401 { error: 'UNAUTHORIZED', message: string }
- * @error 403 { error: 'FORBIDDEN', message: string }
+ * @error 403 { error: 'FORBIDDEN' | 'TIER_RESTRICTED', message: string }
  * @error 404 { error: 'NOT_FOUND', message: string }
  * @error 429 { error: 'RATE_LIMITED', retryAfter: number }
  * @error 500 { error: 'INTERNAL_ERROR', message: string }
@@ -39,7 +41,7 @@ import type { SharedSession, CreateShareResponse } from '@styrby/shared';
 
 /**
  * Alphabet for nanoid-style share ID generation.
- * URL-safe alphanumeric characters only — no ambiguous chars like 0/O or l/1.
+ * URL-safe alphanumeric characters only - no ambiguous chars like 0/O or l/1.
  */
 const SHARE_ID_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
 
@@ -127,6 +129,24 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
+    // Enforce Pro+ tier gate for session sharing
+    // WHY: Session sharing is listed in the Pro feature set. Free users cannot
+    // create share links. We check the tier immediately after auth to short-circuit.
+    const { data: subscription } = await supabase
+      .from('subscriptions')
+      .select('tier')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    const userTierForShare = (subscription?.tier as string) || 'free';
+    if (userTierForShare !== 'power') {
+      return NextResponse.json(
+        { error: 'TIER_RESTRICTED', message: 'Session sharing requires a Power plan. Upgrade at /pricing' },
+        { status: 403 }
+      );
+    }
+
     // Validate session ID format
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(sessionId)) {
@@ -169,7 +189,7 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
-    // Generate a unique share ID (retry on collision — astronomically unlikely)
+    // Generate a unique share ID (retry on collision - astronomically unlikely)
     let shareId = generateShareId();
     let attempts = 0;
     while (attempts < 5) {

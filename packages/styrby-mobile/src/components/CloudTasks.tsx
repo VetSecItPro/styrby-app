@@ -2,6 +2,9 @@
  * CloudTasks Component
  *
  * Displays the user's cloud agent task list with real-time status updates.
+ * This component covers both "Cloud Monitoring" and "Code Review From Mobile"
+ * Power-tier features — cloud tasks can represent any long-running agent job
+ * including code review requests dispatched from the mobile app.
  *
  * Features:
  * - Task cards with status badges (queued, running, completed, failed, cancelled)
@@ -20,6 +23,21 @@
  * opens the app, they see up-to-date statuses without a manual refresh.
  * The push notification (from CLI) brings them to the app; Realtime shows
  * the current state.
+ *
+ * TIER GATE (mobile-side): Cloud Monitoring and Code Review From Mobile are
+ * Power-only features. When rendering this component in a screen, the caller
+ * MUST check the user's subscription tier before showing it. Free and Pro
+ * users should see a locked state or an upgrade prompt.
+ *
+ * Example (in the dashboard or tasks screen):
+ *   {userTier === 'power' ? (
+ *     <CloudTasks userId={userId} />
+ *   ) : (
+ *     <UpgradePrompt feature="Cloud monitoring" requiredTier="power" />
+ *   )}
+ *
+ * Code review from mobile is dispatched via cloud tasks with task_type='code_review'.
+ * The same tier check applies — only Power users can create code review tasks.
  *
  * @module components/CloudTasks
  */

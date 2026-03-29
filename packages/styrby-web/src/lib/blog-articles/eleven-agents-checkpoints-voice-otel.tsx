@@ -226,7 +226,7 @@ export default function ElevenAgentsCheckpointsVoiceOtel() {
           </tr>
           <tr>
             <td>Pro</td>
-            <td>8 agents</td>
+            <td>9 agents</td>
             <td>$24 / month</td>
             <td>
               Everything in Free plus session checkpoints, session sharing,
@@ -236,7 +236,7 @@ export default function ElevenAgentsCheckpointsVoiceOtel() {
           <tr>
             <td>Power</td>
             <td>All 11 agents</td>
-            <td>$49 / month</td>
+            <td>$59 / month</td>
             <td>
               Everything in Pro plus OTEL export, cloud task monitoring, mobile
               code review, team dashboard, per-developer cost attribution

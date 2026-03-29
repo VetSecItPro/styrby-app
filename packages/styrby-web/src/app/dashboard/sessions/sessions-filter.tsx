@@ -374,7 +374,7 @@ export function SessionsFilter({
         setIsScopeLoading(false);
       }
     } else {
-      // Switching back to 'mine' — restore SSR sessions
+      // Switching back to 'mine' - restore SSR sessions
       setAllSessions(initialSessions);
       setHasMore(initialHasMore);
     }
@@ -413,7 +413,7 @@ export function SessionsFilter({
       setAllSessions((prev) => [...prev, ...newSessions]);
       setHasMore(newSessions.length >= PAGE_SIZE);
     } catch {
-      // Silently fail — user can scroll again to retry
+      // Silently fail - user can scroll again to retry
       setHasMore(false);
     } finally {
       setIsLoadingMore(false);

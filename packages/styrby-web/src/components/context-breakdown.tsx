@@ -4,7 +4,7 @@
  * Context Breakdown Component
  *
  * Displays a per-file token allocation table for a given AI agent session.
- * No competitor surfaces this data on the web or mobile — it is a key Styrby
+ * No competitor surfaces this data on the web or mobile - it is a key Styrby
  * differentiator that helps power users understand and optimize their context budget.
  *
  * Layout:
@@ -151,12 +151,12 @@ function EmptyBreakdown() {
 // ============================================================================
 
 /**
- * ContextBreakdown — Per-file token allocation view for a session.
+ * ContextBreakdown - Per-file token allocation view for a session.
  *
  * WHY: Power users frequently hit context window limits and don't know which
  * files are consuming the most tokens. This component surfaces that data so
  * users can decide what to remove from context. No competitor (Happy Coder,
- * Cursor, etc.) shows this breakdown — it is a meaningful product differentiator.
+ * Cursor, etc.) shows this breakdown - it is a meaningful product differentiator.
  *
  * @param breakdown - Context breakdown data from Supabase or the CLI relay
  * @param className - Optional container CSS class

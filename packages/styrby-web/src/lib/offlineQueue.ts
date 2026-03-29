@@ -3,7 +3,7 @@
  *
  * WHY: When users are offline (e.g., on a train, in an airplane), they should
  * still be able to queue actions like creating budget alerts. These actions
- * are synced when connectivity is restored, providing a seamless experience.
+ * are synced when connectivity is restored, providing a smooth experience.
  *
  * Uses IndexedDB via the 'idb' library for persistent storage that survives
  * page reloads and browser restarts.

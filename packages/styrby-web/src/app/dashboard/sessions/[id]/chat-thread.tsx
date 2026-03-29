@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils';
 import { tryDecryptMessage, registerWebDevice, type DecryptResult } from '@/lib/encryption';
 
 // WHY: Hoisted to module level to avoid re-allocating the RegExp object on every
-// render call. Note: no `g` flag here — we use matchAll() instead, which
+// render call. Note: no `g` flag here - we use matchAll() instead, which
 // creates a fresh stateful iterator per call (the `g` flag on a shared regex
 // causes lastIndex bugs across concurrent calls).
 const CODE_BLOCK_REGEX = /```(\w+)?\n([\s\S]*?)```/;
@@ -67,7 +67,7 @@ interface Message {
   output_tokens: number | null;
   /**
    * Cache tokens (read + write) associated with this message.
-   * WHY: Cached tokens are billed at a significantly reduced rate — surfacing
+   * WHY: Cached tokens are billed at a significantly reduced rate - surfacing
    * this lets users see how much the prompt cache is saving them per message.
    */
   cache_tokens: number | null;
@@ -91,6 +91,11 @@ interface ChatThreadProps {
   isSessionActive: boolean;
   /** CLI machine ID that created this session (for E2E key lookup) */
   machineId: string | null;
+  /**
+   * User's subscription tier. Controls visibility of Pro-gated features
+   * such as per-message cost pills.
+   */
+  userTier: 'free' | 'pro' | 'power';
 }
 
 /* ──────────────────────────── Icons ──────────────────────────── */
@@ -232,7 +237,7 @@ function getSenderLabel(messageType: Message['message_type']): string {
 
 /**
  * Returns plaintext for unencrypted messages (no nonce).
- * For encrypted messages, returns null — async decryption is handled
+ * For encrypted messages, returns null - async decryption is handled
  * by the useDecryptedMessages hook in the ChatThread component.
  *
  * @param message - Message record
@@ -335,8 +340,14 @@ interface MessageRowProps {
   decryptedContent: DecryptResult | null;
   /** Which code block ID is currently showing the "Copied" state */
   copiedId: string | null;
-  /** Stable callback — parent must wrap in useCallback to preserve referential equality */
+  /** Stable callback - parent must wrap in useCallback to preserve referential equality */
   onCopy: (code: string, codeId: string) => void;
+  /**
+   * User's subscription tier. Per-message cost pills are a Pro+ feature
+   * (they require per-message token tracking in the Pro/Power feature set).
+   * Free users see a blurred upgrade prompt instead.
+   */
+  userTier: 'free' | 'pro' | 'power';
 }
 
 /**
@@ -345,14 +356,14 @@ interface MessageRowProps {
  * WHY: Wrapped in React.memo so that adding new messages to the end of the
  * list (the common case) does not re-render previously rendered rows.
  * Without memoization, every state update (e.g. copiedId change, new message)
- * triggers a full re-render of the entire message list — O(n) re-renders for
+ * triggers a full re-render of the entire message list - O(n) re-renders for
  * sessions with hundreds of messages (PERF-017).
  *
  * Props are kept stable: `message` is a value from the array (same reference
  * for unchanged rows), `copiedId` is a string|null (primitive comparison),
  * and `onCopy` must be wrapped in useCallback by the parent.
  */
-const MessageRow = memo(function MessageRow({ message, decryptedContent, copiedId, onCopy }: MessageRowProps) {
+const MessageRow = memo(function MessageRow({ message, decryptedContent, copiedId, onCopy, userTier }: MessageRowProps) {
   // Resolve content: use decrypted result, fall back to sync extraction
   const syncContent = getMessageContentSync(message);
   const content = syncContent ?? decryptedContent?.content ?? '';
@@ -389,7 +400,7 @@ const MessageRow = memo(function MessageRow({ message, decryptedContent, copiedI
             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
-            Encrypted — view on paired device
+            Encrypted. View on paired device
           </span>
         ) : (
           renderContent(content, message.id, copiedId, onCopy)
@@ -397,13 +408,29 @@ const MessageRow = memo(function MessageRow({ message, decryptedContent, copiedI
       </div>
 
       {/* Footer: duration + per-message cost pill (Phase 7.9) */}
+      {/* WHY: Per-message cost tracking is a Pro+ feature. Free users see an
+          upgrade teaser instead of the cost pill - it shows the feature exists
+          and drives upgrades without hiding the footer row entirely. */}
       {(message.duration_ms || message.input_tokens || message.output_tokens) && (
         <div className="mt-2 flex items-center gap-2 text-xs opacity-50">
           {message.duration_ms && (
             <span>{(message.duration_ms / 1000).toFixed(1)}s</span>
           )}
-          {/* Cost pill — only shown for agent responses with token data */}
-          {message.message_type === 'agent_response' && (() => {
+          {/* Cost pill - gated to Pro+ users */}
+          {message.message_type === 'agent_response' && userTier === 'free' && (
+            <a
+              href="/pricing"
+              className="inline-flex items-center gap-1 rounded-full bg-zinc-700/40 px-1.5 py-0.5 text-[10px] text-zinc-500 hover:text-orange-400 transition-colors"
+              title="Upgrade to Pro to see per-message costs"
+              aria-label="Per-message cost tracking requires Pro plan"
+            >
+              <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              Pro
+            </a>
+          )}
+          {message.message_type === 'agent_response' && userTier !== 'free' && (() => {
             const costStr = formatMessageCost(
               message.input_tokens,
               message.output_tokens,
@@ -442,6 +469,7 @@ export function ChatThread({
   initialMessages,
   isSessionActive,
   machineId,
+  userTier,
 }: ChatThreadProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -535,7 +563,7 @@ export function ChatThread({
 
   /**
    * Copies code to clipboard and shows confirmation.
-   * Wrapped in useCallback so the reference stays stable across renders —
+   * Wrapped in useCallback so the reference stays stable across renders -
    * this is the `onCopy` prop passed into the memoized MessageRow. Without
    * useCallback a new function reference would be created on every render,
    * defeating React.memo's shallow-equality check on MessageRow props.
@@ -609,6 +637,7 @@ export function ChatThread({
               decryptedContent={decryptedCache[message.id] || null}
               copiedId={copiedId}
               onCopy={copyCode}
+              userTier={userTier}
             />
           );
         })

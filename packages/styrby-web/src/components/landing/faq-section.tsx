@@ -4,7 +4,7 @@ import { useState } from "react"
 import { cn } from "@/lib/utils"
 
 /**
- * FAQ data — all questions and answers for the landing page.
+ * FAQ data - all questions and answers for the landing page.
  *
  * WHY no accordion: The two-column layout gives visitors a scannable
  * question list on the left and an immediately readable answer on the
@@ -54,7 +54,7 @@ const faqs = [
   },
   {
     q: "Can I use it with my team?",
-    a: "The Pro plan ($24/mo) supports up to 3 team members with shared dashboards and per-developer cost attribution. The Power plan ($49/mo) adds team-level budget alerts and OTEL export for full observability across your team.",
+    a: "The Pro plan ($24/mo) supports up to 3 team members with shared dashboards and per-developer cost attribution. The Power plan ($59/mo) adds team-level budget alerts and OTEL export for full observability across your team.",
   },
   {
     q: "How is this different from checking my API dashboard?",
@@ -63,7 +63,7 @@ const faqs = [
 ]
 
 /**
- * FAQ section — two-column layout with clickable questions on the left
+ * FAQ section - two-column layout with clickable questions on the left
  * and the selected answer on the right.
  *
  * @returns The full FAQ section with interactive question selection

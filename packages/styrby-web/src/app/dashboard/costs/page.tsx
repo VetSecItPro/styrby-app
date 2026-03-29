@@ -1,5 +1,5 @@
 // WHY: force-dynamic ensures this page is always server-rendered at request time.
-// Cost analytics are user-specific and update continuously during active sessions —
+// Cost analytics are user-specific and update continuously during active sessions -
 // a cached response would show incorrect spend totals and stale budget alert state.
 export const dynamic = 'force-dynamic';
 
@@ -11,8 +11,10 @@ import { CostsRealtime } from './costs-realtime';
 import { BudgetAlertsSummary } from './budget-alerts-summary';
 import { TokenUsageSummary } from './token-usage-summary';
 import { TimeRangeSelect } from './time-range-select';
+import { TeamCosts } from './team-costs';
 import { TIERS, type TierId } from '@/lib/polar';
 import { MODEL_PRICING, LAST_VERIFIED } from '@/lib/model-pricing';
+import { ExportButton } from './export-button';
 
 /**
  * Calculates the start of the current period for spend aggregation.
@@ -81,10 +83,10 @@ export default async function CostsPage({
   const daysRaw = Number(params.days);
   const days = [7, 30, 90].includes(daysRaw) ? daysRaw : 30;
 
-  // Fetch daily cost summary — includes agent_type and model dimensions.
+  // Fetch daily cost summary - includes agent_type and model dimensions.
   // WHY: After migration 010, mv_daily_cost_summary groups by (user_id, record_date,
   // agent_type, model). A single MV query now provides all data needed for the daily
-  // trend chart, per-agent breakdown, and per-model breakdown — eliminating the
+  // trend chart, per-agent breakdown, and per-model breakdown - eliminating the
   // separate raw cost_records table scan that previously fetched up to 10,000 rows.
   const rangeStart = new Date();
   rangeStart.setDate(rangeStart.getDate() - days);
@@ -189,7 +191,10 @@ export default async function CostsPage({
     }
   }
 
-  const [alertsResult, subscriptionResult] = await Promise.all([
+  // Fetch budget alerts, subscription tier, and (if Power) team membership in parallel.
+  // WHY parallel: These are independent queries. Running them concurrently cuts
+  // the p99 latency from ~3× serial query time to ~1× the slowest query.
+  const [alertsResult, subscriptionResult, teamMemberResult] = await Promise.all([
     supabase
       .from('budget_alerts')
       .select('id, name, threshold_usd, period, agent_type, action, is_enabled')
@@ -202,11 +207,24 @@ export default async function CostsPage({
       .eq('user_id', user.id)
       .eq('status', 'active')
       .single(),
+    // WHY: Pre-fetch team membership so we can render TeamCosts without an
+    // extra round-trip. We only use the result for Power tier users.
+    supabase
+      .from('team_members')
+      .select('team_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   const budgetAlerts = alertsResult.data || [];
   const userTier = (subscriptionResult.data?.tier as TierId) || 'free';
   const alertLimit = TIERS[userTier]?.limits.budgetAlerts ?? 0;
+
+  // Only expose team data on Power tier - other tiers don't have team access.
+  const teamId = userTier === 'power'
+    ? (teamMemberResult.data?.team_id as string | null) ?? null
+    : null;
 
   // WHY: We compute the "most critical" alert (highest % used) to show in the
   // summary widget. This gives users an at-a-glance view of their closest alert.
@@ -293,9 +311,14 @@ export default async function CostsPage({
             </svg>
             Budget Alerts
           </Link>
+
+          {/* Export button - Power tier only, locked/greyed for Free and Pro */}
+          {/* WHY: Export is a Power differentiator. Showing the locked state to
+              Free/Pro users reinforces the upsell path without hiding the feature. */}
+          <ExportButton isPowerTier={userTier === 'power'} days={days} />
         </div>
 
-        {/* Time range selector — client component for onChange interactivity */}
+        {/* Time range selector - client component for onChange interactivity */}
         <TimeRangeSelect currentDays={days} />
       </div>
 
@@ -312,8 +335,45 @@ export default async function CostsPage({
           alertLimit={alertLimit}
         />
 
-        {/* Charts */}
-        <CostCharts data={chartData} />
+        {/* Daily Cost Charts - Power tier only.
+            WHY: The full daily spending chart (area chart + stacked bars + pie)
+            is a Power differentiator. Free/Pro users see a locked upgrade card
+            that teases the feature. They still see token totals and model/tag
+            breakdowns below - those are available to all tiers. */}
+        {userTier === 'power' ? (
+          <CostCharts data={chartData} />
+        ) : (
+          <div className="mt-4 rounded-xl border border-border/60 bg-card/40 p-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <svg
+                className="h-5 w-5 text-muted-foreground shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                />
+              </svg>
+              <div>
+                <p className="text-sm font-medium text-foreground">Daily Cost Charts</p>
+                <p className="text-xs text-muted-foreground">
+                  Full spending trends, per-agent breakdown, and daily charts. Available on Power.
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/pricing"
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-orange-500/10 border border-orange-500/20 px-3 py-1.5 text-xs font-medium text-orange-400 hover:bg-orange-500/20 transition-colors"
+            >
+              Upgrade to Power
+            </Link>
+          </div>
+        )}
       </CostsRealtime>
 
       {/* Token Usage Summary */}
@@ -398,6 +458,14 @@ export default async function CostsPage({
           )}
         </div>
       </section>
+
+      {/* Team Cost Dashboard - Power tier + team membership only.
+          WHY: Agencies and collaborative teams need to attribute AI spend to
+          individual developers. This section is only meaningful when the user
+          is on Power (which enables team features) AND has at least one team. */}
+      {userTier === 'power' && teamId && (
+        <TeamCosts teamId={teamId} rangeStartDate={rangeStartDate} />
+      )}
 
       {/* Model pricing reference */}
       <section className="mt-8">

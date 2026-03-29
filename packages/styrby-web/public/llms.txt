@@ -21,7 +21,7 @@ Styrby is a mobile-first dashboard for developers who use AI coding agents. It s
 
 - Homepage: https://styrbyapp.com
 - Features: https://styrbyapp.com/features
-- Pricing: https://styrbyapp.com/pricing (Free, Pro $24/mo, Power $49/mo)
+- Pricing: https://styrbyapp.com/pricing (Free, Pro $24/mo, Power $59/mo)
 - Security architecture: https://styrbyapp.com/security
 - Security comparison vs Claude Channels and Dispatch: https://styrbyapp.com/security/compare
 - Blog: https://styrbyapp.com/blog

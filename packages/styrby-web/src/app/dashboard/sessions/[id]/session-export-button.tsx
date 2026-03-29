@@ -7,7 +7,7 @@
  * cost data + context breakdown) into a JSON blob and triggers a browser
  * download.
  *
- * WHY: Export is a client-side concern — we already have all the session data
+ * WHY: Export is a client-side concern - we already have all the session data
  * in the page, so we can avoid an extra round-trip by assembling and downloading
  * the file entirely in the browser. This also means exports work offline once
  * the page is loaded (PWA use case).
@@ -195,7 +195,7 @@ function downloadJson(json: string, filename: string): void {
  * Download button that exports a session as a portable JSON file.
  *
  * On click it assembles the export payload, serialises it, and triggers a
- * browser download — no network request needed.
+ * browser download - no network request needed.
  *
  * @param session - Session metadata
  * @param messages - Session messages (encrypted)

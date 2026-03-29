@@ -32,6 +32,8 @@ describe('Polar Billing Module', () => {
           webhooks: 0,
           teamMembers: 1,
           apiKeys: 0,
+          bookmarks: 5,
+          promptTemplates: 3,
         });
       });
 
@@ -61,8 +63,10 @@ describe('Polar Billing Module', () => {
           messagesPerMonth: 25_000,
           budgetAlerts: 3,
           webhooks: 3,
-          teamMembers: 3,
+          teamMembers: 1,
           apiKeys: 0,
+          bookmarks: 50,
+          promptTemplates: 20,
         });
       });
 
@@ -89,12 +93,14 @@ describe('Polar Billing Module', () => {
           webhooks: 10,
           teamMembers: 3,
           apiKeys: 5,
+          bookmarks: -1,
+          promptTemplates: -1,
         });
       });
 
       it('should have correct pricing', () => {
-        expect(TIERS.power.price.monthly).toBe(49);
-        expect(TIERS.power.price.annual).toBe(490);
+        expect(TIERS.power.price.monthly).toBe(59);
+        expect(TIERS.power.price.annual).toBe(590);
       });
 
       it('should have correct metadata', () => {
@@ -165,8 +171,8 @@ describe('Polar Billing Module', () => {
         const powerMonthlyTotal = TIERS.power.price.monthly * 12;
         expect(TIERS.power.price.annual).toBeLessThan(powerMonthlyTotal);
         // Should be equivalent to ~10 months
-        expect(TIERS.power.price.annual).toBe(490);
-        expect(powerMonthlyTotal).toBe(588);
+        expect(TIERS.power.price.annual).toBe(590);
+        expect(powerMonthlyTotal).toBe(708);
       });
 
       it('should have Free tier annual = monthly (no discount needed)', () => {
@@ -259,10 +265,10 @@ describe('Polar Billing Module', () => {
         });
       });
 
-      it('should return $49/month for power tier', () => {
+      it('should return $59/month for power tier', () => {
         const price = getDisplayPrice('power', 'monthly');
         expect(price).toEqual({
-          amount: 49,
+          amount: 59,
           period: '/month',
         });
       });
@@ -285,10 +291,10 @@ describe('Polar Billing Module', () => {
         });
       });
 
-      it('should return $490/year for power tier', () => {
+      it('should return $590/year for power tier', () => {
         const price = getDisplayPrice('power', 'annual');
         expect(price).toEqual({
-          amount: 490,
+          amount: 590,
           period: '/year',
         });
       });

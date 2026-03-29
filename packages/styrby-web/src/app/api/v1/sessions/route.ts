@@ -146,7 +146,7 @@ async function handler(request: NextRequest, context: ApiAuthContext): Promise<N
   const hasMore = offset + limit < total;
 
   // WHY: no-store prevents CDN/proxy caching of user-specific session data.
-  // Session lists contain private data and change frequently — a cached
+  // Session lists contain private data and change frequently - a cached
   // response would surface stale status and cost data to the API caller.
   const response = NextResponse.json(
     {
