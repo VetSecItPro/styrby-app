@@ -22,13 +22,40 @@ import withSerwistInit from '@serwist/next';
 const cspHeader = [
   "default-src 'self'",
   // A-006: 'unsafe-inline' is required for Next.js App Router hydration scripts.
-  // Next.js injects inline <script> tags for page hydration, route prefetching,
-  // and RSC payload delivery that cannot be given nonces without ejecting from
-  // the framework's rendering pipeline. Nonce-based CSP via middleware is the
-  // ideal fix but requires framework-level support for nonce propagation to all
-  // hydration scripts, which Next.js 15 does not fully support for App Router.
-  // 'unsafe-eval' is NOT included -- production builds do not require eval().
-  // TODO: Revisit when Next.js adds native nonce support for App Router scripts.
+  // ──────────────────────────────────────────────────────────────────────────
+  // SEC-013 ACCEPTED RISK: 'unsafe-inline' in script-src
+  //
+  // DECISION: Keep 'unsafe-inline'. Do NOT add 'strict-dynamic' or nonce-based CSP.
+  //
+  // WHY 'unsafe-inline' IS REQUIRED (as of Next.js 15 / App Router):
+  //   Next.js injects 5-10 inline <script> tags per page for hydration data,
+  //   RSC payloads, and route prefetching. These are framework-generated at
+  //   streaming SSR time — application code cannot control them.
+  //
+  // WHY 'strict-dynamic' BREAKS THE APP:
+  //   strict-dynamic requires a nonce on the initial trusted <script>. Next.js
+  //   App Router does NOT reliably propagate nonces to all internal hydration
+  //   scripts during streaming SSR. Adding strict-dynamic causes:
+  //   - Page renders as static HTML but never hydrates (no interactivity)
+  //   - No React state, no routing, no client-side navigation
+  //   - App appears functional but nothing works
+  //   This was investigated on 2026-03-29 and confirmed broken.
+  //
+  // WHY THIS IS ACCEPTABLE:
+  //   - Security audit (sec-ship 2026-03-29) confirmed ZERO XSS vectors:
+  //     no dangerouslySetInnerHTML with user input, no eval(), no template
+  //     injection, all user data goes through parameterized Supabase queries.
+  //   - 'unsafe-inline' is a defense-in-depth weakness (CSP won't catch a
+  //     future XSS), but with zero current attack surface, the risk is low.
+  //   - No third-party analytics scripts (no GTM, GA, Segment, etc.)
+  //
+  // WHEN TO REVISIT:
+  //   - When Next.js ships native nonce propagation for App Router (roadmap item)
+  //   - When upgrading to Next.js 16+ (check release notes for CSP improvements)
+  //   - If third-party scripts are added (analytics, chat widgets, etc.)
+  //
+  // 'unsafe-eval' is NOT included — production builds do not require eval().
+  // ──────────────────────────────────────────────────────────────────────────
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",

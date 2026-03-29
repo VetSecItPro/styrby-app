@@ -77,10 +77,17 @@ function verifySignature(
     .update(payload)
     .digest('hex');
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(expectedSignature)
-  );
+  // SEC-LOGIC-001 FIX: Pre-check buffer lengths before timingSafeEqual.
+  // WHY: timingSafeEqual throws if buffers differ in length, causing a 500 response.
+  // An attacker sending a malformed signature would learn the webhook secret is valid
+  // (the check was reached) and generate noisy error logs.
+  const sigBuf = Buffer.from(signature);
+  const expectedBuf = Buffer.from(expectedSignature);
+  if (sigBuf.length !== expectedBuf.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(sigBuf, expectedBuf);
 }
 
 /**

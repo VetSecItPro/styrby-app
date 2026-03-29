@@ -96,6 +96,17 @@ jest.mock('expo-constants', () => ({
 jest.mock('styrby-shared', () => ({
   decodePairingUrl: jest.fn(),
   isPairingExpired: jest.fn(() => false),
+  /**
+   * WHY: costs.tsx imports MODEL_PRICING_TABLE, PROVIDER_DISPLAY_NAMES, and
+   * STATIC_PRICING_LAST_VERIFIED from styrby-shared. Without them, the CostsScreen
+   * crashes with "Cannot read properties of undefined (reading 'map')".
+   */
+  MODEL_PRICING_TABLE: [
+    { name: 'Claude Sonnet 4', provider: 'anthropic', inputPer1M: 3, outputPer1M: 15, cachePer1M: 0.3, contextWindow: 200000 },
+    { name: 'GPT-4o', provider: 'openai', inputPer1M: 2.5, outputPer1M: 10, cachePer1M: 1.25, contextWindow: 128000 },
+  ],
+  PROVIDER_DISPLAY_NAMES: { anthropic: 'Anthropic', openai: 'OpenAI', google: 'Google' },
+  STATIC_PRICING_LAST_VERIFIED: '2026-03-15',
 }));
 
 // -- Supabase client --
@@ -196,7 +207,7 @@ const mockSessions = {
   hasMore: false,
   error: null as string | null,
   searchQuery: '',
-  filters: { status: null, agent: null, scope: null, teamId: null },
+  filters: { status: null, agent: null, scope: null, teamId: null, dateRange: null },
   isRealtimeConnected: true,
   setSearchQuery: jest.fn(),
   setFilters: jest.fn(),
@@ -285,6 +296,22 @@ jest.mock('@/hooks/useTeamManagement', () => ({
   useTeamManagement: jest.fn(() => mockTeamManagement),
 }));
 
+/**
+ * WHY: CostsScreen uses useTeamCosts which calls supabase.auth.getUser directly.
+ * Without this mock, jest.clearAllMocks() can leave the hook in a broken state
+ * where the Supabase auth mock has been cleared but useTeamCosts still runs.
+ */
+jest.mock('@/hooks/useTeamCosts', () => ({
+  useTeamCosts: jest.fn(() => ({
+    memberCosts: [],
+    teamTotal: 0,
+    isLoading: false,
+    error: null,
+    isEligible: false,
+    refresh: jest.fn(),
+  })),
+}));
+
 // -- Components used by screens --
 jest.mock('@/components/SessionCarousel', () => ({
   SessionCarousel: 'SessionCarousel',
@@ -300,6 +327,16 @@ jest.mock('@/components/OnboardingModal', () => ({
 
 jest.mock('@/components/CostCard', () => ({
   CostCard: 'CostCard',
+}));
+
+/**
+ * WHY: ActivityGraph is used in the Dashboard (index.tsx) and has a useEffect
+ * that calls supabase.auth.getUser() to fetch data. Without mocking, async
+ * effects from earlier Dashboard tests can leak into later test runs when
+ * renderer.act() flushes pending effects.
+ */
+jest.mock('@/components/ActivityGraph', () => ({
+  ActivityGraph: 'ActivityGraph',
 }));
 
 jest.mock('@/components/AgentCostBar', () => ({
@@ -421,7 +458,7 @@ describe('SessionsScreen', () => {
     mockSessions.sessions = [];
     mockSessions.error = null;
     mockSessions.searchQuery = '';
-    mockSessions.filters = { status: null, agent: null, scope: null, teamId: null };
+    mockSessions.filters = { status: null, agent: null, scope: null, teamId: null, dateRange: null };
   });
 
   it('renders without crashing', () => {
@@ -462,9 +499,10 @@ describe('SessionsScreen', () => {
   });
 
   it('displays scope filter chips', () => {
+    // WHY: "Team Sessions" chip is only visible when the user is a team member.
+    // The mock supabase returns no team membership, so only "My Sessions" shows.
     const tree = renderer.create(<SessionsScreen />).toJSON();
     expect(hasText(tree, 'My Sessions')).toBe(true);
-    expect(hasText(tree, 'Team Sessions')).toBe(true);
   });
 
   it('renders sessions when data exists', () => {

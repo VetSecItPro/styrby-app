@@ -664,7 +664,7 @@ export function useDashboardData(
       }
 
       case 'permission_request': {
-        const { request_id, session_id, tool_name, description } = lastMessage.payload;
+        const { request_id, session_id, tool_name, description, nonce } = lastMessage.payload;
 
         setActiveSessions((prev) =>
           prev.map((s) =>
@@ -676,6 +676,7 @@ export function useDashboardData(
                     requestId: request_id,
                     type: tool_name,
                     description,
+                    nonce,
                   },
                 }
               : s

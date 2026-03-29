@@ -208,6 +208,7 @@ export default function DashboardScreen() {
         payload: {
           request_id: session.pendingPermission.requestId,
           approved: true,
+          request_nonce: session.pendingPermission.nonce,
         },
       });
     }
@@ -226,6 +227,7 @@ export default function DashboardScreen() {
         payload: {
           request_id: session.pendingPermission.requestId,
           approved: false,
+          request_nonce: session.pendingPermission.nonce,
         },
       });
     }

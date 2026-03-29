@@ -106,7 +106,7 @@ describe('GET /api/keys', () => {
   it('returns 401 when unauthenticated', async () => {
     mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: null });
 
-    const response = await GET();
+    const response = await GET(new Request('http://localhost/api/keys'));
     const data = await response.json();
 
     expect(response.status).toBe(401);
@@ -142,7 +142,7 @@ describe('GET /api/keys', () => {
     // Second query: getUserTier → subscriptions.select('tier').eq().eq().single()
     fromCallQueue.push({ data: { tier: 'power' }, error: null });
 
-    const response = await GET();
+    const response = await GET(new Request('http://localhost/api/keys'));
     const data = await response.json();
 
     expect(response.status).toBe(200);
@@ -168,7 +168,7 @@ describe('GET /api/keys', () => {
     // Second query: getUserTier (no active subscription → defaults to 'free')
     fromCallQueue.push({ data: null, error: null });
 
-    const response = await GET();
+    const response = await GET(new Request('http://localhost/api/keys'));
     const data = await response.json();
 
     expect(response.status).toBe(200);
@@ -199,7 +199,7 @@ describe('GET /api/keys', () => {
     // Second query: getUserTier
     fromCallQueue.push({ data: { tier: 'power' }, error: null });
 
-    const response = await GET();
+    const response = await GET(new Request('http://localhost/api/keys'));
     const data = await response.json();
 
     expect(response.status).toBe(200);

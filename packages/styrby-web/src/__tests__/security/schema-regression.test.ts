@@ -176,10 +176,12 @@ describe('user_feedback table — correct schema', () => {
     // The canonical column is `message`, not `feedback`
     // If user_feedback type is defined in shared types, it should use `message`
     if (content.includes('user_feedback') || content.includes('UserFeedback')) {
+      // WHY: The canonical column is `message`, not `feedback`. If the type
+      // definition reappears, ensure it never uses the deprecated column name.
       expect(content).not.toContain("feedback: string");
     }
-    // Passes trivially if the type is not in shared/types.ts
-    expect(true).toBe(true);
+    // If the type isn't in shared/types.ts at all, that's also acceptable
+    // (it may live elsewhere). No tautological assertion needed.
   });
 });
 

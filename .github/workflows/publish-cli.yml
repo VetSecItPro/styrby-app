@@ -43,18 +43,19 @@ jobs:
       id-token: write
 
     steps:
+      # SEC-009 FIX: SHA-pinned actions for supply-chain security
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       # WHY pnpm: This is a pnpm monorepo. npm ci fails because there's no
       # package-lock.json. We use pnpm to install, build the shared package
       # (CLI dependency), then build the CLI, then publish with npm for
       # provenance support.
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # v4
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'

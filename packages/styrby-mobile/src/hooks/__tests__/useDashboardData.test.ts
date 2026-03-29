@@ -662,6 +662,7 @@ describe('useDashboardData', () => {
       session_id: 's1',
       tool_name: 'Bash',
       description: 'Run npm install',
+      nonce: 'test-nonce-uuid',
     });
 
     const { result, rerender } = renderHook(
@@ -680,6 +681,7 @@ describe('useDashboardData', () => {
         requestId: 'req-1',
         type: 'Bash',
         description: 'Run npm install',
+        nonce: 'test-nonce-uuid',
       });
     });
   });

@@ -4,7 +4,7 @@
  * Tests data export flow including:
  * - Authentication validation
  * - Fetching user's session IDs
- * - Parallel fetching of all 20 user data tables
+ * - Parallel fetching of all 28 user data tables
  * - Audit log creation
  * - Response headers for file download
  * - JSON export data structure
@@ -81,21 +81,31 @@ vi.mock('@/lib/rateLimit', () => ({
 
 /**
  * Pushes standard queue entries for a successful export with sessions.
- * Total: 1 (session IDs) + 20 (parallel tables) + 1 (audit log) = 22 entries.
  *
- * WHY: When sessions exist, the messages query uses .from() so all 20
- * Promise.all entries consume from the queue.
+ * The route performs 4 sequential pre-fetch queries before the 28-item
+ * Promise.all, then 1 audit log insert:
+ *   1. Session IDs (for session_messages IN query)
+ *   2. Machine IDs (for machine_keys IN query)
+ *   3. Webhook IDs (for webhook_deliveries IN query)
+ *   4. Ticket IDs (for support_ticket_replies IN query)
+ *   5-32. 28 parallel table fetches (Promise.all)
+ *   33. Audit log insert
+ *
+ * Total: 4 + 28 + 1 = 33 entries.
  */
 function pushStandardQueue() {
-  // 1. Session IDs fetch
-  fromCallQueue.push({ data: [{ id: 'session-1' }], error: null });
+  // 1-4. Sequential pre-fetch queries
+  fromCallQueue.push({ data: [{ id: 'session-1' }], error: null }); // session IDs
+  fromCallQueue.push({ data: [{ id: 'machine-1' }], error: null }); // machine IDs
+  fromCallQueue.push({ data: [{ id: 'webhook-1' }], error: null }); // webhook IDs
+  fromCallQueue.push({ data: [{ id: 'ticket-1' }], error: null });  // ticket IDs
 
-  // 2. 20 parallel table fetches (order matches Promise.all in route)
-  for (let i = 0; i < 20; i++) {
+  // 5-32. 28 parallel table fetches (order matches Promise.all in route)
+  for (let i = 0; i < 28; i++) {
     fromCallQueue.push({ data: [], error: null });
   }
 
-  // 3. Audit log insert
+  // 33. Audit log insert
   fromCallQueue.push({ data: null, error: null });
 }
 
@@ -219,7 +229,8 @@ describe('POST /api/account/export', () => {
     expect(data).toHaveProperty('email');
     expect(data).toHaveProperty('exportedAt');
 
-    // All 20 table exports should be present (matching exact route keys)
+    // All 28 table exports should be present (matching exact route keys)
+    // WHY: SEC-LOGIC-003/004 added 8 previously missing tables to the export.
     const expectedTables = [
       'profile',
       'sessions',
@@ -241,6 +252,15 @@ describe('POST /api/account/export', () => {
       'auditLog',
       'promptTemplates',
       'offlineCommandQueue',
+      // SEC-LOGIC-003/004: Tables previously missing from export
+      'contextTemplates',
+      'notificationLogs',
+      'supportTickets',
+      'supportTicketReplies',
+      'sessionCheckpoints',
+      'machineKeys',
+      'webhookDeliveries',
+      'sessionSharedLinks',
     ];
 
     for (const table of expectedTables) {
@@ -253,15 +273,22 @@ describe('POST /api/account/export', () => {
    * WHY: Route destructures only { data: userSessions }, ignoring errors.
    * Failed session fetch means sessionIds = [], resulting in empty data.
    * Partial export is better than no export — route returns 200.
+   *
+   * Route structure: 4 sequential pre-fetches (sessions, machines, webhooks,
+   * tickets), then 28 parallel table fetches, then 1 audit log insert.
+   * When pre-fetch errors occur, the ID arrays default to [] and conditional
+   * queries use Promise.resolve() instead of .from().
    */
   it('handles session fetch error gracefully with empty data', async () => {
-    // Session IDs query returns error — route ignores error, uses empty array
+    // Pre-fetch #1: Session IDs query returns error
     fromCallQueue.push({
       data: null,
       error: { message: 'Database error', code: 'DB_ERROR' },
     });
+    // Pre-fetch #2-4: machines, webhooks, tickets default to { data: null }
+    // (queue empty → createChainMock returns default)
 
-    // Remaining queue entries default to { data: null, error: null }
+    // Remaining parallel table fetches and audit default to { data: null, error: null }
     // Route uses || [] fallbacks for null data
 
     const request = createRequest();
@@ -279,21 +306,29 @@ describe('POST /api/account/export', () => {
    * Test 8: Handles individual table fetch errors gracefully
    * WHY: Promise.all resolves all entries (errors don't reject), and the
    * route uses `|| []` fallbacks for null data from failed queries.
+   *
+   * Route structure: 4 sequential pre-fetches, then 28 parallel, then audit.
    */
   it('handles table fetch errors gracefully with partial data', async () => {
-    // Session IDs succeed
+    // Pre-fetch #1: Session IDs succeed (1 session)
     fromCallQueue.push({ data: [{ id: 'session-1' }], error: null });
+    // Pre-fetch #2: Machine IDs (empty — no machines)
+    fromCallQueue.push({ data: [], error: null });
+    // Pre-fetch #3: Webhook IDs (empty)
+    fromCallQueue.push({ data: [], error: null });
+    // Pre-fetch #4: Ticket IDs (empty)
+    fromCallQueue.push({ data: [], error: null });
 
-    // First table (profiles) succeeds
+    // Parallel table #0 (profiles) succeeds
     fromCallQueue.push({ data: { id: 'user-123' }, error: null });
 
-    // Second table (sessions) has error
+    // Parallel table #1 (sessions) has error
     fromCallQueue.push({
       data: null,
       error: { message: 'Database error', code: 'DB_ERROR' },
     });
 
-    // Remaining table fetches and audit default to { data: null, error: null }
+    // Remaining parallel table fetches and audit default to { data: null, error: null }
 
     const request = createRequest();
     const response = await POST(request);
@@ -310,18 +345,28 @@ describe('POST /api/account/export', () => {
    * WHY: session_messages has no user_id column — messages are fetched via
    * session IDs using .in('session_id', sessionIds). Messages is the 3rd
    * entry in Promise.all (index 2).
+   *
+   * Route structure: 4 sequential pre-fetches, then 28 parallel, then audit.
+   * Messages is at Promise.all index 2 (profiles=0, sessions=1, messages=2).
+   * Since sessionIds is non-empty, messages uses .from() (not Promise.resolve).
    */
   it('exports session messages filtered by user session IDs', async () => {
     const sessionIds = ['session-1', 'session-2', 'session-3'];
 
-    // Queue session IDs fetch
+    // Pre-fetch #1: Session IDs
     fromCallQueue.push({
       data: sessionIds.map((id) => ({ id })),
       error: null,
     });
+    // Pre-fetch #2: Machine IDs (empty)
+    fromCallQueue.push({ data: [], error: null });
+    // Pre-fetch #3: Webhook IDs (empty)
+    fromCallQueue.push({ data: [], error: null });
+    // Pre-fetch #4: Ticket IDs (empty)
+    fromCallQueue.push({ data: [], error: null });
 
-    // Queue 20 table fetches - messages will have data at index 2
-    for (let i = 0; i < 20; i++) {
+    // Queue 28 parallel table fetches — messages at index 2
+    for (let i = 0; i < 28; i++) {
       if (i === 2) {
         // Messages is the 3rd entry in Promise.all (index 2)
         fromCallQueue.push({

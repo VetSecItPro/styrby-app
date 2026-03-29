@@ -219,19 +219,37 @@ export async function getCustomerPortalUrl(_customerId: string) {
 }
 
 /**
- * Cancel a subscription immediately.
+ * Cancel a subscription at the end of the current billing period.
  *
- * WHY: Uses Polar's `revoke()` method which cancels the subscription immediately
- * (not at period end). The user's access is revoked and they are downgraded to
- * the free tier. The Polar webhook handler syncs this change to Supabase.
+ * WHY: Uses Polar's `subscriptions.update()` with `cancelAtPeriodEnd: true`
+ * instead of `revoke()`. This means the user retains full access to their
+ * paid tier until `current_period_end`, then Polar fires a `subscription.canceled`
+ * webhook which our handler picks up and records `status: 'canceled'` in Supabase.
+ * A scheduled cron job then downgrades the tier to 'free' once the period expires.
  *
- * @param subscriptionId - The Polar subscription ID to cancel
- * @returns The revoked subscription object from Polar
+ * WHY NOT revoke(): `revoke()` cancels immediately — the user loses access right
+ * now even though they already paid for the rest of the billing period. That is
+ * a billing violation and a trust/churn problem. Cancel-at-period-end is the
+ * industry-standard behavior (Stripe, Lemon Squeezy, Paddle all default to this).
+ *
+ * Webhook flow after this call:
+ * 1. Polar fires `subscription.updated` with `cancel_at_period_end: true`
+ *    → our handler upserts `cancel_at_period_end: true` into the subscriptions row
+ * 2. At period end, Polar fires `subscription.canceled`
+ *    → our handler sets `status: 'canceled'` and preserves `current_period_end`
+ * 3. Cron job detects `status = 'canceled' AND current_period_end < NOW()`
+ *    → downgrades tier to 'free'
+ *
+ * @param subscriptionId - The Polar subscription ID to cancel at period end
+ * @returns The updated subscription object from Polar (status still 'active', cancel_at_period_end: true)
  * @throws {Error} When the subscription ID is invalid or already canceled
  */
 export async function cancelSubscription(subscriptionId: string) {
-  const subscription = await polar.subscriptions.revoke({
+  const subscription = await polar.subscriptions.update({
     id: subscriptionId,
+    subscriptionUpdate: {
+      cancelAtPeriodEnd: true,
+    },
   });
 
   return subscription;

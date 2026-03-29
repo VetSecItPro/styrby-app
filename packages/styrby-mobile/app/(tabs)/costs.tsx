@@ -2,22 +2,39 @@
  * Costs Screen
  *
  * Main cost dashboard showing spending summaries, agent breakdown,
- * model breakdown, tag breakdown, and a daily cost chart. Users can
- * track their AI coding costs here with configurable time ranges.
+ * model breakdown, tag breakdown, a daily cost chart, team cost breakdown
+ * (Power tier + team required), and a cost data export button (Power tier).
+ *
+ * Users can track their AI coding costs here with configurable time ranges.
  */
 
-import { useState } from 'react';
-import { View, Text, ScrollView, RefreshControl, ActivityIndicator, Pressable } from 'react-native';
+import { useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  RefreshControl,
+  ActivityIndicator,
+  Pressable,
+  ActionSheetIOS,
+  Platform,
+  Alert,
+  Share,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useCosts, formatTokens, formatCost } from '../../src/hooks/useCosts';
 import type { CostTimeRange, ModelCostBreakdown, TagCostBreakdown } from '../../src/hooks/useCosts';
 import { useBudgetAlerts, getAlertProgressColor, getPeriodLabel } from '../../src/hooks/useBudgetAlerts';
 import type { BudgetAlert } from '../../src/hooks/useBudgetAlerts';
-import type { SubscriptionTier } from 'styrby-shared';
+import type { SubscriptionTier, ModelPricingEntry } from 'styrby-shared';
+import { MODEL_PRICING_TABLE, PROVIDER_DISPLAY_NAMES, STATIC_PRICING_LAST_VERIFIED } from 'styrby-shared';
 import { CostCard } from '../../src/components/CostCard';
 import { AgentCostBar, AgentCostBarEmpty } from '../../src/components/AgentCostBar';
 import { DailyMiniChart, DailyMiniChartEmpty } from '../../src/components/DailyMiniChart';
+import { useTeamCosts } from '../../src/hooks/useTeamCosts';
+import type { MemberCostRow } from '../../src/hooks/useTeamCosts';
+import { supabase } from '../../src/lib/supabase';
 
 // ============================================================================
 // Budget Alerts Summary (inline component for costs screen)
@@ -381,43 +398,10 @@ function TagCostRow({ item }: { item: TagCostBreakdown }) {
 // Model Pricing Reference
 // ============================================================================
 
-/**
- * AI model pricing entry for the reference table.
- * Prices are in USD per 1 million tokens.
- */
-interface ModelPricingEntry {
-  /** Display name of the model (e.g. 'Claude 3.5 Sonnet') */
-  name: string;
-  /** AI provider name for grouping */
-  provider: string;
-  /** Cost per 1M input tokens in USD */
-  inputPer1M: number;
-  /** Cost per 1M output tokens in USD */
-  outputPer1M: number;
-}
-
-/**
- * Static model pricing data for the reference table.
- *
- * WHY static: Pricing data is not fetched from the database — it's a
- * reference table that matches what the CLI uses to calculate costs.
- * Updated here when provider pricing changes.
- *
- * Last verified: 2026-02-05
- * Sources: anthropic.com/pricing, openai.com/pricing, ai.google.dev/pricing
- */
-const MODEL_PRICING: ModelPricingEntry[] = [
-  // Anthropic
-  { name: 'Claude 3.5 Sonnet', provider: 'Anthropic', inputPer1M: 3.0, outputPer1M: 15.0 },
-  { name: 'Claude 3.5 Haiku', provider: 'Anthropic', inputPer1M: 0.8, outputPer1M: 4.0 },
-  { name: 'Claude 3 Opus', provider: 'Anthropic', inputPer1M: 15.0, outputPer1M: 75.0 },
-  // OpenAI
-  { name: 'GPT-4o', provider: 'OpenAI', inputPer1M: 2.5, outputPer1M: 10.0 },
-  { name: 'o1', provider: 'OpenAI', inputPer1M: 15.0, outputPer1M: 60.0 },
-  // Google
-  { name: 'Gemini 1.5 Pro', provider: 'Google', inputPer1M: 1.25, outputPer1M: 5.0 },
-  { name: 'Gemini 1.5 Flash', provider: 'Google', inputPer1M: 0.075, outputPer1M: 0.3 },
-];
+// WHY: ModelPricingEntry type and MODEL_PRICING_TABLE data are imported from
+// styrby-shared/src/pricing/static-pricing — the single source of truth for
+// both mobile and web. Keeping it in shared means a price update only needs
+// to happen once and both platforms stay in sync automatically.
 
 /**
  * Formats a price per million tokens for table display.
@@ -445,13 +429,180 @@ function ModelPricingRow({ entry }: { entry: ModelPricingEntry }) {
         <Text className="text-white text-xs font-medium" numberOfLines={1}>
           {entry.name}
         </Text>
-        <Text className="text-zinc-500 text-xs">{entry.provider}</Text>
+        <Text className="text-zinc-500 text-xs">
+          {PROVIDER_DISPLAY_NAMES[entry.provider]}
+        </Text>
       </View>
       <Text className="text-zinc-300 text-xs font-medium w-16 text-right">
         {formatPricePer1M(entry.inputPer1M)}
       </Text>
       <Text className="text-zinc-300 text-xs font-medium w-16 text-right">
         {formatPricePer1M(entry.outputPer1M)}
+      </Text>
+    </View>
+  );
+}
+
+// ============================================================================
+// Team Cost Section
+// ============================================================================
+
+/**
+ * Props for the TeamCostSection component.
+ */
+interface TeamCostSectionProps {
+  /** Per-member cost rows sorted by spend descending */
+  memberCosts: MemberCostRow[];
+  /** Combined team total in USD */
+  teamTotal: number;
+  /** Whether data is still loading */
+  isLoading: boolean;
+  /** Error message (null if no error) */
+  error: string | null;
+  /** Whether the current user is on Power tier and in a team */
+  isEligible: boolean;
+  /** User's subscription tier for gate messaging */
+  userTier: SubscriptionTier;
+}
+
+/**
+ * Renders per-member cost breakdown for Power-tier teams.
+ *
+ * Shows each team member's spend as a labelled horizontal bar proportional
+ * to their share of the team total. Non-eligible users see a contextual
+ * gate (not Power tier, or Power but no team).
+ *
+ * @param props - TeamCostSectionProps
+ * @returns Rendered team cost section
+ */
+function TeamCostSection({
+  memberCosts,
+  teamTotal,
+  isLoading,
+  error,
+  isEligible,
+  userTier,
+}: TeamCostSectionProps) {
+  // Loading skeleton
+  if (isLoading) {
+    return (
+      <View className="py-2">
+        {[1, 2, 3].map((i) => (
+          <View key={i} className="mb-4">
+            <View className="flex-row justify-between mb-1.5">
+              <View className="w-32 h-3.5 bg-zinc-800 rounded" />
+              <View className="w-14 h-3.5 bg-zinc-800 rounded" />
+            </View>
+            <View className="h-1.5 w-full rounded-full bg-zinc-800" />
+          </View>
+        ))}
+      </View>
+    );
+  }
+
+  // Gate: user not on Power tier
+  if (userTier !== 'power') {
+    return (
+      <View className="py-4 items-center">
+        <View className="w-10 h-10 rounded-xl bg-orange-500/15 items-center justify-center mb-3">
+          <Ionicons name="people-outline" size={22} color="#f97316" />
+        </View>
+        <Text className="text-white font-semibold mb-1">Team Costs</Text>
+        <Text className="text-zinc-500 text-sm text-center">
+          Upgrade to Power to monitor team spending and per-member cost breakdowns.
+        </Text>
+      </View>
+    );
+  }
+
+  // Gate: Power tier but not in a team
+  if (!isEligible) {
+    return (
+      <View className="py-4 items-center">
+        <View className="w-10 h-10 rounded-xl bg-zinc-800 items-center justify-center mb-3">
+          <Ionicons name="people-outline" size={22} color="#71717a" />
+        </View>
+        <Text className="text-white font-semibold mb-1">No Team Yet</Text>
+        <Text className="text-zinc-500 text-sm text-center">
+          Create a team and invite members to see per-user cost breakdowns here.
+        </Text>
+      </View>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <View className="py-3">
+        <View className="flex-row items-center">
+          <Ionicons name="alert-circle-outline" size={16} color="#ef4444" />
+          <Text className="text-red-400 text-sm ml-2">{error}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  // Empty state: eligible but no data for period
+  if (memberCosts.length === 0) {
+    return (
+      <Text className="text-zinc-500 text-sm text-center py-4">
+        No team cost data for this period.
+      </Text>
+    );
+  }
+
+  return (
+    <View>
+      {/* Team total header */}
+      <View className="flex-row items-center justify-between mb-4">
+        <Text className="text-zinc-400 text-xs">
+          {memberCosts.length} member{memberCosts.length !== 1 ? 's' : ''}
+        </Text>
+        <View className="items-end">
+          <Text className="text-zinc-500 text-xs">Team Total</Text>
+          <Text className="text-white text-base font-bold">${teamTotal.toFixed(2)}</Text>
+        </View>
+      </View>
+
+      {/* Per-member rows */}
+      {memberCosts.map((member) => (
+        <View key={member.userId} className="mb-4">
+          {/* Name + cost */}
+          <View className="flex-row items-center justify-between mb-1.5">
+            <View className="flex-1 mr-3">
+              <Text className="text-white text-sm font-medium" numberOfLines={1}>
+                {member.displayName}
+              </Text>
+              <Text className="text-zinc-600 text-xs">
+                {(member.totalInputTokens + member.totalOutputTokens).toLocaleString()} tokens
+              </Text>
+            </View>
+            <View className="items-end">
+              <Text className="text-white text-sm font-semibold">
+                ${member.totalCostUsd.toFixed(4)}
+              </Text>
+              <Text className="text-zinc-500 text-xs">
+                {member.percentageOfTotal.toFixed(1)}%
+              </Text>
+            </View>
+          </View>
+
+          {/* Proportional cost bar */}
+          <View className="h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden">
+            <View
+              className="h-full rounded-full bg-orange-500/70"
+              style={{
+                width: `${Math.max(member.percentageOfTotal, member.totalCostUsd > 0 ? 2 : 0)}%`,
+              }}
+              accessibilityRole="progressbar"
+              accessibilityLabel={`${member.displayName}: ${member.percentageOfTotal.toFixed(1)}% of team spend`}
+            />
+          </View>
+        </View>
+      ))}
+
+      <Text className="text-zinc-700 text-xs text-center mt-1">
+        Team cost data visible to all Power plan members
       </Text>
     </View>
   );
@@ -466,6 +617,7 @@ function ModelPricingRow({ entry }: { entry: ModelPricingEntry }) {
  *
  * Displays:
  * - Connection status indicator (live/offline)
+ * - Export button (Power tier only — CSV or JSON via native share sheet)
  * - Time range selector (7D / 30D / 90D)
  * - Cost summaries for today, this week, and this month
  * - Cost breakdown by agent with visual progress bars
@@ -473,6 +625,7 @@ function ModelPricingRow({ entry }: { entry: ModelPricingEntry }) {
  * - Cost breakdown by tag (collapsible)
  * - Daily cost chart for the selected time range
  * - Budget alerts summary with link to full management screen
+ * - Team costs section (Power tier + team required, collapsible)
  * - Pull-to-refresh functionality
  */
 export default function CostsScreen() {
@@ -487,6 +640,138 @@ export default function CostsScreen() {
    * the primary content. Collapsible keeps the dashboard clean by default.
    */
   const [pricingExpanded, setPricingExpanded] = useState(false);
+
+  /**
+   * Whether the Team Costs section is expanded.
+   * WHY: Team costs are a secondary view — most users don't have a team.
+   * Collapsed by default to keep the dashboard clean for solo users.
+   */
+  const [teamExpanded, setTeamExpanded] = useState(false);
+
+  /**
+   * Derive the range start date for the team cost RPC from the selected timeRange.
+   * This keeps the team cost window in sync with the individual cost time range.
+   */
+  const rangeStartDate = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - timeRange);
+    return d.toISOString().split('T')[0];
+  })();
+
+  const {
+    memberCosts,
+    teamTotal,
+    isLoading: teamCostsLoading,
+    error: teamCostsError,
+    isEligible: isTeamEligible,
+  } = useTeamCosts(rangeStartDate);
+
+  /** Whether a cost export is in progress */
+  const [isExporting, setIsExporting] = useState(false);
+
+  /**
+   * Exports cost data as CSV or JSON and shares via the native share sheet.
+   *
+   * WHY: Mobile can't trigger a browser download. Instead we fetch the export
+   * endpoint, receive the file content as text, and share it via the native
+   * Share sheet (which lets users save to Files, AirDrop, email, etc.).
+   *
+   * WHY we call the web API (/api/v1/costs/export): This is the canonical
+   * export endpoint, already validated and rate-limited. Duplicating the
+   * export logic in the mobile app would create two code paths to maintain.
+   *
+   * @param format - 'csv' or 'json'
+   */
+  const handleExport = useCallback(async (format: 'csv' | 'json') => {
+    setIsExporting(true);
+    try {
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+      const token = authSession?.access_token;
+
+      if (!token) {
+        Alert.alert('Not Authenticated', 'Please log in to export cost data.');
+        return;
+      }
+
+      const appUrl = process.env.EXPO_PUBLIC_APP_URL ?? 'https://app.styrby.com';
+      const params = new URLSearchParams({ format, days: String(timeRange) });
+      const res = await fetch(`${appUrl}/api/v1/costs/export?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.status === 403) {
+        Alert.alert(
+          'Power Tier Required',
+          'Cost export is available on the Power plan. Upgrade at styrby.com/pricing.'
+        );
+        return;
+      }
+
+      if (res.status === 429) {
+        Alert.alert('Rate Limited', 'Cost export is limited to once per hour. Try again later.');
+        return;
+      }
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { message?: string };
+        throw new Error(body.message ?? `Export failed (${res.status})`);
+      }
+
+      const content = await res.text();
+      const today = new Date().toISOString().split('T')[0];
+      const filename = `styrby-costs-${today}.${format}`;
+
+      // Use native Share sheet to let user save to Files, email, AirDrop, etc.
+      await Share.share({
+        title: filename,
+        message: content,
+      });
+    } catch (err) {
+      Alert.alert(
+        'Export Failed',
+        err instanceof Error ? err.message : 'Failed to export cost data'
+      );
+      if (__DEV__) console.error('[CostsExport] Export error:', err);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [timeRange]);
+
+  /**
+   * Shows a format picker (ActionSheet on iOS, Alert on Android) and then
+   * calls handleExport with the chosen format.
+   *
+   * WHY ActionSheetIOS for iOS: It is the idiomatic iOS pattern for format
+   * selection without adding a third-party bottom-sheet dependency. Android
+   * falls back to an Alert with two buttons since ActionSheetIOS is iOS-only.
+   */
+  const showExportPicker = useCallback(() => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: 'Export Cost Data',
+          message: `Last ${timeRange} days`,
+          options: ['Cancel', 'Export as CSV', 'Export as JSON'],
+          cancelButtonIndex: 0,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) handleExport('csv');
+          else if (buttonIndex === 2) handleExport('json');
+        }
+      );
+    } else {
+      // Android: use an Alert with action buttons as a fallback
+      Alert.alert(
+        'Export Cost Data',
+        `Choose a format to export the last ${timeRange} days of cost data.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Export CSV', onPress: () => handleExport('csv') },
+          { text: 'Export JSON', onPress: () => handleExport('json') },
+        ]
+      );
+    }
+  }, [timeRange, handleExport]);
 
   // Loading state
   if (isLoading) {
@@ -537,11 +822,43 @@ export default function CostsScreen() {
         />
       }
     >
-      {/* Header: Connection Status + Time Range */}
+      {/* Header: Connection Status + Export + Time Range */}
       <View className="px-4 pt-4 mb-3">
         <View className="flex-row items-center justify-between mb-3">
           <Text className="text-zinc-400 text-sm font-medium">SPENDING</Text>
-          <ConnectionStatus isConnected={isRealtimeConnected} />
+          <View className="flex-row items-center gap-3">
+            {/* Export button — Power tier only */}
+            <Pressable
+              onPress={tier === 'power' ? showExportPicker : undefined}
+              disabled={isExporting || tier !== 'power'}
+              className={`flex-row items-center px-3 py-1.5 rounded-lg border gap-1.5 active:opacity-80 ${
+                tier === 'power'
+                  ? 'border-zinc-700 bg-zinc-800'
+                  : 'border-zinc-800/50 opacity-40'
+              }`}
+              accessibilityRole="button"
+              accessibilityLabel={
+                tier !== 'power'
+                  ? 'Export costs, requires Power plan'
+                  : isExporting
+                    ? 'Exporting...'
+                    : 'Export cost data'
+              }
+            >
+              <Ionicons
+                name={isExporting ? 'hourglass-outline' : 'download-outline'}
+                size={14}
+                color="#a1a1aa"
+              />
+              <Text className="text-zinc-400 text-xs font-medium">
+                {isExporting ? 'Exporting…' : 'Export'}
+              </Text>
+              {tier !== 'power' && (
+                <Ionicons name="lock-closed" size={10} color="#52525b" />
+              )}
+            </Pressable>
+            <ConnectionStatus isConnected={isRealtimeConnected} />
+          </View>
         </View>
         <TimeRangeSelector selected={timeRange} onSelect={setTimeRange} />
       </View>
@@ -715,6 +1032,24 @@ export default function CostsScreen() {
         />
       </View>
 
+      {/* Team Costs Section — Power tier + team required */}
+      <View className="px-4 mt-6">
+        <CollapsibleSection
+          title="TEAM COSTS"
+          isExpanded={teamExpanded}
+          onToggle={() => setTeamExpanded((v) => !v)}
+        >
+          <TeamCostSection
+            memberCosts={memberCosts}
+            teamTotal={teamTotal}
+            isLoading={teamCostsLoading}
+            error={teamCostsError}
+            isEligible={isTeamEligible}
+            userTier={tier}
+          />
+        </CollapsibleSection>
+      </View>
+
       {/* Model Pricing Reference Table (Collapsible) */}
       <View className="px-4 mt-6 mb-6">
         <CollapsibleSection
@@ -730,13 +1065,13 @@ export default function CostsScreen() {
           </View>
 
           {/* Pricing Rows */}
-          {MODEL_PRICING.map((entry) => (
+          {MODEL_PRICING_TABLE.map((entry) => (
             <ModelPricingRow key={entry.name} entry={entry} />
           ))}
 
           {/* Footer note */}
           <Text className="text-zinc-600 text-xs mt-3 text-center">
-            Prices in USD per 1M tokens · Last verified Feb 2026
+            Prices in USD per 1M tokens · Last verified {STATIC_PRICING_LAST_VERIFIED}
           </Text>
         </CollapsibleSection>
       </View>

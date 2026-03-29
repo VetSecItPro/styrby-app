@@ -13,7 +13,7 @@ import type {
   RelayChannelEvents,
   AgentType,
 } from './types.js';
-import { getChannelName, createBaseMessage } from './types.js';
+import { getChannelName, createBaseMessage, RelayMessageSchema } from './types.js';
 
 // ============================================================================
 // Configuration
@@ -41,6 +41,16 @@ export interface RelayClientConfig {
   connectionTimeout?: number;
   /** Enable debug logging */
   debug?: boolean;
+  /**
+   * Optional 16-char hex suffix derived from the shared pairing secret via
+   * `deriveChannelSuffix`. When present, the channel name becomes
+   * `relay:{userId}:{channelSuffix}`, preventing attackers who know only the
+   * userId UUID from subscribing to the channel (SEC-RELAY-001).
+   *
+   * Falls back to `relay:{userId}` when omitted for backward compatibility
+   * with older clients that pre-date this security fix.
+   */
+  channelSuffix?: string;
 }
 
 /**
@@ -91,7 +101,7 @@ class EventEmitter<Events extends EventMap> {
  * Relay client for CLI ↔ Mobile communication
  */
 export class RelayClient extends EventEmitter<RelayChannelEvents> {
-  private config: Required<RelayClientConfig>;
+  private config: Required<Omit<RelayClientConfig, 'channelSuffix'>> & Pick<RelayClientConfig, 'channelSuffix'>;
   private channel: RealtimeChannel | null = null;
   private state: ConnectionState = 'disconnected';
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -128,7 +138,7 @@ export class RelayClient extends EventEmitter<RelayChannelEvents> {
     this.setState('connecting');
 
     try {
-      const channelName = getChannelName(this.config.userId);
+      const channelName = getChannelName(this.config.userId, this.config.channelSuffix);
 
       this.channel = this.config.supabase.channel(channelName, {
         config: {
@@ -242,10 +252,16 @@ export class RelayClient extends EventEmitter<RelayChannelEvents> {
   }
 
   /**
-   * Send a permission response
+   * Send a permission response to the CLI.
+   *
+   * @param requestId - The `request_id` from the corresponding PermissionRequestMessage
+   * @param requestNonce - The `nonce` echoed from the PermissionRequestMessage (replay protection)
+   * @param approved - Whether the user granted permission
+   * @param options - Optional modified args and remember preference
    */
   async sendPermissionResponse(
     requestId: string,
+    requestNonce: string,
     approved: boolean,
     options?: { modifiedArgs?: Record<string, unknown>; remember?: boolean }
   ): Promise<void> {
@@ -256,6 +272,9 @@ export class RelayClient extends EventEmitter<RelayChannelEvents> {
         approved,
         modified_args: options?.modifiedArgs,
         remember: options?.remember,
+        // WHY: Echo the nonce from the request so the CLI can bind this response
+        // to exactly one pending request and reject replays (SEC-RELAY-003).
+        request_nonce: requestNonce,
       },
     });
   }
@@ -315,7 +334,16 @@ export class RelayClient extends EventEmitter<RelayChannelEvents> {
 
     // Handle incoming messages
     this.channel.on('broadcast', { event: 'message' }, ({ payload }) => {
-      const message = payload as RelayMessage;
+      // WHY: Supabase Realtime delivers broadcast payloads as `unknown`. We
+      // validate with Zod before treating the data as a typed RelayMessage.
+      // This prevents malformed or malicious broadcasts from corrupting state
+      // or reaching application code without validation (SEC-RELAY-002).
+      const result = RelayMessageSchema.safeParse(payload);
+      if (!result.success) {
+        console.warn('[Relay] Dropped malformed message:', result.error.issues);
+        return;
+      }
+      const message = result.data;
       this.log('Received message:', message.type);
       this.emit('message', message);
     });

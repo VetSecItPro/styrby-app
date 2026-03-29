@@ -42,6 +42,11 @@ export interface ActiveSession {
     type: string;
     /** Human-readable description of what the tool will do */
     description: string;
+    /**
+     * Cryptographic nonce from the CLI's permission_request message.
+     * MUST be echoed back as `request_nonce` in the permission_response.
+     */
+    nonce: string;
   };
 }
 

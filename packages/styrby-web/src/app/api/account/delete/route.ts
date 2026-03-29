@@ -162,6 +162,14 @@ export async function DELETE(request: Request) {
       // Note: support_ticket_replies uses author_id (not user_id), so we
       // only need to delete the parent tickets; replies cascade automatically.
       supabase.from('support_tickets').delete().eq('user_id', user.id),
+
+      // session_shared_links: share links created by the user for their sessions.
+      // WHY: Uses 'shared_by' (not 'user_id') as the ownership column. This table
+      // has no FK to auth.users or profiles, so it does NOT cascade automatically
+      // on profile soft/hard delete. We must purge it explicitly to prevent orphaned
+      // share links remaining publicly accessible after account deletion.
+      // SEC-LOGIC-004 FIX: was missing from deletion route.
+      supabase.from('session_shared_links').delete().eq('shared_by', user.id),
     ]);
 
     // Log deletion in audit_log (before signing out user)

@@ -158,21 +158,25 @@ export default function RootLayout() {
     const inAuthGroup = segments[0] === '(auth)';
     const inOnboarding = segments[0] === 'onboarding';
     const inTabs = segments[0] === '(tabs)';
+    // WHY: The shared session viewer is a public deep-link target. It does not
+    // require authentication — anyone with the share link should be able to view
+    // the session replay. We exempt it from the auth/onboarding redirect guards.
+    const inShared = segments[0] === 'shared';
 
-    // Not onboarded → show onboarding
-    if (!hasOnboarded && !inOnboarding) {
+    // Not onboarded → show onboarding (public screens exempt)
+    if (!hasOnboarded && !inOnboarding && !inShared) {
       router.replace('/onboarding');
       return;
     }
 
-    // Onboarded but not logged in → show login (unless already in auth)
-    if (hasOnboarded && !session && !inAuthGroup) {
+    // Onboarded but not logged in → show login (unless already in auth or shared)
+    if (hasOnboarded && !session && !inAuthGroup && !inShared) {
       router.replace('/(auth)/login');
       return;
     }
 
-    // Logged in → go to tabs (unless already there)
-    if (session && !inTabs && !inAuthGroup) {
+    // Logged in → go to tabs (unless already there or on a public screen)
+    if (session && !inTabs && !inAuthGroup && !inShared) {
       router.replace('/(tabs)');
     }
   }, [session, hasOnboarded, segments, isLoading, router]);
@@ -269,6 +273,18 @@ export default function RootLayout() {
           name="team/invite"
           options={{
             title: 'Invite Member',
+            presentation: 'card',
+          }}
+        />
+        {/*
+         * Shared session viewer — public screen, no auth required.
+         * Handles the deep link: styrby://shared/{shareId}
+         * Expo Router maps the file app/shared/[shareId].tsx to this route.
+         */}
+        <Stack.Screen
+          name="shared/[shareId]"
+          options={{
+            title: 'Session Replay',
             presentation: 'card',
           }}
         />

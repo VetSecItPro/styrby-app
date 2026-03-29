@@ -18,21 +18,20 @@ describe('Runtime Integration Tests', () => {
 
         const runtime = getRuntime();
 
-        if (process.versions.node && !process.versions.bun && !process.versions.deno) {
+        // WHY: Always assert — the current runtime MUST match one known branch.
+        // Previous version silently passed when no branch matched.
+        if (process.versions.bun) {
+            expect(runtime).toBe('bun');
+            expect(isBun()).toBe(true);
+        } else if (process.versions.deno) {
+            expect(runtime).toBe('deno');
+            expect(isDeno()).toBe(true);
+        } else {
+            // Node.js — the default CI environment
             expect(runtime).toBe('node');
             expect(isNode()).toBe(true);
             expect(isBun()).toBe(false);
             expect(isDeno()).toBe(false);
-        } else if (process.versions.bun) {
-            expect(runtime).toBe('bun');
-            expect(isNode()).toBe(false);
-            expect(isBun()).toBe(true);
-            expect(isDeno()).toBe(false);
-        } else if (process.versions.deno) {
-            expect(runtime).toBe('deno');
-            expect(isNode()).toBe(false);
-            expect(isBun()).toBe(false);
-            expect(isDeno()).toBe(true);
         }
     });
 

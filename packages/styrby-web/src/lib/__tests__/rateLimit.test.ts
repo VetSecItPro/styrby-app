@@ -19,13 +19,15 @@ describe('getClientIp', () => {
     expect(getClientIp(req)).toBe('10.0.0.1');
   });
 
-  it('handles multiple IPs in x-forwarded-for (takes first)', () => {
+  it('handles multiple IPs in x-forwarded-for (takes last — CDN-appended trusted IP)', () => {
+    // SEC-002 FIX: Changed from first to last IP. Behind Vercel, the last
+    // entry is the CDN-appended real IP. The first is user-controlled.
     const req = {
       headers: new Headers({
         'x-forwarded-for': '203.0.113.50, 70.41.3.18, 150.172.238.178',
       }),
     } as unknown as Request;
-    expect(getClientIp(req)).toBe('203.0.113.50');
+    expect(getClientIp(req)).toBe('150.172.238.178');
   });
 
   it('falls back to x-real-ip', () => {
@@ -50,7 +52,7 @@ describe('getClientIp', () => {
         'x-forwarded-for': '  10.0.0.3  , 10.0.0.4',
       }),
     } as unknown as Request;
-    expect(getClientIp(req)).toBe('10.0.0.3');
+    expect(getClientIp(req)).toBe('10.0.0.4');
   });
 });
 
