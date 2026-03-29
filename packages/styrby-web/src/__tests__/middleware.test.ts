@@ -68,6 +68,17 @@ import { middleware } from '../middleware';
 // ============================================================================
 
 /**
+ * Derives the Supabase auth cookie name from the environment.
+ * Matches the middleware's own cookie-name resolution logic so tests
+ * work both locally (no env var) and in CI (placeholder URL).
+ */
+function getSupabaseCookieName(): string {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
+  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)/)?.[1] ?? '';
+  return `sb-${projectRef}-auth-token`;
+}
+
+/**
  * Creates a NextRequest for the given path with optional headers.
  *
  * @param path - URL path under test
@@ -287,9 +298,7 @@ describe('middleware', () => {
      * matching cookie to the request so the middleware sees it.
      */
     function makeAuthenticatedRequest(path: string): NextRequest {
-      // NEXT_PUBLIC_SUPABASE_URL is not set in test env, so projectRef is ''
-      // and cookieName becomes 'sb--auth-token'
-      const cookieName = 'sb--auth-token';
+      const cookieName = getSupabaseCookieName();
 
       const req = new NextRequest(`http://localhost:3000${path}`, {
         headers: {
@@ -377,7 +386,7 @@ describe('middleware', () => {
         mockSessionResponse('http://localhost:3000/login')
       );
 
-      const cookieName = 'sb--auth-token';
+      const cookieName = getSupabaseCookieName();
       const req = new NextRequest('http://localhost:3000/api/admin/support', {
         headers: {
           'user-agent': 'Mozilla/5.0 Chrome/120',
@@ -396,7 +405,7 @@ describe('middleware', () => {
       // Valid session: updateSession returns no login redirect
       mockUpdateSession.mockResolvedValue(mockSessionResponse());
 
-      const cookieName = 'sb--auth-token';
+      const cookieName = getSupabaseCookieName();
       const req = new NextRequest('http://localhost:3000/api/admin/support', {
         headers: {
           'user-agent': 'Mozilla/5.0 Chrome/120',
