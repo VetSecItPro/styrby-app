@@ -10,11 +10,11 @@ import { Button } from '@/components/ui/button';
  * WHY: Even though Styrby only uses functional cookies (auth + sidebar state),
  * the ePrivacy Directive requires informing EU users about all cookies.
  * This banner provides transparency without blocking the user since all
- * cookies are strictly necessary or functional — no consent gate is needed.
+ * cookies are strictly necessary or functional - no consent gate is needed.
  *
  * Cookies used:
- * 1. `sb-{ref}-auth-token` — Supabase authentication (strictly necessary)
- * 2. `sidebar:state` — sidebar open/closed preference (functional, 7-day)
+ * 1. `sb-{ref}-auth-token` - Supabase authentication (strictly necessary)
+ * 2. `sidebar:state` - sidebar open/closed preference (functional, 7-day)
  */
 
 const COOKIE_CONSENT_KEY = 'styrby-cookie-notice-dismissed';

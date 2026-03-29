@@ -217,7 +217,7 @@ export function PermissionCard({ message, sessionId, isActive, machineId }: Perm
     }
   };
 
-  // Decrypt content — async decryption for E2E encrypted messages
+  // Decrypt content - async decryption for E2E encrypted messages
   const [content, setContent] = useState<string>(
     // If no nonce, treat as plaintext; otherwise show loading state
     !message.encryption_nonce

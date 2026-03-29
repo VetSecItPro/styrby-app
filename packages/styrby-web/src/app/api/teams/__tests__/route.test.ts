@@ -206,10 +206,10 @@ describe('Teams API — /api/teams', () => {
       expect(body.teamLimit).toBe(1);
     });
 
-    it('returns canCreateTeam=true for pro tier', async () => {
+    it('returns canCreateTeam=false for pro tier', async () => {
       mockAuthenticated();
 
-      // WHY: Pro tier has teamMembers: 3 and can create teams (updated pricing sprint 2026-03-28).
+      // WHY: Pro is single-user. Team management is Power-only.
       mockRpc.mockResolvedValueOnce({ data: [], error: null });
 
       // getUserTier: pro tier
@@ -219,9 +219,9 @@ describe('Teams API — /api/teams', () => {
       expect(response.status).toBe(200);
 
       const body = await response.json();
-      expect(body.canCreateTeam).toBe(true);
+      expect(body.canCreateTeam).toBe(false);
       expect(body.tier).toBe('pro');
-      expect(body.teamLimit).toBe(3);
+      expect(body.teamLimit).toBe(1);
     });
 
     it('returns 500 when rpc fails', async () => {
@@ -292,26 +292,21 @@ describe('Teams API — /api/teams', () => {
       expect(response.status).toBe(403);
 
       const body = await response.json();
-      expect(body.error).toContain('Pro and Power plans');
+      expect(body.error).toContain('Power plan');
     });
 
-    it('creates team successfully for pro tier user', async () => {
+    it('returns 403 for pro tier user', async () => {
       mockAuthenticated();
 
-      // WHY: Pro tier now has teamMembers: 3 and can create teams (updated 2026-03-28).
+      // WHY: Pro is single-user — team management is Power-only.
       fromCallQueue.push({ data: { tier: 'pro' }, error: null });
-
-      // Mock team insert
-      fromCallQueue.push({
-        data: { id: 'team-pro-123', name: 'My Team', owner_id: AUTH_USER.id },
-        error: null,
-      });
-      // Mock team_members insert
-      fromCallQueue.push({ data: null, error: null });
 
       const req = createNextRequest({ name: 'My Team' });
       const response = await POST(req);
-      expect(response.status).toBe(201);
+      expect(response.status).toBe(403);
+
+      const body = await response.json();
+      expect(body.error).toContain('Power plan');
     });
 
     it('creates team successfully for power tier user', async () => {

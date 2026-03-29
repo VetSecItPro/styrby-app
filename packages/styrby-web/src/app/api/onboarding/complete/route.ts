@@ -49,11 +49,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // SEC-BIZ-002: Onboarding bypass risk — a user can call this endpoint
+    // SEC-BIZ-002: Onboarding bypass risk - a user can call this endpoint
     // directly without completing any onboarding steps. We do NOT enforce a
     // strict server-side step check here because:
     // 1. Onboarding is a UX aid, not a security gate. Skipping it doesn't
-    //    grant access to restricted features — those are tier-gated separately.
+    //    grant access to restricted features - those are tier-gated separately.
     // 2. The minimum meaningful step (CLI install + machine registration) is
     //    async and device-side; verifying it server-side would require polling
     //    the machines table, which adds latency and complexity for no security gain.

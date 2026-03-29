@@ -1,5 +1,5 @@
 /**
- * How It Works Section — Vertical Staggered Timeline Layout
+ * How It Works Section - Vertical Staggered Timeline Layout
  *
  * WHY staggered over equal 3-col: Equal columns force all three steps to
  * compete for attention simultaneously. A vertical timeline creates a natural
@@ -9,7 +9,7 @@
  *
  * WHY CSS-only illustrations: Avoids image load latency and CLS. The terminal
  * mockup, QR frame, and dashboard card are composed entirely of styled divs
- * and Tailwind utility classes — they render instantly, scale perfectly on
+ * and Tailwind utility classes - they render instantly, scale perfectly on
  * any DPR, and match the brand without a design asset pipeline.
  */
 
@@ -74,7 +74,7 @@ function PairingMockup() {
       {/* QR code frame */}
       <div className="rounded-xl border border-white/[0.08] bg-zinc-950 p-4 shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
         <div className="mb-2 font-mono text-[10px] text-zinc-500">Scan to pair</div>
-        {/* QR grid — 5×5 block pattern suggesting a QR code */}
+        {/* QR grid - 5×5 block pattern suggesting a QR code */}
         <div className="grid grid-cols-7 gap-0.5">
           {[
             1,1,1,1,1,1,1,
@@ -168,7 +168,7 @@ const steps: Step[] = [
     number: "01",
     title: "Install the CLI",
     description:
-      "One command alongside your existing agent setup. Zero config changes required — Styrby wraps your agents without touching them.",
+      "One command alongside your existing agent setup. Zero config changes required. Styrby wraps your agents without touching them.",
     illustrationSide: "right",
     illustration: <TerminalMockup />,
   },
@@ -184,7 +184,7 @@ const steps: Step[] = [
     number: "03",
     title: "Control Everything From Anywhere",
     description:
-      "Live agent status, real-time cost tracking, permission approvals, code review diffs — all encrypted and available from your phone or web dashboard.",
+      "Live agent status, real-time cost tracking, permission approvals, and code review diffs. All encrypted and available from your phone or web dashboard.",
     illustrationSide: "right",
     illustration: <DashboardMockup />,
   },
@@ -203,7 +203,7 @@ export function HowItWorks() {
 
         {/* Vertical timeline */}
         <div className="relative mx-auto mt-20 max-w-5xl">
-          {/* Vertical connector line — desktop only */}
+          {/* Vertical connector line - desktop only */}
           <div className="absolute left-1/2 top-0 hidden h-full w-px -translate-x-1/2 bg-gradient-to-b from-amber-500/20 via-amber-500/10 to-transparent md:block" />
 
           <div className="space-y-20">
@@ -212,7 +212,7 @@ export function HowItWorks() {
 
               return (
                 <div key={step.number} className="relative">
-                  {/* Step number node on the timeline — desktop only */}
+                  {/* Step number node on the timeline - desktop only */}
                   <div className="absolute left-1/2 top-0 hidden -translate-x-1/2 -translate-y-1/2 items-center justify-center md:flex">
                     <div className="flex h-9 w-9 items-center justify-center rounded-full border border-amber-500/30 bg-zinc-950 shadow-[0_0_0_4px_rgba(245,158,11,0.06)]">
                       <span className="font-mono text-xs font-bold text-amber-500">{step.number}</span>
@@ -231,7 +231,7 @@ export function HowItWorks() {
                   >
                     {/* Text block */}
                     <div className={isLeft ? "md:order-2" : "md:order-1"}>
-                      {/* Step number — mobile only */}
+                      {/* Step number - mobile only */}
                       <span className="mb-3 block font-mono text-4xl font-bold text-amber-500/20 md:hidden">
                         {step.number}
                       </span>

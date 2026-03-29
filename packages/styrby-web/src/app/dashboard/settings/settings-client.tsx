@@ -188,6 +188,9 @@ export function SettingsClient({
   /** Whether the user is on a paid tier (Pro+ enables smart notifications) */
   const isPaidTier = subscription?.tier === 'pro' || subscription?.tier === 'power';
 
+  /** Whether the user is on the Power tier (required for OTEL export) */
+  const isPowerTier = subscription?.tier === 'power';
+
   /**
    * WHY: On mount, we detect browser support for Web Push and check whether
    * the user already has an active push subscription. This lets the UI show
@@ -882,7 +885,7 @@ export function SettingsClient({
             </button>
           </div>
 
-          {/* Usage — real spend data fetched on mount */}
+          {/* Usage - real spend data fetched on mount */}
           {subscription && subscription.tier !== 'free' && monthlySpend !== null && (
             <div className="mt-4 pt-4 border-t border-zinc-800">
               <p className="text-sm text-zinc-500">
@@ -1503,7 +1506,7 @@ export function SettingsClient({
       {/* OTEL Metrics Export */}
       <section className="mb-8">
         <OtelSettings
-          isPaidTier={isPaidTier}
+          isPowerTier={isPowerTier}
           initialConfig={(profile as Record<string, unknown> | null)?.['otel_config'] as OtelUserConfig | null ?? null}
         />
       </section>

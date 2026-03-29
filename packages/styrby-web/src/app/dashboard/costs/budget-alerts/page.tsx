@@ -109,7 +109,7 @@ export default async function BudgetAlertsPage() {
   // WHY: Calculate current spend for each alert's period. We do this server-side
   // so the progress bars render immediately without a second client-side fetch.
   // Queries are deduplicated by (period, agent_type) composite key to eliminate
-  // the N+1 pattern — one query per unique combination instead of one per alert.
+  // the N+1 pattern - one query per unique combination instead of one per alert.
   const uniqueKeys = [...new Set(
     alerts.map((a) => `${a.period}:${a.agent_type ?? 'null'}`)
   )];

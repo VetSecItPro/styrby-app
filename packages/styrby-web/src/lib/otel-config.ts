@@ -1,5 +1,5 @@
 /**
- * OTEL Configuration — Web Settings Module
+ * OTEL Configuration - Web Settings Module
  *
  * Provides types, validation, and Supabase persistence for per-user
  * OpenTelemetry export configuration.
@@ -25,7 +25,7 @@
  * WHY: Storing the config in Supabase lets the user manage it via the web
  * dashboard and syncs it across machines (the user copies the generated
  * env vars to each machine). We never auto-apply the config to the CLI
- * because CLI env vars are the authoritative source — the DB is just a
+ * because CLI env vars are the authoritative source - the DB is just a
  * convenient form-backed storage.
  */
 export interface OtelUserConfig {

@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils"
  * Pricing data for all three tiers.
  *
  * WHY decoy layout: Pro is styled as "most popular" and highlighted with
- * amber — it looks like the obvious choice. Power is priced close enough
+ * amber - it looks like the obvious choice. Power is priced close enough
  * that informed buyers self-upgrade. Free anchors the low end so $24
  * feels reasonable.
  */
@@ -48,21 +48,16 @@ const plans = [
     monthly: 24,
     annual: 240,
     savings: 48,
-    popular: true,
+    popular: false,
     cta: "Connect 3 Machines",
     ctaVariant: "amber" as const,
     included: [
       "3 connected machines",
-      "8 agents (+ OpenCode, Aider, Goose, Amp, Crush, Kilo)",
+      "9 agents (+ OpenCode, Aider, Goose, Amp, Crush, Kilo)",
       "90-day session history",
       "25,000 messages/month",
-      "Full cost dashboard",
-      "Per-message cost tracking",
-      "Context breakdown by file",
-      "Session checkpoints and sharing",
+      "Cost dashboard",
       "Export and import",
-      "Activity graph",
-      "Team management — 3 members",
       "3 budget alerts",
       "Email support",
     ],
@@ -71,27 +66,22 @@ const plans = [
   {
     name: "Power",
     tagline: "For teams and power users",
-    monthly: 49,
-    annual: 490,
+    monthly: 59,
+    annual: 590,
     savings: 98,
     popular: false,
     cta: "Connect 9 Machines",
     ctaVariant: "outline" as const,
     included: [
-      "9 connected machines",
+      "Everything in Pro, plus:",
       "All 11 agents (+ Kiro and Droid)",
-      "1-year session history",
-      "100,000 messages/month",
-      "Full cost dashboard",
-      "OTEL export — Grafana, Datadog, and more",
-      "Voice commands",
-      "Cloud monitoring",
+      "9 machines, 5 budget alerts",
+      "Session checkpoints and sharing",
+      "Per-message costs and context breakdown",
+      "Voice commands and cloud monitoring",
       "Code review from mobile",
-      "5 budget alerts",
-      "3 team members",
-      "API access",
-      "Audit trail export",
-      "Email support",
+      "OTEL export (Grafana, Datadog, and more)",
+      "Team management (3 members) and API access",
     ],
     notIncluded: [],
   },
@@ -123,7 +113,7 @@ export function PricingSection() {
             One price. Everything included. No per-token fees.
           </h2>
           <p className="mt-4 text-muted-foreground leading-relaxed">
-            Flat monthly pricing. Your AI API costs are yours to manage — we
+            Flat monthly pricing. Your AI API costs are yours to manage. We
             only charge for Styrby.
           </p>
         </div>
@@ -169,8 +159,8 @@ export function PricingSection() {
           </span>
         </div>
 
-        {/* Cards — Pro is slightly elevated via scale and z-index */}
-        <div className="mt-12 grid items-start gap-4 md:grid-cols-3 md:items-center">
+        {/* Cards - Pro is slightly elevated via scale and z-index */}
+        <div className="mt-12 grid gap-4 md:grid-cols-3 md:items-stretch">
           {plans.map((plan) => (
             <PricingCard key={plan.name} plan={plan} annual={annual} />
           ))}
@@ -204,7 +194,7 @@ function PricingCard({
   return (
     <div
       className={cn(
-        "relative flex flex-col rounded-2xl p-8 transition-all duration-300",
+        "relative flex flex-col rounded-2xl px-8 py-6 transition-all duration-300",
         plan.popular
           ? // Pro: amber border, subtle amber bloom behind the card, slightly taller via py
             "border border-amber-500/40 bg-zinc-950 amber-glow md:-my-4 md:py-12 z-10"
@@ -234,13 +224,8 @@ function PricingCard({
       )}
 
       {/* Plan name + tagline */}
-      <div className={cn(!plan.popular && "pt-8")}>
-        <h3
-          className={cn(
-            "text-lg font-semibold",
-            plan.popular ? "text-amber-400" : "text-foreground"
-          )}
-        >
+      <div className="text-center">
+        <h3 className="text-2xl font-bold tracking-tight text-foreground">
           {plan.name}
         </h3>
         <p className="mt-1 text-sm text-muted-foreground">{plan.tagline}</p>
@@ -259,11 +244,11 @@ function PricingCard({
         )}
       </div>
 
-      {/* Annual savings line — always reserve height to prevent layout shift */}
+      {/* Annual savings line - always reserve height to prevent layout shift */}
       <div className="mt-1 h-4">
         {annual && plan.savings ? (
           <p className="text-xs text-amber-500/80">
-            ${plan.annual}/year — save ${plan.savings}
+            ${plan.annual}/year (save ${plan.savings})
           </p>
         ) : null}
       </div>
@@ -276,19 +261,24 @@ function PricingCard({
         )}
       />
 
-      {/* Feature list — included */}
+      {/* Feature list - included */}
       <ul className="mt-6 flex-1 space-y-3">
-        {plan.included.map((feature) => (
+        {plan.included.map((feature, i) => (
           <li
             key={feature}
-            className="flex items-start gap-3 text-sm text-zinc-300"
+            className={cn(
+              "flex items-start gap-3 text-sm",
+              feature.endsWith("plus:") ? "font-semibold text-zinc-200 pb-1 border-b border-zinc-800/60" : "text-zinc-300"
+            )}
           >
-            <Check
-              className={cn(
-                "mt-0.5 h-4 w-4 shrink-0",
-                plan.popular ? "text-amber-400" : "text-amber-500/70"
-              )}
-            />
+            {!feature.endsWith("plus:") && (
+              <Check
+                className={cn(
+                  "mt-0.5 h-4 w-4 shrink-0",
+                  plan.popular ? "text-amber-400" : "text-amber-500/70"
+                )}
+              />
+            )}
             {feature}
           </li>
         ))}
@@ -307,35 +297,23 @@ function PricingCard({
       </ul>
 
       {/* CTA button */}
-      <div className="mt-8">
-        {plan.ctaVariant === "amber" && (
-          <Button
-            asChild
-            className="w-full bg-amber-500 font-semibold text-zinc-950 hover:bg-amber-400 active:bg-amber-600 transition-colors"
-          >
-            <Link href={`/signup?plan=${plan.name.toLowerCase()}`}>
-              {plan.cta}
-            </Link>
-          </Button>
-        )}
-        {plan.ctaVariant === "outline" && (
+      <div className="mt-8 flex justify-center">
+        {plan.ctaVariant === "ghost" ? (
           <Button
             variant="outline"
             asChild
-            className="w-full border-zinc-700 bg-transparent font-medium text-zinc-300 hover:border-zinc-500 hover:text-foreground"
+            className="rounded-full px-6 border-zinc-700 bg-transparent font-medium text-zinc-300 hover:border-zinc-500 hover:text-foreground transition-colors"
+          >
+            <Link href="/signup">{plan.cta}</Link>
+          </Button>
+        ) : (
+          <Button
+            asChild
+            className="rounded-full px-6 bg-amber-500 font-semibold text-zinc-950 hover:bg-amber-400 active:bg-amber-600 transition-colors"
           >
             <Link href={`/signup?plan=${plan.name.toLowerCase()}`}>
               {plan.cta}
             </Link>
-          </Button>
-        )}
-        {plan.ctaVariant === "ghost" && (
-          <Button
-            variant="ghost"
-            asChild
-            className="w-full font-medium text-muted-foreground hover:text-foreground"
-          >
-            <Link href="/signup">{plan.cta}</Link>
           </Button>
         )}
       </div>

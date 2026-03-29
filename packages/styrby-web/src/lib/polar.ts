@@ -21,6 +21,8 @@ export const polar = new Polar({
  * - Machines: Supabase Realtime connections
  * - Messages: Relay bandwidth
  * - History: Database storage
+ * - Bookmarks: saved sessions per user
+ * - PromptTemplates: user-created context templates (-1 = unlimited)
  */
 export const TIERS = {
   free: {
@@ -54,6 +56,10 @@ export const TIERS = {
       webhooks: 0,
       teamMembers: 1,
       apiKeys: 0,
+      /** Maximum saved session bookmarks. */
+      bookmarks: 5,
+      /** Maximum user-created prompt templates. */
+      promptTemplates: 3,
     },
   },
   pro: {
@@ -71,19 +77,11 @@ export const TIERS = {
       '3 connected machines',
       '90-day session history',
       '25,000 messages/month',
-      'All 8 agents (adds OpenCode, Aider, Goose, Amp, Crush, Kilo)',
+      'All 9 agents (adds OpenCode, Aider, Goose, Amp, Crush, Kilo)',
       'All push notifications',
       '3 budget alerts',
-      'Per-message cost tracking',
-      'Session checkpoints',
-      'Session sharing',
       'Export and import',
-      'Per-file context breakdown',
-      'Activity graph',
-      'Team management (3 members)',
-      '3 webhooks',
       'Full cost analytics',
-      'CSV export',
       'Email support',
     ],
     limits: {
@@ -92,16 +90,20 @@ export const TIERS = {
       messagesPerMonth: 25_000,
       budgetAlerts: 3,
       webhooks: 3,
-      teamMembers: 3,
+      teamMembers: 1,
       apiKeys: 0,
+      /** Maximum saved session bookmarks. */
+      bookmarks: 50,
+      /** Maximum user-created prompt templates. */
+      promptTemplates: 20,
     },
   },
   power: {
     id: 'power',
     name: 'Power',
     price: {
-      monthly: 49,
-      annual: 490,
+      monthly: 59,
+      annual: 590,
     },
     polarProductId: {
       monthly: process.env.POLAR_POWER_MONTHLY_PRODUCT_ID,
@@ -114,13 +116,17 @@ export const TIERS = {
       'All 11 agents (adds Kiro and Droid)',
       'Custom notification rules',
       '5 budget alerts',
+      'Per-message cost tracking',
+      'Session checkpoints',
+      'Session sharing',
+      'Per-file context breakdown',
+      'Activity graph',
+      'Team management (up to 3 members)',
       'OTEL export (Grafana, Datadog, and more)',
       'Voice commands',
       'Cloud monitoring',
       'Code review from mobile',
-      'Rust parser',
       '10 webhooks',
-      'Up to 3 team members',
       'API access (read-only)',
       'CSV + JSON export',
       'Email support',
@@ -133,6 +139,10 @@ export const TIERS = {
       webhooks: 10,
       teamMembers: 3,
       apiKeys: 5,
+      /** Maximum saved session bookmarks. -1 means unlimited. */
+      bookmarks: -1,
+      /** Maximum user-created prompt templates. -1 means unlimited. */
+      promptTemplates: -1,
     },
   },
 } as const;

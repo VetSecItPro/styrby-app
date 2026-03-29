@@ -2,7 +2,7 @@
  * Shared Session Viewer
  *
  * Public page that displays a shared session replay. The messages are
- * E2E encrypted — the viewer must enter the decryption key to read them.
+ * E2E encrypted - the viewer must enter the decryption key to read them.
  *
  * WHY client component: Key entry, decryption, and the message display
  * are all client-side operations. We fetch the encrypted session data

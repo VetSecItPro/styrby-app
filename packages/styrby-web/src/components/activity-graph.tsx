@@ -8,7 +8,7 @@
  * Supports toggling between "Sessions" and "Cost" views.
  *
  * Data is fetched from Supabase (sessions table) and grouped by date
- * client-side. The component is fully self-contained — it fetches its own
+ * client-side. The component is fully self-contained - it fetches its own
  * data on mount so it can be dropped anywhere without passing props.
  *
  * @module components/activity-graph

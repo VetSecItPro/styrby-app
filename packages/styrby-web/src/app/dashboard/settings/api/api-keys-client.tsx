@@ -117,7 +117,7 @@ export function ApiKeysClient({
     setCopied(false);
   }, []);
 
-  // WHY: WCAG 2.1.2 — focus trap keeps keyboard users inside the modal dialog
+  // WHY: WCAG 2.1.2 - focus trap keeps keyboard users inside the modal dialog
   // and restores focus to the trigger when the modal closes.
   const focusTrapRef = useFocusTrap<HTMLDivElement>(showModal, handleCloseModal);
 

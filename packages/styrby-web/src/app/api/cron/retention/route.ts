@@ -52,7 +52,7 @@ const ACCOUNT_DELETION_GRACE_DAYS = 30;
 export async function POST(request: NextRequest) {
   // Verify cron secret to prevent unauthorized execution.
   // SEC-LOGIC-007 FIX: Use crypto.timingSafeEqual instead of ===.
-  // WHY: String equality (===) is vulnerable to timing attacks — an attacker
+  // WHY: String equality (===) is vulnerable to timing attacks - an attacker
   // can measure how long comparisons take to infer how many leading characters
   // of the secret they guessed correctly. timingSafeEqual always takes the
   // same amount of time regardless of where strings diverge, eliminating this
@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
         // Also delete from auth.users via Supabase Admin API.
         // WHY: profiles CASCADE only covers public tables. The auth.users
         // record must be deleted separately to fully remove the account.
-        // WHY allSettled: one failed deletion must not block the others —
+        // WHY allSettled: one failed deletion must not block the others -
         // partial progress is better than a full abort on a transient error.
         await Promise.allSettled(
           expiredIds.map(async (profileId) => {
@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
     // 3. SEC-LOGIC-004 FIX: Downgrade canceled subscriptions past their period end.
     //
     // WHY: When a user cancels, the polar-webhook sets status = 'canceled' but
-    // intentionally does NOT change the tier — the user should keep paid access
+    // intentionally does NOT change the tier - the user should keep paid access
     // until current_period_end (they paid for that period). This cron runs daily
     // and downgrades the tier to 'free' once current_period_end has passed.
     // Without this job, canceled users keep their paid tier forever.

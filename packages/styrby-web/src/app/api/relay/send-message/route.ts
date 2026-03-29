@@ -30,7 +30,7 @@ import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
  * Request body schema for message sending.
  *
  * WHY (FIX-004): Requires `content_encrypted` and `encryption_nonce` instead of
- * plaintext `content`. This enforces E2E encryption at the API boundary — the
+ * plaintext `content`. This enforces E2E encryption at the API boundary - the
  * web client must encrypt with the session's public key before sending.
  * Legacy plaintext `content` field is no longer accepted.
  */

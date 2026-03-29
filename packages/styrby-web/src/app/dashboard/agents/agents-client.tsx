@@ -104,7 +104,7 @@ interface AgentsClientProps {
  * @param activeSessions - Currently active sessions for status indicator
  */
 export function AgentsClient({ machines, agentConfigs: _agentConfigs, todayCosts, activeSessions }: AgentsClientProps) {
-  // Aggregate cost per agent type — memoized to avoid creating a new object on every render
+  // Aggregate cost per agent type - memoized to avoid creating a new object on every render
   // WHY: Without useMemo, costByAgent and activeByAgent would be new references each render,
   // which would defeat the downstream useMemo on agentCards.
   const costByAgent = useMemo(() => todayCosts.reduce<Record<string, number>>((acc, r) => {
@@ -118,12 +118,12 @@ export function AgentsClient({ machines, agentConfigs: _agentConfigs, todayCosts
     return acc;
   }, {}), [activeSessions]);
 
-  // Build agent cards data — memoized so it only recomputes when props change.
+  // Build agent cards data - memoized so it only recomputes when props change.
   // WHY: agentCards derives from machines, costByAgent, and activeByAgent. Without
   // memoization it recomputes on every render even when none of those changed.
   const agentCards = useMemo(() => (Object.keys(AGENT_META) as AgentType[]).map((type) => {
     const meta = AGENT_META[type];
-    // WHY: Machines don't have agent_type — agents run in sessions, not machines.
+    // WHY: Machines don't have agent_type - agents run in sessions, not machines.
     // Show all machines for each agent type (a machine can run any agent).
     const agentMachines = machines;
     const onlineMachines = agentMachines.filter((m) => m.is_online);
@@ -146,7 +146,7 @@ export function AgentsClient({ machines, agentConfigs: _agentConfigs, todayCosts
   }), [machines, costByAgent, activeByAgent]);
 
   // Capture mount time once. timeAgo() is defined at module level and accepts
-  // `now` as a parameter — see the function definition above the component.
+  // `now` as a parameter - see the function definition above the component.
   const [now] = useState(() => Date.now());
 
   return (
@@ -161,7 +161,7 @@ export function AgentsClient({ machines, agentConfigs: _agentConfigs, todayCosts
         </Button>
       </div>
 
-      {/* Empty state — no machines connected yet */}
+      {/* Empty state - no machines connected yet */}
       {machines.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-border/40 bg-card/60 px-6 py-16 text-center">
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20">

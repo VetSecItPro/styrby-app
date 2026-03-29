@@ -219,7 +219,7 @@ const showcaseItems = [
   {
     mockup: <PermissionApprovalMockup />,
     label: "Permission Approval",
-    caption: "Approve or deny risky actions with full diff context — no laptop needed.",
+    caption: "Approve or deny risky actions with full diff context. No laptop needed.",
   },
   {
     mockup: <VoiceCommandMockup />,
@@ -256,7 +256,7 @@ export function MobileShowcase() {
                 Middle phone is elevated slightly on desktop for visual depth.
                 WHY: The three-phone layout needs a focal point. Elevating the
                 center phone creates a pyramid that draws the eye to the most
-                important mockup (voice commands — the most novel capability).
+                important mockup (voice commands - the most novel capability).
               */}
               <div className={i === 1 ? "sm:-mt-6" : ""}>
                 {item.mockup}
@@ -272,7 +272,7 @@ export function MobileShowcase() {
         {/* Bottom CTA callout */}
         <div className="mx-auto mt-16 max-w-xl rounded-xl border border-white/[0.06] bg-zinc-950/80 p-6 text-center shadow-[inset_0_1px_1px_rgba(255,255,255,0.06)]">
           <p className="text-sm font-semibold text-foreground">
-            Your agents work around the clock. Now you can too — without being desk-bound.
+            Your agents work around the clock. Now you can too, without being desk-bound.
           </p>
           <p className="mt-2 text-xs text-muted-foreground">
             E2E encrypted. Zero-knowledge architecture. Your code never leaves your machine unencrypted.

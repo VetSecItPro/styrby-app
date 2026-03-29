@@ -46,7 +46,7 @@ export function DashboardTopNav({ tier = 'free' }: DashboardTopNavProps) {
 
       <div className="flex items-center gap-3">
         {/* Notification bell */}
-        {/* WHY: WCAG 1.3.1 — include the count in aria-label so screen readers
+        {/* WHY: WCAG 1.3.1 - include the count in aria-label so screen readers
             announce "Notifications, 3 unread" rather than just "Notifications". */}
         <Button
           variant="ghost"

@@ -14,9 +14,11 @@
  * POST /api/v1/sessions/[id]/checkpoints
  *
  * Creates a named checkpoint for a session at the current message position.
+ * Requires Power tier - Free users receive 403.
  *
  * @auth Required - API key via Authorization: Bearer sk_live_xxx
  * @rateLimit 100 requests per minute per key
+ * @tier Power only (Free users receive 403)
  *
  * @body {
  *   name: string,                          // 1–80 chars, unique within session
@@ -27,6 +29,7 @@
  *
  * @returns 201 { checkpoint: SessionCheckpoint }
  * @error 400 { error: string }             // validation failure
+ * @error 403 { error: string }             // Free tier - upgrade required
  * @error 404 { error: 'Session not found' }
  * @error 409 { error: 'Checkpoint name already exists' }
  * @error 500 { error: 'Failed to create checkpoint' }
@@ -184,6 +187,10 @@ async function getHandler(
 
 /**
  * POST handler: create a new checkpoint for the session.
+ *
+ * WHY: Session checkpoints are a Pro+ feature. Free users who call this endpoint
+ * directly (e.g., via the CLI) receive a 403 with an upgrade message. The tier
+ * check happens before session validation to short-circuit early.
  */
 async function postHandler(
   request: NextRequest,
@@ -197,6 +204,25 @@ async function postHandler(
 
   if (!sessionId || !UUID_REGEX.test(sessionId)) {
     return NextResponse.json({ error: 'Invalid session ID' }, { status: 400 });
+  }
+
+  // Enforce Pro+ tier gate for checkpoint creation
+  // WHY: Session checkpoints are listed in the Pro feature set. Free users cannot
+  // create checkpoints via the API (the CLI may call this endpoint directly).
+  const supabaseForTier = createApiAdminClient();
+  const { data: subscription } = await supabaseForTier
+    .from('subscriptions')
+    .select('tier')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  const userTierForCheck = (subscription?.tier as string) || 'free';
+  if (userTierForCheck !== 'power') {
+    return NextResponse.json(
+      { error: 'Session checkpoints require a Power plan. Upgrade at https://app.styrby.com/pricing' },
+      { status: 403 }
+    );
   }
 
   // Parse request body

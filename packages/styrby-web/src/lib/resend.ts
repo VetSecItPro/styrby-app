@@ -25,7 +25,7 @@ let warnedMissingKey = false;
  * Get the lazily-initialized Resend client.
  *
  * WHY this returns null instead of throwing: Email is a nice-to-have feature
- * in Styrby. The app should function fully without it — welcome emails, budget
+ * in Styrby. The app should function fully without it - welcome emails, budget
  * alerts, and weekly summaries are enhancements, not hard requirements.
  * Throwing here would crash API routes and auth callbacks just because the
  * RESEND_API_KEY is missing in development or a misconfigured deployment.
@@ -37,7 +37,7 @@ function getResendClient(): Resend | null {
     if (!process.env.RESEND_API_KEY) {
       if (!warnedMissingKey) {
         console.warn(
-          '[resend] RESEND_API_KEY is not set — email sending is disabled. ' +
+          '[resend] RESEND_API_KEY is not set - email sending is disabled. ' +
           'Set this environment variable to enable transactional emails.'
         );
         warnedMissingKey = true;
@@ -58,7 +58,7 @@ const from = `${FROM_NAME} <${FROM_EMAIL}>`;
  * Generic email send function.
  *
  * Gracefully no-ops if the Resend client is not configured (RESEND_API_KEY
- * missing). This ensures the app works without email — callers do not need
+ * missing). This ensures the app works without email - callers do not need
  * to check for null before calling.
  *
  * @param to - Recipient email address

@@ -104,7 +104,7 @@ export async function POST(
   }
 
   // SEC-ADMIN-001 FIX: Audit log the admin reply action.
-  // WHY: Sending replies to users is a high-impact admin action — it
+  // WHY: Sending replies to users is a high-impact admin action - it
   // communicates on behalf of the company. An audit trail lets us
   // investigate disputed communications and detect misuse of admin access.
   await adminClient.from('audit_log').insert({

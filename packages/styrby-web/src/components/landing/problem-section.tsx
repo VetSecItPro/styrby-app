@@ -1,7 +1,7 @@
 import { Layers, SmartphoneNfc, AlertTriangle } from "lucide-react"
 
 /**
- * Problem Section — Hero + Supporting Pair Layout
+ * Problem Section - Hero + Supporting Pair Layout
  *
  * WHY 1+2 over equal 3-col: The primary pain point (fragmented multi-agent chaos)
  * is the emotional hook for developers running production workloads. Giving it a
@@ -34,7 +34,7 @@ const problems = [
     icon: SmartphoneNfc,
     title: "Laptop-Tethered Approvals",
     description:
-      "No way to approve risky permissions without being at your desk. Your agent sits idle for hours — or worse, proceeds without approval — while you are away from your machine.",
+      "No way to approve risky permissions without being at your desk. Your agent sits idle for hours, or proceeds without approval, while you are away from your machine.",
     primary: false,
   },
 ]
@@ -52,7 +52,7 @@ export function ProblemSection() {
         </h2>
 
         <div className="mx-auto mt-16 max-w-5xl space-y-6">
-          {/* Primary problem — full width, larger treatment */}
+          {/* Primary problem - full width, larger treatment */}
           <div className="gradient-border group rounded-xl bg-card/60 p-8 transition-all duration-200 hover:bg-card md:p-10">
             <div className="flex flex-col gap-5 md:flex-row md:items-start md:gap-8">
               <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/10">
@@ -67,7 +67,7 @@ export function ProblemSection() {
             </div>
           </div>
 
-          {/* Secondary problems — 2-column grid */}
+          {/* Secondary problems - 2-column grid */}
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             {secondary.map((problem) => (
               <div

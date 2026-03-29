@@ -242,6 +242,7 @@ export function SessionView({
             initialMessages={messages}
             isSessionActive={isSessionActive}
             machineId={session.machine_id}
+            userTier={userTier}
           />
 
           {/* Input (only shown for active sessions) */}

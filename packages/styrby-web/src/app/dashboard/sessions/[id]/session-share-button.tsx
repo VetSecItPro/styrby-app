@@ -4,13 +4,13 @@
  * Session Share Button
  *
  * Creates a shareable replay link for a session. The link grants access to
- * the encrypted message content — the viewer also needs the decryption key
+ * the encrypted message content - the viewer also needs the decryption key
  * to read the messages. Keys are displayed separately so users can share
  * them via a secure channel.
  *
  * WHY separate key: If the link and key were bundled together, a leaked URL
  * would expose the full session. Keeping them separate means a link can be
- * forwarded safely — only recipients who also receive the key can decrypt.
+ * forwarded safely - only recipients who also receive the key can decrypt.
  */
 
 import { useState, useCallback } from 'react';
@@ -228,7 +228,7 @@ export function SessionShareButton({ sessionId, machineId }: SessionShareButtonP
                   <p className="text-sm text-amber-300 font-medium">Two items to share</p>
                   <p className="mt-1 text-xs text-amber-400/80">
                     Messages are E2E encrypted. Share the link AND the decryption key separately
-                    — the viewer needs both to read the replay.
+                    The viewer needs both to read the replay.
                   </p>
                 </div>
 
@@ -271,7 +271,7 @@ export function SessionShareButton({ sessionId, machineId }: SessionShareButtonP
                       Ask the session owner to share the key via a secure channel (Signal, 1Password, etc.).
                     </p>
                     <p className="mt-2 text-xs text-zinc-500">
-                      The key is never stored in Styrby — this ensures your session content
+                      The key is never stored in Styrby. This ensures your session content
                       is private even from Styrby servers.
                     </p>
                   </div>

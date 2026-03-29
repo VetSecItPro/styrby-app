@@ -382,7 +382,7 @@ export function CloudTasksPanel({ userId }: CloudTasksPanelProps) {
         .eq('id', taskId);
 
       if (error) {
-        // Revert optimistic update on failure — Realtime will correct eventually
+        // Revert optimistic update on failure - Realtime will correct eventually
         console.error('[CloudTasks] Cancel failed:', error.message);
       }
 

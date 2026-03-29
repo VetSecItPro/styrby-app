@@ -161,10 +161,10 @@ styrby connect --agent claude --project checkout-redesign`}</code>
 
       <h2>What Power Tier Costs</h2>
       <p>
-        The Power tier is $49/month for the account, supporting up to 3 team
-        members. For a three-person team, that is $49/month for cost visibility
+        The Power tier is $59/month for the account, supporting up to 3 team
+        members. For a three-person team, that is $59/month for cost visibility
         into $1,000/month of AI spend. The math works if the visibility helps
-        you save more than $49 through better model selection, retry loop
+        you save more than $59 through better model selection, retry loop
         detection, and budget enforcement. For most teams at this spend level,
         it does.
       </p>

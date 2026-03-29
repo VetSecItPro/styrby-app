@@ -4,7 +4,7 @@
  * Retrieves session data for a shared link.
  *
  * Returns the session metadata and encrypted messages. The response does
- * NOT include plaintext content — the caller must supply the decryption
+ * NOT include plaintext content - the caller must supply the decryption
  * key (shared out-of-band) to read the messages.
  *
  * WHY encrypted response: This endpoint is public (no auth required). If
@@ -62,7 +62,7 @@ export interface SharedSessionData {
 
 /**
  * Encrypted message data included in the shared session response.
- * Content is kept encrypted — decryption happens client-side after key entry.
+ * Content is kept encrypted - decryption happens client-side after key entry.
  */
 export interface SharedMessageData {
   /** Message ID */
@@ -95,7 +95,7 @@ interface RouteContext {
 }
 
 export async function GET(request: Request, context: RouteContext) {
-  // Rate limit by IP — this is a public endpoint
+  // Rate limit by IP - this is a public endpoint
   const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.standard, 'shared-session-view');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
@@ -148,7 +148,7 @@ export async function GET(request: Request, context: RouteContext) {
       .eq('access_count', shareRow.access_count); // optimistic concurrency
 
     if (updateError) {
-      // Non-fatal: log and continue — the viewer still gets the data
+      // Non-fatal: log and continue - the viewer still gets the data
       console.error('Failed to increment share access count:', updateError.message);
     }
 
@@ -166,7 +166,7 @@ export async function GET(request: Request, context: RouteContext) {
       );
     }
 
-    // Fetch messages — encrypted content is included but plaintext is not exposed
+    // Fetch messages - encrypted content is included but plaintext is not exposed
     const { data: messages } = await supabase
       .from('session_messages')
       .select('id, sequence_number, message_type, content_encrypted, encryption_nonce, duration_ms, input_tokens, output_tokens, cache_tokens, created_at')

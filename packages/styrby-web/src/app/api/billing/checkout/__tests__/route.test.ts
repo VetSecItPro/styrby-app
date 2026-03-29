@@ -73,7 +73,7 @@ const { mockGetUser, mockCheckoutCreate, MOCK_TIERS } = vi.hoisted(() => ({
     power: {
       id: 'power' as const,
       name: 'Power',
-      price: { monthly: 49, annual: 490 },
+      price: { monthly: 59, annual: 590 },
       polarProductId: {
         monthly: 'polar_test_power_monthly',
         annual: 'polar_test_power_annual',

@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 import { cn } from '@/lib/utils';
 
-// WHY: Intl.NumberFormat construction is expensive — hoisting these to module level
+// WHY: Intl.NumberFormat construction is expensive - hoisting these to module level
 // ensures they are created once at module load time rather than on every render.
 // Two formatters cover the two display cases: normal amounts ($0.01+) and
 // micro amounts (sub-cent) that need 4 decimal places for meaningful display.

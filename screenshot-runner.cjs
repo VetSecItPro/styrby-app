@@ -2,7 +2,7 @@ const { chromium } = require('playwright');
 const { readFileSync } = require('fs');
 
 const SCREENSHOT_DIR = '/Users/airborneshellback/vibecode-projects/styrby-app/packages/styrby-web/public/screenshots';
-const BASE_URL = 'http://localhost:4444';
+const BASE_URL = 'https://styrbyapp.com';
 const projectRef = 'akmtmxunjhsgldjztdtt';
 
 // Read the auth token
@@ -10,6 +10,7 @@ const authData = JSON.parse(readFileSync('/tmp/styrby-auth-token.json', 'utf8'))
 
 /**
  * Build Supabase SSR auth cookies (chunked if payload exceeds 3500 bytes).
+ * Uses production domain (styrbyapp.com) with secure flag enabled.
  */
 function buildAuthCookies() {
   const cookieBaseName = `sb-${projectRef}-auth-token`;
@@ -33,10 +34,10 @@ function buildAuthCookies() {
     cookies.push({
       name: cookieBaseName,
       value: chunks[0],
-      domain: 'localhost',
+      domain: '.styrbyapp.com',
       path: '/',
       httpOnly: false,
-      secure: false,
+      secure: true,
       sameSite: 'Lax',
     });
   } else {
@@ -44,10 +45,10 @@ function buildAuthCookies() {
       cookies.push({
         name: `${cookieBaseName}.${i}`,
         value: chunks[i],
-        domain: 'localhost',
+        domain: '.styrbyapp.com',
         path: '/',
         httpOnly: false,
-        secure: false,
+        secure: true,
         sameSite: 'Lax',
       });
     }
@@ -98,6 +99,7 @@ async function run() {
   const browser = await chromium.launch({ headless: true });
   const authCookies = buildAuthCookies();
   console.log(`Auth cookies prepared: ${authCookies.length} chunk(s)`);
+  console.log(`Base URL: ${BASE_URL}`);
 
   // ---- Desktop screenshots (1440x900) ----
   const desktopCtx = await browser.newContext({

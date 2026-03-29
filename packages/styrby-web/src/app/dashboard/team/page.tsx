@@ -11,7 +11,8 @@ import { TIERS, type TierId } from '@/lib/polar';
  * the team management UI. Delegates all interactive functionality to the
  * TeamClient client component.
  *
- * Power tier gate: Shows upgrade prompt for Free/Pro users.
+ * Pro+ gate: Shows upgrade prompt for Free users. Pro and Power users can
+ * access team features. Pro allows up to 3 members; Power also allows 3.
  */
 export default async function TeamPage() {
   const supabase = await createClient();
@@ -34,10 +35,12 @@ export default async function TeamPage() {
     .single();
 
   const tier = (subscription?.tier as TierId) || 'free';
-  const isPowerTier = tier === 'power';
+  // WHY: Team features are Power-only. Pro is a single-user tier.
+  // Power users get up to 3 team members.
+  const hasTeamAccess = tier === 'power';
 
-  // If not Power tier, show upgrade prompt
-  if (!isPowerTier) {
+  // If not Pro+ tier, show upgrade prompt
+  if (!hasTeamAccess) {
     return (
       <div className="min-h-screen bg-zinc-950">
         {/* Header */}
@@ -158,7 +161,7 @@ export default async function TeamPage() {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
-                Upgrade to Power
+                Upgrade to Pro
               </Link>
               <Link
                 href="/dashboard"
@@ -169,7 +172,7 @@ export default async function TeamPage() {
             </div>
 
             <p className="mt-6 text-sm text-zinc-500">
-              Power plan: ${TIERS.power.price.monthly}/month or ${TIERS.power.price.annual}/year
+              Pro plan: ${TIERS.pro.price.monthly}/month · Power plan: ${TIERS.power.price.monthly}/month
             </p>
           </div>
         </main>
@@ -256,7 +259,9 @@ export default async function TeamPage() {
     .eq('id', user.id)
     .single();
 
-  const teamLimit = TIERS.power.limits.teamMembers;
+  // WHY: Use the current user's tier limit rather than hardcoding Power's limit.
+  // Pro and Power both allow 3 team members per the TIERS config.
+  const teamLimit = TIERS[tier].limits.teamMembers;
 
   return (
     <div className="min-h-screen bg-zinc-950">

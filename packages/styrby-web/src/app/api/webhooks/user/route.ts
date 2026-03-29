@@ -64,7 +64,7 @@ function isSafeWebhookUrl(url: string): boolean {
 
     const hostname = parsed.hostname.toLowerCase();
 
-    // Block localhost and loopback — including the full 127.0.0.0/8 range
+    // Block localhost and loopback - including the full 127.0.0.0/8 range
     // WHY: 127.0.0.2 through 127.255.255.255 are also loopback addresses
     if (
       hostname === 'localhost' ||
@@ -100,7 +100,7 @@ function isSafeWebhookUrl(url: string): boolean {
     if (/^0x[0-9a-f]+$/i.test(hostname)) return false;        // Pure hex IP (e.g., 0x7f000001)
     if (/^0[0-7]+(\.[0-7]+)*$/.test(hostname)) return false;  // Octal IP (e.g., 0177.0.0.1)
     // Block any dotted-numeric hostname with an octet that has a leading zero
-    // WHY: Leading-zero octets are ambiguous — some resolvers treat them as octal.
+    // WHY: Leading-zero octets are ambiguous - some resolvers treat them as octal.
     // A hostname like "0177.0.0.01" could resolve to 127.0.0.1 depending on the
     // system's DNS/IP parsing. Normal decimal IPs never have leading zeros.
     if (/^[\d.]+$/.test(hostname) && /\b0\d/.test(hostname)) return false;
@@ -127,9 +127,9 @@ function isSafeWebhookUrl(url: string): boolean {
       if (cleanIp === '::1') return false;
       // IPv6 link-local (fe80::/10)
       if (cleanIp.startsWith('fe80:')) return false;
-      // IPv6 unique-local (fc00::/7 — covers fc00:: and fd00::)
+      // IPv6 unique-local (fc00::/7 - covers fc00:: and fd00::)
       if (/^f[cd]/i.test(cleanIp)) return false;
-      // IPv4-mapped IPv6 (::ffff:x.x.x.x) — recurse to check the IPv4 portion
+      // IPv4-mapped IPv6 (::ffff:x.x.x.x) - recurse to check the IPv4 portion
       if (cleanIp.startsWith('::ffff:')) {
         return isSafeWebhookUrl(`https://${cleanIp.slice(7)}/`);
       }

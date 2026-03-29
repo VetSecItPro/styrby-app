@@ -29,18 +29,18 @@ export default function AgentSetupPage() {
         be on your PATH.
       </p>
       <p className="mt-3 text-zinc-400">
-        Free tier supports 1 agent at a time. Pro and Power tiers support all 11
-        simultaneously. Agents you do not have installed are simply skipped
-        during detection.
+        Free tier includes 3 agents (Claude Code, Codex, Gemini CLI). Pro tier
+        adds 6 more (OpenCode, Aider, Goose, Amp, Crush, Kilo) for 9 total.
+        Power tier adds the remaining 2 (Kiro, Droid) for all 11. Agents you
+        do not have installed are simply skipped during detection.
       </p>
 
       {/* Free agents */}
       <h2 className="mt-10 text-xl font-semibold text-zinc-100">
-        Available on All Tiers
+        Free Tier Agents
       </h2>
       <p className="mt-3 text-zinc-400">
-        These five agents are available on the Free tier and above. Free tier
-        users may activate one agent at a time.
+        These three agents are available on all tiers, including Free.
       </p>
 
       {/* Claude Code */}
@@ -120,6 +120,16 @@ gemini --version`}
         before your first session.
       </p>
 
+      {/* Pro tier agents */}
+      <h2 className="mt-12 text-xl font-semibold text-zinc-100">
+        Pro Tier Agents
+      </h2>
+      <p className="mt-3 text-zinc-400">
+        These six agents are available on the Pro tier and above. Pro and Power
+        plans support all their included agents simultaneously with no session
+        limits.
+      </p>
+
       {/* OpenCode */}
       <h3 className="mt-8 text-lg font-medium text-zinc-200">OpenCode</h3>
       <p className="mt-2 text-sm text-zinc-400">
@@ -168,15 +178,6 @@ aider --version`}
         Aider requires Python 3.9 or later. It supports Claude, GPT-4o, Gemini,
         and many other LLM backends. Set the appropriate API key environment
         variable for your chosen model provider.
-      </p>
-
-      {/* Pro and Power agents */}
-      <h2 className="mt-12 text-xl font-semibold text-zinc-100">
-        Pro and Power Tier Agents
-      </h2>
-      <p className="mt-3 text-zinc-400">
-        These six agents are available on the Pro tier and above. All 11 agents
-        can run simultaneously on Pro and Power plans with no session limits.
       </p>
 
       {/* Goose */}
@@ -290,6 +291,15 @@ kilo --version`}
         </code>
         . Kilo supports any OpenAI-compatible API endpoint as a backend. Check
         the agent&apos;s official site for the latest install instructions.
+      </p>
+
+      {/* Power-only agents */}
+      <h2 className="mt-12 text-xl font-semibold text-zinc-100">
+        Power Tier Agents
+      </h2>
+      <p className="mt-3 text-zinc-400">
+        These two agents are exclusive to the Power tier. Power includes all 11
+        agents.
       </p>
 
       {/* Kiro */}

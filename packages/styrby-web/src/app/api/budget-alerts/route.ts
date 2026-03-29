@@ -3,7 +3,7 @@
  *
  * Provides CRUD operations for user budget alerts. Each endpoint authenticates
  * via Supabase Auth, validates input with Zod, and enforces tier-based limits
- * on alert creation (Free: 0, Pro: 3, Power: 10).
+ * on alert creation (Free: 1, Pro: 3, Power: 5).
  *
  * GET    /api/budget-alerts - List user's budget alerts with current spend
  * POST   /api/budget-alerts - Create a new budget alert

@@ -233,7 +233,7 @@ export function ReplayControls({
 
   /**
    * Closes the speed dropdown and restores focus to the trigger button.
-   * WHY: WCAG 2.1.1 — Escape must close any open popup/dropdown.
+   * WHY: WCAG 2.1.1 - Escape must close any open popup/dropdown.
    */
   const handleSpeedMenuKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {

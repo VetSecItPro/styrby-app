@@ -1,6 +1,6 @@
 // WHY: force-dynamic ensures this page is always server-rendered at request time.
 // The dashboard shows live user-specific data (sessions, spend, machines) that
-// must never be statically cached — stale data would show wrong costs and status.
+// must never be statically cached - stale data would show wrong costs and status.
 export const dynamic = 'force-dynamic';
 
 import { createClient } from '@/lib/supabase/server';
@@ -51,11 +51,24 @@ export default async function DashboardPage() {
 
   const todaySpend = todayCosts?.reduce((sum, r) => sum + Number(r.cost_usd), 0) || 0;
 
-  // Fetch user's machines
-  const { data: machines } = await supabase
-    .from('machines')
-    .select('id, name, is_online, last_seen_at')
-    .order('last_seen_at', { ascending: false });
+  // Fetch user's machines and subscription tier in parallel
+  // WHY: Tier is needed to gate the activity graph (Pro+) and cloud tasks panel
+  // (Power) in the dashboard. Fetching in parallel keeps the page fast.
+  const [machinesResult, subscriptionResult] = await Promise.all([
+    supabase
+      .from('machines')
+      .select('id, name, is_online, last_seen_at')
+      .order('last_seen_at', { ascending: false }),
+    supabase
+      .from('subscriptions')
+      .select('tier')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .maybeSingle(),
+  ]);
+
+  const machines = machinesResult.data;
+  const userTier = (subscriptionResult.data?.tier as 'free' | 'pro' | 'power') || 'free';
 
   return (
     <DashboardRealtime
@@ -63,6 +76,7 @@ export default async function DashboardPage() {
       initialTodaySpend={todaySpend}
       initialMachines={machines || []}
       userId={user.id}
+      userTier={userTier}
     />
   );
 }

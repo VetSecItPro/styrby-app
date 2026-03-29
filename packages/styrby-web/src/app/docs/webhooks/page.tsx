@@ -178,9 +178,12 @@ export default function WebhooksPage() {
 
 function verifyWebhook(
   payload: string,
-  signature: string,
+  signatureHeader: string,
   secret: string
 ): boolean {
+  // The header is formatted as "sha256=<hex>". Strip the prefix.
+  const signature = signatureHeader.replace("sha256=", "");
+
   const expected = crypto
     .createHmac("sha256", secret)
     .update(payload)
@@ -208,26 +211,18 @@ if (!isValid) {
         Retry Policy
       </h2>
       <p className="mt-2 text-sm text-zinc-400">
-        If your endpoint returns a non-2xx status or times out (10 seconds),
-        Styrby retries up to 4 more times with exponential backoff (5 total
-        attempts):
+        If your endpoint returns a non-2xx status or times out (30 seconds),
+        Styrby retries with exponential backoff (3 total attempts):
       </p>
       <ul className="mt-2 list-disc space-y-1 pl-6 text-sm text-zinc-400">
-        <li>Retry 1: after 30 seconds</li>
-        <li>Retry 2: after 2 minutes</li>
-        <li>Retry 3: after 10 minutes</li>
-        <li>Retry 4: after 1 hour (final attempt)</li>
+        <li>Attempt 1: immediate</li>
+        <li>Retry 1: after 1 minute</li>
+        <li>Retry 2: after 2 minutes (final attempt)</li>
       </ul>
       <p className="mt-2 text-sm text-zinc-400">
-        After 5 total failed attempts, the delivery is marked as failed. You
+        After 3 total failed attempts, the delivery is marked as failed. You
         can view delivery history and retry failed events from the webhook
         detail page in Settings &gt; Webhooks.
-      </p>
-      <p className="mt-2 text-sm text-zinc-500">
-        A webhook that accumulates 10 consecutive complete failures (5 attempts
-        each) is automatically disabled to prevent ongoing delivery attempts to
-        unreachable endpoints. Re-enable it from the dashboard after fixing the
-        endpoint.
       </p>
 
       <PrevNext prev={prev} next={next} />

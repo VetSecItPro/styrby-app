@@ -142,7 +142,7 @@ const faqPageJsonLd = {
       name: 'Can I use it with my team?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'The Pro plan ($24/mo) and Power plan ($49/mo) both support up to 3 team members with shared dashboards and per-developer cost attribution. Power adds team-level budget alerts and OTEL export.',
+        text: 'The Pro plan ($24/mo) and Power plan ($59/mo) both support up to 3 team members with shared dashboards and per-developer cost attribution. Power adds team-level budget alerts and OTEL export.',
       },
     },
     {
@@ -168,16 +168,16 @@ const faqPageJsonLd = {
  * Marketing landing page - composed from modular section components.
  *
  * WHY this order:
- * 1. Hero — establishes the remote control value prop
- * 2. SocialProof — builds trust before asking for attention
- * 3. ProblemSection — names the pain (no unified view, surprise bills, desk-tethered)
- * 4. FeaturesSection — bento grid showing how Styrby solves each problem
- * 5. MobileShowcase — makes the phone experience concrete: permission, voice, diff
- * 6. CostSavings — supporting benefit positioned as "oh, and it does this too"
- * 7. HowItWorks — removes setup friction with staggered timeline + CSS mockups
- * 8. PricingCTA — drives plan selection after full value is established
- * 9. FAQSection — handles remaining objections
- * 10. CTABanner + Footer — closes
+ * 1. Hero - establishes the remote control value prop
+ * 2. SocialProof - builds trust before asking for attention
+ * 3. ProblemSection - names the pain (no unified view, surprise bills, desk-tethered)
+ * 4. FeaturesSection - bento grid showing how Styrby solves each problem
+ * 5. MobileShowcase - makes the phone experience concrete: permission, voice, diff
+ * 6. CostSavings - supporting benefit positioned as "oh, and it does this too"
+ * 7. HowItWorks - removes setup friction with staggered timeline + CSS mockups
+ * 8. PricingCTA - drives plan selection after full value is established
+ * 9. FAQSection - handles remaining objections
+ * 10. CTABanner + Footer - closes
  */
 export default function LandingPage() {
   return (

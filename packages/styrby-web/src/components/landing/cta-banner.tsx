@@ -3,7 +3,7 @@ import { ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 /**
- * CTA Banner — final conversion section before the footer.
+ * CTA Banner - final conversion section before the footer.
  *
  * WHY minimal copy: visitors who scroll this far have already read the
  * feature list and pricing. A single bold statement and one button
@@ -25,7 +25,7 @@ export function CTABanner() {
       {/* Subtle dot grid texture */}
       <div className="pointer-events-none absolute inset-0 dot-grid opacity-20" aria-hidden="true" />
 
-      {/* Top and bottom fade — blends into surrounding sections */}
+      {/* Top and bottom fade - blends into surrounding sections */}
       <div
         className="pointer-events-none absolute inset-x-0 top-0 h-24"
         style={{

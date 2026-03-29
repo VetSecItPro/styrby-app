@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils"
  * - Glass effect with `backdrop-blur-2xl` creates depth without a heavy
  *   opaque bar dominating the viewport.
  * - The inset top shadow adds a subtle highlight that makes the pill feel
- *   illuminated from above — a luxury detail borrowed from hardware product UX.
+ *   illuminated from above - a luxury detail borrowed from hardware product UX.
  * - On scroll, the border brightens slightly so the nav stays legible against
  *   any section color the user scrolls into.
  */
@@ -31,7 +31,7 @@ export function Navbar() {
     return () => window.removeEventListener("scroll", handleScroll)
   }, [])
 
-  // WHY: WCAG 2.1.1 — Escape key must close the mobile menu so keyboard users
+  // WHY: WCAG 2.1.1 - Escape key must close the mobile menu so keyboard users
   // can exit the expanded navigation without using a pointer.
   useEffect(() => {
     if (!mobileOpen) return
@@ -42,7 +42,7 @@ export function Navbar() {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [mobileOpen])
 
-  // WHY: WCAG 2.4.3 — when the mobile menu opens, focus moves to the first
+  // WHY: WCAG 2.4.3 - when the mobile menu opens, focus moves to the first
   // interactive element inside so keyboard users immediately enter the menu.
   useEffect(() => {
     if (mobileOpen && mobileMenuRef.current) {
@@ -137,7 +137,7 @@ export function Navbar() {
         </div>
       </nav>
 
-      {/* Mobile menu — drops below the pill */}
+      {/* Mobile menu - drops below the pill */}
       {mobileOpen && (
         <div
           id="mobile-nav-menu"

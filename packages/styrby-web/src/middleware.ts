@@ -219,7 +219,7 @@ export async function middleware(request: NextRequest) {
   // unauthenticated requests never reach admin logic.
   //
   // SEC-AUTH-001 FIX: The previous check only tested cookie *presence*, which
-  // is trivially bypassable — an attacker can send a request with an empty or
+  // is trivially bypassable - an attacker can send a request with an empty or
   // expired cookie and the gate would pass. We now validate that the Supabase
   // session is actually authenticated by checking whether updateSession()
   // redirected to login (which it does when the JWT is invalid/expired).
