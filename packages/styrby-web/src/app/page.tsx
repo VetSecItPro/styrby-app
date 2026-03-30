@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import dynamic from 'next/dynamic';
 import { Navbar } from '@/components/landing/navbar';
 import { Hero } from '@/components/landing/hero';
 import { SocialProof } from '@/components/landing/social-proof';
@@ -8,9 +9,22 @@ import { MobileShowcase } from '@/components/landing/mobile-showcase';
 import { CostSavings } from '@/components/landing/cost-savings';
 import { HowItWorks } from '@/components/landing/how-it-works';
 import { PricingCTA } from '@/components/landing/pricing-cta';
-import { FAQSection } from '@/components/landing/faq-section';
 import { CTABanner } from '@/components/landing/cta-banner';
 import { Footer } from '@/components/landing/footer';
+
+/**
+ * WHY dynamic FAQSection: FAQSection is a 'use client' component (uses useState
+ * for the selected-question interaction). It lives far below the fold and is
+ * never the LCP element. Deferring its JS chunk removes ~4 kB of client
+ * JavaScript from the critical path, improving TTI and the Lighthouse
+ * "Reduce unused JavaScript" audit.
+ *
+ * SSR remains enabled (default) so search engines still receive the full
+ * FAQ HTML in the initial response — no SEO impact.
+ */
+const FAQSection = dynamic(
+  () => import('@/components/landing/faq-section').then((mod) => ({ default: mod.FAQSection }))
+);
 
 export const metadata: Metadata = {
   title: {

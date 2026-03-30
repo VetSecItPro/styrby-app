@@ -48,7 +48,11 @@ export function Footer() {
           </Link>
 
           {/* Nav links - single line with dot dividers */}
-          <nav className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
+          {/* WHY aria-label: Multiple <nav> landmarks exist on pages with a
+              navbar. Without a unique label, screen reader users cannot
+              distinguish "Main navigation" from "Footer navigation" in the
+              landmark list. */}
+          <nav aria-label="Footer navigation" className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
             {allLinks.map((link, i) => (
               <span key={link.label} className="flex items-center gap-1.5">
                 {i > 0 && (

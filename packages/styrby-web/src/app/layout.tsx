@@ -11,14 +11,29 @@ import { SWRegister } from '@/components/sw-register';
  * reads as premium at large display sizes. Space Grotesk was too neutral for
  * the luxury-developer positioning; Outfit has stronger personality at 8xl+.
  */
+/**
+ * WHY display: 'swap': Next.js google fonts default to `display: optional`
+ * which causes invisible text during loading (FOIT) until the font is ready.
+ * `swap` immediately renders text in the fallback system font and swaps to
+ * Outfit once loaded — improving FCP and eliminating invisible-text penalties
+ * in Lighthouse's "Ensure text remains visible during webfont load" audit.
+ */
 const outfit = Outfit({
   subsets: ['latin'],
   variable: '--font-outfit',
+  display: 'swap',
 });
 
+/**
+ * WHY display: 'swap' on mono font: Same reasoning as Outfit above.
+ * JetBrains Mono is used in code mockups and terminal blocks — swap ensures
+ * those sections render with a monospace fallback instantly rather than
+ * appearing blank until the webfont arrives.
+ */
 const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin'],
   variable: '--font-jetbrains',
+  display: 'swap',
 });
 
 export const metadata: Metadata = {

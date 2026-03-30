@@ -39,6 +39,12 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { z } from 'zod';
 import {
+  getUpgradeMessage,
+  getUpgradeButtonLabel,
+  getIosManageNote,
+  POLAR_CUSTOMER_PORTAL_URL,
+} from '../src/lib/platform-billing';
+import {
   useApiKeys,
   type ApiKey,
   type CreateApiKeyInput,
@@ -543,9 +549,17 @@ function SecretRevealModal({ secret, keyName, onClose }: SecretModalProps) {
 /**
  * Full-screen upgrade prompt shown to non-Power-tier users.
  *
+ * WHY platform-conditional rendering:
+ * Apple App Store §3.1.3(a) classifies Styrby as a Reader App and prohibits
+ * showing upgrade buttons, pricing, or links to external payment flows on iOS.
+ * Android shows the full upgrade CTA with a direct link to the Polar portal.
+ *
  * @returns React element
  */
 function PowerTierGate() {
+  const upgradeButtonLabel = getUpgradeButtonLabel('power');
+  const iosManageNote = getIosManageNote();
+
   return (
     <View className="flex-1 bg-background items-center justify-center px-8">
       <View className="w-20 h-20 rounded-3xl bg-orange-500/15 items-center justify-center mb-6">
@@ -555,19 +569,30 @@ function PowerTierGate() {
         Power Plan Required
       </Text>
       <Text className="text-zinc-400 text-center mb-6">
-        API keys are available on the Power plan. Build integrations and automate
-        your Styrby workflow with direct API access.
+        {getUpgradeMessage('API Keys', 'power')}
+        {'\n\n'}Build integrations and automate your Styrby workflow with direct
+        API access.
       </Text>
-      <Pressable
-        className="bg-brand px-8 py-4 rounded-2xl active:opacity-80"
-        onPress={() =>
-          Linking.openURL('https://polar.sh/styrby/portal').catch(() => null)
-        }
-        accessibilityRole="button"
-        accessibilityLabel="Upgrade to Power plan"
-      >
-        <Text className="text-white font-bold text-base">Upgrade to Power</Text>
-      </Pressable>
+
+      {/* WHY: Only render upgrade button on Android. Apple Reader App rules
+          (§3.1.3(a)) prohibit purchase CTAs or external payment links on iOS. */}
+      {upgradeButtonLabel !== null ? (
+        <Pressable
+          className="bg-brand px-8 py-4 rounded-2xl active:opacity-80"
+          onPress={() =>
+            Linking.openURL(POLAR_CUSTOMER_PORTAL_URL).catch(() => null)
+          }
+          accessibilityRole="button"
+          accessibilityLabel={upgradeButtonLabel}
+        >
+          <Text className="text-white font-bold text-base">{upgradeButtonLabel}</Text>
+        </Pressable>
+      ) : (
+        // iOS: informational note only — no button, no price, no external link
+        iosManageNote !== null && (
+          <Text className="text-zinc-500 text-sm text-center">{iosManageNote}</Text>
+        )
+      )}
     </View>
   );
 }

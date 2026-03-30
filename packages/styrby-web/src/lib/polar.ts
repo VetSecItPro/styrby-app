@@ -209,10 +209,9 @@ export async function createCheckoutSession(
  * @param customerId - The Polar customer ID (reserved for future API use)
  * @returns URL to the Polar subscriptions management page
  *
- * TODO: Polar may add a `customers.createPortalSession()` or similar API
- * in the future. When available, use it to generate a customer-specific
- * portal URL instead of this generic link. Track:
- * https://github.com/polarsource/polar/issues
+ * WHY generic link: Polar does not yet expose a `customers.createPortalSession()`
+ * API. When they do, replace this with a customer-specific portal URL.
+ * Track: https://github.com/polarsource/polar/issues
  */
 export async function getCustomerPortalUrl(_customerId: string) {
   return `https://polar.sh/purchases/subscriptions`;

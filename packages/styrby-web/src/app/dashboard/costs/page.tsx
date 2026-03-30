@@ -3,10 +3,14 @@
 // a cached response would show incorrect spend totals and stale budget alert state.
 export const dynamic = 'force-dynamic';
 
+import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { CostCharts } from './cost-charts';
+// WHY dynamic import: Recharts (~250 kB gzipped) is deferred so it only loads
+// for Power-tier users who actually see the charts. All other tiers hit the
+// upgrade card instead, so they never pay the Recharts bundle cost.
+import { CostChartsDynamic as CostCharts } from './cost-charts-dynamic';
 import { CostsRealtime } from './costs-realtime';
 import { BudgetAlertsSummary } from './budget-alerts-summary';
 import { TokenUsageSummary } from './token-usage-summary';
@@ -15,6 +19,11 @@ import { TeamCosts } from './team-costs';
 import { TIERS, type TierId } from '@/lib/polar';
 import { MODEL_PRICING, LAST_VERIFIED } from '@/lib/model-pricing';
 import { ExportButton } from './export-button';
+
+export const metadata: Metadata = {
+  title: 'Cost Analytics | Styrby',
+  description: 'Track AI agent spending by day, model, and tag. Set budget alerts and export cost reports.',
+};
 
 /**
  * Calculates the start of the current period for spend aggregation.

@@ -11,7 +11,10 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { PairingQR } from './pairing-qr';
+// WHY PairingQRDynamic: qrcode.react (~35 kB gzipped) is only needed on this
+// single page. Dynamic import keeps it out of the shared JS bundle so all
+// other dashboard routes are not penalised by its weight.
+import { PairingQRDynamic as PairingQR } from './pairing-qr-dynamic';
 
 /**
  * Renders the device pairing page with QR code and device list.

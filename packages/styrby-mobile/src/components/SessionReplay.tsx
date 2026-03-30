@@ -21,11 +21,18 @@ import {
   Pressable,
   Animated,
   Dimensions,
+  Linking,
 } from 'react-native';
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { ChatMessage, type ChatMessageData, type ContentBlock } from './ChatMessage';
 import type { AgentType } from 'styrby-shared';
+import {
+  getUpgradeMessage,
+  getUpgradeButtonLabel,
+  getIosManageNote,
+  POLAR_CUSTOMER_PORTAL_URL,
+} from '../lib/platform-billing';
 
 // ============================================================================
 // Types
@@ -126,8 +133,18 @@ function toChatMessageData(message: ReplayMessageData): ChatMessageData {
 
 /**
  * Shown to free users who don't have access to replay.
+ *
+ * WHY platform-conditional rendering:
+ * Apple App Store §3.1.3(a) classifies Styrby as a Reader App and prohibits
+ * showing upgrade buttons, pricing, or links to external payment flows on iOS.
+ * Android has no such restriction, so the full upgrade CTA is shown there.
+ *
+ * @param props.onExit - Optional callback when user presses "Go Back"
  */
 function UpgradePrompt({ onExit }: { onExit?: () => void }) {
+  const upgradeButtonLabel = getUpgradeButtonLabel('pro');
+  const iosManageNote = getIosManageNote();
+
   return (
     <View className="flex-1 bg-background items-center justify-center px-6">
       <View className="w-16 h-16 rounded-2xl bg-orange-500/20 items-center justify-center mb-4">
@@ -137,16 +154,28 @@ function UpgradePrompt({ onExit }: { onExit?: () => void }) {
         Session Replay
       </Text>
       <Text className="text-zinc-500 text-center mb-6">
-        Step through past sessions like a debugger. Upgrade to Pro to unlock
-        this feature.
+        {getUpgradeMessage('Session Replay', 'pro')}
       </Text>
-      <Pressable
-        className="bg-brand px-6 py-3 rounded-xl active:opacity-80"
-        accessibilityRole="button"
-        accessibilityLabel="Upgrade to Pro"
-      >
-        <Text className="text-white font-semibold">Upgrade to Pro</Text>
-      </Pressable>
+
+      {/* WHY: Only render the upgrade button on Android. Apple Reader App rules
+          (§3.1.3(a)) prohibit showing purchase CTAs or external payment links
+          on iOS. On iOS we show an informational note instead. */}
+      {upgradeButtonLabel !== null ? (
+        <Pressable
+          className="bg-brand px-6 py-3 rounded-xl active:opacity-80"
+          onPress={() => Linking.openURL(POLAR_CUSTOMER_PORTAL_URL).catch(() => null)}
+          accessibilityRole="button"
+          accessibilityLabel={upgradeButtonLabel}
+        >
+          <Text className="text-white font-semibold">{upgradeButtonLabel}</Text>
+        </Pressable>
+      ) : (
+        // iOS: informational note only — no button, no price, no external link
+        iosManageNote !== null && (
+          <Text className="text-zinc-600 text-xs text-center">{iosManageNote}</Text>
+        )
+      )}
+
       {onExit && (
         <Pressable
           onPress={onExit}

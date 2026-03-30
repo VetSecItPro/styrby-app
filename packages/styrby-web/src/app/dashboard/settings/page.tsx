@@ -1,6 +1,12 @@
+import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { SettingsClient } from './settings-client';
+
+export const metadata: Metadata = {
+  title: 'Settings | Styrby',
+  description: 'Manage your Styrby account — profile, notification preferences, agent configurations, and subscription.',
+};
 
 /**
  * Settings page - user preferences and account settings.

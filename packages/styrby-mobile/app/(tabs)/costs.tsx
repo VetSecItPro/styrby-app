@@ -700,9 +700,14 @@ export default function CostsScreen() {
       });
 
       if (res.status === 403) {
+        // WHY platform-conditional message: Apple Reader App rules (§3.1.3(a))
+        // prohibit referencing pricing or upgrade flows in iOS apps.
+        // On Android we can mention the pricing URL; on iOS we keep it neutral.
         Alert.alert(
           'Power Tier Required',
-          'Cost export is available on the Power plan. Upgrade at styrby.com/pricing.'
+          Platform.OS === 'ios'
+            ? 'Cost export requires a Power subscription. Manage your plan at styrbyapp.com.'
+            : 'Cost export is available on the Power plan. Upgrade at styrbyapp.com/pricing.'
         );
         return;
       }

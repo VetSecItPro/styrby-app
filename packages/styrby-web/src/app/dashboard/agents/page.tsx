@@ -1,6 +1,12 @@
+import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { AgentsClient } from './agents-client';
+
+export const metadata: Metadata = {
+  title: 'Agents | Styrby',
+  description: 'View and configure all connected AI agents — Claude Code, Codex, Gemini CLI, OpenCode, Aider, Goose, and more.',
+};
 
 /**
  * Agents page - shows all connected AI agents with their status, machines,

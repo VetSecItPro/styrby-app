@@ -435,6 +435,7 @@ export function TemplateForm({ isOpen, onClose, template, onSubmit }: TemplateFo
                               handleUpdateVariable(index, 'name', e.target.value)
                             }
                             placeholder="variable_name"
+                            aria-label={`Variable ${index + 1} name`}
                             className="w-full rounded-lg border border-zinc-600 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 placeholder-zinc-500 font-mono focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
                           />
                         </div>
@@ -447,6 +448,7 @@ export function TemplateForm({ isOpen, onClose, template, onSubmit }: TemplateFo
                               handleUpdateVariable(index, 'description', e.target.value)
                             }
                             placeholder="What this variable is for"
+                            aria-label={`Variable ${index + 1} description`}
                             className="w-full rounded-lg border border-zinc-600 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 placeholder-zinc-500 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
                           />
                         </div>
@@ -459,6 +461,7 @@ export function TemplateForm({ isOpen, onClose, template, onSubmit }: TemplateFo
                               handleUpdateVariable(index, 'defaultValue', e.target.value)
                             }
                             placeholder="Default if not provided"
+                            aria-label={`Variable ${index + 1} default value`}
                             className="w-full rounded-lg border border-zinc-600 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 placeholder-zinc-500 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
                           />
                         </div>
@@ -467,7 +470,7 @@ export function TemplateForm({ isOpen, onClose, template, onSubmit }: TemplateFo
                         type="button"
                         onClick={() => handleRemoveVariable(index)}
                         className="mt-5 p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-                        aria-label="Remove variable"
+                        aria-label={`Remove variable ${index + 1}`}
                       >
                         <TrashIcon className="h-4 w-4" />
                       </button>

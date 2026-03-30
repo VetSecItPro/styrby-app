@@ -28,6 +28,11 @@ function DashboardMockup() {
       <div className="rounded-[18px] border border-white/[0.06] p-[3px] shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_32px_80px_rgba(0,0,0,0.7)]">
         {/* Inner bezel - slightly brighter, adds depth */}
         <div className="rounded-[15px] border border-white/[0.09] overflow-hidden">
+          {/* WHY sizes: tells the browser the rendered width before layout is
+              complete, so it can select the correct responsive image variant
+              from the Next.js image srcset immediately, without waiting for
+              CSS to compute the container width. This eliminates a speculative
+              load of a larger image than needed on smaller viewports. */}
           <Image
             src="/screenshots/dashboard-overview.png"
             alt="Styrby dashboard showing real-time agent costs and session monitoring"
@@ -35,6 +40,7 @@ function DashboardMockup() {
             height={900}
             className="w-full"
             priority
+            sizes="(max-width: 768px) 100vw, (max-width: 1280px) calc(100vw - 48px), 1280px"
           />
         </div>
       </div>

@@ -3,6 +3,9 @@ node_modules/
 
 # Design reports
 .design-reports/
+
+# Performance audit reports
+.perf-reports/
 .pnp
 .pnp.js
 .pnp.cjs
@@ -117,3 +120,5 @@ ARCHITECTURE.md
 .cleancode-reports/
 .perf/
 .a11y/
+.a11y-reports/
+.launch-reports/

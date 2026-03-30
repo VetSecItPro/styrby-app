@@ -67,11 +67,17 @@ export function Navbar() {
         <div className="flex h-14 items-center justify-between px-5">
           {/* Logo lockup */}
           <Link href="/" className="flex items-center gap-2.5 group">
+            {/* WHY priority: The navbar logo is above the fold and in the
+                critical rendering path. `priority` injects a <link rel="preload">
+                for the image, eliminating the render-blocking waterfall delay
+                that Lighthouse penalises as "image elements do not have explicit
+                width and height" / "preload largest contentful paint image". */}
             <Image
               src="/icon-512.png"
               alt="Styrby S mark"
               width={30}
               height={30}
+              priority
               className="h-[30px] w-[30px] rounded-md transition-opacity duration-200 group-hover:opacity-80"
             />
             <span className="text-[15px] font-semibold tracking-tight text-foreground">

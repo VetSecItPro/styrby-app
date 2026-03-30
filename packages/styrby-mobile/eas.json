@@ -11,18 +11,26 @@
       "ios": {
         "simulator": true
       },
+      "android": {
+        "buildType": "apk"
+      },
       "env": {
         "APP_VARIANT": "development"
       }
     },
     "preview": {
       "distribution": "internal",
+      "channel": "preview",
+      "ios": {
+        "simulator": false
+      },
       "env": {
         "APP_VARIANT": "preview"
       }
     },
     "production": {
       "autoIncrement": true,
+      "channel": "production",
       "env": {
         "APP_VARIANT": "production"
       }
@@ -30,6 +38,17 @@
   },
   "submit": {
     "production": {
+      "ios": {
+        "appleId": "",
+        "ascAppId": "",
+        "appleTeamId": ""
+      },
+      "android": {
+        "serviceAccountKeyPath": "",
+        "track": "production"
+      }
+    },
+    "preview": {
       "ios": {
         "appleId": "",
         "ascAppId": "",

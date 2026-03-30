@@ -3,9 +3,15 @@
 // must never be statically cached - stale data would show wrong costs and status.
 export const dynamic = 'force-dynamic';
 
+import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { DashboardRealtime } from './dashboard-realtime';
+
+export const metadata: Metadata = {
+  title: 'Dashboard | Styrby',
+  description: "Your Styrby dashboard — live session overview, today's AI spend, machine status, and quick actions.",
+};
 
 /**
  * Dashboard home page - shows overview of sessions, costs, and quick actions.

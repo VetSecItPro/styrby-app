@@ -234,11 +234,15 @@ export function SessionShareButton({ sessionId, machineId }: SessionShareButtonP
 
                 {/* Share URL */}
                 <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+                  <label
+                    htmlFor="share-url-input"
+                    className="block text-xs font-medium text-zinc-400 mb-1.5"
+                  >
                     Share Link
                   </label>
                   <div className="flex items-center gap-2">
                     <input
+                      id="share-url-input"
                       type="text"
                       readOnly
                       value={share.shareUrl}

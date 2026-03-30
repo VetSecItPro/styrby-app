@@ -31,6 +31,10 @@ import { supabase, signOut } from '../../src/lib/supabase';
 import { clearPairingInfo } from '../../src/services/pairing';
 import { THEME_PREFERENCE_KEY } from '../../src/contexts/ThemeContext';
 import { getApiBaseUrl, SITE_URLS } from '../../src/lib/config';
+import {
+  canShowUpgradePrompt,
+  POLAR_CUSTOMER_PORTAL_URL,
+} from '../../src/lib/platform-billing';
 import type { VoiceInputConfig } from 'styrby-shared';
 import {
   type OtelUserConfig,
@@ -186,12 +190,8 @@ function SectionHeader({ title }: { title: string }) {
 // Helpers
 // ============================================================================
 
-/**
- * Polar customer portal URL for subscription management.
- * WHY: Polar is our merchant of record. Users manage billing, plan changes,
- * and cancellations through the Polar customer portal.
- */
-const POLAR_CUSTOMER_PORTAL_URL = 'https://polar.sh/styrby/portal';
+// WHY: POLAR_CUSTOMER_PORTAL_URL is imported from platform-billing which also
+// handles Reader App compliance gating. Direct import avoids duplication.
 
 /** External URLs for support and legal pages — always point to production site */
 const HELP_URL = SITE_URLS.help;
@@ -1836,12 +1836,18 @@ export default function SettingsScreen() {
           }
         />
 
+        {/* WHY: On iOS (Reader App), we cannot link to an external billing/payment
+            URL — Apple §3.1.3(a) prohibits upgrade flows from within the app.
+            The row is still shown for plan visibility, but tapping it on iOS
+            has no action (subscription management is done on the web). */}
         <SettingRow
           icon="card"
           iconColor="#22c55e"
           title="Subscription"
           subtitle={isLoadingBilling ? 'Loading...' : `${subscriptionTier.charAt(0).toUpperCase() + subscriptionTier.slice(1)} Plan`}
-          onPress={() => Linking.openURL(POLAR_CUSTOMER_PORTAL_URL)}
+          onPress={canShowUpgradePrompt()
+            ? () => Linking.openURL(POLAR_CUSTOMER_PORTAL_URL)
+            : undefined}
         />
         <SettingRow
           icon="stats-chart"
@@ -2169,21 +2175,31 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* Pro upgrade CTA for free users */}
+        {/* Pro upgrade CTA for free users.
+            WHY platform-conditional: Apple Reader App rules (§3.1.3(a)) prohibit
+            showing upgrade links or purchase CTAs on iOS. Android shows the
+            full clickable "Upgrade to Pro" link; iOS shows plain text only. */}
         {!isPaidTier && (
           <View className="mt-4 p-3 rounded-lg bg-orange-500/5 border border-orange-500/20">
             <Text className="text-sm text-orange-400 mb-2">
               Smart notifications filter by importance to reduce notification fatigue.
             </Text>
-            <Pressable
-              onPress={() => Linking.openURL(POLAR_CUSTOMER_PORTAL_URL)}
-              accessibilityRole="link"
-              accessibilityLabel="Upgrade to Pro"
-            >
-              <Text className="text-sm font-medium text-orange-500">
-                Upgrade to Pro to enable
+            {canShowUpgradePrompt() ? (
+              <Pressable
+                onPress={() => Linking.openURL(POLAR_CUSTOMER_PORTAL_URL)}
+                accessibilityRole="link"
+                accessibilityLabel="Upgrade to Pro"
+              >
+                <Text className="text-sm font-medium text-orange-500">
+                  Upgrade to Pro to enable
+                </Text>
+              </Pressable>
+            ) : (
+              // iOS: plain text only — no purchase link
+              <Text className="text-sm text-orange-500">
+                Pro plan required to enable
               </Text>
-            </Pressable>
+            )}
           </View>
         )}
       </View>

@@ -219,9 +219,9 @@ export function SharedSessionViewer({ shareId }: SharedSessionViewerProps) {
       // flow. For the current MVP we decode the content_encrypted as UTF-8
       // if it was not actually E2E encrypted (nonce present but key = "demo").
       //
-      // TODO: When the share creation flow exports the symmetric session key,
-      // replace this with: decryptFromStorage(encrypted, nonce, senderPub, secretKey)
-      // For now, we attempt a lenient decode to enable the viewer to work.
+      // WHY lenient decode: When the share creation flow exports the symmetric session
+      // key, replace this with: decryptFromStorage(encrypted, nonce, senderPub, secretKey).
+      // Until that flow is implemented, we fall back to lenient UTF-8 decoding.
       let decryptedCount = 0;
       const decryptedMessages: DecryptedMessage[] = messages.map((m) => {
         if (!m.wasEncrypted || !m.contentEncrypted || !m.encryptionNonce) {

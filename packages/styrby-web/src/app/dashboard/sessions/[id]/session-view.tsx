@@ -60,10 +60,13 @@ type ViewMode = 'chat' | 'replay';
 
 /**
  * Play/Replay icon.
+ *
+ * @param className - Optional CSS classes
+ * @param ariaHidden - Whether to hide from screen readers (true for decorative icons)
  */
-function ReplayIcon({ className }: { className?: string }) {
+function ReplayIcon({ className, 'aria-hidden': ariaHidden }: { className?: string; 'aria-hidden'?: boolean | 'true' | 'false' }) {
   return (
-    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24" aria-hidden={ariaHidden}>
       <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" />
     </svg>
   );
@@ -71,14 +74,18 @@ function ReplayIcon({ className }: { className?: string }) {
 
 /**
  * Chat/Message icon.
+ *
+ * @param className - Optional CSS classes
+ * @param ariaHidden - Whether to hide from screen readers (true for decorative icons)
  */
-function ChatIcon({ className }: { className?: string }) {
+function ChatIcon({ className, 'aria-hidden': ariaHidden }: { className?: string; 'aria-hidden'?: boolean | 'true' | 'false' }) {
   return (
     <svg
       className={className}
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
+      aria-hidden={ariaHidden}
     >
       <path
         strokeLinecap="round"
@@ -92,14 +99,18 @@ function ChatIcon({ className }: { className?: string }) {
 
 /**
  * Lock icon for tier-gated features.
+ *
+ * @param className - Optional CSS classes
+ * @param ariaHidden - Whether to hide from screen readers (true for decorative icons)
  */
-function LockIcon({ className }: { className?: string }) {
+function LockIcon({ className, 'aria-hidden': ariaHidden }: { className?: string; 'aria-hidden'?: boolean | 'true' | 'false' }) {
   return (
     <svg
       className={className}
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
+      aria-hidden={ariaHidden}
     >
       <path
         strokeLinecap="round"
@@ -169,6 +180,7 @@ export function SessionView({
           <div role="group" aria-label="View mode" className="flex items-center gap-2">
           {/* Chat view button */}
           <button
+            type="button"
             onClick={handleChatView}
             className={cn(
               'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
@@ -178,12 +190,13 @@ export function SessionView({
             )}
             aria-pressed={viewMode === 'chat'}
           >
-            <ChatIcon className="h-4 w-4" />
+            <ChatIcon className="h-4 w-4" aria-hidden="true" />
             Chat
           </button>
 
           {/* Replay view button */}
           <button
+            type="button"
             onClick={handleReplayView}
             disabled={!canAccessReplay}
             className={cn(
@@ -198,9 +211,9 @@ export function SessionView({
             aria-disabled={!canAccessReplay}
           >
             {canAccessReplay ? (
-              <ReplayIcon className="h-4 w-4" />
+              <ReplayIcon className="h-4 w-4" aria-hidden="true" />
             ) : (
-              <LockIcon className="h-4 w-4" />
+              <LockIcon className="h-4 w-4" aria-hidden="true" />
             )}
             Replay
             {!canAccessReplay && (

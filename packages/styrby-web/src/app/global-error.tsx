@@ -1,5 +1,8 @@
 'use client';
 
+import * as Sentry from '@sentry/nextjs';
+import { useEffect } from 'react';
+
 /**
  * Global Error Boundary
  *
@@ -11,6 +14,12 @@
  * component when a root-level error occurs, so we must provide <html> and
  * <body> tags ourselves. Tailwind classes still work because the stylesheet
  * is embedded in the page.
+ *
+ * WHY Sentry.captureException is called here:
+ * global-error.tsx is the client-side last resort. By the time this component
+ * renders, the error has already propagated past all nested error.tsx boundaries.
+ * Capturing it here ensures root-level crashes appear in Sentry even when
+ * Next.js cannot automatically instrument them (e.g., during RSC hydration).
  */
 export default function GlobalError({
   error,
@@ -19,6 +28,15 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  useEffect(() => {
+    /**
+     * Report the root-level error to Sentry.
+     * WHY useEffect: Sentry is a browser SDK — it must run after hydration.
+     * Calling captureException in render would fail during SSR and cause
+     * a hydration mismatch.
+     */
+    Sentry.captureException(error);
+  }, [error]);
   return (
     <html lang="en">
       <body className="bg-zinc-950 text-zinc-100 min-h-screen flex items-center justify-center">

@@ -35,6 +35,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTeamManagement } from '../../src/hooks/useTeamManagement';
 import { supabase } from '../../src/lib/supabase';
 import { SITE_URLS } from '../../src/lib/config';
+import {
+  canShowUpgradePrompt,
+  getUpgradeMessage,
+  getUpgradeButtonLabel,
+  getIosManageNote,
+  POLAR_CUSTOMER_PORTAL_URL,
+} from '../../src/lib/platform-billing';
 import { SubscriptionTierRowSchema } from '../../src/lib/schemas';
 import type { ValidatedTeamMember, ValidatedTeamInvitation } from '../../src/lib/schemas';
 import type { SubscriptionTier } from 'styrby-shared';
@@ -239,12 +246,9 @@ function InvitationCard({ invitation }: { invitation: ValidatedTeamInvitation })
 // ============================================================================
 
 /**
- * Polar customer portal URL for subscription management.
- * WHY: Polar is the merchant of record. Upgrade flows go through Polar checkout.
+ * Pricing page URL for users who want to learn more before upgrading.
+ * WHY: Only used on Android — iOS Reader App rules prohibit linking to pricing.
  */
-const POLAR_CUSTOMER_PORTAL_URL = 'https://polar.sh/styrby/portal';
-
-/** Pricing page URL for users who want to learn more before upgrading. */
 const PRICING_URL = SITE_URLS.pricing;
 
 /**
@@ -272,10 +276,20 @@ const POWER_FEATURES = [
  * Upgrade prompt shown to Free and Pro users who navigate to the Team tab.
  * Team collaboration is a Power-tier-only feature.
  *
+ * WHY platform-conditional rendering:
+ * Apple App Store §3.1.3(a) classifies Styrby as a Reader App and prohibits
+ * showing upgrade buttons, pricing, external payment links, or "Learn More"
+ * links to a pricing page on iOS. The price constant and Polar/pricing URLs are
+ * intentionally NOT rendered on iOS. Android shows the full upgrade CTA.
+ *
  * @param props.tier - The user's current subscription tier, shown for context
- * @returns Upgrade card with feature list and action buttons
+ * @returns Upgrade card with feature list and platform-appropriate action
  */
 function UpgradePrompt({ tier }: { tier: SubscriptionTier }) {
+  const upgradeButtonLabel = getUpgradeButtonLabel('power');
+  const iosManageNote = getIosManageNote();
+  const showUpgrade = canShowUpgradePrompt();
+
   return (
     <ScrollView
       className="flex-1 bg-background"
@@ -291,10 +305,10 @@ function UpgradePrompt({ tier }: { tier: SubscriptionTier }) {
 
         {/* Heading */}
         <Text className="text-white text-xl font-bold text-center mb-2">
-          Upgrade to Power
+          Power Plan Required
         </Text>
         <Text className="text-zinc-400 text-center text-base mb-6">
-          Team collaboration requires the Power plan
+          {getUpgradeMessage('Team collaboration', 'power')}
         </Text>
 
         {/* Feature List */}
@@ -307,33 +321,56 @@ function UpgradePrompt({ tier }: { tier: SubscriptionTier }) {
           ))}
         </View>
 
-        {/* Price */}
-        <Text className="text-white text-2xl font-bold text-center mb-1">
-          {POWER_PLAN_PRICE}
-        </Text>
-        <Text className="text-zinc-500 text-sm text-center mb-6">
-          Currently on {tier.charAt(0).toUpperCase() + tier.slice(1)} plan
-        </Text>
+        {/* WHY: Price and upgrade buttons are hidden on iOS. Apple Reader App
+            rules (§3.1.3(a)) prohibit displaying pricing or purchase CTAs.
+            Android shows the full price, upgrade button, and learn-more link. */}
+        {showUpgrade && (
+          <>
+            {/* Price — Android only */}
+            <Text className="text-white text-2xl font-bold text-center mb-1">
+              {POWER_PLAN_PRICE}
+            </Text>
+            <Text className="text-zinc-500 text-sm text-center mb-6">
+              Currently on {tier.charAt(0).toUpperCase() + tier.slice(1)} plan
+            </Text>
+          </>
+        )}
 
-        {/* Upgrade Button */}
-        <Pressable
-          onPress={() => Linking.openURL(POLAR_CUSTOMER_PORTAL_URL)}
-          className="bg-orange-500 rounded-xl py-3 items-center active:opacity-80"
-          accessibilityRole="button"
-          accessibilityLabel="Upgrade to Power plan"
-        >
-          <Text className="text-white font-semibold text-base">Upgrade</Text>
-        </Pressable>
+        {/* Current plan note always shown */}
+        {!showUpgrade && (
+          <Text className="text-zinc-500 text-sm text-center mb-6">
+            Currently on {tier.charAt(0).toUpperCase() + tier.slice(1)} plan
+          </Text>
+        )}
 
-        {/* Learn More Link */}
-        <Pressable
-          onPress={() => Linking.openURL(PRICING_URL)}
-          className="mt-2 py-2"
-          accessibilityRole="link"
-          accessibilityLabel="Learn more about pricing"
-        >
-          <Text className="text-orange-400 text-sm text-center">Learn More</Text>
-        </Pressable>
+        {/* Upgrade Button — Android only */}
+        {upgradeButtonLabel !== null ? (
+          <>
+            <Pressable
+              onPress={() => Linking.openURL(POLAR_CUSTOMER_PORTAL_URL)}
+              className="bg-orange-500 rounded-xl py-3 items-center active:opacity-80"
+              accessibilityRole="button"
+              accessibilityLabel={upgradeButtonLabel}
+            >
+              <Text className="text-white font-semibold text-base">{upgradeButtonLabel}</Text>
+            </Pressable>
+
+            {/* Learn More link — Android only */}
+            <Pressable
+              onPress={() => Linking.openURL(PRICING_URL)}
+              className="mt-2 py-2"
+              accessibilityRole="link"
+              accessibilityLabel="Learn more about pricing"
+            >
+              <Text className="text-orange-400 text-sm text-center">Learn More</Text>
+            </Pressable>
+          </>
+        ) : (
+          // iOS: informational note only — no button, no price, no external link
+          iosManageNote !== null && (
+            <Text className="text-zinc-500 text-sm text-center">{iosManageNote}</Text>
+          )
+        )}
       </View>
     </ScrollView>
   );
