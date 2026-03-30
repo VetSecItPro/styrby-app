@@ -10,10 +10,15 @@
  * @component
  */
 
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, Pressable, Linking } from 'react-native';
 import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import {
+  getUpgradeMessage,
+  getUpgradeButtonLabel,
+  getIosManageNote,
+  POLAR_CUSTOMER_PORTAL_URL,
+} from '../lib/platform-billing';
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -85,6 +90,13 @@ export function SessionSummary({
   // Render: Free tier upgrade prompt
   // ──────────────────────────────────────────
   if (!hasSummaryAccess) {
+    // WHY platform-conditional rendering:
+    // Apple App Store §3.1.3(a) classifies Styrby as a Reader App and prohibits
+    // showing upgrade buttons or external payment links on iOS. Android shows
+    // the full upgrade CTA linking to the Polar portal.
+    const upgradeButtonLabel = getUpgradeButtonLabel('pro');
+    const iosManageNote = getIosManageNote();
+
     return (
       <View className="mx-4 mb-4 rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden">
         <View className="p-5 items-center">
@@ -97,19 +109,27 @@ export function SessionSummary({
           </Text>
 
           <Text className="text-zinc-400 text-sm text-center mb-4">
-            Get AI-generated summaries of your coding sessions. Quickly understand
-            what was accomplished without reading through the entire chat history.
+            {getUpgradeMessage('AI Session Summaries', 'pro')}
           </Text>
 
-          <Pressable
-            onPress={() => router.push('/(tabs)/settings')}
-            className="bg-brand px-5 py-2.5 rounded-xl flex-row items-center active:opacity-80"
-            accessibilityRole="button"
-            accessibilityLabel="Upgrade to Pro for AI summaries"
-          >
-            <Ionicons name="sparkles" size={18} color="white" />
-            <Text className="text-white font-semibold ml-2">Upgrade to Pro</Text>
-          </Pressable>
+          {/* WHY: Only render upgrade button on Android. Apple Reader App rules
+              (§3.1.3(a)) prohibit purchase CTAs or external payment links on iOS. */}
+          {upgradeButtonLabel !== null ? (
+            <Pressable
+              onPress={() => Linking.openURL(POLAR_CUSTOMER_PORTAL_URL).catch(() => null)}
+              className="bg-brand px-5 py-2.5 rounded-xl flex-row items-center active:opacity-80"
+              accessibilityRole="button"
+              accessibilityLabel={upgradeButtonLabel}
+            >
+              <Ionicons name="sparkles" size={18} color="white" />
+              <Text className="text-white font-semibold ml-2">{upgradeButtonLabel}</Text>
+            </Pressable>
+          ) : (
+            // iOS: informational note only — no button, no price, no external link
+            iosManageNote !== null && (
+              <Text className="text-zinc-600 text-xs text-center mt-1">{iosManageNote}</Text>
+            )
+          )}
 
           <Text className="text-zinc-600 text-xs mt-3">
             Available on Pro and Power plans

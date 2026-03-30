@@ -21,9 +21,14 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import {
+  getUpgradeButtonLabel,
+  getIosManageNote,
+  POLAR_CUSTOMER_PORTAL_URL,
+} from '../src/lib/platform-billing';
 import {
   useBudgetAlerts,
   getPeriodLabel,
@@ -575,10 +580,16 @@ function EmptyState({ onCreatePress }: { onCreatePress: () => void }) {
  * what they'd get and are directed to upgrade. This is not a dark pattern --
  * we are transparent about what the feature does and which plan unlocks it.
  *
+ * WHY platform-conditional rendering:
+ * Apple App Store §3.1.3(a) classifies Styrby as a Reader App and prohibits
+ * showing upgrade buttons, pricing, or links to external payment flows on iOS.
+ * Android shows the full upgrade CTA with a direct link to Polar.
+ *
  * @returns Rendered upgrade prompt
  */
 function UpgradePrompt() {
-  const router = useRouter();
+  const upgradeButtonLabel = getUpgradeButtonLabel('pro');
+  const iosManageNote = getIosManageNote();
 
   return (
     <View className="items-center justify-center py-16 px-6">
@@ -605,19 +616,25 @@ function UpgradePrompt() {
           </View>
         ))}
       </View>
-      <Pressable
-        onPress={() => {
-          // WHY: Navigate to the settings screen where users can manage
-          // their subscription. The settings screen has the upgrade flow.
-          router.push('/(tabs)/settings');
-        }}
-        className="bg-brand px-8 py-4 rounded-2xl flex-row items-center active:opacity-80"
-        accessibilityRole="button"
-        accessibilityLabel="Upgrade to Pro to unlock budget alerts"
-      >
-        <Ionicons name="arrow-up-circle-outline" size={20} color="white" />
-        <Text className="text-white text-lg font-semibold ml-2">Upgrade to Pro</Text>
-      </Pressable>
+
+      {/* WHY: Only render upgrade button on Android. Apple Reader App rules
+          (§3.1.3(a)) prohibit purchase CTAs or external payment links on iOS. */}
+      {upgradeButtonLabel !== null ? (
+        <Pressable
+          onPress={() => Linking.openURL(POLAR_CUSTOMER_PORTAL_URL).catch(() => null)}
+          className="bg-brand px-8 py-4 rounded-2xl flex-row items-center active:opacity-80"
+          accessibilityRole="button"
+          accessibilityLabel={upgradeButtonLabel}
+        >
+          <Ionicons name="arrow-up-circle-outline" size={20} color="white" />
+          <Text className="text-white text-lg font-semibold ml-2">{upgradeButtonLabel}</Text>
+        </Pressable>
+      ) : (
+        // iOS: informational note only — no button, no price, no external link
+        iosManageNote !== null && (
+          <Text className="text-zinc-500 text-sm text-center">{iosManageNote}</Text>
+        )
+      )}
     </View>
   );
 }

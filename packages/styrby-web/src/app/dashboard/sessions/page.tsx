@@ -3,9 +3,15 @@
 // stale session status and costs to the user.
 export const dynamic = 'force-dynamic';
 
+import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { SessionsRealtime } from './sessions-realtime';
+
+export const metadata: Metadata = {
+  title: 'Sessions | Styrby',
+  description: 'Browse, search, and filter all your AI agent sessions. View costs, status, and full message history.',
+};
 
 /**
  * Number of sessions to fetch for the initial server-side render.

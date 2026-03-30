@@ -210,42 +210,48 @@ export function DashboardRealtime({
         <ConnectionStatus isConnected={isConnected} />
       </div>
 
-      {/* Stats grid */}
+      {/* Stats grid
+          WHY dl/dt/dd: Each stat card pairs a label with a value. Using
+          description list semantics (<dl>/<dt>/<dd>) correctly conveys the
+          key-value relationship to screen readers rather than presenting two
+          unrelated <p> elements. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {/* Today's spend - with real-time ticker */}
-        <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-          <p className="text-sm text-zinc-500 mb-1">Today&apos;s Spend</p>
-          <CostTicker
-            userId={userId}
-            initialTotal={todaySpend}
-            dateFilter={new Date().toISOString().split('T')[0]}
-            className="text-zinc-100"
-          />
-        </div>
+        <dl className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
+          <dt className="text-sm text-zinc-500 mb-1">Today&apos;s Spend</dt>
+          <dd>
+            <CostTicker
+              userId={userId}
+              initialTotal={todaySpend}
+              dateFilter={new Date().toISOString().split('T')[0]}
+              className="text-zinc-100"
+            />
+          </dd>
+        </dl>
 
         {/* Active sessions */}
-        <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-          <p className="text-sm text-zinc-500">Active Sessions</p>
-          <p className="text-2xl font-bold text-zinc-100 mt-1">
+        <dl className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
+          <dt className="text-sm text-zinc-500">Active Sessions</dt>
+          <dd className="text-2xl font-bold text-zinc-100 mt-1">
             {activeSessionCount}
-          </p>
-        </div>
+          </dd>
+        </dl>
 
         {/* Connected machines */}
-        <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-          <p className="text-sm text-zinc-500">Connected Machines</p>
-          <p className="text-2xl font-bold text-zinc-100 mt-1">
+        <dl className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
+          <dt className="text-sm text-zinc-500">Connected Machines</dt>
+          <dd className="text-2xl font-bold text-zinc-100 mt-1">
             {connectedMachineCount}
-          </p>
-        </div>
+          </dd>
+        </dl>
 
         {/* Total machines */}
-        <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-          <p className="text-sm text-zinc-500">Total Machines</p>
-          <p className="text-2xl font-bold text-zinc-100 mt-1">
+        <dl className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
+          <dt className="text-sm text-zinc-500">Total Machines</dt>
+          <dd className="text-2xl font-bold text-zinc-100 mt-1">
             {machines.length}
-          </p>
-        </div>
+          </dd>
+        </dl>
       </div>
 
       {/* Activity Graph - 52-week contribution heatmap - Pro+ only
@@ -321,8 +327,13 @@ export function DashboardRealtime({
                       {session.title || 'Untitled session'}
                     </span>
 
-                    {/* Status indicator */}
+                    {/* Status indicator
+                        WHY aria-hidden + sr-only: The colored dot conveys status
+                        visually via color+shape. aria-hidden removes it from the
+                        accessibility tree. The <span className="sr-only"> provides
+                        the same information to screen readers as text. */}
                     <span
+                      aria-hidden="true"
                       className={`h-2 w-2 rounded-full ${
                         session.status === 'running'
                           ? 'bg-green-500 animate-pulse'
@@ -331,6 +342,13 @@ export function DashboardRealtime({
                             : 'bg-zinc-500'
                       }`}
                     />
+                    <span className="sr-only">
+                      {session.status === 'running'
+                        ? 'Running'
+                        : session.status === 'idle'
+                          ? 'Idle'
+                          : 'Ended'}
+                    </span>
                   </div>
 
                   <div className="flex items-center gap-4 text-sm text-zinc-500">
@@ -363,7 +381,10 @@ export function DashboardRealtime({
               <li key={machine.id} className="px-4 py-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
+                    {/* Decorative status dot — status is conveyed by the
+                        adjacent "Online" / "Last seen ..." text below */}
                     <span
+                      aria-hidden="true"
                       className={`h-2 w-2 rounded-full ${
                         machine.is_online ? 'bg-green-500' : 'bg-zinc-500'
                       }`}

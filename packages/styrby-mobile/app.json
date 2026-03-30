@@ -2,11 +2,11 @@
   "expo": {
     "name": "Styrby",
     "slug": "styrby",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "styrby",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash.png",
@@ -101,7 +101,28 @@
           "imageWidth": 200
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Styrby needs camera access to scan QR codes when pairing your CLI."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Styrby needs microphone access for voice input to your AI agent."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#09090b",
+          "sounds": [],
+          "iosDisplayInForeground": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

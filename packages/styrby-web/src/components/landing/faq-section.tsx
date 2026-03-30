@@ -95,6 +95,8 @@ export function FAQSection() {
                 key={i}
                 type="button"
                 onClick={() => setActive(i)}
+                aria-expanded={i === active}
+                aria-controls={`faq-answer-${i}`}
                 className={cn(
                   "group flex w-full items-start gap-3 rounded-lg px-4 py-3.5 text-left transition-colors duration-150",
                   i === active
@@ -117,7 +119,12 @@ export function FAQSection() {
 
           {/* Right: answer panel */}
           <div className="lg:sticky lg:top-24">
-            <div className="rounded-2xl border border-zinc-800/80 bg-zinc-950/60 p-8 lg:p-10">
+            <div
+              id={`faq-answer-${active}`}
+              className="rounded-2xl border border-zinc-800/80 bg-zinc-950/60 p-8 lg:p-10"
+              role="region"
+              aria-label={`Answer: ${faqs[active].q}`}
+            >
               {/* Question */}
               <h3 className="text-lg font-semibold leading-snug text-foreground">
                 {faqs[active].q}

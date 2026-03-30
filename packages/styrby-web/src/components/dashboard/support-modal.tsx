@@ -124,8 +124,8 @@ export function SupportModal({ open, onOpenChange }: SupportModalProps) {
       return;
     }
 
-    // TODO: File upload to Supabase Storage is a future enhancement.
-    // For now, screenshot_urls is always an empty array.
+    // WHY: File upload to Supabase Storage is not yet implemented.
+    // screenshot_urls is always an empty array until that feature ships.
     const { error: insertError } = await supabase
       .from('support_tickets')
       .insert({
@@ -309,7 +309,7 @@ export function SupportModal({ open, onOpenChange }: SupportModalProps) {
                 disabled
                 className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-500 file:mr-3 file:rounded file:border-0 file:bg-zinc-700 file:px-3 file:py-1 file:text-sm file:text-zinc-300 disabled:opacity-50"
               />
-              {/* TODO: Implement file upload to Supabase Storage. Max 3 files, 5MB each. */}
+              {/* File upload will be implemented once Supabase Storage integration ships. */}
               <p className="mt-1 text-xs text-zinc-500">
                 File upload coming soon. Max 3 images, 5MB each.
               </p>

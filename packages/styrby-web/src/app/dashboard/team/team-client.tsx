@@ -538,9 +538,14 @@ export function TeamClient({
 
       {/* Invite Modal */}
       {showInviteModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-end md:items-center md:justify-center p-0 md:p-4 z-50">
+        <div
+          className="fixed inset-0 bg-black/50 flex items-end md:items-center md:justify-center p-0 md:p-4 z-50"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="invite-modal-title"
+        >
           <div className="bg-zinc-900 rounded-t-2xl md:rounded-2xl p-6 w-full md:w-auto md:min-w-[28rem] max-w-md max-h-[85vh] overflow-y-auto">
-            <h3 className="text-lg font-semibold text-zinc-100 mb-4">
+            <h3 id="invite-modal-title" className="text-lg font-semibold text-zinc-100 mb-4">
               Invite Team Member
             </h3>
 
@@ -608,9 +613,14 @@ export function TeamClient({
 
       {/* Remove Member Modal */}
       {memberToRemove && (
-        <div className="fixed inset-0 bg-black/50 flex items-end md:items-center md:justify-center p-0 md:p-4 z-50">
+        <div
+          className="fixed inset-0 bg-black/50 flex items-end md:items-center md:justify-center p-0 md:p-4 z-50"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="remove-member-modal-title"
+        >
           <div className="bg-zinc-900 rounded-t-2xl md:rounded-2xl p-6 w-full md:w-auto md:min-w-[28rem] max-w-md max-h-[85vh] overflow-y-auto">
-            <h3 className="text-lg font-semibold text-zinc-100 mb-2">
+            <h3 id="remove-member-modal-title" className="text-lg font-semibold text-zinc-100 mb-2">
               {memberToRemove.user_id === user.id ? 'Leave Team?' : 'Remove Member?'}
             </h3>
             <p className="text-zinc-400 mb-6">
@@ -644,9 +654,14 @@ export function TeamClient({
 
       {/* Update Role Modal */}
       {memberToUpdateRole && (
-        <div className="fixed inset-0 bg-black/50 flex items-end md:items-center md:justify-center p-0 md:p-4 z-50">
+        <div
+          className="fixed inset-0 bg-black/50 flex items-end md:items-center md:justify-center p-0 md:p-4 z-50"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="update-role-modal-title"
+        >
           <div className="bg-zinc-900 rounded-t-2xl md:rounded-2xl p-6 w-full md:w-auto md:min-w-[28rem] max-w-md max-h-[85vh] overflow-y-auto">
-            <h3 className="text-lg font-semibold text-zinc-100 mb-2">
+            <h3 id="update-role-modal-title" className="text-lg font-semibold text-zinc-100 mb-2">
               Change Role
             </h3>
             <p className="text-zinc-400 mb-4">

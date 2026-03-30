@@ -1,8 +1,14 @@
+import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { TeamClient } from './team-client';
 import { TIERS, type TierId } from '@/lib/polar';
+
+export const metadata: Metadata = {
+  title: 'Team | Styrby',
+  description: 'Invite team members, manage roles, and track shared AI agent costs across your organization.',
+};
 
 /**
  * Team Management Page

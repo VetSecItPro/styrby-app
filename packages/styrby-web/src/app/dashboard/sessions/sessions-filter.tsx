@@ -651,9 +651,13 @@ export function SessionsFilter({
         </div>
       )}
 
-      {/* Scope loading indicator */}
+      {/* Scope loading indicator
+          WHY role="status": Dynamic content inserted after the initial render
+          must be in a live region so screen readers announce it. Without this,
+          a screen reader user switching scope tabs hears nothing and doesn't
+          know the list is loading. */}
       {isScopeLoading && (
-        <div className="flex items-center justify-center py-12">
+        <div role="status" aria-live="polite" className="flex items-center justify-center py-12">
           <svg
             className="animate-spin h-6 w-6 text-orange-500"
             fill="none"
@@ -785,7 +789,7 @@ export function SessionsFilter({
           {/* Infinite scroll sentinel and loading indicator */}
           <div ref={sentinelRef} className="h-1" aria-hidden="true" />
           {isLoadingMore && (
-            <div className="flex items-center justify-center py-6">
+            <div role="status" aria-live="polite" className="flex items-center justify-center py-6">
               <svg
                 className="animate-spin h-5 w-5 text-orange-500"
                 fill="none"

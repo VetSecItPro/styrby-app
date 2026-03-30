@@ -144,7 +144,7 @@ describe('FeedbackDialog — message textarea', () => {
   it('displays character count as the user types', async () => {
     const { user } = setup();
 
-    await user.type(screen.getByLabelText('Feedback message'), 'Hello');
+    await user.type(screen.getByLabelText('Message'), 'Hello');
 
     expect(screen.getByText('5/2000')).toBeInTheDocument();
   });
@@ -160,7 +160,7 @@ describe('FeedbackDialog — message textarea', () => {
   it('enables Submit button when message has content', async () => {
     const { user } = setup();
 
-    await user.type(screen.getByLabelText('Feedback message'), 'This is a bug');
+    await user.type(screen.getByLabelText('Message'), 'This is a bug');
 
     expect(
       screen.getByRole('button', { name: /submit feedback/i })
@@ -170,7 +170,7 @@ describe('FeedbackDialog — message textarea', () => {
   it('keeps Submit disabled when message is only whitespace', async () => {
     const { user } = setup();
 
-    await user.type(screen.getByLabelText('Feedback message'), '   ');
+    await user.type(screen.getByLabelText('Message'), '   ');
 
     expect(
       screen.getByRole('button', { name: /submit feedback/i })
@@ -188,7 +188,7 @@ describe('FeedbackDialog — submission', () => {
 
     const { user } = setup();
 
-    await user.type(screen.getByLabelText('Feedback message'), 'Great app!');
+    await user.type(screen.getByLabelText('Message'), 'Great app!');
     await user.click(screen.getByRole('button', { name: /submit feedback/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -206,7 +206,7 @@ describe('FeedbackDialog — submission', () => {
 
     const { user } = setup();
 
-    await user.type(screen.getByLabelText('Feedback message'), 'Nice feature request');
+    await user.type(screen.getByLabelText('Message'), 'Nice feature request');
     await user.click(screen.getByRole('button', { name: /submit feedback/i }));
 
     await waitFor(() => {
@@ -230,7 +230,7 @@ describe('FeedbackDialog — submission', () => {
 
     const { user } = setup();
 
-    await user.type(screen.getByLabelText('Feedback message'), 'Please follow up');
+    await user.type(screen.getByLabelText('Message'), 'Please follow up');
     await user.type(
       screen.getByLabelText('Email for follow-up (optional)'),
       'contact@example.com'
@@ -255,7 +255,7 @@ describe('FeedbackDialog — submission', () => {
 
     const { user } = setup();
 
-    await user.type(screen.getByLabelText('Feedback message'), 'No follow-up needed');
+    await user.type(screen.getByLabelText('Message'), 'No follow-up needed');
     await user.click(screen.getByRole('button', { name: /submit feedback/i }));
 
     await waitFor(() => {
@@ -273,7 +273,7 @@ describe('FeedbackDialog — submission', () => {
 
     const { user } = setup();
 
-    await user.type(screen.getByLabelText('Feedback message'), 'Works great!');
+    await user.type(screen.getByLabelText('Message'), 'Works great!');
     await user.click(screen.getByRole('button', { name: /submit feedback/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -293,7 +293,7 @@ describe('FeedbackDialog — submission', () => {
 
     const { user } = setup();
 
-    await user.type(screen.getByLabelText('Feedback message'), 'Will this fail?');
+    await user.type(screen.getByLabelText('Message'), 'Will this fail?');
     await user.click(screen.getByRole('button', { name: /submit feedback/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -311,7 +311,7 @@ describe('FeedbackDialog — submission', () => {
     const { user } = setup();
 
     await user.selectOptions(screen.getByRole('combobox'), 'bug');
-    await user.type(screen.getByLabelText('Feedback message'), 'Found a bug');
+    await user.type(screen.getByLabelText('Message'), 'Found a bug');
     await user.click(screen.getByRole('button', { name: /submit feedback/i }));
 
     await waitFor(() => {
@@ -331,7 +331,7 @@ describe('FeedbackDialog — submission', () => {
 
     const { user } = setup();
 
-    await user.type(screen.getByLabelText('Feedback message'), 'Testing loading state');
+    await user.type(screen.getByLabelText('Message'), 'Testing loading state');
     await user.click(screen.getByRole('button', { name: /submit feedback/i }));
 
     // WHY: aria-label stays "Submit feedback" even during loading; we verify

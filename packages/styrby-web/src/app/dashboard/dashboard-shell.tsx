@@ -66,8 +66,15 @@ export function DashboardShell({ children, onboardingState }: DashboardShellProp
         />
       )}
 
+      {/* WHY tabIndex={-1}: The skip-to-content link targets #main-content.
+          Without tabIndex={-1}, browsers (especially Firefox) won't move
+          focus to a non-interactive element after following the skip link,
+          meaning keyboard users who activate the skip link still have to
+          tab through the entire header. tabIndex={-1} makes the element
+          programmatically focusable without placing it in the tab order. */}
       <main
         id="main-content"
+        tabIndex={-1}
         className={cn(
           'pt-16 pb-20 transition-all duration-200 md:pb-0',
           collapsed ? 'md:pl-16' : 'md:pl-60'

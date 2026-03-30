@@ -85,6 +85,8 @@ export function OnboardingBanner({ onboardingState }: OnboardingBannerProps) {
         <button
           type="button"
           onClick={() => setExpanded(true)}
+          aria-expanded={false}
+          aria-label={`Setup progress: ${completedCount} of ${totalSteps} steps complete. Click to expand.`}
           className="w-full rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 text-left transition-colors hover:bg-amber-500/15"
         >
           <div className="flex items-center justify-between mb-2">

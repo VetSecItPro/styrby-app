@@ -266,6 +266,10 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
         >
           Message
         </label>
+        {/* WHY no aria-label: The <label htmlFor="feedback-message"> above
+            already provides the accessible name. Adding aria-label here would
+            override the visible label in the accessibility tree, which is
+            redundant and potentially confusing. */}
         <textarea
           id="feedback-message"
           value={message}
@@ -275,7 +279,6 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
           maxLength={MAX_MESSAGE_LENGTH}
           disabled={isSubmitting}
           className="w-full rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 resize-none mb-1"
-          aria-label="Feedback message"
         />
         <p className="text-xs text-zinc-500 text-right mb-4">
           {message.length}/{MAX_MESSAGE_LENGTH}
@@ -289,6 +292,8 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
           Email for follow-up{' '}
           <span className="text-zinc-500 font-normal">(optional)</span>
         </label>
+        {/* WHY no aria-label: The <label htmlFor="feedback-email"> above
+            already provides the accessible name. Redundant aria-label removed. */}
         <input
           id="feedback-email"
           type="email"
@@ -297,7 +302,6 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
           placeholder="your@email.com"
           disabled={isSubmitting}
           className="w-full rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 mb-4"
-          aria-label="Email for follow-up (optional)"
         />
 
         {/* Submit result message */}
