@@ -37,6 +37,7 @@ import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
+import { getAppUrl } from '@/lib/config';
 import type { SharedSession, CreateShareResponse } from '@styrby/shared';
 
 /**
@@ -238,7 +239,7 @@ export async function POST(request: Request, context: RouteContext) {
       createdAt: shareRow.created_at,
     };
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.styrby.com';
+    const appUrl = getAppUrl();
     // WHY: Use shareRow.share_id (the canonical ID from the DB) rather than the
     // local shareId variable. In practice they are the same, but the DB is the
     // source of truth for what was actually stored.

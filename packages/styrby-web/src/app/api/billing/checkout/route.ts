@@ -47,6 +47,16 @@ const CheckoutRequestSchema = z.object({
   billingCycle: z.enum(['monthly', 'annual']).optional().default('monthly'),
 });
 
+/**
+ * POLAR_ACCESS_TOKEN — Server-side API key that authenticates requests to Polar.
+ *
+ * Source: Polar Dashboard (polar.sh) > Settings > API Keys > Create Token
+ * Format: "polar_at_<alphanumeric, ~48 chars>" — server-only, never expose in the browser
+ * Required in: all (local / preview / production)
+ * Behavior when missing: Polar SDK initializes with `undefined`; the first
+ *   checkout request will throw a 401 from Polar, returning 500 to the client.
+ * Rotation: annually or immediately upon suspected compromise.
+ */
 const polar = new Polar({
   accessToken: process.env.POLAR_ACCESS_TOKEN,
 });

@@ -21,11 +21,16 @@ import * as Sentry from '@sentry/nextjs';
 
 Sentry.init({
   /**
-   * Sentry DSN — server-side key used to identify the project.
-   * Get this from: sentry.io > Project Settings > Client Keys (DSN)
+   * SENTRY_DSN — Server-only Data Source Name that routes server-side errors to Sentry.
    *
-   * NOTE: On the server we use SENTRY_DSN (not NEXT_PUBLIC_SENTRY_DSN) so
-   * this value is never embedded in the client bundle.
+   * Source: sentry.io > Project Settings > Client Keys (DSN)
+   * Format: "https://<key>@<org>.ingest.sentry.io/<project-id>"
+   * Required in: production (optional in local/preview — errors go to terminal when missing)
+   * Behavior when missing: Sentry.init receives undefined; SDK silently disables
+   *   itself. The `enabled` gate below also prevents any activity outside production.
+   * Rotation: per-incident if key is suspected compromised; otherwise as needed.
+   * NOTE: Use SENTRY_DSN (not NEXT_PUBLIC_SENTRY_DSN) on the server so this
+   *   value is never embedded in the client-side JavaScript bundle.
    */
   dsn: process.env.SENTRY_DSN,
 

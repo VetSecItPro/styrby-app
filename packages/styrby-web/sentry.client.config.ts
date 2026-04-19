@@ -23,9 +23,16 @@ import * as Sentry from '@sentry/nextjs';
 
 Sentry.init({
   /**
-   * Sentry DSN (Data Source Name) — public client key that identifies the project.
-   * Get this from: sentry.io > Project Settings > Client Keys (DSN)
-   * Safe to expose in browser bundles (scoped to ingest only).
+   * NEXT_PUBLIC_SENTRY_DSN — Public Data Source Name that routes browser errors to Sentry.
+   *
+   * Source: sentry.io > Project Settings > Client Keys (DSN)
+   * Format: "https://<key>@<org>.ingest.sentry.io/<project-id>"
+   * Required in: production (optional in local/preview — errors go to console when missing)
+   * Behavior when missing: Sentry.init receives undefined; SDK silently disables
+   *   itself (no errors sent, no crash). The `enabled` gate below also prevents
+   *   any activity outside production.
+   * Rotation: per-incident if key is suspected compromised; otherwise as needed.
+   *   This key is ingest-only — it cannot read your Sentry data.
    */
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
 

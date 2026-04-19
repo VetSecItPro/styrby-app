@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 import { randomBytes } from 'crypto';
 import { sendEmail } from '@/lib/resend';
+import { getAppUrl } from '@/lib/config';
 import * as React from 'react';
 import TeamInvitationEmail from '@/emails/team-invitation';
 
@@ -268,7 +269,7 @@ export async function POST(
       .single();
 
     // Send invitation email
-    const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://styrbyapp.com'}/invite/${token}`;
+    const inviteUrl = `${getAppUrl()}/invite/${token}`;
 
     await sendEmail({
       to: email,
