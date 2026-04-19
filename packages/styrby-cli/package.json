@@ -77,7 +77,7 @@
     "@stablelib/base64": "^2.0.1",
     "@stablelib/hex": "^2.0.1",
     "@supabase/supabase-js": "^2.45.0",
-    "axios": "^1.13.6",
+    "axios": "^1.15.1",
     "chalk": "^5.6.2",
     "http-proxy": "^1.18.1",
     "ink": "^6.5.1",
