@@ -279,9 +279,14 @@ describe('BudgetAlertsScreen', () => {
   });
 
   it('shows upgrade prompt for free tier', () => {
+    // WHY: Jest runs with Babel caller platform:'ios', so Platform.OS === 'ios'.
+    // canShowUpgradePrompt() returns false on iOS (Apple Reader App §3.1.3(a)),
+    // so the upgrade button with 'Upgrade to Pro' label is never rendered.
+    // The UpgradePrompt component always renders the 'INCLUDED WITH PRO' feature
+    // list header on all platforms — assert that instead.
     mockBudgetAlerts.tier = 'free';
     const tree = renderer.create(<BudgetAlertsScreen />).toJSON();
-    expect(hasText(tree, 'Upgrade')).toBe(true);
+    expect(hasText(tree, 'INCLUDED WITH PRO')).toBe(true);
   });
 });
 

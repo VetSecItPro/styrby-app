@@ -636,13 +636,18 @@ describe('TeamScreen', () => {
   });
 
   it('shows upgrade prompt for free tier (async tier load)', async () => {
+    // WHY: Jest runs with Babel caller platform:'ios', so Platform.OS === 'ios'.
+    // canShowUpgradePrompt() returns false on iOS (Apple Reader App §3.1.3(a)
+    // prohibits upgrade CTAs), so the button text 'Upgrade to Power' is never
+    // rendered. The always-visible heading 'Power Plan Required' is the correct
+    // assertion for this environment.
     mockTeamManagement.team = null;
     let component: renderer.ReactTestRenderer;
     await renderer.act(async () => {
       component = renderer.create(<TeamScreen />);
     });
     const tree = component!.toJSON();
-    expect(hasText(tree, 'Upgrade to Power')).toBe(true);
+    expect(hasText(tree, 'Power Plan Required')).toBe(true);
   });
 
   it('shows team header when team exists', async () => {
