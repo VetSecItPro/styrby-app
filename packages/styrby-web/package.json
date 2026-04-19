@@ -70,7 +70,7 @@
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.54.1",
     "react-resizable-panels": "^2.1.7",
-    "recharts": "^2.15.0",
+    "recharts": "^3.8.1",
     "resend": "^6.9.1",
     "serwist": "9.5.7",
     "sonner": "^1.7.1",

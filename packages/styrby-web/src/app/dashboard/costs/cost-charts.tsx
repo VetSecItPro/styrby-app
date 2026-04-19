@@ -124,7 +124,7 @@ export function CostCharts({ data }: CostChartsProps) {
                 }}
                 labelStyle={{ color: '#fafafa' }}
                 itemStyle={{ color: '#a1a1aa' }}
-                formatter={(value: number) => [`$${value.toFixed(4)}`, 'Cost']}
+                formatter={(value) => [`$${(value as number)?.toFixed(4) ?? '0.0000'}`, 'Cost']}
                 labelFormatter={(label) => formatDate(label)}
               />
               <Area
@@ -169,7 +169,7 @@ export function CostCharts({ data }: CostChartsProps) {
                     borderRadius: '8px',
                   }}
                   labelStyle={{ color: '#fafafa' }}
-                  formatter={(value: number) => `$${value.toFixed(4)}`}
+                  formatter={(value) => `$${(value as number)?.toFixed(4) ?? '0.0000'}`}
                   labelFormatter={(label) => formatDate(label)}
                 />
                 <Legend
@@ -218,7 +218,7 @@ export function CostCharts({ data }: CostChartsProps) {
                   paddingAngle={2}
                   dataKey="value"
                   label={({ name, percent }) =>
-                    `${name} ${(percent * 100).toFixed(0)}%`
+                    `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
                   }
                   labelLine={{ stroke: '#71717a' }}
                 >
@@ -232,7 +232,7 @@ export function CostCharts({ data }: CostChartsProps) {
                     border: '1px solid #27272a',
                     borderRadius: '8px',
                   }}
-                  formatter={(value: number) => `$${value.toFixed(4)}`}
+                  formatter={(value) => `$${(value as number)?.toFixed(4) ?? '0.0000'}`}
                 />
               </PieChart>
             </ResponsiveContainer>
