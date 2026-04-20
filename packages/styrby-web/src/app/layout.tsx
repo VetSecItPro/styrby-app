@@ -5,6 +5,7 @@ import './globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
 import { CookieConsent } from '@/components/cookie-consent';
 import { SWRegister } from '@/components/sw-register';
+import { getEnvOr } from '@/lib/env';
 
 /**
  * WHY Outfit: geometric sans-serif with tight tracking and optical weight that
@@ -44,7 +45,7 @@ export const metadata: Metadata = {
   description:
     'Monitor costs, approve permissions, and control Claude Code, Codex, Gemini CLI, OpenCode, and Aider from one premium dashboard.',
   metadataBase: new URL(
-    process.env.NEXT_PUBLIC_APP_URL || 'https://styrbyapp.com'
+    getEnvOr('NEXT_PUBLIC_APP_URL', 'https://styrbyapp.com')
   ),
   icons: {
     icon: [

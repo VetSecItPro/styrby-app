@@ -30,6 +30,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { withApiAuth, addRateLimitHeaders, type ApiAuthContext } from '@/middleware/api-auth';
 import { z } from 'zod';
+import { requireEnv } from '@/lib/env';
 
 // ---------------------------------------------------------------------------
 // Query Schema
@@ -45,8 +46,8 @@ const QuerySchema = z.object({
 
 function createApiAdminClient() {
   return createServerClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    requireEnv('SUPABASE_URL'),
+    requireEnv('SUPABASE_SERVICE_ROLE_KEY'),
     {
       cookies: {
         getAll() {

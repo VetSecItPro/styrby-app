@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
+import { requireEnv } from '@/lib/env';
 
 interface InviteActionsProps {
   token: string;
@@ -26,8 +27,8 @@ export function InviteActions({ token, teamName }: InviteActionsProps) {
    * Creates a Supabase client for browser-side operations.
    */
   const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    requireEnv('NEXT_PUBLIC_SUPABASE_URL'),
+    requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY')
   );
 
   /**

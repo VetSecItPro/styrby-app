@@ -28,7 +28,7 @@ import { extractApiKeyPrefix, isValidApiKeyFormat } from '@styrby/shared';
 import { getClientIp } from '@/lib/rateLimit';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
-import { getEnv } from '@/lib/env';
+import { getEnv, requireEnv } from '@/lib/env';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -171,8 +171,8 @@ async function checkApiRateLimit(keyId: string): Promise<{ allowed: boolean; rem
  */
 function createApiAdminClient() {
   return createServerClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    requireEnv('SUPABASE_URL'),
+    requireEnv('SUPABASE_SERVICE_ROLE_KEY'),
     {
       cookies: {
         getAll() {

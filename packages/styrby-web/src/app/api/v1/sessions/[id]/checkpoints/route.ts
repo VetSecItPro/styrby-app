@@ -43,6 +43,7 @@ import { createServerClient } from '@supabase/ssr';
 import { withApiAuth, addRateLimitHeaders, type ApiAuthContext } from '@/middleware/api-auth';
 import type { SessionCheckpoint } from '@styrby/shared';
 import { z } from 'zod';
+import { requireEnv } from '@/lib/env';
 
 // ============================================================================
 // Constants
@@ -105,8 +106,8 @@ const PostBodySchema = z.object({
  */
 function createApiAdminClient() {
   return createServerClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    requireEnv('SUPABASE_URL'),
+    requireEnv('SUPABASE_SERVICE_ROLE_KEY'),
     {
       cookies: {
         getAll() { return []; },

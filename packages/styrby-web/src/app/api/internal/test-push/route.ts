@@ -61,6 +61,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { isAdmin } from '@/lib/admin';
 import { z } from 'zod';
+import { getEnv } from '@/lib/env';
 
 // ============================================================================
 // Request Schema
@@ -186,8 +187,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // ──────────────────────────────────────────
   // Step 5: Build edge function URL + service role key
   // ──────────────────────────────────────────
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = getEnv('SUPABASE_URL');
+  const serviceRoleKey = getEnv('SUPABASE_SERVICE_ROLE_KEY');
 
   if (!supabaseUrl || !serviceRoleKey) {
     console.error('[test-push] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
