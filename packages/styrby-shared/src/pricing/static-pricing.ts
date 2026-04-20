@@ -30,16 +30,28 @@
 // Types
 // ============================================================================
 
-/** AI provider identifier for grouping and display. */
+/**
+ * AI provider identifier used for grouping models in the pricing table.
+ *
+ * Used by the cost dashboard to render provider section headers, filter
+ * the pricing reference table, and apply provider-level display formatting.
+ * Maps 1:1 with the three providers Styrby currently supports.
+ */
 export type ModelProvider = 'anthropic' | 'openai' | 'google';
 
 /**
- * Pricing entry for a single AI model.
+ * Pricing entry for a single AI model shown in the reference pricing table.
  *
- * Prices are in USD per 1 million tokens.
+ * Used by the cost dashboard in both styrby-web and styrby-mobile to display
+ * a human-readable pricing reference. This is a UI display type only — it is
+ * NOT used for actual cost calculations (which use `ModelPrice` from
+ * litellm-pricing.ts with per-1k precision).
  *
- * Used by the cost dashboard pricing reference tables in both the web
- * and mobile apps.
+ * Prices are in USD per 1 million tokens as published by each provider.
+ *
+ * WHY per-1M instead of per-1k: Provider pricing pages quote per-million,
+ * so keeping the same unit makes it easy to cross-reference with official
+ * docs and detect when this table needs updating.
  */
 export interface ModelPricingEntry {
   /** Display name of the model (e.g. 'Claude 3.5 Sonnet') */

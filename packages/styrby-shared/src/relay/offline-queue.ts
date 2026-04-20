@@ -15,7 +15,13 @@ import type { RelayMessage } from './types.js';
 // ============================================================================
 
 /**
- * Status of a queued command
+ * Lifecycle state of a single item in the offline command queue.
+ *
+ * WHY explicit states instead of a boolean 'sent' flag: The queue needs to
+ * distinguish between commands that are actively being sent (locked to prevent
+ * duplicate delivery), commands that failed and are waiting for retry, and
+ * commands that expired before the device came back online. Each state drives
+ * different UI feedback and retry behavior in `IOfflineQueue.processQueue`.
  */
 export type QueueItemStatus =
   | 'pending'    // Waiting to be sent
@@ -25,7 +31,20 @@ export type QueueItemStatus =
   | 'expired';   // Expired before sending
 
 /**
- * A command queued for sending when online
+ * A relay message that was queued while the mobile device was offline.
+ *
+ * When Styrby mobile loses connectivity mid-session, user actions (chat
+ * messages, permission responses, cancellations) are stored as QueuedCommands
+ * and flushed in priority order when the connection is restored.
+ *
+ * WHY `expiresAt`: Some commands become semantically meaningless after a
+ * timeout. A permission_response queued for 10 minutes is likely stale —
+ * the CLI agent will have already timed out waiting. Expiry prevents the CLI
+ * from receiving ghost approvals for operations it has already abandoned.
+ *
+ * WHY `priority`: Critical commands (cancellations, permission responses)
+ * must be delivered before low-priority commands (analytics, acks) even if
+ * the low-priority commands were queued first.
  */
 export interface QueuedCommand {
   /** Unique queue item ID */
@@ -51,7 +70,11 @@ export interface QueuedCommand {
 }
 
 /**
- * Queue statistics
+ * Snapshot of offline queue health, surfaced in the mobile connection status UI.
+ *
+ * Displayed in the connectivity banner so users know how many commands are
+ * waiting to be flushed. A non-zero `failed` count triggers a warning state
+ * ("X commands could not be sent") after reconnection.
  */
 export interface QueueStats {
   /** Total items in queue */
@@ -71,8 +94,17 @@ export interface QueueStats {
 // ============================================================================
 
 /**
- * Interface for offline command queue implementations.
- * Platform-specific implementations should implement this interface.
+ * Platform-agnostic contract for the offline command queue.
+ *
+ * WHY an interface instead of a single implementation: The persistence layer
+ * differs per platform — SQLite via expo-sqlite on mobile, IndexedDB on web,
+ * and an in-memory mock in tests. Coding against this interface lets shared
+ * relay logic (e.g., `processQueue`) work identically on all three without
+ * importing platform-specific modules into styrby-shared.
+ *
+ * The `processQueue` method is designed to be called repeatedly by a network
+ * connectivity listener. It dequeues pending items in priority order, calls
+ * `sendFn` for each one, and handles retry/expiry logic.
  */
 export interface IOfflineQueue {
   /**
@@ -122,7 +154,13 @@ export interface IOfflineQueue {
 }
 
 /**
- * Options for enqueueing a command
+ * Caller-supplied options for controlling how a command is queued.
+ *
+ * All fields are optional — the queue applies sensible defaults
+ * (`DEFAULT_QUEUE_TTL_MS`, `DEFAULT_MAX_ATTEMPTS`, priority from
+ * `getMessagePriority`) when omitted. Callers only need to override
+ * when they have specific requirements (e.g., a critical cancellation
+ * that should never expire should set a long `ttl`).
  */
 export interface EnqueueOptions {
   /** Priority (default: 0, higher = sent first) */

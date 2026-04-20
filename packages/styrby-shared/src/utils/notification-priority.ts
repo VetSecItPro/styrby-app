@@ -27,8 +27,18 @@ import type { RiskLevel } from '../types.js';
 // ============================================================================
 
 /**
- * Notification event types that can be scored.
- * Maps directly to the event types in the push notification Edge Function.
+ * The set of events that the Styrby push notification system can generate.
+ *
+ * Each value maps directly to an `event_type` in the Supabase Edge Function
+ * `push-notifications`. When the CLI relay emits one of these events, the
+ * Edge Function uses `calculateNotificationPriority` to decide whether to
+ * deliver a push notification based on the user's priority threshold setting.
+ *
+ * WHY defined here and not in the Edge Function: Both the CLI (which sends
+ * events) and the mobile app (which renders received notifications) need this
+ * type. Keeping it in styrby-shared ensures both ends stay in sync — adding
+ * a new event type here immediately surfaces a TypeScript error in any code
+ * that handles notification events exhaustively.
  */
 export type NotificationEventType =
   | 'permission_request'
@@ -39,8 +49,19 @@ export type NotificationEventType =
   | 'budget_exceeded';
 
 /**
- * Input data for calculating notification priority.
- * Not all fields are required - the algorithm uses sensible defaults.
+ * Input payload describing a notification event to be scored.
+ *
+ * Passed to `calculateNotificationPriority` and
+ * `calculateNotificationPriorityDetailed` to produce a priority score (1-5).
+ *
+ * WHY a union of optional fields instead of separate types per event: The
+ * priority algorithm blends several signals (risk, cost, duration, tool danger)
+ * that cut across event types. A single input type keeps the scoring function
+ * simple and lets callers pass whatever context they have without needing to
+ * know which fields each event type uses.
+ *
+ * Fields that are not relevant to a given event type (e.g., `riskLevel` on a
+ * `budget_warning`) are simply ignored by the scoring algorithm.
  */
 export interface NotificationEvent {
   /** The type of notification event */
@@ -78,7 +99,18 @@ export interface NotificationEvent {
 }
 
 /**
- * Result of the priority calculation with breakdown for debugging.
+ * Full output of the priority scoring algorithm, including the final score
+ * and a breakdown of each contributing factor.
+ *
+ * The `priority` field (1-5) is the only value needed for delivery decisions.
+ * The `factors` breakdown and `reason` string are surfaced in the Styrby
+ * admin dashboard and in debug logs so that unexpected notification filtering
+ * can be diagnosed without re-running the algorithm.
+ *
+ * WHY expose `factors` on the public type: When a Pro user wonders why a
+ * notification was silently dropped, the breakdown lets support engineers
+ * point to the exact adjustment that pushed the priority over the user's
+ * threshold (e.g., "low-cost session completion scored 5, your threshold is 4").
  */
 export interface PriorityResult {
   /**
