@@ -410,6 +410,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build shared (required by mobile for Metro resolution)
+        # WHY: Metro cannot resolve `@styrby/shared` unless dist/index.js exists.
+        # The `needs: build-shared` job above builds it but its artifact is not
+        # downloaded here. Re-building locally is ~30s and self-contained.
+        run: pnpm --filter @styrby/shared build
+
       - name: Lint mobile
         run: pnpm --filter styrby-mobile run lint
 
