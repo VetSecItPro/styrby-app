@@ -17,6 +17,9 @@ build/
 dist/
 .vercel
 
+# Expo local state (machine-specific, never commit)
+.expo/
+
 # Environment & secrets
 .env
 .env.*
