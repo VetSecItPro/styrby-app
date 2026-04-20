@@ -277,7 +277,7 @@ export default function RootLayout() {
           }}
         />
         {/*
-         * Shared session viewer — public screen, no auth required.
+         * Shared session viewer - public screen, no auth required.
          * Handles the deep link: styrby://shared/{shareId}
          * Expo Router maps the file app/shared/[shareId].tsx to this route.
          */}
@@ -286,6 +286,21 @@ export default function RootLayout() {
           options={{
             title: 'Session Replay',
             presentation: 'card',
+          }}
+        />
+        {/*
+         * Settings route group scaffold - additive during Phase 0.6.1 refactor.
+         * Registering the group here lets Expo Router know that `/settings`
+         * is a valid deep-link target. The hub itself is still a scaffold
+         * until sub-screens S5-S11 are migrated; the tab `(tabs)/settings.tsx`
+         * remains the live settings UI until S4 flips it to a redirect.
+         *
+         * @see docs/planning/settings-refactor-plan-2026-04-19.md Section 2
+         */}
+        <Stack.Screen
+          name="settings"
+          options={{
+            headerShown: false,
           }}
         />
       </Stack>
