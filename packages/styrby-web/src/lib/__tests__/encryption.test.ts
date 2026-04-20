@@ -89,7 +89,7 @@ describe('getOrCreateWebKeyPair()', () => {
   it('generates a new keypair on first call and persists it to localStorage', async () => {
     const { getOrCreateWebKeyPair } = await freshEncryption();
 
-    const keypair = getOrCreateWebKeyPair();
+    const keypair = await getOrCreateWebKeyPair();
 
     expect(keypair.publicKey).toBeInstanceOf(Uint8Array);
     expect(keypair.publicKey).toHaveLength(32);
@@ -101,8 +101,8 @@ describe('getOrCreateWebKeyPair()', () => {
   it('returns the cached keypair on a second call without re-reading localStorage', async () => {
     const { getOrCreateWebKeyPair } = await freshEncryption();
 
-    const first = getOrCreateWebKeyPair();
-    const second = getOrCreateWebKeyPair();
+    const first = await getOrCreateWebKeyPair();
+    const second = await getOrCreateWebKeyPair();
 
     // Identity equality — same object reference due to cache
     expect(second).toBe(first);
@@ -112,16 +112,16 @@ describe('getOrCreateWebKeyPair()', () => {
 
   it('loads an existing keypair from localStorage instead of regenerating', async () => {
     // Pre-populate localStorage with a known keypair
-    const original = generateKeyPair();
+    const original = await generateKeyPair();
     const { encodeBase64 } = await import('@styrby/shared');
     const stored = JSON.stringify({
-      publicKey: encodeBase64(original.publicKey),
-      secretKey: encodeBase64(original.secretKey),
+      publicKey: await encodeBase64(original.publicKey),
+      secretKey: await encodeBase64(original.secretKey),
     });
     mockLocalStorage.getItem.mockReturnValue(stored);
 
     const { getOrCreateWebKeyPair } = await freshEncryption();
-    const keypair = getOrCreateWebKeyPair();
+    const keypair = await getOrCreateWebKeyPair();
 
     expect(keypair.publicKey).toEqual(original.publicKey);
     expect(keypair.secretKey).toEqual(original.secretKey);
@@ -133,7 +133,7 @@ describe('getOrCreateWebKeyPair()', () => {
     mockLocalStorage.getItem.mockReturnValue('NOT_VALID_JSON{{{{');
 
     const { getOrCreateWebKeyPair } = await freshEncryption();
-    const keypair = getOrCreateWebKeyPair();
+    const keypair = await getOrCreateWebKeyPair();
 
     expect(keypair.publicKey).toHaveLength(32);
     expect(mockLocalStorage.removeItem).toHaveBeenCalledOnce();

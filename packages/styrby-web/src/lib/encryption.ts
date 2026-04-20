@@ -86,7 +86,7 @@ const senderKeyCache = new Map<string, Uint8Array>();
  *
  * @returns The web device's NaCl keypair
  */
-export function getOrCreateWebKeyPair(): NaClKeyPair {
+export async function getOrCreateWebKeyPair(): Promise<NaClKeyPair> {
   if (cachedKeyPair) return cachedKeyPair;
 
   // Try to load existing keypair from localStorage
@@ -95,8 +95,8 @@ export function getOrCreateWebKeyPair(): NaClKeyPair {
     try {
       const parsed: StoredKeyPair = JSON.parse(stored);
       cachedKeyPair = {
-        publicKey: decodeBase64(parsed.publicKey),
-        secretKey: decodeBase64(parsed.secretKey),
+        publicKey: await decodeBase64(parsed.publicKey),
+        secretKey: await decodeBase64(parsed.secretKey),
       };
       return cachedKeyPair;
     } catch {
@@ -106,12 +106,12 @@ export function getOrCreateWebKeyPair(): NaClKeyPair {
   }
 
   // Generate new keypair
-  cachedKeyPair = generateKeyPair();
+  cachedKeyPair = await generateKeyPair();
 
   // Persist to localStorage
   const toStore: StoredKeyPair = {
-    publicKey: encodeBase64(cachedKeyPair.publicKey),
-    secretKey: encodeBase64(cachedKeyPair.secretKey),
+    publicKey: await encodeBase64(cachedKeyPair.publicKey),
+    secretKey: await encodeBase64(cachedKeyPair.secretKey),
   };
   localStorage.setItem(KEYPAIR_STORAGE_KEY, JSON.stringify(toStore));
 
@@ -134,7 +134,7 @@ export async function registerWebDevice(): Promise<string | null> {
   const existingId = localStorage.getItem(WEB_MACHINE_ID_KEY);
   if (existingId) return existingId;
 
-  const keypair = getOrCreateWebKeyPair();
+  const keypair = await getOrCreateWebKeyPair();
   const supabase = createClient();
 
   const {
@@ -178,7 +178,7 @@ export async function registerWebDevice(): Promise<string | null> {
     .upsert(
       {
         machine_id: machine.id,
-        public_key: encodeBase64(keypair.publicKey),
+        public_key: await encodeBase64(keypair.publicKey),
         fingerprint,
       },
       { onConflict: 'machine_id' }
@@ -219,7 +219,7 @@ async function getSenderPublicKey(machineId: string): Promise<Uint8Array | null>
 
   if (!data?.public_key) return null;
 
-  const publicKey = decodeBase64(data.public_key);
+  const publicKey = await decodeBase64(data.public_key);
   senderKeyCache.set(machineId, publicKey);
   return publicKey;
 }
@@ -274,14 +274,14 @@ export async function tryDecryptMessage(
   }
 
   try {
-    const keypair = getOrCreateWebKeyPair();
+    const keypair = await getOrCreateWebKeyPair();
     const senderPublicKey = await getSenderPublicKey(machineId);
 
     if (!senderPublicKey) {
       return { content: null, wasEncrypted: true };
     }
 
-    const plaintext = decryptFromStorage(
+    const plaintext = await decryptFromStorage(
       contentEncrypted,
       encryptionNonce,
       senderPublicKey,

@@ -127,8 +127,8 @@ export async function getOrCreateKeyPair(): Promise<NaClKeyPair> {
     try {
       const parsed: StoredKeyPair = JSON.parse(stored);
       const keypair: NaClKeyPair = {
-        publicKey: decodeBase64(parsed.publicKey),
-        secretKey: decodeBase64(parsed.secretKey),
+        publicKey: await decodeBase64(parsed.publicKey),
+        secretKey: await decodeBase64(parsed.secretKey),
       };
 
       // Validate key lengths before caching
@@ -165,11 +165,11 @@ export async function getOrCreateKeyPair(): Promise<NaClKeyPair> {
  * @throws {Error} If SecureStore write fails
  */
 async function regenerateKeyPair(): Promise<NaClKeyPair> {
-  const keypair = generateKeyPair();
+  const keypair = await generateKeyPair();
 
   const storedData: StoredKeyPair = {
-    publicKey: encodeBase64(keypair.publicKey),
-    secretKey: encodeBase64(keypair.secretKey),
+    publicKey: await encodeBase64(keypair.publicKey),
+    secretKey: await encodeBase64(keypair.secretKey),
   };
 
   await SecureStore.setItemAsync(KEYPAIR_STORAGE_KEY, JSON.stringify(storedData));
@@ -216,7 +216,7 @@ export async function getRecipientPublicKey(machineId: string): Promise<Uint8Arr
     );
   }
 
-  const publicKey = decodeBase64(data.public_key);
+  const publicKey = await decodeBase64(data.public_key);
 
   if (publicKey.length !== 32) {
     throw new Error(
@@ -317,7 +317,7 @@ export async function decryptMessage(
  */
 export async function registerPublicKey(userId: string): Promise<void> {
   const keypair = await getOrCreateKeyPair();
-  const publicKeyBase64 = encodeBase64(keypair.publicKey);
+  const publicKeyBase64 = await encodeBase64(keypair.publicKey);
   const fingerprint = await generateFingerprint(keypair.publicKey);
 
   // Step 1: Ensure a machine record exists for the mobile device.

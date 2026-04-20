@@ -190,7 +190,7 @@ export function SharedSessionViewer({ shareId }: SharedSessionViewerProps) {
    * correctness without trying to decrypt. NaCl box.open() returns null
    * on wrong keys, which we use as the error signal.
    */
-  const handleDecrypt = useCallback(() => {
+  const handleDecrypt = useCallback(async () => {
     if (!shareData || !keyInput.trim()) return;
     setDecryptError(null);
 
@@ -198,7 +198,7 @@ export function SharedSessionViewer({ shareId }: SharedSessionViewerProps) {
       // The key is a base64-encoded 32-byte NaCl secret key
       let secretKey: Uint8Array;
       try {
-        secretKey = decodeBase64(keyInput.trim());
+        secretKey = await decodeBase64(keyInput.trim());
       } catch {
         setDecryptError('Invalid key format. Must be a base64-encoded decryption key.');
         return;
@@ -222,39 +222,32 @@ export function SharedSessionViewer({ shareId }: SharedSessionViewerProps) {
       // WHY lenient decode: When the share creation flow exports the symmetric session
       // key, replace this with: decryptFromStorage(encrypted, nonce, senderPub, secretKey).
       // Until that flow is implemented, we fall back to lenient UTF-8 decoding.
+      //
+      // WHY Promise.all over async map: decryptFromStorage is now async (libsodium
+      // WASM init). Without Promise.all, .map would return an array of Promises.
       let decryptedCount = 0;
-      const decryptedMessages: DecryptedMessage[] = messages.map((m) => {
-        if (!m.wasEncrypted || !m.contentEncrypted || !m.encryptionNonce) {
-          return m;
-        }
+      const decryptedMessages: DecryptedMessage[] = await Promise.all(
+        messages.map(async (m) => {
+          if (!m.wasEncrypted || !m.contentEncrypted || !m.encryptionNonce) {
+            return m;
+          }
 
-        try {
-          // WHY: We need both the sender's public key and the recipient's secret
-          // key for NaCl box decryption. In the share flow, the sender is the
-          // CLI and the viewer is a new party. The correct approach is to derive
-          // a symmetric key at share creation time and wrap it for the viewer.
-          //
-          // For MVP: attempt decryptFromStorage with a zero public key placeholder.
-          // This succeeds only if the message was encrypted with the zero key
-          // (which it won't be in production) - in that case we fall back to
-          // showing the base64 as-is with a "key mismatch" indicator.
-          //
-          // The correct full-stack fix is tracked as SHARE-001: implement a
-          // symmetric session key export at share creation time.
-          const zeroKey = new Uint8Array(32);
-          const decrypted = decryptFromStorage(
-            m.contentEncrypted,
-            m.encryptionNonce,
-            zeroKey,
-            secretKey
-          );
-          decryptedCount++;
-          return { ...m, content: decrypted };
-        } catch {
-          // Decryption failed - wrong key or incompatible format
-          return { ...m, content: null };
-        }
-      });
+          try {
+            const zeroKey = new Uint8Array(32);
+            const decrypted = await decryptFromStorage(
+              m.contentEncrypted,
+              m.encryptionNonce,
+              zeroKey,
+              secretKey,
+            );
+            decryptedCount++;
+            return { ...m, content: decrypted };
+          } catch {
+            // Decryption failed - wrong key or incompatible format
+            return { ...m, content: null };
+          }
+        }),
+      );
 
       if (decryptedCount === 0 && messages.some((m) => m.wasEncrypted)) {
         setDecryptError('Decryption failed. Incorrect key or incompatible key format.');
