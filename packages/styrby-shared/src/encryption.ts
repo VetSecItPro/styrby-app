@@ -39,6 +39,20 @@
 
 import sodium from 'libsodium-wrappers';
 
+/**
+ * Coerces a Uint8Array-like value to a fresh Uint8Array in the current realm.
+ *
+ * WHY: libsodium's input validators use `instanceof Uint8Array`. In test
+ * environments that span realms (Vitest + jsdom, JSDOM windows, Node worker
+ * threads), an array created in one realm fails the `instanceof` check in
+ * another realm even though both are nominally Uint8Array. Wrapping in
+ * `new Uint8Array(buf)` guarantees the value is an instance of the
+ * Uint8Array constructor that libsodium has captured.
+ */
+function asLocalU8(buf: Uint8Array): Uint8Array {
+  return buf instanceof Uint8Array ? new Uint8Array(buf) : new Uint8Array(buf as ArrayLike<number>);
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -177,13 +191,18 @@ export async function encrypt(
   // Reusing a nonce with the same keypair would allow an attacker to
   // recover the shared key (XSalsa20 becomes a two-time pad).
   const nonce = sodium.randombytes_buf(sodium.crypto_box_NONCEBYTES);
-  const messageBytes = sodium.from_string(message);
+  // WHY TextEncoder over sodium.from_string:
+  // sodium.from_string's internal type handling differs between Node and
+  // browser runtimes (returns plain Array in some Vitest contexts which fails
+  // libsodium's internal input-type check with "unsupported input type").
+  // TextEncoder returns a plain Uint8Array everywhere and is a Web Standard.
+  const messageBytes = new TextEncoder().encode(message);
 
   const encrypted = sodium.crypto_box_easy(
-    messageBytes,
-    nonce,
-    recipientPublicKey,
-    senderSecretKey,
+    asLocalU8(messageBytes),
+    asLocalU8(nonce),
+    asLocalU8(recipientPublicKey),
+    asLocalU8(senderSecretKey),
   );
 
   return { encrypted, nonce };
@@ -235,16 +254,18 @@ export async function decrypt(
   let plaintextBytes: Uint8Array;
   try {
     plaintextBytes = sodium.crypto_box_open_easy(
-      encrypted,
-      nonce,
-      senderPublicKey,
-      recipientSecretKey,
+      asLocalU8(encrypted),
+      asLocalU8(nonce),
+      asLocalU8(senderPublicKey),
+      asLocalU8(recipientSecretKey),
     );
   } catch {
     throw new Error('Decryption failed: invalid ciphertext, wrong keys, or tampered message');
   }
 
-  return sodium.to_string(plaintextBytes);
+  // WHY TextDecoder: mirrors the TextEncoder in encrypt() for symmetry and
+  // avoids the same input-type issue with sodium.to_string across runtimes.
+  return new TextDecoder().decode(plaintextBytes);
 }
 
 // ============================================================================
@@ -266,7 +287,7 @@ export async function encodeBase64(bytes: Uint8Array): Promise<string> {
   // WHY base64_variants.ORIGINAL: matches tweetnacl-util's output (standard
   // base64 with padding, e.g. "AAAA" or "AAA="). Without this, libsodium
   // defaults to URL-safe variant without padding and breaks existing rows.
-  return sodium.to_base64(bytes, sodium.base64_variants.ORIGINAL);
+  return sodium.to_base64(asLocalU8(bytes), sodium.base64_variants.ORIGINAL);
 }
 
 /**
@@ -417,11 +438,11 @@ export async function encryptStream(
 
   const nonce = sodium.randombytes_buf(XCHACHA20_NONCE_BYTES);
   const ciphertext = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
-    plaintext,
-    additionalData ?? null,
+    asLocalU8(plaintext),
+    additionalData ? asLocalU8(additionalData) : null,
     null, // secret nonce - unused in this AEAD
-    nonce,
-    key,
+    asLocalU8(nonce),
+    asLocalU8(key),
   );
 
   return { ciphertext, nonce };
@@ -462,10 +483,10 @@ export async function decryptStream(
   try {
     return sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
       null, // secret nonce - unused
-      ciphertext,
-      additionalData ?? null,
-      nonce,
-      key,
+      asLocalU8(ciphertext),
+      additionalData ? asLocalU8(additionalData) : null,
+      asLocalU8(nonce),
+      asLocalU8(key),
     );
   } catch {
     throw new Error(

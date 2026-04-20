@@ -19,6 +19,10 @@
       // a rename of every import statement across the codebase.
       // Points to the @styrby/shared symlink in local node_modules (resolved by pnpm).
       "styrby-shared": ["./node_modules/@styrby/shared"],
+      // Subpath: encryption module is exported separately to keep libsodium
+      // (~700KB WASM) out of bundles that don't need crypto. Points at the
+      // built dist file because the package's exports map uses that path.
+      "styrby-shared/encryption": ["./node_modules/@styrby/shared/dist/encryption"],
       "styrby-shared/*": ["./node_modules/@styrby/shared/*"]
     },
     "types": ["nativewind/types", "jest", "node"],

@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { encryptForStorage, generateKeyPair } from '@styrby/shared';
+import { encryptForStorage, generateKeyPair } from '@styrby/shared/encryption';
 
 // ============================================================================
 // Mocks
@@ -113,7 +113,7 @@ describe('getOrCreateWebKeyPair()', () => {
   it('loads an existing keypair from localStorage instead of regenerating', async () => {
     // Pre-populate localStorage with a known keypair
     const original = await generateKeyPair();
-    const { encodeBase64 } = await import('@styrby/shared');
+    const { encodeBase64 } = await import('@styrby/shared/encryption');
     const stored = JSON.stringify({
       publicKey: await encodeBase64(original.publicKey),
       secretKey: await encodeBase64(original.secretKey),
@@ -311,7 +311,7 @@ describe('tryDecryptMessage()', () => {
     );
 
     // Set up the web device's keypair in localStorage
-    const { encodeBase64 } = await import('@styrby/shared');
+    const { encodeBase64 } = await import('@styrby/shared/encryption');
     const storedKeypair = JSON.stringify({
       publicKey: await encodeBase64(recipientKeypair.publicKey),
       secretKey: await encodeBase64(recipientKeypair.secretKey),
@@ -350,7 +350,7 @@ describe('tryDecryptMessage()', () => {
     );
 
     // Set up our (wrong) keypair in localStorage
-    const { encodeBase64 } = await import('@styrby/shared');
+    const { encodeBase64 } = await import('@styrby/shared/encryption');
     const storedKeypair = JSON.stringify({
       publicKey: await encodeBase64(ourKeypair.publicKey),
       secretKey: await encodeBase64(ourKeypair.secretKey),
@@ -380,7 +380,7 @@ describe('tryDecryptMessage()', () => {
     const senderKeypair = await generateKeyPair();
     const recipientKeypair = await generateKeyPair();
 
-    const { encodeBase64 } = await import('@styrby/shared');
+    const { encodeBase64 } = await import('@styrby/shared/encryption');
     const storedKeypair = JSON.stringify({
       publicKey: await encodeBase64(recipientKeypair.publicKey),
       secretKey: await encodeBase64(recipientKeypair.secretKey),

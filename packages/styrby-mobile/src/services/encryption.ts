@@ -20,6 +20,9 @@
  */
 
 import * as SecureStore from 'expo-secure-store';
+// WHY '/encryption' subpath: see styrby-shared/src/index.ts comment.
+// Importing from the bare 'styrby-shared' barrel would pull libsodium's
+// 700KB WASM into bundles that don't need crypto.
 import {
   generateKeyPair,
   encryptForStorage,
@@ -29,7 +32,7 @@ import {
   generateFingerprint,
   type NaClKeyPair,
   type EncryptedPayloadBase64,
-} from 'styrby-shared';
+} from 'styrby-shared/encryption';
 import { supabase } from '../lib/supabase';
 
 // ============================================================================

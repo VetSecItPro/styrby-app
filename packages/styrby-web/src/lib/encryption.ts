@@ -21,15 +21,24 @@
  *    and at rest on the server, not against local device compromise
  */
 
-import {
-  generateKeyPair,
-  decryptFromStorage,
-  encodeBase64,
-  decodeBase64,
-  generateFingerprint,
-  type NaClKeyPair,
-} from '@styrby/shared';
+// WHY dynamic import + '/encryption' subpath:
+// libsodium-wrappers ships ~700KB of WASM payload. The dynamic import
+// emits a dedicated webpack chunk that only loads when a user opens an
+// encrypted session. Importing from '@styrby/shared/encryption' (not the
+// barrel) ensures the chunk contains ONLY crypto helpers, not the full
+// shared package (which would also drag templates, pricing, design tokens,
+// etc. into the same chunk).
+import type { NaClKeyPair } from '@styrby/shared/encryption';
 import { createClient } from '@/lib/supabase/client';
+
+/**
+ * Lazily resolves the libsodium-backed crypto helpers.
+ * First call triggers a ~700KB chunk download (WASM + JS wrapper);
+ * subsequent calls resolve from the module cache.
+ */
+async function loadCrypto() {
+  return import('@styrby/shared/encryption');
+}
 
 // ============================================================================
 // Constants
@@ -89,6 +98,8 @@ const senderKeyCache = new Map<string, Uint8Array>();
 export async function getOrCreateWebKeyPair(): Promise<NaClKeyPair> {
   if (cachedKeyPair) return cachedKeyPair;
 
+  const { generateKeyPair, encodeBase64, decodeBase64 } = await loadCrypto();
+
   // Try to load existing keypair from localStorage
   const stored = localStorage.getItem(KEYPAIR_STORAGE_KEY);
   if (stored) {
@@ -135,6 +146,7 @@ export async function registerWebDevice(): Promise<string | null> {
   if (existingId) return existingId;
 
   const keypair = await getOrCreateWebKeyPair();
+  const { generateFingerprint, encodeBase64 } = await loadCrypto();
   const supabase = createClient();
 
   const {
@@ -219,6 +231,7 @@ async function getSenderPublicKey(machineId: string): Promise<Uint8Array | null>
 
   if (!data?.public_key) return null;
 
+  const { decodeBase64 } = await loadCrypto();
   const publicKey = await decodeBase64(data.public_key);
   senderKeyCache.set(machineId, publicKey);
   return publicKey;
@@ -281,6 +294,7 @@ export async function tryDecryptMessage(
       return { content: null, wasEncrypted: true };
     }
 
+    const { decryptFromStorage } = await loadCrypto();
     const plaintext = await decryptFromStorage(
       contentEncrypted,
       encryptionNonce,

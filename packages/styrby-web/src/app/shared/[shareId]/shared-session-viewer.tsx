@@ -13,7 +13,11 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import { decodeBase64, decryptFromStorage } from '@styrby/shared';
+// WHY dynamic import for crypto helpers:
+// libsodium-wrappers ships ~700KB of WASM. A static import would push the
+// shared-session viewer's chunk past the 750KB CI budget. Importing inside
+// the click handler keeps the page lightweight; the chunk loads only when
+// the viewer actually attempts to decrypt.
 import type { SharedSession } from '@styrby/shared';
 import type { SharedSessionData, SharedMessageData } from '../../../app/api/shared/[shareId]/route';
 
@@ -195,6 +199,10 @@ export function SharedSessionViewer({ shareId }: SharedSessionViewerProps) {
     setDecryptError(null);
 
     try {
+      // Lazy-load crypto helpers (libsodium WASM) on demand from the
+      // dedicated subpath - keeps the chunk crypto-only.
+      const { decodeBase64, decryptFromStorage } = await import('@styrby/shared/encryption');
+
       // The key is a base64-encoded 32-byte NaCl secret key
       let secretKey: Uint8Array;
       try {

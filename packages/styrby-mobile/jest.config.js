@@ -32,6 +32,9 @@ module.exports = {
     // WHY: styrby-shared publishes ESM dist/ but jest runs in CJS mode.
     // Pointing at source lets babel-jest handle the transform.
     '^styrby-shared$': '<rootDir>/../styrby-shared/src/index.ts',
+    // Subpath: encryption module is exported separately to keep libsodium
+    // (~700KB WASM) out of bundles that don't need crypto.
+    '^styrby-shared/encryption$': '<rootDir>/../styrby-shared/src/encryption.ts',
   },
   transform: {
     // Use babel-jest with Expo's Babel config for TypeScript support

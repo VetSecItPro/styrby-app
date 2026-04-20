@@ -37,6 +37,18 @@ import sodium from 'libsodium-wrappers';
 import { encode as b64encode, decode as b64decode } from '@stablelib/base64';
 import { deriveKey } from '@/utils/deriveKey';
 
+/**
+ * Coerces a Uint8Array-like value to a fresh Uint8Array in the current realm.
+ *
+ * WHY: libsodium's input validators use `instanceof Uint8Array`. Cross-realm
+ * values (e.g. Vitest + jsdom, Node workers, VM contexts) fail that check
+ * even when the byte content is identical. Normalizing through the local
+ * Uint8Array constructor guarantees the instanceof check passes.
+ */
+function asLocalU8(buf: Uint8Array): Uint8Array {
+  return buf instanceof Uint8Array ? new Uint8Array(buf) : new Uint8Array(buf as ArrayLike<number>);
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -158,7 +170,11 @@ export async function encryptMessage(
 
   const nonce = sodium.randombytes_buf(NONCE_LENGTH);
   const plaintextBytes = new TextEncoder().encode(plaintext);
-  const ciphertext = sodium.crypto_secretbox_easy(plaintextBytes, nonce, key);
+  const ciphertext = sodium.crypto_secretbox_easy(
+    asLocalU8(plaintextBytes),
+    asLocalU8(nonce),
+    asLocalU8(key),
+  );
 
   return {
     contentEncrypted: b64encode(ciphertext),
@@ -202,7 +218,11 @@ export async function decryptMessage(
 
   let plaintextBytes: Uint8Array;
   try {
-    plaintextBytes = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key);
+    plaintextBytes = sodium.crypto_secretbox_open_easy(
+      asLocalU8(ciphertext),
+      asLocalU8(nonce),
+      asLocalU8(key),
+    );
   } catch {
     throw new Error('Decryption failed: invalid key or tampered data');
   }
