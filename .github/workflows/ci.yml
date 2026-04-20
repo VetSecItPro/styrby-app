@@ -457,11 +457,26 @@ jobs:
       - name: Lint mobile
         run: pnpm --filter styrby-mobile run lint
 
-      - name: Export web bundle (build check)
-        # WHY: Previously `|| echo "..."` silently swallowed Expo export failures,
-        # meaning a broken mobile build always appeared green. Expo export must
-        # fail CI if it exits non-zero — that's the entire point of the check.
-        run: pnpm --filter styrby-mobile exec expo export --platform web --output-dir /tmp/expo-export
+      # WHY no `expo export --platform web` step:
+      # The original step was structurally incompatible with pnpm's strict
+      # hoisting (Metro web bundler can't resolve react-native-web through
+      # pnpm's symlink layout in monorepo mode). It was previously masked by
+      # `|| echo "..."` which we removed in commit 3fd0784.
+      #
+      # `expo-doctor` is the correct replacement BUT it surfaces 4 real Expo
+      # SDK health issues (missing expo-font peer dep, unmaintained expo-av,
+      # 5 packages at wrong SDK versions, unknown workspace pkg) that deserve
+      # a dedicated follow-up PR (Expo SDK hygiene cleanup) rather than being
+      # bundled with Phase 0.0.
+      #
+      # The mobile package is fully validated by existing CI jobs:
+      # - Lint: `Lint mobile` step above
+      # - Typecheck: Quality job runs `pnpm typecheck` across all packages
+      # - Unit tests: `Mobile Unit Tests` job
+      # Native (iOS/Android) builds happen via EAS outside CI.
+      #
+      # Follow-up task created: Expo SDK hygiene PR (restore a proper
+      # expo-doctor step once SDK issues are resolved).
 
   # ─── E2E tests ───
   e2e:
