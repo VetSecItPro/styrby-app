@@ -300,11 +300,11 @@ describe('tryDecryptMessage()', () => {
 
   it('successfully decrypts a message encrypted with matching keys', async () => {
     // Generate two keypairs: sender (CLI) and recipient (web)
-    const senderKeypair = generateKeyPair();
-    const recipientKeypair = generateKeyPair();
+    const senderKeypair = await generateKeyPair();
+    const recipientKeypair = await generateKeyPair();
 
     const plaintext = 'Secret session message from CLI';
-    const { encrypted, nonce } = encryptForStorage(
+    const { encrypted, nonce } = await encryptForStorage(
       plaintext,
       recipientKeypair.publicKey,
       senderKeypair.secretKey
@@ -313,8 +313,8 @@ describe('tryDecryptMessage()', () => {
     // Set up the web device's keypair in localStorage
     const { encodeBase64 } = await import('@styrby/shared');
     const storedKeypair = JSON.stringify({
-      publicKey: encodeBase64(recipientKeypair.publicKey),
-      secretKey: encodeBase64(recipientKeypair.secretKey),
+      publicKey: await encodeBase64(recipientKeypair.publicKey),
+      secretKey: await encodeBase64(recipientKeypair.secretKey),
     });
     mockLocalStorage.getItem.mockImplementation((key: string) => {
       if (key === 'styrby_web_encryption_keypair') return storedKeypair;
@@ -322,7 +322,7 @@ describe('tryDecryptMessage()', () => {
     });
 
     // Mock Supabase returning the sender's public key
-    const senderPublicKeyBase64 = encodeBase64(senderKeypair.publicKey);
+    const senderPublicKeyBase64 = await encodeBase64(senderKeypair.publicKey);
     const chain = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
@@ -339,11 +339,11 @@ describe('tryDecryptMessage()', () => {
 
   it('returns { content: null, wasEncrypted: true } when decryption fails with wrong key', async () => {
     // Sender encrypts for a DIFFERENT recipient — we try to decrypt with our key
-    const senderKeypair = generateKeyPair();
-    const intendedRecipient = generateKeyPair(); // NOT our web key
-    const ourKeypair = generateKeyPair();        // The web device's actual key
+    const senderKeypair = await generateKeyPair();
+    const intendedRecipient = await generateKeyPair(); // NOT our web key
+    const ourKeypair = await generateKeyPair();        // The web device's actual key
 
-    const { encrypted, nonce } = encryptForStorage(
+    const { encrypted, nonce } = await encryptForStorage(
       'Private message',
       intendedRecipient.publicKey,  // Encrypted for someone else
       senderKeypair.secretKey
@@ -352,15 +352,15 @@ describe('tryDecryptMessage()', () => {
     // Set up our (wrong) keypair in localStorage
     const { encodeBase64 } = await import('@styrby/shared');
     const storedKeypair = JSON.stringify({
-      publicKey: encodeBase64(ourKeypair.publicKey),
-      secretKey: encodeBase64(ourKeypair.secretKey),
+      publicKey: await encodeBase64(ourKeypair.publicKey),
+      secretKey: await encodeBase64(ourKeypair.secretKey),
     });
     mockLocalStorage.getItem.mockImplementation((key: string) => {
       if (key === 'styrby_web_encryption_keypair') return storedKeypair;
       return null;
     });
 
-    const senderPublicKeyBase64 = encodeBase64(senderKeypair.publicKey);
+    const senderPublicKeyBase64 = await encodeBase64(senderKeypair.publicKey);
     const chain = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
@@ -377,17 +377,17 @@ describe('tryDecryptMessage()', () => {
   });
 
   it('caches the sender public key so Supabase is only queried once per machineId', async () => {
-    const senderKeypair = generateKeyPair();
-    const recipientKeypair = generateKeyPair();
+    const senderKeypair = await generateKeyPair();
+    const recipientKeypair = await generateKeyPair();
 
     const { encodeBase64 } = await import('@styrby/shared');
     const storedKeypair = JSON.stringify({
-      publicKey: encodeBase64(recipientKeypair.publicKey),
-      secretKey: encodeBase64(recipientKeypair.secretKey),
+      publicKey: await encodeBase64(recipientKeypair.publicKey),
+      secretKey: await encodeBase64(recipientKeypair.secretKey),
     });
     mockLocalStorage.getItem.mockReturnValue(storedKeypair);
 
-    const senderPublicKeyBase64 = encodeBase64(senderKeypair.publicKey);
+    const senderPublicKeyBase64 = await encodeBase64(senderKeypair.publicKey);
     const chain = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
@@ -397,12 +397,12 @@ describe('tryDecryptMessage()', () => {
 
     const { tryDecryptMessage } = await freshEncryption();
 
-    const { encrypted: e1, nonce: n1 } = encryptForStorage(
+    const { encrypted: e1, nonce: n1 } = await encryptForStorage(
       'msg1',
       recipientKeypair.publicKey,
       senderKeypair.secretKey
     );
-    const { encrypted: e2, nonce: n2 } = encryptForStorage(
+    const { encrypted: e2, nonce: n2 } = await encryptForStorage(
       'msg2',
       recipientKeypair.publicKey,
       senderKeypair.secretKey
