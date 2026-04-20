@@ -827,6 +827,40 @@ export function SettingsClient({
               </div>
             )}
           </div>
+
+          {/* Passkeys */}
+          {/*
+           * WHY a link to a sub-page vs inline:
+           * Passkey management (list / enroll / revoke / rename) is complex enough
+           * to warrant its own page. Inline would bloat this file past the 400-line
+           * limit and add unnecessary state to the already-large SettingsClient.
+           */}
+          <Link
+            href="/dashboard/settings/account/passkeys"
+            className="px-4 py-4 flex items-center justify-between hover:bg-zinc-800/50 transition-colors"
+            aria-label="Manage passkeys"
+          >
+            <div>
+              <p className="text-sm font-medium text-zinc-100">Passkeys</p>
+              <p className="text-sm text-zinc-500">
+                Sign in with Face ID, Touch ID, or your device PIN
+              </p>
+            </div>
+            <svg
+              className="h-5 w-5 text-zinc-500"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
+          </Link>
         </div>
       </section>
 

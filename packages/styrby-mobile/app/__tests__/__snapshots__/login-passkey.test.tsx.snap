@@ -1,0 +1,169 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Login screen — passkey support snapshot — initial login state with passkey button 1`] = `
+<View
+  className="flex-1 bg-background"
+>
+  <View
+    className="items-center pt-20 pb-8"
+  >
+    <View
+      className="w-16 h-16 rounded-2xl bg-gradient-to-br from-orange-500 to-orange-600 items-center justify-center mb-4"
+    >
+      <Text
+        className="text-3xl font-bold text-white"
+      >
+        S
+      </Text>
+    </View>
+    <Text
+      className="text-white text-2xl font-bold"
+    >
+      Welcome to Styrby
+    </Text>
+    <Text
+      className="text-zinc-500 mt-2"
+    >
+      Sign in to continue
+    </Text>
+  </View>
+  <View
+    className="px-8 flex-1"
+  >
+    <View
+      className="mb-4"
+    >
+      <Text
+        className="text-zinc-400 text-sm mb-2"
+      >
+        Email
+      </Text>
+      <View
+        className="flex-row items-center bg-background-secondary rounded-xl px-4"
+      >
+        <Ionicons
+          color="#71717a"
+          name="mail-outline"
+          size={20}
+        />
+        <TextInput
+          accessibilityLabel="Email address"
+          autoCapitalize="none"
+          autoComplete="email"
+          className="flex-1 text-white text-base py-4 ml-3"
+          keyboardType="email-address"
+          onChangeText={[Function]}
+          placeholder="you@example.com"
+          placeholderTextColor="#71717a"
+          value=""
+        />
+      </View>
+    </View>
+    <Pressable
+      accessibilityLabel="Send magic link"
+      accessibilityRole="button"
+      className="py-4 rounded-xl items-center bg-brand"
+      disabled={false}
+      onPress={[Function]}
+    >
+      <Text
+        className="text-white font-semibold text-base"
+      >
+        Send Magic Link
+      </Text>
+    </Pressable>
+    <View
+      className="flex-row justify-center mt-4"
+    >
+      <Pressable
+        onPress={[Function]}
+      >
+        <Text
+          className="text-zinc-500"
+        >
+          Use password instead?
+           
+          <Text
+            className="text-brand"
+          >
+            Sign in
+          </Text>
+        </Text>
+      </Pressable>
+    </View>
+    <View
+      className="flex-row items-center my-8"
+    >
+      <View
+        className="flex-1 h-px bg-zinc-800"
+      />
+      <Text
+        className="text-zinc-600 mx-4"
+      >
+        or
+      </Text>
+      <View
+        className="flex-1 h-px bg-zinc-800"
+      />
+    </View>
+    <Pressable
+      accessibilityLabel="Sign in with passkey"
+      accessibilityRole="button"
+      className="flex-row items-center justify-center py-4 rounded-xl bg-amber-500/10 border border-amber-500/30 mb-3"
+      disabled={false}
+      onPress={[Function]}
+    >
+      <Ionicons
+        color="#f59e0b"
+        name="key-outline"
+        size={20}
+      />
+      <Text
+        className="text-amber-400 font-semibold text-base ml-3"
+      >
+        Continue with Passkey
+      </Text>
+    </Pressable>
+    <Pressable
+      accessibilityLabel="Continue with GitHub"
+      accessibilityRole="button"
+      className="flex-row items-center justify-center py-4 rounded-xl bg-zinc-800"
+      disabled={false}
+      onPress={[Function]}
+    >
+      <Ionicons
+        color="white"
+        name="logo-github"
+        size={20}
+      />
+      <Text
+        className="text-white font-semibold text-base ml-3"
+      >
+        Continue with GitHub
+      </Text>
+    </Pressable>
+  </View>
+  <View
+    className="px-8 pb-8"
+  >
+    <Text
+      className="text-zinc-600 text-center text-sm"
+    >
+      By continuing, you agree to our
+       
+      <Text
+        className="text-zinc-400"
+      >
+        Terms of Service
+      </Text>
+       and
+       
+      <Text
+        className="text-zinc-400"
+      >
+        Privacy Policy
+      </Text>
+    </Text>
+  </View>
+</View>
+`;
