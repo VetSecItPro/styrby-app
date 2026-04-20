@@ -1,108 +1,156 @@
-# Styrby
+# styrby-cli
 
-**One app to control all your AI coding agents from your phone.**
+Control AI coding agents from your phone.
 
-Control Claude Code, Codex, Gemini CLI, OpenCode, and Aider — all from a single mobile app. End-to-end encrypted. Your code never leaves your machine.
+## Purpose
 
-## Why Styrby?
+`styrby-cli` is the bridge between your desktop AI coding agent and the Styrby mobile app. Install it on any machine running an AI agent, authenticate once, and your phone becomes a real-time remote control - read session output, send messages, approve tool calls, and monitor costs from anywhere.
 
-- **Multi-agent** — 5 AI agents, one interface. No vendor lock-in.
-- **E2E encrypted** — XSalsa20-Poly1305 encryption with per-session keys. We never see your code.
-- **Offline resilient** — Commands queue when you're offline and sync automatically. Your laptop can sleep.
-- **Cost tracking** — Real-time token usage, budget alerts, and cross-agent cost comparison.
-- **Push notifications** — Know when sessions complete, permissions need approval, or budgets are hit.
+**Who uses it:** Developers who run AI agents on a desktop or server and want mobile visibility without leaving their current environment.
 
-## Install
+## Key Features
+
+- Connects 11 AI agents: Claude Code, Codex, Gemini CLI, OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, Droid
+- End-to-end encrypted message relay (TweetNaCl) - the server never sees plaintext
+- QR-code pairing - one scan to link CLI to mobile app
+- Real-time streaming of agent output to mobile via WebSocket relay
+- Offline command queue - commands sent from mobile are delivered when reconnected
+- Cost tracking per session, per token, per model
+- Daemon mode for persistent background operation (`styrby daemon`)
+- Machine key management - register/deregister devices with public-key crypto
+
+## Setup
+
+### Prerequisites
+
+- Node.js >= 20.0.0
+- `pnpm` (monorepo package manager)
+- An active Styrby account and subscription (see [styrbyapp.com/pricing](https://styrbyapp.com/pricing))
+
+### Install (end users)
 
 ```bash
-npm install -g styrby
-```
-
-## Quick Start
-
-```bash
-# First-time setup (auth + mobile pairing, ~60 seconds)
+npm install -g styrby-cli
 styrby onboard
-
-# Start a coding session with Claude Code
-styrby start --agent claude
-
-# Or use a different agent
-styrby start --agent codex
-styrby start --agent gemini
 ```
 
-## Supported Agents
+### Install (monorepo development)
 
-| Agent | Provider | Install |
-|-------|----------|---------|
-| Claude Code | Anthropic | `styrby install claude` |
-| Codex | OpenAI | `styrby install codex` |
-| Gemini CLI | Google | `styrby install gemini` |
-| OpenCode | Open Source | `styrby install opencode` |
-| Aider | Open Source | `styrby install aider` |
+```bash
+# From repo root
+pnpm install
+cd packages/styrby-cli
+pnpm dev           # Run CLI in dev mode via tsx
+pnpm build         # Compile to dist/
+pnpm test          # Run Vitest test suite
+pnpm typecheck     # TypeScript type-check only
+```
+
+### First run
+
+```bash
+styrby onboard     # Authenticate + pair with mobile app
+styrby             # Start interactive agent session
+styrby daemon      # Run as background daemon
+```
 
 ## Commands
 
+### Build scripts
+
+| Script | Command | Purpose |
+|--------|---------|---------|
+| `dev` | `pnpm dev` | Run CLI with hot-reload via tsx |
+| `build` | `pnpm build` | Compile TypeScript + bundle to `dist/` |
+| `build:types` | `pnpm build:types` | Emit `.d.ts` declaration files only |
+| `typecheck` | `pnpm typecheck` | Type-check without emitting |
+| `test` | `pnpm test` | Run Vitest test suite |
+| `audit` | `pnpm audit` | Check for high-severity npm vulnerabilities |
+
+### CLI commands (runtime)
+
+| Command | Purpose |
+|---------|---------|
+| `styrby` | Start interactive session (agent auto-detected) |
+| `styrby onboard` | Authenticate and pair with mobile app |
+| `styrby daemon` | Run in background daemon mode |
+| `styrby stop` | Stop running daemon |
+| `styrby doctor` | Diagnose connection and config issues |
+| `styrby logs` | Tail daemon logs |
+| `styrby cloud` | Manage cloud sync settings |
+| `styrby checkpoint` | Save a named checkpoint in the current session |
+| `styrby template` | Browse and apply prompt templates |
+| `styrby upgrade` | Check for and apply CLI updates |
+| `styrby export` | Export session history |
+| `styrby install-agent` | Install a supported AI agent |
+
+## Architecture
+
 ```
-styrby                  Interactive mode
-styrby onboard          Setup wizard (~60 seconds)
-styrby start            Start an agent session
-styrby install <agent>  Install an AI agent
-styrby pair             Pair with mobile app (QR code)
-styrby costs            Show token usage & costs
-styrby costs --today    Today's costs only
-styrby costs --month    Current month's costs
-styrby doctor           Run system health checks
-styrby daemon install   Auto-start on boot
-styrby template list    Manage prompt templates
-styrby help             Show help
+src/
+├── agent/          # Agent abstraction layer - unified interface across all 11 agents
+├── claude/         # Claude Code integration
+├── codex/          # OpenAI Codex integration
+├── gemini/         # Gemini CLI integration
+├── opencode/       # OpenCode integration
+├── aider/          # Aider integration
+├── goose/          # Goose integration
+├── amp/            # Amp integration
+├── crush/          # Crush integration
+├── kilo/           # Kilo integration
+├── kiro/           # Kiro integration
+├── droid/          # Droid integration
+├── commands/       # CLI sub-command implementations
+├── modules/        # Core modules: encryption, file watching, proxy, watcher
+├── parsers/        # Agent output parsers (tool calls, cost lines, diff blocks)
+├── session/        # Session lifecycle, storage, E2E encryption
+├── ui/             # Ink-based terminal UI components
+├── costs/          # Token cost tracking and aggregation
+├── auth/           # Supabase auth flows
+├── api/            # HTTP API client for Styrby backend
+├── daemon/         # Background daemon process management
+├── telemetry/      # Usage telemetry (opt-in)
+├── utils/          # Shared utilities
+├── configuration.ts # Config loading and validation
+├── env.ts          # Environment variable validation
+├── persistence.ts  # Local state persistence
+└── projectPath.ts  # Project directory resolution
 ```
 
-## How It Works
+## Environment Variables
 
-Styrby is a **relay layer** — it doesn't do AI coding itself. Instead:
+Environment variables are documented in `docs/infrastructure/environment-variables.md` (local-only planning doc, gitignored - not in the public repo). For development, copy `.env.example` from the repo root and fill in values.
 
-1. You spawn an agent (Claude Code, Codex, etc.) on your machine
-2. Styrby captures stdin/stdout and encrypts messages end-to-end
-3. Your phone connects via Supabase Realtime
-4. You type on your phone → agent executes on your machine
-5. Results are encrypted before leaving your machine → decrypted only on your phone
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `SUPABASE_URL` | Yes | Supabase project URL |
+| `SUPABASE_ANON_KEY` | Yes | Supabase public anon key |
+| `STYRBY_API_URL` | Yes | Relay server URL |
+| `STYRBY_TOKEN` | Set at runtime | Machine auth token (written by `styrby onboard`) |
 
-```
-Phone (Styrby App)
-      │
-      │ E2E Encrypted via Supabase Realtime
-      ▼
-Styrby CLI (this package)
-      │
-      │ stdin/stdout
-      ▼
-AI Coding Agent (Claude/Codex/Gemini/OpenCode/Aider)
-```
+## Relationship to Other Packages
 
-## Security
+| Package | Relationship |
+|---------|-------------|
+| `@styrby/shared` | Runtime dependency - imports shared types, relay protocol, pricing, and error classifier |
+| `styrby-web` | Companion web dashboard - shares the same Supabase project and relay |
+| `styrby-mobile` | Primary consumer - CLI sends encrypted messages that the mobile app displays |
 
-- **End-to-end encryption** — TweetNaCl (XSalsa20-Poly1305) with HMAC-SHA512 key derivation
-- **Per-session keys** — Each session generates unique keys bound to user + machine + session
-- **Zero-knowledge relay** — Styrby servers forward ciphertext only, never plaintext
-- **No third-party messaging** — Unlike solutions routing through Telegram or Discord, your data stays on your infrastructure
+## Attribution
 
-## Requirements
+Portions of `src/agent/`, `src/claude/`, `src/codex/`, and `src/gemini/` are derived from [Happy Coder](https://github.com/slopus/happy) (MIT License). The required copyright notice is preserved in `packages/styrby-cli/LICENSE`. Styrby as a whole is proprietary software owned by Steel Motion LLC.
 
-- Node.js 20+
-- One of the supported AI agents installed
-- Styrby mobile app (iOS/Android) or web dashboard
+## Contributing
 
-## Links
+Styrby is proprietary software. Contributions are by invitation only.
 
-- **Website:** https://styrbyapp.com
-- **Docs:** https://styrbyapp.com/docs
-- **Security:** https://styrbyapp.com/security
-- **Issues:** https://github.com/VetSecItPro/styrby-app/issues
+If you are an invited contributor:
 
-## License
+1. **Tests first.** No production code without a failing test that the code fixes.
+2. **JSDoc every function.** Undocumented code is incomplete code - see the JSDoc standard in CLAUDE.md (available via repo onboarding docs or your team lead).
+3. **400-line file limit.** If a file exceeds 400 lines, split it before opening a PR.
+4. **No monoliths.** Pages are orchestrators only. UI sections belong in `src/ui/` components.
+5. **Fix errors immediately.** TypeScript errors, lint warnings, and test failures are not "for later."
+6. **Feature branches only.** No direct commits to `main`. Open a PR and wait for CI.
 
-Proprietary - All Rights Reserved. See [LICENSE](./LICENSE) for details.
-
-© 2026 Steel Motion LLC
+Report security issues to security@steelmotionllc.com - see `SECURITY.md`.
