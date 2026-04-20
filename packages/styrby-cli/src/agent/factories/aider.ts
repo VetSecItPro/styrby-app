@@ -14,12 +14,10 @@
  * @module factories/aider
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type {
   AgentBackend,
-  AgentMessage,
-  AgentMessageHandler,
   SessionId,
   StartSessionResult,
   AgentFactoryOptions,
@@ -27,6 +25,7 @@ import type {
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, validateExtraArgs } from '@/utils/safeEnv';
+import { StreamingAgentBackendBase } from '../StreamingAgentBackendBase';
 
 /**
  * Options for creating an Aider backend
@@ -58,13 +57,19 @@ export interface AiderBackendOptions extends AgentFactoryOptions {
 }
 
 /**
- * Result of creating an Aider backend
+ * Result of creating an Aider backend.
+ *
+ * Extends the shared `AgentFactoryResult` contract: existing callers that
+ * destructure only `{ backend, model }` continue to work; new callers may
+ * read the optional `metadata` field.
  */
 export interface AiderBackendResult {
   /** The created AgentBackend instance */
   backend: AgentBackend;
   /** The resolved model that will be used */
   model: string | undefined;
+  /** Optional capability/source metadata (additive, backward-compatible). */
+  metadata?: import('../core').AgentFactoryMetadata;
 }
 
 /**
@@ -108,52 +113,14 @@ function parseFileEdit(line: string): { path: string; action: string } | null {
  * Spawns Aider as a subprocess and parses its stdout output.
  * Each prompt creates a new Aider process (ephemeral sessions).
  */
-class AiderBackend implements AgentBackend {
-  private listeners: AgentMessageHandler[] = [];
-  private process: ChildProcess | null = null;
-  private disposed = false;
-  private sessionId: SessionId | null = null;
+class AiderBackend extends StreamingAgentBackendBase {
+  protected readonly logTag = 'AiderBackend';
   private outputBuffer = '';
   private inputTokens = 0;
   private outputTokens = 0;
 
-  constructor(private options: AiderBackendOptions) {}
-
-  /**
-   * Register a handler for agent messages.
-   *
-   * @param handler - Function to call when messages are received
-   */
-  onMessage(handler: AgentMessageHandler): void {
-    this.listeners.push(handler);
-  }
-
-  /**
-   * Remove a previously registered message handler.
-   *
-   * @param handler - The handler to remove
-   */
-  offMessage(handler: AgentMessageHandler): void {
-    const index = this.listeners.indexOf(handler);
-    if (index !== -1) {
-      this.listeners.splice(index, 1);
-    }
-  }
-
-  /**
-   * Emit a message to all registered handlers.
-   *
-   * @param msg - The message to emit
-   */
-  private emit(msg: AgentMessage): void {
-    if (this.disposed) return;
-    for (const listener of this.listeners) {
-      try {
-        listener(msg);
-      } catch (error) {
-        logger.warn('[AiderBackend] Error in message handler:', error);
-      }
-    }
+  constructor(private options: AiderBackendOptions) {
+    super();
   }
 
   /**
@@ -373,80 +340,19 @@ class AiderBackend implements AgentBackend {
       logger.debug('[AiderBackend] Cancelling Aider process');
       this.process.kill('SIGTERM');
 
-      // Give it a moment to clean up, then force kill if needed
-      setTimeout(() => {
-        if (this.process && !this.process.killed) {
-          this.process.kill('SIGKILL');
-        }
-      }, 3000);
+      // WHY: Track the escalation timer via base class so it is cleared on
+      // clean process exit, double-cancel, or dispose. Prevents the 3-second
+      // SIGKILL timer from keeping the event loop alive after the process
+      // already exited. (SOC2 CC7.2 reliability.)
+      this.scheduleForceKill();
     }
 
     this.emit({ type: 'status', status: 'idle' });
   }
 
-  /**
-   * Respond to a permission request.
-   *
-   * Aider uses --yes flag for auto-confirmation, so this is a no-op.
-   * Permission handling would require interactive mode.
-   *
-   * @param requestId - The ID of the permission request
-   * @param approved - Whether the permission was granted
-   */
-  async respondToPermission?(requestId: string, approved: boolean): Promise<void> {
-    // Aider uses --yes flag, so permissions are auto-approved
-    this.emit({
-      type: 'permission-response',
-      id: requestId,
-      approved,
-    });
-  }
-
-  /**
-   * Wait for the current response to complete.
-   *
-   * Since Aider runs synchronously per prompt, this waits for the process
-   * to exit or times out.
-   *
-   * @param timeoutMs - Maximum time to wait in milliseconds (default: 120000)
-   */
-  async waitForResponseComplete(timeoutMs: number = 120000): Promise<void> {
-    if (!this.process) {
-      return; // No active process
-    }
-
-    return new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Timeout waiting for Aider response'));
-      }, timeoutMs);
-
-      const checkComplete = () => {
-        if (!this.process || this.process.killed) {
-          clearTimeout(timeout);
-          resolve();
-        } else {
-          setTimeout(checkComplete, 100);
-        }
-      };
-
-      checkComplete();
-    });
-  }
-
-  /**
-   * Clean up resources and close the backend.
-   */
-  async dispose(): Promise<void> {
-    this.disposed = true;
-
-    if (this.process) {
-      this.process.kill('SIGTERM');
-      this.process = null;
-    }
-
-    this.listeners = [];
-    logger.debug('[AiderBackend] Disposed');
-  }
+  // respondToPermission, waitForResponseComplete, and dispose are inherited
+  // from StreamingAgentBackendBase. The base class dispose() clears listeners,
+  // clears the cancel timer, and kills the process (SOC2 CC7.2).
 }
 
 /**
@@ -480,6 +386,11 @@ export function createAiderBackend(options: AiderBackendOptions): AiderBackendRe
   return {
     backend: new AiderBackend(options),
     model: options.model,
+    metadata: {
+      modelSource: options.model ? 'explicit' : 'default',
+      supportsStreaming: true,
+      supportsTools: true,
+    },
   };
 }
 

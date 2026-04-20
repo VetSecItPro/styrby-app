@@ -22,19 +22,19 @@
  * @module factories/amp
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type {
   AgentBackend,
-  AgentMessage,
-  AgentMessageHandler,
   SessionId,
   StartSessionResult,
   AgentFactoryOptions,
+  AgentFactoryMetadata,
 } from '../core';
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
+import { StreamingAgentBackendBase } from '../StreamingAgentBackendBase';
 
 // ============================================================================
 // Types
@@ -88,12 +88,17 @@ export interface AmpBackendOptions extends AgentFactoryOptions {
 
 /**
  * Result of creating an Amp backend.
+ *
+ * Extends the shared `AgentFactoryResult` contract: `{ backend, model }`
+ * stay the canonical fields; `metadata` is additive and optional.
  */
 export interface AmpBackendResult {
   /** The created AgentBackend instance */
   backend: AgentBackend;
   /** The resolved model that will be used */
   model: string | undefined;
+  /** Optional capability / source metadata. */
+  metadata?: AgentFactoryMetadata;
 }
 
 // ============================================================================
@@ -231,11 +236,8 @@ function isAmpFileEditTool(toolName: string): boolean {
  * messages. Handles deep mode sub-agent events, token accumulation across
  * sub-agents, and session persistence.
  */
-class AmpBackend implements AgentBackend {
-  private listeners: AgentMessageHandler[] = [];
-  private process: ChildProcess | null = null;
-  private disposed = false;
-  private sessionId: SessionId | null = null;
+class AmpBackend extends StreamingAgentBackendBase {
+  protected readonly logTag = 'AmpBackend';
   private ampSessionId: string | null = null;
   private lineBuffer = '';
   private inputTokens = 0;
@@ -247,46 +249,8 @@ class AmpBackend implements AgentBackend {
   // status messages (e.g., "Running 3 sub-agents") on the mobile app.
   private activeSubAgents = new Set<string>();
 
-  constructor(private options: AmpBackendOptions) {}
-
-  /**
-   * Register a handler for agent messages.
-   *
-   * @param handler - Function to call when messages are received
-   */
-  onMessage(handler: AgentMessageHandler): void {
-    this.listeners.push(handler);
-  }
-
-  /**
-   * Remove a previously registered message handler.
-   *
-   * @param handler - The handler to remove
-   */
-  offMessage(handler: AgentMessageHandler): void {
-    const index = this.listeners.indexOf(handler);
-    if (index !== -1) {
-      this.listeners.splice(index, 1);
-    }
-  }
-
-  /**
-   * Emit a message to all registered handlers.
-   *
-   * Catches errors from individual handlers to prevent one bad handler
-   * from breaking the event pipeline.
-   *
-   * @param msg - The message to emit
-   */
-  private emit(msg: AgentMessage): void {
-    if (this.disposed) return;
-    for (const listener of this.listeners) {
-      try {
-        listener(msg);
-      } catch (error) {
-        logger.warn('[AmpBackend] Error in message handler:', error);
-      }
-    }
+  constructor(private options: AmpBackendOptions) {
+    super();
   }
 
   /**
@@ -664,12 +628,9 @@ class AmpBackend implements AgentBackend {
     if (this.process) {
       logger.debug('[AmpBackend] Cancelling Amp process');
       this.process.kill('SIGTERM');
-
-      setTimeout(() => {
-        if (this.process && !this.process.killed) {
-          this.process.kill('SIGKILL');
-        }
-      }, 3000);
+      // WHY: Track the SIGKILL escalation timer via the base class so it is
+      // cleared on clean exit / dispose / double-cancel. SOC2 CC7.2.
+      this.scheduleForceKill();
     }
 
     this.activeSubAgents.clear();
@@ -705,56 +666,19 @@ class AmpBackend implements AgentBackend {
     }
   }
 
-  /**
-   * Wait for the current Amp response to complete.
-   *
-   * WHY: In deep mode, Amp may run for several minutes analyzing a large
-   * codebase with multiple sub-agents. The default 120s timeout is sufficient
-   * for most codebases, but callers can pass a longer timeout for large repos.
-   *
-   * @param timeoutMs - Maximum wait time in milliseconds (default: 120000)
-   * @throws {Error} When the timeout is exceeded before completion
-   */
-  async waitForResponseComplete(timeoutMs: number = 120000): Promise<void> {
-    if (!this.process) {
-      return;
-    }
-
-    return new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Timeout waiting for Amp response'));
-      }, timeoutMs);
-
-      const poll = () => {
-        if (!this.process || this.process.killed) {
-          clearTimeout(timeout);
-          resolve();
-        } else {
-          setTimeout(poll, 100);
-        }
-      };
-
-      poll();
-    });
-  }
+  // waitForResponseComplete inherited from StreamingAgentBackendBase.
 
   /**
-   * Clean up resources and close the backend.
+   * Clean up Amp-specific state and defer the rest to the base class.
    *
-   * Terminates any active Amp process (and its sub-agents), removes all
-   * message listeners, and prevents further operations.
+   * Base dispose() (StreamingAgentBackendBase) handles: SIGTERM of the active
+   * process, clearing the cancel timer (SOC2 CC7.2 event-loop hygiene), and
+   * dropping application-level listener references so handler closures are
+   * GC-eligible.
    */
   async dispose(): Promise<void> {
-    this.disposed = true;
-
-    if (this.process) {
-      this.process.kill('SIGTERM');
-      this.process = null;
-    }
-
     this.activeSubAgents.clear();
-    this.listeners = [];
-    logger.debug('[AmpBackend] Disposed');
+    await super.dispose();
   }
 }
 
@@ -807,6 +731,12 @@ export function createAmpBackend(options: AmpBackendOptions): AmpBackendResult {
   return {
     backend: new AmpBackend(options),
     model: options.model,
+    metadata: {
+      modelSource: options.model ? 'explicit' : 'default',
+      supportsStreaming: true,
+      supportsTools: true,
+      deepMode: !!options.deepMode,
+    },
   };
 }
 

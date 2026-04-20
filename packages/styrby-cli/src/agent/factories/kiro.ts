@@ -22,19 +22,19 @@
  * @module factories/kiro
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type {
   AgentBackend,
-  AgentMessage,
-  AgentMessageHandler,
   SessionId,
   StartSessionResult,
   AgentFactoryOptions,
+  AgentFactoryMetadata,
 } from '../core';
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
+import { StreamingAgentBackendBase } from '../StreamingAgentBackendBase';
 
 // ============================================================================
 // Constants
@@ -106,6 +106,8 @@ export interface KiroBackendResult {
   backend: AgentBackend;
   /** The resolved model that will be used */
   model: string | undefined;
+  /** Optional capability / source metadata (additive, backward-compatible). */
+  metadata?: AgentFactoryMetadata;
 }
 
 // ============================================================================
@@ -225,11 +227,8 @@ function isKiroFileEditTool(toolName: string): boolean {
  * Handles the credit-based cost model by converting credits to USD for unified
  * cost reporting across all agent types in the Styrby dashboard.
  */
-class KiroBackend implements AgentBackend {
-  private listeners: AgentMessageHandler[] = [];
-  private process: ChildProcess | null = null;
-  private disposed = false;
-  private sessionId: SessionId | null = null;
+class KiroBackend extends StreamingAgentBackendBase {
+  protected readonly logTag = 'KiroBackend';
   private lineBuffer = '';
   // WHY: Kiro uses credits, not tokens. We track credits separately and convert
   // to USD for unified cost display. Token counts are approximate estimates
@@ -239,46 +238,8 @@ class KiroBackend implements AgentBackend {
   private outputTokens = 0;
   private totalCostUsd = 0;
 
-  constructor(private options: KiroBackendOptions) {}
-
-  /**
-   * Register a handler for agent messages.
-   *
-   * @param handler - Function to call when messages are received
-   */
-  onMessage(handler: AgentMessageHandler): void {
-    this.listeners.push(handler);
-  }
-
-  /**
-   * Remove a previously registered message handler.
-   *
-   * @param handler - The handler to remove
-   */
-  offMessage(handler: AgentMessageHandler): void {
-    const index = this.listeners.indexOf(handler);
-    if (index !== -1) {
-      this.listeners.splice(index, 1);
-    }
-  }
-
-  /**
-   * Emit a message to all registered handlers.
-   *
-   * Guards against handler errors — a single broken handler must not
-   * prevent other handlers from receiving the message.
-   *
-   * @param msg - The message to emit
-   */
-  private emit(msg: AgentMessage): void {
-    if (this.disposed) return;
-    for (const listener of this.listeners) {
-      try {
-        listener(msg);
-      } catch (error) {
-        logger.warn('[KiroBackend] Error in message handler:', error);
-      }
-    }
+  constructor(private options: KiroBackendOptions) {
+    super();
   }
 
   /**
@@ -638,14 +599,12 @@ class KiroBackend implements AgentBackend {
     if (this.process) {
       logger.debug('[KiroBackend] Cancelling Kiro process');
       this.process.kill('SIGTERM');
-
-      // WHY: Give Kiro 3 seconds to cleanly close its AWS API connections before
-      // forcing a kill. This prevents resource leaks in the Kiro process manager.
-      setTimeout(() => {
-        if (this.process && !this.process.killed) {
-          this.process.kill('SIGKILL');
-        }
-      }, 3000);
+      // WHY: Give Kiro 3 seconds to cleanly close its AWS API connections
+      // before forcing a kill. This prevents resource leaks in the Kiro
+      // process manager. The escalation timer is tracked by the base class
+      // so it is cancelled on clean exit / dispose / double-cancel
+      // (SOC2 CC7.2 event-loop hygiene).
+      this.scheduleForceKill();
     }
 
     this.emit({ type: 'status', status: 'idle' });
@@ -678,52 +637,9 @@ class KiroBackend implements AgentBackend {
     }
   }
 
-  /**
-   * Wait for the current Kiro response to complete.
-   *
-   * @param timeoutMs - Maximum wait time in milliseconds (default: 120000)
-   * @throws {Error} When the timeout is exceeded before completion
-   */
-  async waitForResponseComplete(timeoutMs: number = 120000): Promise<void> {
-    if (!this.process) {
-      return;
-    }
-
-    return new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Timeout waiting for Kiro response'));
-      }, timeoutMs);
-
-      const poll = () => {
-        if (!this.process || this.process.killed) {
-          clearTimeout(timeout);
-          resolve();
-        } else {
-          setTimeout(poll, 100);
-        }
-      };
-
-      poll();
-    });
-  }
-
-  /**
-   * Clean up resources and close the backend.
-   *
-   * Terminates any active Kiro process, removes all message listeners,
-   * and prevents further operations on this backend instance.
-   */
-  async dispose(): Promise<void> {
-    this.disposed = true;
-
-    if (this.process) {
-      this.process.kill('SIGTERM');
-      this.process = null;
-    }
-
-    this.listeners = [];
-    logger.debug('[KiroBackend] Disposed');
-  }
+  // waitForResponseComplete and dispose inherited from
+  // StreamingAgentBackendBase. Base dispose() clears the listener array, the
+  // cancel timer (SOC2 CC7.2), and SIGTERMs the process.
 }
 
 // ============================================================================
@@ -772,6 +688,11 @@ export function createKiroBackend(options: KiroBackendOptions): KiroBackendResul
   return {
     backend: new KiroBackend(options),
     model: options.model,
+    metadata: {
+      modelSource: options.model ? 'explicit' : 'default',
+      supportsStreaming: true,
+      supportsTools: true,
+    },
   };
 }
 

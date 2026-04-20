@@ -67,3 +67,13 @@ export {
   isPermissionRequestMessage,
   getMessageText,
 } from './AgentMessage';
+
+// ============================================================================
+// Shared factory result type (additive, backward-compatible)
+// ============================================================================
+
+export type {
+  AgentFactoryResult,
+  AgentFactoryMetadata,
+  ModelSource,
+} from './types';

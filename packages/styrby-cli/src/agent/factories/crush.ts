@@ -21,19 +21,19 @@
  * @module factories/crush
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type {
   AgentBackend,
-  AgentMessage,
-  AgentMessageHandler,
   SessionId,
   StartSessionResult,
   AgentFactoryOptions,
+  AgentFactoryMetadata,
 } from '../core';
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
+import { StreamingAgentBackendBase } from '../StreamingAgentBackendBase';
 
 // ============================================================================
 // Types
@@ -92,6 +92,8 @@ export interface CrushBackendResult {
   backend: AgentBackend;
   /** The resolved model that will be used */
   model: string | undefined;
+  /** Optional capability / source metadata (additive, backward-compatible). */
+  metadata?: AgentFactoryMetadata;
 }
 
 // ============================================================================
@@ -230,11 +232,8 @@ function extractCrushFilePath(args?: Record<string, unknown>): string | null {
  * structured events. Handles session lifecycle, cost tracking, and file edit
  * detection from charm-style tool names.
  */
-class CrushBackend implements AgentBackend {
-  private listeners: AgentMessageHandler[] = [];
-  private process: ChildProcess | null = null;
-  private disposed = false;
-  private sessionId: SessionId | null = null;
+class CrushBackend extends StreamingAgentBackendBase {
+  protected readonly logTag = 'CrushBackend';
   private lineBuffer = '';
   private inputTokens = 0;
   private outputTokens = 0;
@@ -242,46 +241,8 @@ class CrushBackend implements AgentBackend {
   private cacheWriteTokens = 0;
   private totalCostUsd = 0;
 
-  constructor(private options: CrushBackendOptions) {}
-
-  /**
-   * Register a handler for agent messages.
-   *
-   * @param handler - Function to call when messages are received
-   */
-  onMessage(handler: AgentMessageHandler): void {
-    this.listeners.push(handler);
-  }
-
-  /**
-   * Remove a previously registered message handler.
-   *
-   * @param handler - The handler to remove
-   */
-  offMessage(handler: AgentMessageHandler): void {
-    const index = this.listeners.indexOf(handler);
-    if (index !== -1) {
-      this.listeners.splice(index, 1);
-    }
-  }
-
-  /**
-   * Emit a message to all registered handlers.
-   *
-   * Guards against individual handler errors to prevent one bad handler
-   * from breaking the entire event pipeline.
-   *
-   * @param msg - The message to emit
-   */
-  private emit(msg: AgentMessage): void {
-    if (this.disposed) return;
-    for (const listener of this.listeners) {
-      try {
-        listener(msg);
-      } catch (error) {
-        logger.warn('[CrushBackend] Error in message handler:', error);
-      }
-    }
+  constructor(private options: CrushBackendOptions) {
+    super();
   }
 
   /**
@@ -637,14 +598,12 @@ class CrushBackend implements AgentBackend {
       logger.debug('[CrushBackend] Cancelling Crush process');
       this.process.kill('SIGTERM');
 
-      // WHY: Give Crush 3 seconds to clean up the TUI terminal state before
+      // WHY: Give Crush 3 seconds to clean up its TUI terminal state before
       // force-killing. If we SIGKILL immediately, the terminal may be left in
-      // raw mode, which corrupts the user's shell session.
-      setTimeout(() => {
-        if (this.process && !this.process.killed) {
-          this.process.kill('SIGKILL');
-        }
-      }, 3000);
+      // raw mode, which corrupts the user's shell session. The escalation
+      // timer is tracked by the base class so it is cancelled on clean exit,
+      // double-cancel, or dispose (SOC2 CC7.2 event-loop hygiene).
+      this.scheduleForceKill();
     }
 
     this.emit({ type: 'status', status: 'idle' });
@@ -676,55 +635,9 @@ class CrushBackend implements AgentBackend {
     }
   }
 
-  /**
-   * Wait for the current Crush response to complete.
-   *
-   * Polls for process exit. Resolves immediately if no process is running.
-   *
-   * @param timeoutMs - Maximum wait time in milliseconds (default: 120000)
-   * @throws {Error} When the timeout is exceeded before completion
-   */
-  async waitForResponseComplete(timeoutMs: number = 120000): Promise<void> {
-    if (!this.process) {
-      return;
-    }
-
-    return new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Timeout waiting for Crush response'));
-      }, timeoutMs);
-
-      const poll = () => {
-        if (!this.process || this.process.killed) {
-          clearTimeout(timeout);
-          resolve();
-        } else {
-          setTimeout(poll, 100);
-        }
-      };
-
-      poll();
-    });
-  }
-
-  /**
-   * Clean up resources and close the backend.
-   *
-   * Terminates any active Crush process, removes all message listeners,
-   * and prevents further operations. After calling dispose(), all other
-   * methods will throw.
-   */
-  async dispose(): Promise<void> {
-    this.disposed = true;
-
-    if (this.process) {
-      this.process.kill('SIGTERM');
-      this.process = null;
-    }
-
-    this.listeners = [];
-    logger.debug('[CrushBackend] Disposed');
-  }
+  // waitForResponseComplete and dispose inherited from
+  // StreamingAgentBackendBase. Base dispose() clears the listener array, the
+  // cancel timer (SOC2 CC7.2 event-loop hygiene), and SIGTERMs the process.
 }
 
 // ============================================================================
@@ -771,6 +684,11 @@ export function createCrushBackend(options: CrushBackendOptions): CrushBackendRe
   return {
     backend: new CrushBackend(options),
     model: options.model,
+    metadata: {
+      modelSource: options.model ? 'explicit' : 'default',
+      supportsStreaming: true,
+      supportsTools: true,
+    },
   };
 }
 
