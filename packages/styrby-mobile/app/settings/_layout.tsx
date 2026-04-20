@@ -37,6 +37,48 @@ export default function SettingsLayout() {
           title: 'Settings',
         }}
       />
+      <Stack.Screen
+        name="appearance"
+        options={{
+          title: 'Appearance',
+        }}
+      />
+      <Stack.Screen
+        name="support"
+        options={{
+          title: 'Support',
+        }}
+      />
+      <Stack.Screen
+        name="agents"
+        options={{
+          title: 'Agents',
+        }}
+      />
+      <Stack.Screen
+        name="metrics"
+        options={{
+          title: 'Metrics Export',
+        }}
+      />
+      <Stack.Screen
+        name="voice"
+        options={{
+          title: 'Voice Input',
+        }}
+      />
+      <Stack.Screen
+        name="notifications"
+        options={{
+          title: 'Notifications',
+        }}
+      />
+      <Stack.Screen
+        name="account"
+        options={{
+          title: 'Account',
+        }}
+      />
     </Stack>
   );
 }
