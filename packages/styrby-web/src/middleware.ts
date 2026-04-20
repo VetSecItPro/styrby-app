@@ -2,19 +2,94 @@
  * Next.js Middleware
  *
  * Runs on every matched request to:
- * 1. Detect and gate bot/crawler traffic before spending compute on SSR
- * 2. Refresh Supabase auth session
- * 3. Protect dashboard routes (redirect to login if not authenticated)
+ * 1. Resolve the real client IP from CF-Connecting-IP (Cloudflare proxy prep)
+ * 2. Detect and gate bot/crawler traffic before spending compute on SSR
+ * 3. Refresh Supabase auth session
+ * 4. Protect dashboard routes (redirect to login if not authenticated)
  *
  * Bot handling runs first so bad bots never reach auth logic and AI crawlers
  * are rate-limited using Upstash Redis (distributed, works across all Vercel
  * serverless instances).
  */
 
-import { type NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { updateSession } from '@/lib/supabase/middleware';
+
+// ============================================================================
+// Real Client IP Resolution (Cloudflare Proxy Preparation)
+// ============================================================================
+
+/**
+ * Resolves the real client IP address from the request.
+ *
+ * WHY CF-Connecting-IP: When Cloudflare's orange-cloud proxy is enabled on
+ * styrbyapp.com, Vercel's serverless functions receive traffic from Cloudflare
+ * edge nodes — not directly from end users. Without this header trust, every
+ * request would appear to originate from one of Cloudflare's data-centre IPs.
+ * The consequences cascade:
+ *   - Per-user rate limits break (all users share the same IP bucket)
+ *   - Sentry error reports show Cloudflare IPs, not attacker/user IPs
+ *   - audit_log forensics lose per-user attribution for abuse investigation
+ *   - Geolocation analytics (country/region) become meaningless
+ *
+ * Per Cloudflare documentation:
+ * https://developers.cloudflare.com/fundamentals/reference/http-request-headers/#cf-connecting-ip
+ * "CF-Connecting-IP provides the client IP address, i.e. your end user's IP
+ * address, connecting to Cloudflare to a website operator's origin web server."
+ * Cloudflare guarantees this header is set for every proxied request and that
+ * it cannot be spoofed by end users — Cloudflare strips any CF-Connecting-IP
+ * header sent by the client and injects its own validated value.
+ *
+ * WHY trust without an IP allowlist: Vercel's deployment model does not expose
+ * a stable set of Cloudflare egress IPs, and the Cloudflare IP ranges
+ * (published at https://www.cloudflare.com/ips/) change over time. Vercel
+ * Firewall (configured separately) is the correct layer to restrict which
+ * traffic reaches the application; middleware is not the right enforcement
+ * point for IP-range validation. This matches Cloudflare's own guidance:
+ * "If you wish to use CF-Connecting-IP, configure your origin to only accept
+ * requests from Cloudflare IP addresses."  We do that at the Vercel Firewall
+ * layer, not here.
+ *
+ * FALLBACK ORDER:
+ *   1. CF-Connecting-IP  — set when Cloudflare orange-cloud proxy is active
+ *   2. x-forwarded-for   — set by Vercel / other reverse proxies (first hop)
+ *   3. x-real-ip         — set by some proxy configurations
+ *   4. 'unknown'         — safe fallback; callers must handle this gracefully
+ *
+ * @param request - The incoming Next.js request
+ * @returns The best-available real client IP address string
+ */
+export function resolveClientIp(request: NextRequest): string {
+  // Priority 1: Cloudflare's CF-Connecting-IP header (most authoritative when
+  // orange-cloud proxy is enabled — Cloudflare validates this value itself).
+  const cfConnectingIp = request.headers.get('cf-connecting-ip');
+  if (cfConnectingIp) {
+    return cfConnectingIp.trim();
+  }
+
+  // Priority 2: x-forwarded-for — the standard proxy chain header.
+  // WHY first value only: x-forwarded-for can contain a comma-separated list
+  // of IPs accumulated through each hop (client → proxy1 → proxy2 → origin).
+  // The first (leftmost) value is the original client IP. Later values are
+  // trusted proxy IPs that are less useful for client attribution.
+  const xForwardedFor = request.headers.get('x-forwarded-for');
+  if (xForwardedFor) {
+    const firstIp = xForwardedFor.split(',')[0]?.trim();
+    if (firstIp) return firstIp;
+  }
+
+  // Priority 3: x-real-ip — set by nginx and some Vercel configurations.
+  const xRealIp = request.headers.get('x-real-ip');
+  if (xRealIp) {
+    return xRealIp.trim();
+  }
+
+  // Fallback: no IP could be determined. Callers (rate limiters, audit log)
+  // should treat 'unknown' as a valid bucket key rather than throwing.
+  return 'unknown';
+}
 
 // ============================================================================
 // Bot Classification
@@ -161,6 +236,39 @@ function extractBotKey(userAgent: string): string {
 // ============================================================================
 
 export async function middleware(request: NextRequest) {
+  // ── Resolve real client IP (CF-Connecting-IP → x-forwarded-for fallback) ──
+  //
+  // WHY here at the top of middleware: every downstream consumer (bot rate
+  // limiter, Sentry error context, audit-log) needs the real client IP.
+  // Resolving once at the middleware entry point is cheaper than each consumer
+  // re-deriving it independently, and ensures all consumers agree on the same
+  // value for a given request.
+  //
+  // The resolved IP is forwarded on the request headers as 'x-real-client-ip'
+  // so Next.js API route handlers and Server Components can read it via
+  // request.headers.get('x-real-client-ip') without needing to import this
+  // middleware's resolution logic.
+  const clientIp = resolveClientIp(request);
+
+  // WHY we propagate via requestHeaders mutation (not new NextRequest()):
+  // NextRequest headers are read-only at runtime, but Next.js provides the
+  // headers() function that allows middleware to inject request headers that
+  // downstream handlers receive. We use the NextResponse.next() headers
+  // mechanism at the bottom to attach x-real-client-ip so API routes and
+  // Server Components can read it via headers().get('x-real-client-ip').
+  //
+  // We intentionally DO NOT construct a new NextRequest here: the NextRequest
+  // constructor in the test/Edge runtime rejects a RequestInit whose signal
+  // field is an AbortSignal instance from a different realm (JSDOM vs. Edge),
+  // causing "Expected signal to be an instance of AbortSignal" test failures.
+  // Passing the resolved IP via the response's `x-middleware-request-*` header
+  // is the correct Next.js-endorsed pattern for injecting request headers from
+  // middleware without cloning the entire NextRequest object.
+  //
+  // All downstream consumers should read the real client IP from:
+  //   request.headers.get('x-real-client-ip')    (Server Components / API routes)
+  // The header is set by the NextResponse.next() call at the end of this function.
+
   const userAgent = request.headers.get('user-agent') ?? '';
   const category = classifyUserAgent(userAgent);
 
@@ -281,6 +389,24 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(loginUrl);
     }
   }
+
+  // Propagate the resolved client IP to downstream request handlers.
+  //
+  // WHY: Next.js middleware can inject request headers by setting them on the
+  // response with the 'x-middleware-request-{header-name}' prefix. The Next.js
+  // runtime strips the prefix and adds the header to the incoming request that
+  // reaches Server Components and API routes. This is the official pattern
+  // documented in the Next.js middleware headers guide.
+  //
+  // After this, any Server Component or API route can read the real client IP:
+  //   import { headers } from 'next/headers';
+  //   const ip = (await headers()).get('x-real-client-ip');
+  //
+  // This powers:
+  //   - Sentry error context (real user IP in breadcrumbs)
+  //   - Rate-limit buckets (per-user IP keys instead of Cloudflare edge IPs)
+  //   - audit_log entries (correct IP attribution for forensics)
+  response.headers.set('x-middleware-request-x-real-client-ip', clientIp);
 
   return response;
 }

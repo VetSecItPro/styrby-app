@@ -1,0 +1,125 @@
+# SEC-SAST-001: CodeQL Static Application Security Testing
+#
+# WHY: Live infra audit 2026-04-20 finding:
+#   "CodeQL not enabled — zero SAST beyond ESLint."
+# CodeQL performs deep taint-analysis and semantic vulnerability detection
+# that ESLint cannot: SQL injection, XSS, prototype pollution, unvalidated
+# redirects, and more. It is free for public repos and produces SARIF results
+# surfaced directly in the GitHub Security tab.
+#
+# WHY pinned SHAs instead of mutable version tags (e.g. @v3):
+# Mutable tags can be silently updated by the action author (or a compromised
+# account) to point to different code. A supply-chain attack could inject
+# malicious steps into every CI run without changing this file.
+# SHA pinning guarantees the exact commit that was reviewed is what runs.
+# SHAs captured 2026-04-20. Bump when upstream releases security patches.
+#
+# SOC2 evidence: Continuous SAST scanning on every push + weekly schedule
+# provides ongoing evidence for SOC2 CC7.1 (system development controls)
+# and CC7.2 (monitoring for vulnerabilities).
+
+name: CodeQL SAST
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # WHY weekly schedule: catches newly discovered vulnerabilities in existing
+  # code that passed previous scans (CodeQL database updates over time).
+  # Sunday 00:00 UTC — low-traffic window, does not block human-hours.
+  schedule:
+    - cron: '0 0 * * 0'
+
+# WHY explicit least-privilege permissions:
+# Without a permissions block GitHub defaults to write access on many scopes.
+# We restrict to the minimum required:
+#   security-events: write — upload SARIF results to GitHub Security tab
+#   contents: read       — checkout the repository
+#   actions: read        — required by CodeQL for private repos (no-op on public)
+permissions:
+  security-events: write
+  contents: read
+  actions: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # WHY javascript-typescript in a single entry: CodeQL's JS/TS analyser
+        # handles both languages with one database build. Splitting them into
+        # two matrix entries would double the analysis time for no added coverage.
+        language:
+          - javascript-typescript
+
+    steps:
+      # SHA: actions/checkout v4.2.2 (2026-04-20)
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      # WHY: CodeQL requires pnpm to correctly install dependencies so its
+      # autobuild step can resolve imports and build a complete semantic graph.
+      # Without this, CodeQL's taint analysis misses cross-package call paths
+      # (e.g., CLI → shared types → web API routes).
+      # SHA: pnpm/action-setup v4.1.0 (2026-04-20)
+      - name: Set up pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+
+      # SHA: actions/setup-node v4.4.0 (2026-04-20)
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install dependencies
+        # WHY --frozen-lockfile: consistent with all other CI jobs. Prevents
+        # a tampered lockfile from silently installing different packages during
+        # the CodeQL analysis phase.
+        run: pnpm install --frozen-lockfile
+
+      # SHA: github/codeql-action/init v3.28.16 (2026-04-20)
+      # WHY init before autobuild: initialises the CodeQL database directory
+      # and hooks into the build process to capture compilation events.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@fca7ace96b7d713c7035871441bd52efbe39e27e # v3
+        with:
+          languages: ${{ matrix.language }}
+          # WHY security-and-quality: broader than the default 'security-extended'
+          # query pack. Adds code-quality queries that surface maintainability
+          # issues alongside security findings. Both suites are free on public repos.
+          queries: security-and-quality
+
+      # WHY autobuild: for JS/TS, CodeQL's autobuild runs the package's build
+      # scripts (pnpm build) to generate type declarations and compiled output.
+      # This ensures the analyser sees generated types (e.g. @styrby/shared
+      # declarations) that TypeScript files import across packages.
+      # SHA: github/codeql-action/autobuild v3.28.16 (2026-04-20)
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@fca7ace96b7d713c7035871441bd52efbe39e27e # v3
+        env:
+          # Placeholder env vars so build steps that read env don't crash.
+          # Values mirror the CI workflow pattern.
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_URL: https://placeholder.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-key
+          POLAR_ACCESS_TOKEN: placeholder-polar-token
+          POLAR_WEBHOOK_SECRET: placeholder-webhook-secret
+          POLAR_ORGANIZATION_ID: placeholder-org-id
+          EXPO_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          RESEND_API_KEY: re_placeholder_key
+
+      # SHA: github/codeql-action/analyze v3.28.16 (2026-04-20)
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@fca7ace96b7d713c7035871441bd52efbe39e27e # v3
+        with:
+          # WHY: The category differentiates results per language in the
+          # GitHub Security tab when multiple languages are scanned in the
+          # same repository.
+          category: '/language:${{ matrix.language }}'
