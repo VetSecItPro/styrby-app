@@ -31,14 +31,20 @@
 //! stopWatcher(handle);
 //! ```
 //!
-//! ## Status
+//! ## Status (Phase 0.4)
 //!
-//! This module is scaffolded in Phase 3/Batch 4. The `watchDirectory` and
-//! `stopWatcher` functions are exposed to Node.js but the underlying
-//! notify watcher is fully implemented. Wire up the JS ThreadsafeFunction
-//! callback bridge once the mobile push notification path is confirmed.
+//! Fully wired: the JS callback is invoked via napi-rs `ThreadsafeFunction`
+//! once per debounced batch. `stopWatcher(handle)` cleanly stops the OS
+//! subscription, signals the debounce thread to exit, and aborts the JS
+//! delivery thread so no threads leak (SOC2 A1 availability — no resource
+//! exhaustion under churn).
 
 use crossbeam_channel::{bounded, Receiver, Sender};
+use napi::bindgen_prelude::*;
+use napi::threadsafe_function::{
+    ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode,
+};
+use napi::JsFunction;
 use napi_derive::napi;
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::sync::{Arc, Mutex};
@@ -59,13 +65,19 @@ use std::time::Duration;
 /// `stopWatcher(handle)`, we lock and drop the inner resources.
 #[napi]
 pub struct WatcherHandle {
-    /// Sending side of the stop channel. Dropping this signals the watcher thread.
-    #[allow(dead_code)]
+    /// Sending side of the stop channel. Dropping or sending `()` signals
+    /// the debounce thread (and indirectly the delivery thread, which exits
+    /// when the batch channel closes) to terminate cleanly.
     stop_tx: Sender<()>,
 
     /// The underlying notify watcher. Must stay alive as long as we want events.
-    #[allow(dead_code)]
+    /// Dropped on `stopWatcher()` to deregister the OS watch subscription.
     watcher: Arc<Mutex<Option<RecommendedWatcher>>>,
+
+    /// True after `stop_watcher()` has been called, so a double-stop is a no-op.
+    /// WHY: napi-rs may call `Drop` on the handle after JS has already called
+    /// stop; idempotency avoids "channel disconnected" panics on second drop.
+    stopped: Arc<Mutex<bool>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -226,48 +238,79 @@ fn run_debounce_loop(
 #[napi]
 pub fn watch_directory(
     dir_path: String,
-    #[allow(unused_variables)] callback: napi::JsFunction,
+    callback: JsFunction,
 ) -> napi::Result<WatcherHandle> {
     // Channel for raw notify events (bounded to prevent unbounded memory if the
-    // JS event loop is blocked and events pile up)
+    // JS event loop is blocked and events pile up).
     let (event_tx, event_rx) = bounded::<notify::Result<Event>>(1024);
 
-    // Channel for stop signal (capacity 1 — we only ever send once)
+    // Channel for stop signal (capacity 1 — we only ever send once).
     let (stop_tx, stop_rx) = bounded::<()>(1);
 
-    // Channel for debounced batches (capacity 64 — more than enough headroom)
-    let (_batch_tx, _batch_rx) = bounded::<Vec<WatchEvent>>(64);
-    let batch_tx_clone = _batch_tx.clone();
+    // Channel for debounced batches (capacity 64 — more than enough headroom).
+    let (batch_tx, batch_rx) = bounded::<Vec<WatchEvent>>(64);
 
-    // Create the OS-level file watcher
+    // ------------------------------------------------------------------
+    // Wire the JS callback via a ThreadsafeFunction (Phase 0.4).
+    //
+    // WHY: napi-rs cannot invoke a JsFunction from arbitrary threads —
+    // V8/Node enforces that all JS execution happens on the main thread.
+    // ThreadsafeFunction wraps the callback and uses libuv's async handle
+    // to marshal calls back to the JS thread safely.
+    //
+    // ErrorStrategy::Fatal: if the callback throws, surface the error.
+    // We map our `Vec<WatchEvent>` to `vec![Vec<WatchEvent>]` so the JS
+    // callback receives one positional argument (the batch array).
+    // ------------------------------------------------------------------
+    let tsfn: ThreadsafeFunction<Vec<WatchEvent>, ErrorStrategy::Fatal> = callback
+        .create_threadsafe_function(0, |ctx| {
+            // Convert Vec<WatchEvent> into a single JS array argument.
+            // napi-rs auto-derives ToNapiValue for #[napi(object)] structs.
+            Ok(vec![ctx.value])
+        })?;
+
+    // Create the OS-level file watcher.
     let mut watcher = RecommendedWatcher::new(
         move |result| {
-            // Ignore send errors if the channel is full (drop events gracefully)
+            // Ignore send errors if the channel is full (drop events gracefully).
             let _ = event_tx.try_send(result);
         },
         Config::default(),
     )
     .map_err(|e| napi::Error::from_reason(format!("Failed to create watcher: {}", e)))?;
 
-    // Start watching the target directory recursively
+    // Start watching the target directory recursively.
     watcher
         .watch(std::path::Path::new(&dir_path), RecursiveMode::Recursive)
         .map_err(|e| {
             napi::Error::from_reason(format!("Failed to watch {}: {}", dir_path, e))
         })?;
 
-    // Spawn the debounce thread
+    // Spawn the debounce thread (raw events → batched events).
     thread::spawn(move || {
-        run_debounce_loop(event_rx, stop_rx, batch_tx_clone);
+        run_debounce_loop(event_rx, stop_rx, batch_tx);
     });
 
-    // TODO (Batch 4): Wire the `callback` parameter via a ThreadsafeFunction
-    // so that debounced batches from `_batch_rx` are forwarded to JS.
-    // The watcher is fully functional — only the JS callback bridge is pending.
+    // Spawn the delivery thread (batched events → JS callback via tsfn).
+    //
+    // WHY (Phase 0.4 / SOC2 A1 availability): the loop exits cleanly when
+    // `batch_rx` disconnects (debounce thread terminated). That keeps the
+    // tsfn ref alive only as long as the watcher; on stop the channel
+    // closes, the loop returns, and the tsfn is dropped — releasing its
+    // libuv async handle so the Node event loop can exit.
+    thread::spawn(move || {
+        while let Ok(batch) = batch_rx.recv() {
+            // NonBlocking: do not stall the watcher thread on a slow JS
+            // event loop. If the queue is full the call is dropped (the
+            // user already lost responsiveness anyway).
+            let _ = tsfn.call(batch, ThreadsafeFunctionCallMode::NonBlocking);
+        }
+    });
 
     Ok(WatcherHandle {
         stop_tx,
         watcher: Arc::new(Mutex::new(Some(watcher))),
+        stopped: Arc::new(Mutex::new(false)),
     })
 }
 
@@ -289,13 +332,29 @@ pub fn watch_directory(
 /// happen under normal usage).
 #[napi]
 pub fn stop_watcher(handle: &mut WatcherHandle) -> napi::Result<()> {
-    // Signal the debounce thread to exit (it checks stop_tx's channel)
+    // WHY (Phase 0.4): Idempotent stop. JS may call stopWatcher() and then
+    // also let the handle be GC'd, which triggers Drop on the Rust side.
+    // Without this guard, the second call would try to send on a closed
+    // channel and panic.
+    {
+        let mut stopped = handle
+            .stopped
+            .lock()
+            .map_err(|_| napi::Error::from_reason("stopped mutex poisoned"))?;
+        if *stopped {
+            return Ok(());
+        }
+        *stopped = true;
+    }
+
+    // Signal the debounce thread to exit. Once it exits, batch_tx is
+    // dropped, batch_rx disconnects, the delivery thread's recv() returns
+    // Err, and that thread exits — releasing the ThreadsafeFunction.
     // WHY: We send on the stop channel rather than dropping stop_tx so the
-    // thread exits cleanly before we drop the underlying watcher. This avoids
-    // a potential race where the notify callback fires after deregistration.
+    // thread exits cleanly before we drop the underlying watcher.
     let _ = handle.stop_tx.try_send(());
 
-    // Drop the underlying watcher to deregister the OS file watch subscription
+    // Drop the underlying watcher to deregister the OS file watch subscription.
     if let Ok(mut guard) = handle.watcher.lock() {
         *guard = None;
     } else {

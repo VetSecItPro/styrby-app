@@ -209,20 +209,108 @@ function nativeVersionFallback() {
 }
 
 /**
- * JS fallback stub for watchDirectory — throws a helpful error since there
- * is no pure-JS replacement that matches the low-latency guarantee of the
- * Rust watcher.
+ * JS fallback for watchDirectory using `fs.watch` (Phase 0.4).
  *
- * @param {string} dirPath
- * @param {function} _callback
- * @throws {Error} Always, with instructions on how to build the native module
+ * WHY: The native Rust watcher is the preferred path (low latency, kernel
+ * notification APIs). When the .node binary is unavailable (CI, pre-build,
+ * unsupported triple), we still need watch support so the CLI session
+ * tracker keeps working. Node's `fs.watch` has known cross-platform quirks
+ * but is sufficient for the session-watcher use case and lets the integration
+ * tests in this package run without the Rust toolchain.
+ *
+ * Behavioral parity with the native module:
+ * - Recursive watching (Node supports `recursive: true` on darwin/win32; on
+ *   Linux we degrade to top-level only and document it).
+ * - Debounced batching (100 ms window) — matches `DEBOUNCE_MS` in
+ *   file_watcher.rs to keep callback ergonomics identical.
+ * - Returns a `WatcherHandle`-shaped object usable with `stopWatcher()`.
+ *
+ * @param {string} dirPath - Absolute path to the directory to watch
+ * @param {function(object[]): void} callback - Called with batched WatchEvent arrays
+ * @returns {object} A handle object with `__fallback === true` and the
+ *   internal fs watcher so `stopWatcher()` can shut it down.
+ * @throws {Error} If `dirPath` does not exist.
  */
-function watchDirectoryFallback(dirPath, _callback) {
-  throw new Error(
-    `[styrby-native] watchDirectory requires the native Rust module. ` +
-    `Path: ${dirPath}\n` +
-    `Build it with: cd packages/styrby-native && npm run build`
-  );
+function watchDirectoryFallback(dirPath, callback) {
+  if (!fs.existsSync(dirPath)) {
+    throw new Error(`[styrby-native] watchDirectory: path does not exist: ${dirPath}`);
+  }
+
+  /** @type {Array<{kind: string, paths: string[]}>} */
+  let pending = [];
+  /** @type {NodeJS.Timeout|null} */
+  let flushTimer = null;
+
+  /**
+   * WHY: Node's `fs.watch` event types are 'rename' (create/remove) and
+   * 'change' (modify). We can rarely distinguish create from remove without
+   * an extra fs.exists check, so we report 'create' on rename when the path
+   * still exists and 'remove' otherwise. Best-effort; the native watcher
+   * provides finer detail.
+   */
+  function classify(eventType, fullPath) {
+    if (eventType === 'change') return 'modify';
+    if (eventType === 'rename') {
+      try {
+        return fs.existsSync(fullPath) ? 'create' : 'remove';
+      } catch {
+        return 'other';
+      }
+    }
+    return 'other';
+  }
+
+  function scheduleFlush() {
+    if (flushTimer) return;
+    flushTimer = setTimeout(() => {
+      flushTimer = null;
+      if (pending.length === 0) return;
+      const batch = pending;
+      pending = [];
+      try {
+        callback(batch);
+      } catch (err) {
+        if (process.env.STYRBY_NATIVE_DEBUG) {
+          process.stderr.write(`[styrby-native] watch callback threw: ${err.message}\n`);
+        }
+      }
+    }, 100);
+  }
+
+  // Try recursive (works on darwin/win32). Fall back to non-recursive on Linux.
+  let watcher;
+  try {
+    watcher = fs.watch(dirPath, { recursive: true }, (eventType, filename) => {
+      const path = require('path');
+      const full = filename ? path.join(dirPath, filename) : dirPath;
+      pending.push({ kind: classify(eventType, full), paths: [full] });
+      scheduleFlush();
+    });
+  } catch {
+    watcher = fs.watch(dirPath, (eventType, filename) => {
+      const path = require('path');
+      const full = filename ? path.join(dirPath, filename) : dirPath;
+      pending.push({ kind: classify(eventType, full), paths: [full] });
+      scheduleFlush();
+    });
+  }
+
+  return {
+    __fallback: true,
+    __watcher: watcher,
+    __getFlushTimer: () => flushTimer,
+    __stop: () => {
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      try {
+        watcher.close();
+      } catch {
+        /* already closed */
+      }
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -309,6 +397,13 @@ function watchDirectory(dirPath, callback) {
  * @throws {Error} If the native module is not loaded
  */
 function stopWatcher(handle) {
+  // WHY (Phase 0.4): Route to the JS fallback's internal __stop() when the
+  // handle was issued by watchDirectoryFallback. Otherwise the native module
+  // owns the handle and knows how to release the OS subscription.
+  if (handle && handle.__fallback === true) {
+    handle.__stop();
+    return;
+  }
   if (!isNativeLoaded) {
     throw new Error('[styrby-native] stopWatcher requires the native Rust module.');
   }
