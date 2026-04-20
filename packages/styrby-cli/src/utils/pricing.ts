@@ -89,9 +89,36 @@ export type ModelId = keyof typeof PRICING;
 const DEFAULT_MODEL = 'claude-3-5-sonnet-20241022';
 
 /**
- * Calculate cost for usage
- * @param usage - Usage stats
- * @param modelId - Model ID (optional, defaults to Sonnet 3.5)
+ * Calculates the USD cost for an Anthropic API response given token usage.
+ *
+ * WHY: Anthropic bills input tokens, output tokens, cache-write tokens, and
+ * cache-read tokens at different rates depending on the model. Centralising
+ * the calculation here means budget-alert and cost-record logic never
+ * duplicate pricing arithmetic.
+ *
+ * Fuzzy model matching is used as a fallback because the Claude API sometimes
+ * returns model strings that differ slightly from the canonical IDs in `PRICING`
+ * (e.g., version suffixes, aliases). When no match is found the function
+ * defaults to `claude-3-5-sonnet-20241022` so callers always receive a
+ * non-zero, reasonable estimate rather than silently returning $0.
+ *
+ * @param usage   - Token usage breakdown from the Anthropic API response.
+ *   `input_tokens` and `output_tokens` are required; cache fields default to 0.
+ * @param modelId - The model identifier string as returned by the API
+ *   (e.g., `'claude-sonnet-4-5'`). Optional — defaults to Sonnet 3.5 when
+ *   omitted or unrecognized.
+ * @returns An object with three USD cost values (never negative):
+ *   - `total`  — full session cost (input + cache + output)
+ *   - `input`  — combined input cost (regular input + cache writes + cache reads)
+ *   - `output` — output token cost only
+ *
+ * @example
+ * const cost = calculateCost(
+ *   { input_tokens: 10_000, output_tokens: 2_000,
+ *     cache_creation_input_tokens: 500, cache_read_input_tokens: 8_000 },
+ *   'claude-sonnet-4-5'
+ * );
+ * console.log(`Session cost: $${cost.total.toFixed(4)}`);
  */
 export function calculateCost(usage: Usage, modelId?: string): { total: number, input: number, output: number } {
     let pricing = PRICING[modelId as ModelId];

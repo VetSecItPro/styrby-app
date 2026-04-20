@@ -218,8 +218,38 @@ export class MessageQueue2<T> {
     }
 
     /**
-     * Wait for messages and return all messages with the same mode as a single string
-     * Returns { message: string, mode: T } or null if aborted/closed
+     * Waits for at least one queued message and returns a batch of same-mode messages
+     * concatenated into a single newline-delimited string.
+     *
+     * If messages are already in the queue the method returns synchronously (no await).
+     * Otherwise it suspends until a message arrives, the queue is closed, or the
+     * optional `abortSignal` fires.
+     *
+     * Batching rules (see `collectBatch`):
+     * - Messages are grouped by `modeHash` (computed by the `modeHasher` supplied to
+     *   the constructor).  Only messages sharing the same hash as the first queued
+     *   item are included in a single batch.
+     * - If the first message was pushed with `pushIsolateAndClear`, it is returned
+     *   alone regardless of what follows in the queue (`isolate: true`).
+     *
+     * @param abortSignal - Optional `AbortSignal` that cancels the wait early.
+     *   When aborted while waiting, the method resolves to `null` without consuming
+     *   any queued messages.
+     * @returns A batch descriptor `{ message, mode, isolate, hash }` where `message`
+     *   is the newline-joined content of all collected items, or `null` when the
+     *   queue is closed, already aborted, or the signal fires before any message
+     *   arrives.
+     * @throws {Error} Indirectly, if a `push*` call after closure throws — callers
+     *   should close the queue before discarding it.
+     *
+     * @example
+     * const queue = new MessageQueue2<AgentMode>(hashMode);
+     * queue.push('ls -la', AgentMode.Exec);
+     *
+     * const batch = await queue.waitForMessagesAndGetAsString();
+     * // batch.message === 'ls -la'
+     * // batch.mode    === AgentMode.Exec
+     * // batch.isolate === false
      */
     async waitForMessagesAndGetAsString(abortSignal?: AbortSignal): Promise<{ message: string, mode: T, isolate: boolean, hash: string } | null> {
         // If we have messages, return them immediately
