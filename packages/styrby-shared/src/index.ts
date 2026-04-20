@@ -60,6 +60,10 @@ export * from './teams/index.js';
 // Both web and mobile consume these so a gating decision can never disagree
 // across surfaces (SOC2 CC6.1).
 export * from './tiers/index.js';
+// Phase 2.1 — team governance runtime helpers (role matrix, approval chain
+// evaluator). Team TYPES live in `./teams/`; this module adds the behavioral
+// utilities consumed by CLI policyEngine + web admin + mobile push-approval.
+export * from './team/index.js';
 
 // WHY: The full pricing module is NOT re-exported from the barrel.
 // litellm-pricing.ts uses Node.js builtins (node:path, node:os, node:fs, node:crypto)
