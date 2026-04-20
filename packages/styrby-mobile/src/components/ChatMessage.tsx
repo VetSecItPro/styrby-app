@@ -81,8 +81,12 @@ function CodeBlock({ content, language }: { content: string; language?: string }
   // already-unmounted component, causing React "Can't perform a state update on
   // an unmounted component" warnings and potential clipboard side-effects.
   useEffect(() => {
+    // WHY: Capture the ref value in a local variable so the cleanup function
+    // always operates on the same array instance even if timerIdsRef.current
+    // is reassigned before cleanup runs (React's ref timing guarantee).
+    const timers = timerIdsRef.current;
     return () => {
-      timerIdsRef.current.forEach(clearTimeout);
+      timers.forEach(clearTimeout);
     };
   }, []);
 
@@ -303,8 +307,12 @@ function InlineCodeBlock({ content: codeContent, language }: { content: string; 
   const timerIdsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => {
+    // WHY: Capture the ref value in a local variable so the cleanup function
+    // always operates on the same array instance even if timerIdsRef.current
+    // is reassigned before cleanup runs (React's ref timing guarantee).
+    const timers = timerIdsRef.current;
     return () => {
-      timerIdsRef.current.forEach(clearTimeout);
+      timers.forEach(clearTimeout);
     };
   }, []);
 

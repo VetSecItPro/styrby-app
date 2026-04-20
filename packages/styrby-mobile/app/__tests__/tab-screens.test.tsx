@@ -60,7 +60,7 @@ function hasText(tree: renderer.ReactTestRendererJSON | renderer.ReactTestRender
  * @param pattern - The regex to match
  * @returns true if found
  */
-function hasTextMatch(tree: renderer.ReactTestRendererJSON | renderer.ReactTestRendererJSON[] | null, pattern: RegExp): boolean {
+function _hasTextMatch(tree: renderer.ReactTestRendererJSON | renderer.ReactTestRendererJSON[] | null, pattern: RegExp): boolean {
   return collectText(tree).some((t) => pattern.test(t));
 }
 
@@ -606,10 +606,8 @@ describe('TeamScreen', () => {
     mockTeamManagement.invitations = [];
     // WHY as any: Providing minimal user data for the team screen test.
     // Only id is needed; full user shape cast to satisfy TypeScript's mock type.
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: 'test-user-id' } },
-      error: null,
-    } as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'test-user-id' } as any }, error: null });
   });
 
   it('renders without crashing', () => {

@@ -18,11 +18,9 @@ import {
   Text,
   Pressable,
   TextInput,
-  FlatList,
   ActivityIndicator,
   Alert,
   Modal,
-  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
@@ -195,7 +193,7 @@ function CheckpointRow({
 export function SessionCheckpoints({
   sessionId,
   currentMessageCount = 0,
-  isSessionActive = false,
+  isSessionActive: _isSessionActive = false,
   onRestore,
 }: SessionCheckpointsProps) {
   const [checkpoints, setCheckpoints] = useState<SessionCheckpoint[]>([]);

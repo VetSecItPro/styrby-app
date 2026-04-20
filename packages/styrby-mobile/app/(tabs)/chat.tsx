@@ -227,6 +227,11 @@ export default function ChatScreen() {
       .catch(() => {
         // SecureStore unavailable — silently disable voice
       });
+    // WHY: loadSessionHistory is a plain async function defined in this component.
+    // This effect is intentionally mount-only — we load history once when the
+    // screen opens, not on every re-render. Adding loadSessionHistory would cause
+    // redundant reloads if any of its internal deps change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /**
@@ -662,6 +667,12 @@ export default function ChatScreen() {
       }
     }
     })();
+    // WHY: saveMessageToDb is a plain async function defined in this component.
+    // It is called imperatively inside this effect (fire-and-forget persistence).
+    // Adding it as a dep would require useCallback wrapping, which depends on
+    // sessionId and pairingInfo — both already in this array. The current setup
+    // ensures the effect re-fires on new messages, which is the correct behavior.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastMessage, sessionId, pairingInfo]);
 
   // --------------------------------------------------------------------------
@@ -766,7 +777,7 @@ export default function ChatScreen() {
         type: 'chat',
         payload: relayPayload,
       });
-    } catch (error) {
+    } catch {
       const errorId = `error_${Date.now()}`;
       const errorContent = 'Failed to send message. Please try again.';
 
@@ -786,6 +797,11 @@ export default function ChatScreen() {
       setIsAgentThinking(false);
       setIsLoading(false);
     }
+  // WHY: createSession and saveMessageToDb are plain async functions in this
+  // component. Their key deps (sessionId, selectedAgent, pairingInfo) are all
+  // already in this array. Wrapping both in useCallback would cascade deps
+  // across the hook — deferred to a follow-up refactor.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputText, isConnected, selectedAgent, sendMessage, sessionId, pairingInfo]);
 
   // --------------------------------------------------------------------------

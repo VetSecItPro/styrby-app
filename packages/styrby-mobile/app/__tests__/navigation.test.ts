@@ -11,7 +11,6 @@
 
 import {
   APP_SCHEME,
-  UNIVERSAL_LINK_DOMAIN,
   DEEP_LINK_ROUTES,
   buildDeepLink,
   parseDeepLink,

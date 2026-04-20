@@ -182,7 +182,10 @@ export default function SessionDetailScreen() {
    * Share link state for session sharing (Phase 7.10).
    * Holds the generated URL and share ID after creation.
    */
-  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  // WHY: _shareUrl getter unused — the URL is used directly from the API
+  // response data object. Kept as state so future UI (copy-link button) can
+  // read it without re-fetching.
+  const [_shareUrl, setShareUrl] = useState<string | null>(null);
   const [isSharing, setIsSharing] = useState(false);
 
   // Fetch session data on mount

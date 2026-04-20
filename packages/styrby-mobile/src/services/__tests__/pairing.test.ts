@@ -103,16 +103,17 @@ describe('pairing service', () => {
 
     // WHY global helper: jest.setup.js exposes __resetSecureStore to clear
     // the internal mockSecureStoreData Map. The mock doesn't expose __store__.
-    (global as any).__resetSecureStore();
+    // WHY: jest.setup.js exposes __resetSecureStore on global. Cast through
+    // unknown to avoid no-explicit-any while preserving the call.
+    (global as unknown as { __resetSecureStore: () => void }).__resetSecureStore();
 
     // Set default mock implementations (success path)
     mockDecodePairingUrl.mockReturnValue(validPayload);
     mockValidatePairingPayload.mockReturnValue(true);
     mockIsPairingExpired.mockReturnValue(false);
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: 'test-user-id' } },
-      error: null,
-    } as any);
+    // WHY: Supabase User type requires many fields not relevant to these tests.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'test-user-id' } as any }, error: null });
     mockRegisterPublicKey.mockResolvedValue();
     mockGetRecipientPublicKey.mockResolvedValue(new Uint8Array(32));
     mockRegisterForPushNotifications.mockResolvedValue('mock-push-token');
@@ -161,10 +162,8 @@ describe('pairing service', () => {
     });
 
     it('should return NOT_AUTHENTICATED if no user is logged in', async () => {
-      mockGetUser.mockResolvedValue({
-        data: { user: null },
-        error: null,
-      } as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      mockGetUser.mockResolvedValue({ data: { user: null as any }, error: null });
 
       const result = await executePairing('styrby://pair?data=...');
 
@@ -176,9 +175,11 @@ describe('pairing service', () => {
 
     it('should return NOT_AUTHENTICATED if auth returns an error', async () => {
       mockGetUser.mockResolvedValue({
-        data: { user: null },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        data: { user: null as any },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         error: { message: 'Auth failed' } as any,
-      } as any);
+      });
 
       const result = await executePairing('styrby://pair?data=...');
 
@@ -188,9 +189,10 @@ describe('pairing service', () => {
 
     it('should return USER_MISMATCH if QR userId does not match authenticated user', async () => {
       mockGetUser.mockResolvedValue({
-        data: { user: { id: 'different-user-id' } },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        data: { user: { id: 'different-user-id' } as any },
         error: null,
-      } as any);
+      });
 
       const result = await executePairing('styrby://pair?data=...');
 

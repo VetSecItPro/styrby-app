@@ -312,7 +312,11 @@ export function SessionReplay({
   }, [messages]);
 
   // Calculate visible messages
-  const { visibleMessages, currentMessageIndex } = useMemo(() => {
+  // WHY: visibleMessages is prefixed _ because the replay UI currently renders
+  // all messages and relies on currentMessageIndex for scroll position. The
+  // sliced array is retained in the computed return for future use when the
+  // component gains a windowed-render mode.
+  const { visibleMessages: _visibleMessages, currentMessageIndex } = useMemo(() => {
     if (messages.length === 0) {
       return { visibleMessages: [], currentMessageIndex: -1 };
     }

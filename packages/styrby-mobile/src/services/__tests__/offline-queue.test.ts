@@ -63,7 +63,7 @@ const mockRunAsync = jest.fn(async (sql: string, params: unknown[] = []) => {
 
   if (sql.includes('UPDATE command_queue SET status = \'expired\'')) {
     // Mark expired pending commands
-    for (const [id, row] of mockRows) {
+    for (const [_id, row] of mockRows) {
       if (row.status === 'pending' && new Date(row.expires_at as string) <= new Date(params[0] as string)) {
         row.status = 'expired';
       }
@@ -877,7 +877,6 @@ describe('Offline Queue Service', () => {
   describe('processQueue()', () => {
     it('processes all pending commands through the send function', async () => {
       const message1 = createTestMessage('msg1');
-      const message2 = createTestMessage('msg2');
       const futureDate = new Date(Date.now() + 60000).toISOString();
       const now = new Date().toISOString();
 
@@ -902,7 +901,7 @@ describe('Offline Queue Service', () => {
       // we need to handle this differently. Let's use the mockGetFirstAsync directly.
 
       let dequeueCount = 0;
-      mockGetFirstAsync.mockImplementation(async (sql: string, params: unknown[] = []) => {
+      mockGetFirstAsync.mockImplementation(async (sql: string, _params: unknown[] = []) => {
         if (sql.includes("status = 'pending'") && sql.includes('LIMIT 1')) {
           dequeueCount++;
           if (dequeueCount === 1) {
@@ -985,7 +984,7 @@ describe('Offline Queue Service', () => {
       const futureDate = new Date(Date.now() + 60000).toISOString();
 
       let dequeueAttempt = 0;
-      mockGetFirstAsync.mockImplementation(async (sql: string, params: unknown[] = []) => {
+      mockGetFirstAsync.mockImplementation(async (sql: string, _params: unknown[] = []) => {
         if (sql.includes("status = 'pending'") && sql.includes('LIMIT 1')) {
           dequeueAttempt++;
           if (dequeueAttempt === 1) {
@@ -1195,7 +1194,7 @@ describe('Offline Queue Service', () => {
       mockShouldRetry.mockReturnValue(false);
 
       await queue.processQueue(async () => {
-        throw 'string-error'; // eslint-disable-line no-throw-literal
+        throw 'string-error';
       });
 
       const updateCall = mockRunAsync.mock.calls.find(

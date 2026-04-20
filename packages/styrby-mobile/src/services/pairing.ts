@@ -17,7 +17,6 @@
 
 import * as SecureStore from 'expo-secure-store';
 import {
-  type PairingPayload,
   validatePairingPayload,
   isPairingExpired,
   decodePairingUrl,

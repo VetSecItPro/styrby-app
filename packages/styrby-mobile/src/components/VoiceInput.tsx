@@ -153,7 +153,9 @@ type RecordingState = 'idle' | 'recording' | 'transcribing' | 'confirming' | 'er
  */
 export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInputProps) {
   const [state, setState] = useState<RecordingState>('idle');
-  const [transcript, setTranscript] = useState('');
+  // WHY: transcript getter is unused — editedTranscript mirrors it and is what
+  // the UI reads. Prefixed with _ per ESLint convention to document the intent.
+  const [_transcript, setTranscript] = useState('');
   const [editedTranscript, setEditedTranscript] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -278,6 +280,12 @@ export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInpu
       setErrorMessage('Could not start recording. Check microphone permissions.');
       if (__DEV__) console.error('[VoiceInput] startRecording error:', err);
     }
+  // WHY: stopRecording is declared after startRecording in the component body.
+  // Referencing it in this dep array would cause a TypeScript TDZ error.
+  // The auto-stop timer calls stopRecording via closure; since config and
+  // disabled are in this array, startRecording re-memoizes when they change,
+  // picking up any updated stopRecording reference at that point.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [disabled, config, startPulse]);
 
   /**
@@ -298,8 +306,13 @@ export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInpu
     setState('transcribing');
 
     try {
-      const { Audio } = await import('expo-av');
-      const recording = recordingRef.current as InstanceType<typeof Audio.Recording>;
+      // WHY: We only need the runtime recording object methods here — no Audio
+      // namespace needed. Cast to the minimal interface to avoid an unused-var
+      // warning from importing Audio solely for its type.
+      const recording = recordingRef.current as {
+        stopAndUnloadAsync: () => Promise<void>;
+        getURI: () => string | null;
+      };
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
       recordingRef.current = null;
@@ -316,6 +329,12 @@ export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInpu
       setErrorMessage('Recording stopped unexpectedly.');
       if (__DEV__) console.error('[VoiceInput] stopRecording error:', err);
     }
+  // WHY: transcribeAudio is declared after stopRecording in the component body,
+  // causing a TypeScript TDZ error if referenced in the dep array. The dep is
+  // omitted deliberately — transcribeAudio only depends on config which is a
+  // prop that doesn't change identity between renders when unchanged.
+  // This is a known limitation of defining useCallback hooks in declaration order.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopPulse]);
 
   // --------------------------------------------------------------------------

@@ -245,6 +245,11 @@ export function useRelay(): UseRelayReturn {
         logger.error('Auto-connect failed:', err);
       });
     }
+    // WHY: `connect` is a plain async function defined in the same render scope.
+    // Wrapping it in useCallback would create a circular dep with pairingInfo
+    // (connect reads it) which is already in this array. The effect re-registers
+    // whenever pairingInfo or isOnline changes, so connect always sees fresh values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pairingInfo, isOnline]);
 
   // --------------------------------------------------------------------------
@@ -265,6 +270,13 @@ export function useRelay(): UseRelayReturn {
       }
     });
     return () => unsubscribe();
+    // WHY: `connect` and `processOfflineQueue` are plain async functions in the
+    // same render scope. They read pairingInfo from closure, which IS in this dep
+    // array. The effect re-registers on pairingInfo/isOnline changes, ensuring
+    // fresh closure values. Wrapping both in useCallback would require cascading
+    // memoization across the entire hook — a structural refactor deferred to a
+    // follow-up cleanup task.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOnline, pairingInfo]);
 
   // --------------------------------------------------------------------------
@@ -274,6 +286,11 @@ export function useRelay(): UseRelayReturn {
   useEffect(() => {
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription.remove();
+    // WHY: handleAppStateChange is a useCallback that depends on pairingInfo.
+    // Adding it here would cause double-registration because pairingInfo is also
+    // in this array. The current setup re-registers the listener whenever
+    // pairingInfo changes, which is the correct behavior.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pairingInfo]);
 
   /**
@@ -292,6 +309,12 @@ export function useRelay(): UseRelayReturn {
       // kill the WebSocket, but staying connected as long as possible means the user
       // sees fresh data immediately when returning to the app.
     },
+    // WHY: `connect` is a plain async function in the same render scope, not a
+    // useCallback. Including it would cause this callback to be recreated every
+    // render, which would re-fire the AppState effect on every render cycle.
+    // pairingInfo IS included — connect reads it from closure and this callback
+    // re-memoizes whenever pairingInfo changes, ensuring freshness.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [pairingInfo]
   );
 

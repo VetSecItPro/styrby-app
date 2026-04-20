@@ -23,7 +23,6 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import {
   useContextTemplates,
@@ -51,8 +50,6 @@ import type {
  * @returns React element
  */
 export default function TemplatesScreen() {
-  const router = useRouter();
-
   // Template data and mutations from hook
   const {
     templates,

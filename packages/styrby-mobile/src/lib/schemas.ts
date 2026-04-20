@@ -33,12 +33,6 @@ const AgentTypeSchema = z.enum(['claude', 'codex', 'gemini', 'opencode', 'aider'
  */
 const SessionStatusSchema = z.enum(['starting', 'running', 'idle', 'paused', 'stopped', 'error', 'expired']);
 
-/**
- * Valid subscription tiers.
- * Matches the `subscription_tier` enum in the database.
- */
-const SubscriptionTierSchema = z.enum(['free', 'pro', 'power', 'team']);
-
 // ============================================================================
 // Profile Schema
 // ============================================================================

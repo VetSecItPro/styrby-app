@@ -333,9 +333,9 @@ describe('SettingsScreen', () => {
   });
 
   it('shows "Not signed in" when getUser returns no user', async () => {
-    // WHY as any: Simulating unauthenticated state where Supabase returns null user.
-    // The mock default type is non-null so we cast to test the null-handling path.
-    mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: null } as any);
+    // WHY: Simulating unauthenticated state where Supabase returns null user.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGetUser.mockResolvedValueOnce({ data: { user: null as any }, error: null });
     const { tree } = await renderSettingsScreen();
     expect(hasText(tree, 'Not signed in')).toBe(true);
   });

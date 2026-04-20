@@ -350,7 +350,7 @@ describe('Notifications Service', () => {
     });
 
     it('removeNotificationListener removes subscription', () => {
-      const sub = { remove: jest.fn() } as any;
+      const sub = { remove: jest.fn() } as { remove: jest.Mock };
       removeNotificationListener(sub);
       expect(Notifications.removeNotificationSubscription).toHaveBeenCalledWith(sub);
     });

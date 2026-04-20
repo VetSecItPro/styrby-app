@@ -51,6 +51,12 @@ export default function AuthCallbackScreen() {
 
   useEffect(() => {
     handleAuthCallback();
+    // WHY: handleAuthCallback is a function declaration in this component.
+    // This effect is intentionally mount-only — the auth code from the URL
+    // is single-use (see hasExchanged ref guard) and must only be consumed once.
+    // Adding handleAuthCallback would require useCallback, but the hasExchanged
+    // guard already prevents double-execution in Strict Mode.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /**

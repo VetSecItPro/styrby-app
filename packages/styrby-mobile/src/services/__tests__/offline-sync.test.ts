@@ -322,7 +322,7 @@ describe('Offline Sync Service', () => {
         resolveFirst = () => resolve([createStoredCommand({ id: 'slow' })]);
       });
 
-      mockGetPendingCommands.mockReturnValueOnce(slowPending as any);
+      mockGetPendingCommands.mockReturnValueOnce(slowPending as unknown as ReturnType<typeof mockGetPendingCommands>);
 
       // Start first sync (will block on getPendingCommands)
       const sync1 = syncPendingCommands();

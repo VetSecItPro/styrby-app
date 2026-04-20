@@ -10,7 +10,6 @@
  */
 
 import * as SecureStore from 'expo-secure-store';
-import { type NaClKeyPair } from 'styrby-shared';
 
 // ============================================================================
 // Mock Setup
@@ -34,15 +33,15 @@ jest.mock('styrby-shared', () => {
 jest.mock('../../lib/supabase', () => {
   // Create a chainable mock for Supabase queries
   const createChain = (result = { data: null, error: null }) => {
-    const chain: any = {};
+    const chain: Record<string, jest.Mock> = {};
     const methods = ['select', 'eq', 'insert', 'upsert', 'maybeSingle'];
     methods.forEach((m) => {
       chain[m] = jest.fn(() => chain);
     });
-    chain.single = jest.fn(() => Promise.resolve(result));
-    chain.maybeSingle = jest.fn(() => Promise.resolve(result));
+    chain['single'] = jest.fn(() => Promise.resolve(result));
+    chain['maybeSingle'] = jest.fn(() => Promise.resolve(result));
     // Make the chain itself thenable for queries that don't end in single/maybeSingle
-    chain.then = (resolve: any) => resolve(result);
+    chain['then'] = jest.fn((resolve: (r: typeof result) => unknown) => resolve(result));
     return chain;
   };
 
@@ -66,8 +65,6 @@ import {
   generateKeyPair,
   encryptForStorage,
   decryptFromStorage,
-  encodeBase64,
-  decodeBase64,
   generateFingerprint,
 } from 'styrby-shared';
 import { supabase } from '../../lib/supabase';

@@ -218,7 +218,7 @@ describe('ProfileSchema', () => {
   });
 
   it('rejects a profile with missing id', () => {
-    const { id, ...noId } = makeProfile();
+    const { id: _id, ...noId } = makeProfile();
     const result = ProfileSchema.safeParse(noId);
     expect(result.success).toBe(false);
   });
@@ -328,7 +328,7 @@ describe('CostRecordSchema', () => {
   });
 
   it('rejects cost record with missing record_date', () => {
-    const { record_date, ...noDdate } = makeCostRecord();
+    const { record_date: _record_date, ...noDdate } = makeCostRecord();
     const result = CostRecordSchema.safeParse(noDdate);
     expect(result.success).toBe(false);
   });
@@ -611,13 +611,13 @@ describe('TeamSchema', () => {
   });
 
   it('rejects team with missing name', () => {
-    const { name, ...noName } = makeTeam();
+    const { name: _name, ...noName } = makeTeam();
     const result = TeamSchema.safeParse(noName);
     expect(result.success).toBe(false);
   });
 
   it('rejects team with missing owner_id', () => {
-    const { owner_id, ...noOwner } = makeTeam();
+    const { owner_id: _owner_id, ...noOwner } = makeTeam();
     const result = TeamSchema.safeParse(noOwner);
     expect(result.success).toBe(false);
   });
@@ -652,7 +652,7 @@ describe('TeamMemberSchema', () => {
   });
 
   it('rejects missing email', () => {
-    const { email, ...noEmail } = makeTeamMember();
+    const { email: _email, ...noEmail } = makeTeamMember();
     const result = TeamMemberSchema.safeParse(noEmail);
     expect(result.success).toBe(false);
   });

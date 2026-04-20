@@ -24,7 +24,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
+import { useLocalSearchParams, useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../src/lib/supabase';
 import type { AgentType } from 'styrby-shared';
@@ -466,7 +466,6 @@ function BlockedToolChip({
  */
 export default function AgentConfigScreen() {
   const params = useLocalSearchParams<{ agent: string }>();
-  const router = useRouter();
   const navigation = useNavigation();
 
   // --------------------------------------------------------------------------
