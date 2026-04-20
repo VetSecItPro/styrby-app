@@ -24,7 +24,7 @@
  * @module app/dashboard/settings/account/passkeys/page
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { startRegistration } from '@simplewebauthn/browser';
 import { KeyRound, Plus, Trash2, Pencil, Check, X, ShieldCheck } from 'lucide-react';
@@ -207,7 +207,11 @@ export default function PasskeysPage() {
     text: string;
   } | null>(null);
 
-  const supabase = createClient();
+  // WHY useMemo: createClient() returns a new client on every call. Without
+  // memoization, every render would invalidate the useCallback identity of
+  // fetchPasskeys, which in turn retriggers useEffect and causes an infinite
+  // fetch loop. Memoizing the client stabilizes the dependency chain.
+  const supabase = useMemo(() => createClient(), []);
 
   /**
    * Fetches all passkeys for the current user.

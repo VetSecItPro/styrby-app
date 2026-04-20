@@ -1,0 +1,175 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`PasskeysScreen snapshot — empty state 1`] = `
+<ScrollView
+  className="flex-1 bg-background"
+  contentContainerStyle={
+    {
+      "padding": 16,
+    }
+  }
+  keyboardShouldPersistTaps="handled"
+>
+  <Text
+    className="text-zinc-400 text-sm mb-6"
+  >
+    Passkeys let you sign in with Face ID, Touch ID, or your device PIN. They are phishing-resistant and work across your synced devices.
+  </Text>
+  <Pressable
+    accessibilityLabel="Add a passkey"
+    accessibilityRole="button"
+    className="flex-row items-center justify-center py-4 rounded-xl mb-6 bg-amber-500"
+    disabled={false}
+    onPress={[Function]}
+  >
+    <Ionicons
+      color="white"
+      name="add"
+      size={20}
+    />
+    <Text
+      className="text-white font-semibold text-base ml-2"
+    >
+      Add a passkey
+    </Text>
+  </Pressable>
+  <Text
+    className="text-zinc-500 text-xs font-medium uppercase tracking-wide mb-3"
+  >
+    Active passkeys
+  </Text>
+  <View
+    className="bg-zinc-900 rounded-xl p-6 items-center border border-dashed border-zinc-700 mb-6"
+  >
+    <Ionicons
+      color="#71717a"
+      name="key-outline"
+      size={32}
+    />
+    <Text
+      className="text-zinc-400 text-sm text-center mt-2"
+    >
+      No passkeys registered yet.
+    </Text>
+    <Text
+      className="text-zinc-600 text-xs text-center mt-1"
+    >
+      Tap "Add a passkey" above to enable biometric sign-in.
+    </Text>
+  </View>
+  <Text
+    className="text-zinc-600 text-xs text-center mt-6 px-2"
+  >
+    Passkeys sync via iCloud Keychain or Google Password Manager. Revoking removes access immediately across all devices.
+  </Text>
+</ScrollView>
+`;
+
+exports[`PasskeysScreen snapshot — with active passkeys 1`] = `
+<ScrollView
+  className="flex-1 bg-background"
+  contentContainerStyle={
+    {
+      "padding": 16,
+    }
+  }
+  keyboardShouldPersistTaps="handled"
+>
+  <Text
+    className="text-zinc-400 text-sm mb-6"
+  >
+    Passkeys let you sign in with Face ID, Touch ID, or your device PIN. They are phishing-resistant and work across your synced devices.
+  </Text>
+  <Pressable
+    accessibilityLabel="Add a passkey"
+    accessibilityRole="button"
+    className="flex-row items-center justify-center py-4 rounded-xl mb-6 bg-amber-500"
+    disabled={false}
+    onPress={[Function]}
+  >
+    <Ionicons
+      color="white"
+      name="add"
+      size={20}
+    />
+    <Text
+      className="text-white font-semibold text-base ml-2"
+    >
+      Add a passkey
+    </Text>
+  </Pressable>
+  <Text
+    className="text-zinc-500 text-xs font-medium uppercase tracking-wide mb-3"
+  >
+    Active passkeys
+  </Text>
+  <View
+    className="mb-6"
+  >
+    <View
+      className="bg-zinc-900 rounded-xl p-4 mb-3 border border-zinc-700"
+    >
+      <View
+        className="flex-row items-center"
+      >
+        <View
+          className="w-10 h-10 rounded-full bg-amber-500/10 items-center justify-center mr-3"
+        >
+          <Ionicons
+            color="#f59e0b"
+            name="key-outline"
+            size={20}
+          />
+        </View>
+        <View
+          className="flex-1 min-w-0"
+        >
+          <Text
+            className="text-white text-sm font-medium"
+            numberOfLines={1}
+          >
+            iPhone 15 Pro
+          </Text>
+          <Text
+            className="text-zinc-500 text-xs mt-0.5"
+          >
+            Added 
+            1/15/2026
+          </Text>
+        </View>
+        <View
+          className="flex-row items-center gap-3 ml-2"
+        >
+          <Pressable
+            accessibilityLabel="Rename passkey iPhone 15 Pro"
+            hitSlop={8}
+            onPress={[Function]}
+          >
+            <Ionicons
+              color="#71717a"
+              name="pencil-outline"
+              size={18}
+            />
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Revoke passkey iPhone 15 Pro"
+            hitSlop={8}
+            onPress={[Function]}
+          >
+            <Ionicons
+              color="#71717a"
+              name="trash-outline"
+              size={18}
+            />
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  </View>
+  <Text
+    className="text-zinc-600 text-xs text-center mt-6 px-2"
+  >
+    Passkeys sync via iCloud Keychain or Google Password Manager. Revoking removes access immediately across all devices.
+  </Text>
+</ScrollView>
+`;

@@ -74,10 +74,12 @@ jest.mock('../../../src/lib/config', () => ({
 
 const mockPasskeyCreate = jest.fn();
 const mockPasskeyAuthenticate = jest.fn();
-jest.mock('expo-passkey', () => ({
-  Passkey: {
-    create: mockPasskeyCreate,
-    authenticate: mockPasskeyAuthenticate,
+jest.mock('expo-passkey/native', () => ({
+  __esModule: true,
+  default: {
+    createPasskey: mockPasskeyCreate,
+    authenticateWithPasskey: mockPasskeyAuthenticate,
+    isPasskeySupported: jest.fn(() => true),
   },
 }));
 
@@ -233,7 +235,8 @@ describe('PasskeysScreen', () => {
     mockFetchOnce({ ok: true, json: { challenge: 'reg-chal', user: {} } });
     mockFetchOnce({ ok: true, json: { success: true } });
 
-    mockPasskeyCreate.mockResolvedValue({ id: 'new-cred' });
+    // expo-passkey returns a JSON string per WebAuthn L3 credential shape.
+    mockPasskeyCreate.mockResolvedValue(JSON.stringify({ id: 'new-cred' }));
 
     let tree: renderer.ReactTestRenderer;
     await renderer.act(async () => {
@@ -250,16 +253,14 @@ describe('PasskeysScreen', () => {
     expect(mockPasskeyCreate).toHaveBeenCalledTimes(1);
   });
 
-  it('handles enroll cancellation gracefully', async () => {
+  it('handles enroll cancellation gracefully (NotAllowedError)', async () => {
     mockSupabaseFrom.mockReturnValue(buildQueryMock({ data: [], error: null }));
 
     mockFetchOnce({ ok: true, json: { challenge: 'reg-chal' } });
 
     const cancelErr = new Error('User cancelled');
     cancelErr.name = 'NotAllowedError';
-    mockPasskeyCreate.mockRejectedValue(cancelErr);
-
-    const Alert = require('react-native/Libraries/Alert/Alert');
+    mockPasskeyCreate.mockRejectedValueOnce(cancelErr);
 
     let tree: renderer.ReactTestRenderer;
     await renderer.act(async () => {
@@ -269,10 +270,13 @@ describe('PasskeysScreen', () => {
 
     const buttons = tree!.root.findAllByProps({ accessibilityLabel: 'Add a passkey' });
     await renderer.act(async () => {
-      buttons[0].props.onPress();
+      // WHY await: onPress is async. Without awaiting, act flushes before
+      // the catch branch runs and the Alert call is not observed.
+      await buttons[0].props.onPress();
     });
 
-    // NotAllowedError -> "Cancelled" alert
+    // Alert.alert is globally mocked via jest.setup.js react-native mock.
+    const { Alert } = require('react-native');
     expect(Alert.alert).toHaveBeenCalledWith('Cancelled', expect.any(String));
   });
 });

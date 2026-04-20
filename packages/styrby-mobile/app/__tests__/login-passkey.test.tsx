@@ -38,10 +38,12 @@ jest.mock('../../src/lib/config', () => ({
   getApiBaseUrl: jest.fn(() => 'http://localhost:3000'),
 }));
 
-jest.mock('expo-passkey', () => ({
-  Passkey: {
-    authenticate: jest.fn(),
-    create: jest.fn(),
+jest.mock('expo-passkey/native', () => ({
+  __esModule: true,
+  default: {
+    authenticateWithPasskey: jest.fn(),
+    createPasskey: jest.fn(),
+    isPasskeySupported: jest.fn(() => true),
   },
 }));
 
@@ -79,13 +81,14 @@ function hasText(
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
-describe('Login screen — passkey support', () => {
-  let LoginScreen: React.ComponentType;
+// Import after mocks are declared. jest.mock is hoisted so the mocks
+// above will be active before this require executes.
+// WHY require not import: top-level require preserves mock hoisting while
+// avoiding the jest.resetModules() + duplicate-React-instance bug that
+// causes "useState is null" in react-test-renderer.
+const LoginScreen = require('../(auth)/login').default as React.ComponentType;
 
-  beforeEach(() => {
-    jest.resetModules();
-    LoginScreen = require('../(auth)/login').default;
-  });
+describe('Login screen — passkey support', () => {
 
   it('renders the passkey button', () => {
     let tree: renderer.ReactTestRenderer;

@@ -25,7 +25,7 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../src/lib/supabase';
 import { getApiBaseUrl } from '../../src/lib/config';
-import { Passkey } from 'expo-passkey';
+import ExpoPasskey from 'expo-passkey/native';
 
 // ============================================================================
 // Types
@@ -171,7 +171,11 @@ export default function LoginScreen() {
       const challengeData = await challengeRes.json();
 
       // 2. Invoke native passkey UI (Face ID / Touch ID / PIN)
-      const assertionResponse = await Passkey.authenticate(challengeData);
+      // expo-passkey returns a JSON-string credential per WebAuthn L3.
+      const assertionJson = await ExpoPasskey.authenticateWithPasskey({
+        requestJson: JSON.stringify(challengeData),
+      });
+      const assertionResponse = JSON.parse(assertionJson);
 
       // 3. Verify the assertion
       const verifyRes = await fetch(`${apiBase}/api/auth/passkey/verify`, {

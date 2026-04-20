@@ -44,7 +44,13 @@ vi.mock('@/lib/supabase/client', () => ({
 }));
 
 // @simplewebauthn/browser mock
-const mockStartRegistration = vi.fn();
+// WHY vi.hoisted: vi.mock is hoisted to the top of the file by vitest, so
+// any variable referenced inside the factory must also be hoisted. Defining
+// the mock fn via vi.hoisted() ensures it is initialized before the mock
+// factory runs.
+const { mockStartRegistration } = vi.hoisted(() => ({
+  mockStartRegistration: vi.fn(),
+}));
 vi.mock('@simplewebauthn/browser', () => ({
   startRegistration: mockStartRegistration,
   startAuthentication: vi.fn(),
@@ -158,10 +164,10 @@ describe('PasskeysPage', () => {
     render(<PasskeysPage />);
 
     await waitFor(() => {
-      expect(screen.getByText(/add a passkey/i)).toBeTruthy();
+      expect(screen.getByRole('button', { name: /add a passkey/i })).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByText(/add a passkey/i));
+    fireEvent.click(screen.getByRole('button', { name: /add a passkey/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/passkey added successfully/i)).toBeTruthy();
@@ -180,8 +186,8 @@ describe('PasskeysPage', () => {
     mockStartRegistration.mockRejectedValue(cancelError);
 
     render(<PasskeysPage />);
-    await waitFor(() => screen.getByText(/add a passkey/i));
-    fireEvent.click(screen.getByText(/add a passkey/i));
+    await waitFor(() => screen.getByRole('button', { name: /add a passkey/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add a passkey/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/registration cancelled/i)).toBeTruthy();
@@ -198,8 +204,8 @@ describe('PasskeysPage', () => {
     mockStartRegistration.mockRejectedValue(dupError);
 
     render(<PasskeysPage />);
-    await waitFor(() => screen.getByText(/add a passkey/i));
-    fireEvent.click(screen.getByText(/add a passkey/i));
+    await waitFor(() => screen.getByRole('button', { name: /add a passkey/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add a passkey/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/already registered/i)).toBeTruthy();

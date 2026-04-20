@@ -39,7 +39,7 @@ import {
 import { useState, useEffect, useCallback } from 'react';
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Passkey } from 'expo-passkey';
+import ExpoPasskey from 'expo-passkey/native';
 import { supabase } from '../../src/lib/supabase';
 import { getApiBaseUrl } from '../../src/lib/config';
 
@@ -286,7 +286,11 @@ export default function PasskeysScreen() {
       const challengeData = await challengeRes.json();
 
       // 2. Native enrollment UI
-      const attestationResponse = await Passkey.create(challengeData);
+      // expo-passkey returns a JSON-string credential per WebAuthn L3.
+      const attestationJson = await ExpoPasskey.createPasskey({
+        requestJson: JSON.stringify(challengeData),
+      });
+      const attestationResponse = JSON.parse(attestationJson);
 
       // 3. Verify attestation
       const verifyRes = await fetch(`${apiBase}/api/auth/passkey/verify`, {
