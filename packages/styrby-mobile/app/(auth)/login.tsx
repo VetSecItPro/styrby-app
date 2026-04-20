@@ -25,7 +25,13 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../src/lib/supabase';
 import { getApiBaseUrl } from '../../src/lib/config';
-import ExpoPasskey from 'expo-passkey/native';
+// WHY bare 'expo-passkey' not 'expo-passkey/native': Metro (pre-0.82) does
+// not honor the package's `exports` map, so subpath imports fail at bundle
+// time. Importing the package name instead lets Metro's platform-aware
+// resolution pick up `build/index.native.js` (the native client) over
+// `build/index.js` (the guard-rail stub) automatically.
+// Types are augmented locally via types/expo-passkey.d.ts.
+import ExpoPasskey from 'expo-passkey';
 
 // ============================================================================
 // Types

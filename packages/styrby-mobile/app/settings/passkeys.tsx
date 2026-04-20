@@ -39,7 +39,8 @@ import {
 import { useState, useEffect, useCallback } from 'react';
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import ExpoPasskey from 'expo-passkey/native';
+// See login.tsx for the rationale on using bare 'expo-passkey' over '/native'.
+import ExpoPasskey from 'expo-passkey';
 import { supabase } from '../../src/lib/supabase';
 import { getApiBaseUrl } from '../../src/lib/config';
 

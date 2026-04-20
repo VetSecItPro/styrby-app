@@ -38,7 +38,7 @@ jest.mock('../../src/lib/config', () => ({
   getApiBaseUrl: jest.fn(() => 'http://localhost:3000'),
 }));
 
-jest.mock('expo-passkey/native', () => ({
+jest.mock('expo-passkey', () => ({
   __esModule: true,
   default: {
     authenticateWithPasskey: jest.fn(),

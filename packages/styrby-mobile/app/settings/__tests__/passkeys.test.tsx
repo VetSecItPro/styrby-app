@@ -74,7 +74,7 @@ jest.mock('../../../src/lib/config', () => ({
 
 const mockPasskeyCreate = jest.fn();
 const mockPasskeyAuthenticate = jest.fn();
-jest.mock('expo-passkey/native', () => ({
+jest.mock('expo-passkey', () => ({
   __esModule: true,
   default: {
     createPasskey: mockPasskeyCreate,

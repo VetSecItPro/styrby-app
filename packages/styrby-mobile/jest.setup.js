@@ -148,19 +148,22 @@ jest.mock('expo-camera', () => ({
 }));
 
 // ============================================================================
-// expo-passkey/native (WebAuthn L3 native bridge)
+// expo-passkey (WebAuthn L3 native bridge)
 // ============================================================================
 
 /**
- * Mock of expo-passkey/native default export.
+ * Mock of expo-passkey default export.
  * WHY: The real module imports a Turbo/Expo native module at import time,
  * which fails in the node test environment. This mock provides the same
  * shape (default export with createPasskey / authenticateWithPasskey) and
  * returns JSON strings, matching the production contract.
  * Tests that exercise enrollment/authentication override these with
- * jest.mock('expo-passkey/native', ...) locally.
+ * jest.mock('expo-passkey', ...) locally.
  */
-jest.mock('expo-passkey/native', () => ({
+// WHY mocking 'expo-passkey' (not '/native'): Metro resolves the bare package
+// name on native platforms to build/index.native.js via platform-aware
+// resolution. Our app code imports from 'expo-passkey' to match that.
+jest.mock('expo-passkey', () => ({
   __esModule: true,
   default: {
     isPasskeySupported: jest.fn(() => true),
