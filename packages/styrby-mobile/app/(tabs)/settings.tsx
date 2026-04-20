@@ -43,6 +43,7 @@ import {
   validateOtelConfig,
   OTEL_PRESETS,
 } from '../../src/lib/otel-config';
+import { SettingRow, SectionHeader } from '../../src/components/ui';
 
 // ============================================================================
 // Constants
@@ -90,77 +91,6 @@ interface UserInfo {
   displayName: string | null;
   /** First letter of the display name or email for the avatar */
   initial: string;
-}
-
-// ============================================================================
-// Sub-Components
-// ============================================================================
-
-interface SettingRowProps {
-  /** Ionicons icon name */
-  icon: keyof typeof Ionicons.glyphMap;
-  /** Background tint color for the icon badge */
-  iconColor?: string;
-  /** Primary label text */
-  title: string;
-  /** Secondary description text */
-  subtitle?: string;
-  /** Press handler — row shows a chevron when provided (without trailing) */
-  onPress?: () => void;
-  /** Custom trailing element (e.g. a Switch) */
-  trailing?: React.ReactNode;
-}
-
-/**
- * A single settings row with an icon, title, optional subtitle, and
- * either a trailing element or a chevron indicator.
- *
- * @param props - Row configuration
- * @returns React element
- */
-function SettingRow({
-  icon,
-  iconColor = '#71717a',
-  title,
-  subtitle,
-  onPress,
-  trailing,
-}: SettingRowProps) {
-  return (
-    <Pressable
-      className="flex-row items-center px-4 py-3 active:bg-zinc-900"
-      onPress={onPress}
-      disabled={!onPress && !trailing}
-      accessibilityRole="button"
-      accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title}
-    >
-      <View
-        className="w-8 h-8 rounded-lg items-center justify-center mr-3"
-        style={{ backgroundColor: `${iconColor}20` }}
-      >
-        <Ionicons name={icon} size={18} color={iconColor} />
-      </View>
-      <View className="flex-1">
-        <Text className="text-white font-medium">{title}</Text>
-        {subtitle && <Text className="text-zinc-500 text-sm">{subtitle}</Text>}
-      </View>
-      {trailing ? <>{trailing}</> : onPress ? <Ionicons name="chevron-forward" size={20} color="#71717a" /> : null}
-    </Pressable>
-  );
-}
-
-/**
- * Section header label for grouping related settings.
- *
- * @param props - Contains the section title string
- * @returns React element
- */
-function SectionHeader({ title }: { title: string }) {
-  return (
-    <Text className="text-zinc-500 text-xs font-semibold uppercase px-4 py-2 bg-background">
-      {title}
-    </Text>
-  );
 }
 
 // ============================================================================
