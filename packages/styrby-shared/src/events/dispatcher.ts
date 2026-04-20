@@ -19,7 +19,23 @@
  * @module events/dispatcher
  */
 
-import { randomUUID } from 'crypto';
+// WHY: Use cross-platform `crypto.randomUUID()` from the Web Crypto API (globalThis.crypto)
+// instead of importing from Node's built-in `node:crypto` module. React Native / Metro cannot
+// resolve Node built-ins, and `@styrby/shared` is consumed by mobile + web + cli.
+// `crypto.randomUUID()` is available in: Node 19+, modern browsers, React Native 0.76+ (Hermes).
+// Fallback for older runtimes: manual v4 UUID generator.
+function randomUUID(): string {
+  if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  // RFC 4122 v4 fallback (used only if runtime lacks Web Crypto UUID API)
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 import {
   EVENT_REGISTRY,
   type EventEnvelope,
