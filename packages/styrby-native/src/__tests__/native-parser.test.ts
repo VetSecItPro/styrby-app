@@ -486,12 +486,13 @@ describe('performance contract', () => {
 // 7. watchDirectory — fallback behaviour
 // ---------------------------------------------------------------------------
 
-describe('watchDirectory fallback', () => {
-  it('throws with a helpful message when native is not loaded', () => {
-    if (native.isNativeLoaded) {
-      // Native is loaded — skip this test
-      return;
-    }
-    expect(() => native.watchDirectory('/tmp', () => {})).toThrow(/native Rust module/i);
+describe('watchDirectory fallback (Phase 0.4)', () => {
+  it('returns a usable watcher handle even when native is not loaded', () => {
+    // Phase 0.4 replaced the "throw" stub with a real fs.watch fallback so
+    // the CLI continues to work without the native binary. Detailed
+    // behaviour is covered in `src/__tests__/watch-directory.test.ts`.
+    const handle = native.watchDirectory('/tmp', () => {});
+    expect(handle).toBeDefined();
+    native.stopWatcher(handle);
   });
 });
