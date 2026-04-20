@@ -19,6 +19,7 @@
 
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { estimateTokensSync } from 'styrby-shared';
 import type {
   AgentBackend,
   SessionId,
@@ -76,17 +77,20 @@ export interface AiderBackendResult {
 }
 
 /**
- * Estimate token count from text using simple heuristic.
+ * Estimate token count from text.
  *
- * Uses the approximation that 1 token ~= 0.75 words (or words * 1.3 tokens).
- * This is a rough estimate; actual token counts vary by model and text content.
+ * Phase 1.1: Routes through the shared `estimateTokensSync()` so the rest
+ * of the system has one tokenizer dispatch point. This function is the
+ * synchronous hot-path estimator (per-line streaming) — the cost calculator
+ * reconciles to exact anthropic/openai counts via async `countTokens()` on
+ * session close, so any drift in this estimate is corrected before the
+ * record lands in the cost dashboard (SOC2 CC4.1 honest monitoring).
  *
  * @param text - The text to estimate tokens for
  * @returns Estimated token count
  */
 function estimateTokens(text: string): number {
-  const wordCount = text.split(/\s+/).filter((w) => w.length > 0).length;
-  return Math.ceil(wordCount * 1.3);
+  return estimateTokensSync(text);
 }
 
 /**

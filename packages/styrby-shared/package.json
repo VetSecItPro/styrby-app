@@ -36,6 +36,10 @@
     "./hooks": {
       "types": "./dist/hooks/index.d.ts",
       "import": "./dist/hooks/index.js"
+    },
+    "./tokenizers": {
+      "types": "./dist/tokenizers/index.d.ts",
+      "import": "./dist/tokenizers/index.js"
     }
   },
   "scripts": {

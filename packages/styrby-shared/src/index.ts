@@ -33,6 +33,10 @@ export * from './api/index.js';
 export * from './events/index.js';
 export * from './hooks/index.js';
 
+// Phase 1.1 — honest token counting (lazy-loads anthropic/openai tokenizers
+// when present, falls back to the words*1.3 heuristic everywhere else).
+export * from './tokenizers/index.js';
+
 // WHY: The full pricing module is NOT re-exported from the barrel.
 // litellm-pricing.ts uses Node.js builtins (node:path, node:os, node:fs, node:crypto)
 // which break webpack/Next.js client bundles. Import directly from
