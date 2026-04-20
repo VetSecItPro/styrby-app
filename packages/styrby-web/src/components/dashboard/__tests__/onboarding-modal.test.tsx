@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { OnboardingState } from '@/lib/onboarding';
 
@@ -25,6 +25,7 @@ import type { OnboardingState } from '@/lib/onboarding';
 // ---------------------------------------------------------------------------
 
 vi.mock('next/image', () => ({
+  // eslint-disable-next-line @next/next/no-img-element -- test stub replacing next/image itself; circular to use Image here
   default: ({ alt }: { alt: string }) => <img alt={alt} />,
 }));
 

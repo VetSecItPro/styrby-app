@@ -14,7 +14,7 @@
  * @module components/activity-graph
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { ActivityDay, AgentType } from '@styrby/shared';
 
@@ -210,7 +210,7 @@ interface TooltipProps {
  *
  * @param props - Day data and display mode
  */
-function ActivityTooltip({ day, mode }: TooltipProps) {
+function ActivityTooltip({ day, mode: _mode }: TooltipProps) {
   const date = new Date(day.date + 'T12:00:00');
   const formatted = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 

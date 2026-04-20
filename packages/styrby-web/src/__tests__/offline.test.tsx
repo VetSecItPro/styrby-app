@@ -32,7 +32,6 @@ vi.mock('next/navigation', () => ({
  */
 function createHookTestComponent() {
   // We import dynamically inside the test to avoid hoisting issues
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let hookModule: any;
 
   /**

@@ -152,7 +152,10 @@ export async function getOnboardingState(
   }
 
   // Fetch tier and completion signals in parallel
-  const [subscriptionResult, machinesResult, budgetAlertsResult, deviceTokensResult, teamMembersResult, apiKeysResult] =
+  // WHY: teamMembersResult is fetched to keep the parallel Promise.all pattern
+  // consistent, but team membership is checked via team_invitations separately
+  // (see hasInvitedTeamMember below). Prefix with _ to document intentional skip.
+  const [subscriptionResult, machinesResult, budgetAlertsResult, deviceTokensResult, _teamMembersResult, apiKeysResult] =
     await Promise.all([
       // Subscription tier
       supabase

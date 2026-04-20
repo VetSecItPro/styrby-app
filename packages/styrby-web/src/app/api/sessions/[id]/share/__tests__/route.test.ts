@@ -18,11 +18,6 @@ import { NextRequest } from 'next/server';
 // Mocks
 // ============================================================================
 
-/**
- * Tracks Supabase call results.
- */
-const supabaseCalls: Array<{ method: string; result: unknown }> = [];
-let callIndex = 0;
 
 /**
  * Creates a chainable Supabase mock that resolves with the next queued result.
@@ -122,7 +117,6 @@ describe('POST /api/sessions/[id]/share', () => {
   beforeEach(() => {
     fromResults.length = 0;
     vi.clearAllMocks();
-    callIndex = 0;
     // WHY: The route checks subscription tier before processing. Push a Power
     // tier subscription so the tier gate passes. This is the first from() call.
     fromResults.push({ data: { tier: 'power' }, error: null });

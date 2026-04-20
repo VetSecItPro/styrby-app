@@ -104,7 +104,6 @@ function setupServiceWorkerMock(opts: { supported?: boolean; controller?: boolea
     // Simulate browser without SW support by deleting the property entirely.
     // The `in` operator checks property existence, so setting to undefined
     // is not sufficient; we must actually remove it from the prototype chain.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     delete (navigator as any).serviceWorker;
     return;
   }

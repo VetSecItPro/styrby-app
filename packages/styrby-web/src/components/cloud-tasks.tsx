@@ -324,7 +324,6 @@ export function CloudTasksPanel({ userId }: CloudTasksPanelProps) {
     const channel = supabase
       .channel(`cloud_tasks_web:${userId}`)
       .on(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         'postgres_changes' as any,
         {
           event: '*',
@@ -332,7 +331,6 @@ export function CloudTasksPanel({ userId }: CloudTasksPanelProps) {
           table: 'cloud_tasks',
           filter: `user_id=eq.${userId}`,
         },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (payload: any) => {
           if (!isMounted) return;
 

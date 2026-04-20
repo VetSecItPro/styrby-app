@@ -33,13 +33,13 @@ import { NextRequest } from 'next/server';
  * the same hoisting phase as vi.mock(), ensuring MockRatelimit is defined
  * before @upstash/ratelimit is first imported.
  */
-const { mockLimit, MockRatelimit } = vi.hoisted(() => {
-  const mockLimit = vi.fn();
-  const mockRatelimitInstance = { limit: mockLimit };
+const { _mockLimit, MockRatelimit } = vi.hoisted(() => {
+  const _mockLimit = vi.fn();
+  const mockRatelimitInstance = { limit: _mockLimit };
   const MockRatelimit = Object.assign(vi.fn().mockReturnValue(mockRatelimitInstance), {
     slidingWindow: vi.fn(),
   });
-  return { mockLimit, MockRatelimit };
+  return { _mockLimit, MockRatelimit };
 });
 
 vi.mock('@upstash/ratelimit', () => ({
