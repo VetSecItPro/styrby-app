@@ -30,6 +30,17 @@ function parseArgs(argv: string[]): { url: string | null } {
 }
 
 async function main() {
+  /**
+   * HAPPY_HTTP_MCP_URL — Base URL of the running Happy HTTP MCP server to proxy.
+   *
+   * Source: Set by the Styrby CLI when it launches the MCP bridge subprocess;
+   *   can also be set manually in .env or shell for local testing.
+   * Format: "http://127.0.0.1:<PORT>" (no trailing slash)
+   * Required in: runtime only — not needed at build time
+   * Behavior when missing: process exits with code 2 and an error on stderr
+   *   (stdout is reserved for MCP STDIO protocol; never write there).
+   * Rotation: ephemeral — changes each time the local MCP server restarts on a new port.
+   */
   // Resolve target HTTP MCP URL
   const { url: urlFromArgs } = parseArgs(process.argv.slice(2));
   const baseUrl = urlFromArgs || process.env.HAPPY_HTTP_MCP_URL || '';

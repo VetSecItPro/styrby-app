@@ -166,7 +166,6 @@ import AcceptInviteScreen from '../team/accept-invite';
  * resets mock implementations. require() re-fetches from the registry cache.
  */
 function getMockSupabase() {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require('@/lib/supabase').supabase as {
     auth: { getUser: jest.Mock };
     from: jest.Mock;

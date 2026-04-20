@@ -97,12 +97,20 @@ export default async function CostsPage({
   // agent_type, model). A single MV query now provides all data needed for the daily
   // trend chart, per-agent breakdown, and per-model breakdown - eliminating the
   // separate raw cost_records table scan that previously fetched up to 10,000 rows.
+  //
+  // WHY v_my_daily_costs (migration 016): Migration 016 revokes authenticated SELECT
+  // on the raw mv_daily_cost_summary materialized view and instead exposes
+  // v_my_daily_costs — a security-definer view that applies
+  // WHERE user_id = (SELECT auth.uid()) before returning rows. This closes a
+  // data-leak where a misconfigured RLS policy could expose other users' cost data.
+  // The view has identical columns; no .eq('user_id', ...) filter is needed because
+  // the view already enforces per-user isolation at the database layer.
   const rangeStart = new Date();
   rangeStart.setDate(rangeStart.getDate() - days);
   const rangeStartDate = rangeStart.toISOString().split('T')[0];
 
   const { data: mvRows } = await supabase
-    .from('mv_daily_cost_summary')
+    .from('v_my_daily_costs')
     .select('record_date, agent_type, model, total_cost_usd, total_input_tokens, total_output_tokens, record_count')
     .gte('record_date', rangeStartDate)
     .order('record_date', { ascending: true });

@@ -88,6 +88,16 @@ export async function registerForPushNotifications(): Promise<string | null> {
     });
   }
 
+  /**
+   * EXPO_PUBLIC_PROJECT_ID — EAS project ID that links push tokens to this app.
+   *
+   * Source: Expo Dashboard (expo.dev) > Project > Project ID, or run `eas project:info`
+   * Format: UUID string, e.g. "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+   * Required in: EAS preview and production builds (physical devices)
+   * Behavior when missing: getExpoPushTokenAsync throws; catch block returns null,
+   *   disabling push notifications silently. Warning logged in __DEV__ mode.
+   * Rotation: not a secret — only changes if the EAS project is recreated.
+   */
   // Get the Expo push token
   try {
     const tokenData = await Notifications.getExpoPushTokenAsync({

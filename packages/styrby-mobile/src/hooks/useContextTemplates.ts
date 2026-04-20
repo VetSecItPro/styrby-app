@@ -13,7 +13,6 @@ import type {
   ContextTemplateRow,
   CreateContextTemplateInput,
   UpdateContextTemplateInput,
-  ContextTemplateVariable,
 } from 'styrby-shared';
 import { contextTemplateFromRow } from 'styrby-shared';
 

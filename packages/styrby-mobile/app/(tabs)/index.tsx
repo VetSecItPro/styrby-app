@@ -90,7 +90,7 @@ export default function DashboardScreen() {
     notifications: dashboardNotifications,
     agentStatus,
     quickStats,
-    isLoading,
+    isLoading: _isLoading,
     refresh: refreshDashboardData,
   } = useDashboardData(lastMessage, connectedDevices);
 

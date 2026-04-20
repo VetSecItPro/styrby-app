@@ -12,7 +12,9 @@ import { Ionicons } from '@expo/vector-icons';
 import type { AgentType } from 'styrby-shared';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = SCREEN_WIDTH - 48; // 24px padding on each side
+// WHY: CARD_WIDTH reserved for future swipe-snap implementation; currently
+// cards use flex layout. Prefixed _ to mark as intentionally defined but unused.
+const _CARD_WIDTH = SCREEN_WIDTH - 48; // 24px padding on each side
 
 /**
  * Represents an active coding session displayed in the dashboard carousel.

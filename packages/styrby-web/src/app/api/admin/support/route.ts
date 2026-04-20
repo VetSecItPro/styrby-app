@@ -9,12 +9,16 @@
  * @auth Required - Supabase Auth JWT via cookie (admin only)
  *
  * @query {
- *   status?: 'open' | 'in_progress' | 'resolved' | 'closed',
- *   page?: number (default 1),
- *   limit?: number (default 50, max 100)
+ *   status?: 'open' | 'in_progress' | 'resolved' | 'closed',  // validated via Zod enum
+ *   page?: number (default 1, min 1),                          // validated via Zod int min(1)
+ *   limit?: number (default 50, max 100)                       // validated via Zod int 1-100
  * }
  *
+ * Validation: OWASP ASVS V5.1.3 — all inputs validated against an allowlist schema
+ * before use. Query params are coerced from strings and rejected with 400 on failure.
+ *
  * @returns 200 { tickets: Array, total: number }
+ * @error 400 { error: string }  // Zod parse failure
  * @error 401 { error: 'Unauthorized' }
  * @error 403 { error: 'Forbidden' }
  * @error 500 { error: string }
@@ -24,6 +28,23 @@ import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { isAdmin } from '@/lib/admin';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
+
+// ---------------------------------------------------------------------------
+// Query Schema
+// ---------------------------------------------------------------------------
+
+// WHY: Manual parseInt/clamp was not rejecting non-numeric strings — they
+// silently coerced to NaN and fell back to defaults, allowing callers to
+// supply arbitrary garbage that could confuse downstream query logic.
+// Replacing with Zod z.coerce ensures type-safe, allowlist-validated params
+// per OWASP ASVS V5.1.3 (Input Validation) and SOC2 CC7.2 (System Monitoring —
+// inputs to admin endpoints must be fully validated before processing).
+const QuerySchema = z.object({
+  status: z.enum(['open', 'in_progress', 'resolved', 'closed']).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
 
 export async function GET(request: Request) {
   // Verify the requesting user is authenticated
@@ -46,11 +67,23 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  // Parse query params
+  // Parse and validate query params via Zod schema (OWASP ASVS V5.1.3)
   const url = new URL(request.url);
-  const status = url.searchParams.get('status');
-  const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
-  const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10)));
+  const rawQuery = {
+    status: url.searchParams.get('status') ?? undefined,
+    page: url.searchParams.get('page') ?? undefined,
+    limit: url.searchParams.get('limit') ?? undefined,
+  };
+
+  const parseResult = QuerySchema.safeParse(rawQuery);
+  if (!parseResult.success) {
+    return NextResponse.json(
+      { error: parseResult.error.errors.map((e) => e.message).join(', ') },
+      { status: 400 }
+    );
+  }
+
+  const { status, page, limit } = parseResult.data;
   const offset = (page - 1) * limit;
 
   // Use admin client to bypass RLS and access all tickets
@@ -72,7 +105,8 @@ export async function GET(request: Request) {
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
 
-  if (status && ['open', 'in_progress', 'resolved', 'closed'].includes(status)) {
+  // status is already validated as a valid enum value by QuerySchema above
+  if (status) {
     query = query.eq('status', status);
   }
 

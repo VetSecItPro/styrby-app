@@ -67,6 +67,25 @@ export async function DELETE(request: Request) {
     const token = authHeader.slice(7);
     // Create a Supabase client that injects the Bearer token into every request.
     // This is equivalent to using the cookie-based client but works for mobile.
+    /**
+     * NEXT_PUBLIC_SUPABASE_URL — Public URL of the Supabase project.
+     *
+     * Source: Supabase Dashboard > Project Settings > API > Project URL
+     * Format: "https://<project-ref>.supabase.co"
+     * Required in: all (local / preview / production)
+     * Behavior when missing: createSupabaseClient throws at call time, returning
+     *   500 to the client. Next.js build will warn about the missing NEXT_PUBLIC_ var.
+     * Rotation: not a secret — changes only if the project is migrated.
+     *
+     * NEXT_PUBLIC_SUPABASE_ANON_KEY — Public anon key for client-side Supabase access.
+     *
+     * Source: Supabase Dashboard > Project Settings > API > Project API Keys > anon/public
+     * Format: JWT string (~200 chars), prefix "eyJ..."
+     * Required in: all (local / preview / production)
+     * Behavior when missing: createSupabaseClient throws at call time, returning
+     *   500 to the client. RLS policies still enforce row-level security.
+     * Rotation: annually or per-incident via Supabase Dashboard > API Keys > Rotate.
+     */
     supabase = createSupabaseClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

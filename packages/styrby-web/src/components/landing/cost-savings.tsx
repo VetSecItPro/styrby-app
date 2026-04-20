@@ -1,3 +1,4 @@
+import Image from "next/image"
 import { Eye, ShieldAlert, BarChart3 } from "lucide-react"
 
 /**
@@ -84,12 +85,14 @@ export function CostSavings() {
 
         {/* Cost analytics screenshot - kept as reference for real screenshot later */}
         <div className="mx-auto mt-10 md:max-w-[85%]">
-          <img
-            src="/screenshots/cost-analytics.png"
+          <Image
+            src="/screenshots/cost-analytics.webp"
             alt="Cost analytics showing 30-day spending trend across AI agents"
             className="w-full rounded-xl border border-border/40 shadow-lg"
             width={1440}
             height={900}
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 85vw, 1200px"
+            priority
           />
         </div>
       </div>

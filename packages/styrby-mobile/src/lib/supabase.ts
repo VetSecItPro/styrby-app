@@ -10,6 +10,25 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 export { createSupabaseClient as createClient };
 import * as SecureStore from 'expo-secure-store';
 
+/**
+ * EXPO_PUBLIC_SUPABASE_URL — Public URL of the Supabase project (mobile client).
+ *
+ * Source: Supabase Dashboard > Project Settings > API > Project URL
+ * Format: "https://<project-ref>.supabase.co"
+ * Required in: all (local / EAS preview / EAS production)
+ * Behavior when missing: createSupabaseClient throws at module load time,
+ *   crashing the app on launch with a runtime error.
+ * Rotation: not a secret — changes only if the project is migrated.
+ *
+ * EXPO_PUBLIC_SUPABASE_ANON_KEY — Public anon key for client-side Supabase access (mobile).
+ *
+ * Source: Supabase Dashboard > Project Settings > API > Project API Keys > anon/public
+ * Format: JWT string (~200 chars), prefix "eyJ..."
+ * Required in: all (local / EAS preview / EAS production)
+ * Behavior when missing: createSupabaseClient throws at module load time,
+ *   crashing the app on launch. RLS policies still enforce row-level security.
+ * Rotation: annually or per-incident via Supabase Dashboard > API Keys > Rotate.
+ */
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
 

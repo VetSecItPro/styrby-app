@@ -23,11 +23,16 @@ import * as Sentry from '@sentry/nextjs';
 
 Sentry.init({
   /**
-   * Sentry DSN — identifies this project to the Sentry ingest service.
-   * Get this from: sentry.io > Project Settings > Client Keys (DSN)
+   * SENTRY_DSN — Server-only DSN for the edge runtime (same key as server config).
    *
-   * NOTE: Uses SENTRY_DSN (server-only env var) since edge middleware
-   * runs on the server and this value must not appear in the client bundle.
+   * Source: sentry.io > Project Settings > Client Keys (DSN)
+   * Format: "https://<key>@<org>.ingest.sentry.io/<project-id>"
+   * Required in: production (optional in local/preview — errors go to terminal when missing)
+   * Behavior when missing: Sentry.init receives undefined; SDK silently disables
+   *   itself. The `enabled` gate below also prevents any activity outside production.
+   * Rotation: per-incident if key is suspected compromised; otherwise as needed.
+   * NOTE: Uses SENTRY_DSN (not NEXT_PUBLIC_SENTRY_DSN) — edge middleware runs on
+   *   the server side and this value must never appear in the client bundle.
    */
   dsn: process.env.SENTRY_DSN,
 

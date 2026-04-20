@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
 import Link from 'next/link';
 import {
   BarChart3,
@@ -441,34 +442,37 @@ export default function FeaturesPage() {
             {/* Screenshots for key categories */}
             {category.name === 'Cost Management' && (
               <div className="mt-8">
-                <img
-                  src="/screenshots/cost-analytics.png"
+                <Image
+                  src="/screenshots/cost-analytics.webp"
                   alt="Cost analytics dashboard showing 30-day spending trend, per-agent breakdown, and budget alert"
                   className="w-full rounded-xl border border-border/40 shadow-lg"
                   width={1440}
                   height={900}
+                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 80vw, 1200px"
                 />
               </div>
             )}
             {category.name === 'Remote Agent Control' && (
               <div className="mt-8">
-                <img
-                  src="/screenshots/session-view.png"
+                <Image
+                  src="/screenshots/session-view.webp"
                   alt="Session list showing active and completed sessions across multiple agents"
                   className="w-full rounded-xl border border-border/40 shadow-lg"
                   width={1440}
                   height={900}
+                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 80vw, 1200px"
                 />
               </div>
             )}
             {category.name === 'Multi-Agent Dashboard' && (
               <div className="mt-8">
-                <img
-                  src="/screenshots/agents-page.png"
+                <Image
+                  src="/screenshots/agents-page.webp"
                   alt="Agent dashboard showing all supported AI coding agents with status and daily costs"
                   className="w-full rounded-xl border border-border/40 shadow-lg"
                   width={1440}
                   height={900}
+                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 80vw, 1200px"
                 />
               </div>
             )}

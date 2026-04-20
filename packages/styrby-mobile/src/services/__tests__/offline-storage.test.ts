@@ -100,7 +100,6 @@ const mockDb = {
 // ============================================================================
 
 let uuidCounter = 0;
-const originalRandomUUID = crypto.randomUUID;
 jest.spyOn(crypto, 'randomUUID').mockImplementation(() => {
   uuidCounter++;
   return `00000000-0000-0000-0000-${String(uuidCounter).padStart(12, '0')}` as `${string}-${string}-${string}-${string}-${string}`;
@@ -116,7 +115,6 @@ import {
   markSynced,
   clearSynced,
   type SaveCommandInput,
-  type StoredCommand,
 } from '../offline-storage';
 
 // ============================================================================

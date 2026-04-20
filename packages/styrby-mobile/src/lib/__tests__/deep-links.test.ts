@@ -82,7 +82,7 @@ describe('deep-links', () => {
     });
 
     it('should filter out null values', () => {
-      const url = buildDeepLink('settings', { section: 'profile', invalid: null as any });
+      const url = buildDeepLink('settings', { section: 'profile', invalid: null as unknown as string });
       expect(url).toBe('styrby://settings?section=profile');
       expect(url).not.toContain('invalid');
     });

@@ -25,16 +25,6 @@ import { getApiBaseUrl } from '../lib/config';
 // ============================================================================
 
 /**
- * Valid webhook event types that match the server-side enum.
- */
-const WebhookEventSchema = z.enum([
-  'session.started',
-  'session.completed',
-  'budget.exceeded',
-  'permission.requested',
-]);
-
-/**
  * Shape of a single webhook record as returned by GET /api/webhooks/user.
  */
 const WebhookSchema = z.object({
@@ -85,8 +75,12 @@ const DeliveriesResponseSchema = z.object({
 // Types
 // ============================================================================
 
-/** A webhook event type value. */
-export type WebhookEvent = z.infer<typeof WebhookEventSchema>;
+/**
+ * Valid webhook event type values. Matches the server-side enum.
+ * WHY: Defined as a string union instead of z.infer<typeof z.enum([...])>
+ * because the schema was only used for type inference — no runtime validation.
+ */
+export type WebhookEvent = 'session.started' | 'session.completed' | 'budget.exceeded' | 'permission.requested';
 
 /** A webhook record. */
 export type Webhook = z.infer<typeof WebhookSchema>;

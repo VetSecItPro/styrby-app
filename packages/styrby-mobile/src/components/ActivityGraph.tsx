@@ -14,7 +14,7 @@
  * @module components/ActivityGraph
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -31,9 +31,6 @@ import type { ActivityDay, AgentType } from 'styrby-shared';
 // ============================================================================
 // Constants
 // ============================================================================
-
-/** Weeks shown by default (visible without scrolling on a standard phone). */
-const DEFAULT_VISIBLE_WEEKS = 12;
 
 /** Maximum weeks fetched from Supabase. */
 const MAX_WEEKS = 52;

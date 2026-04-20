@@ -91,7 +91,7 @@ function hasText(
  * @param pattern - The regex pattern to test against
  * @returns true if any text node matches the pattern
  */
-function hasTextMatch(
+function _hasTextMatch(
   tree:
     | renderer.ReactTestRendererJSON
     | renderer.ReactTestRendererJSON[]
@@ -644,10 +644,8 @@ describe('ChatScreen', () => {
   it('renders without crashing when getUser returns no user', async () => {
     // WHY as any: Simulating unauthenticated state where Supabase returns null user.
     // The mock default type is non-null so we cast to test the null-handling path.
-    mockGetUser.mockResolvedValue({
-      data: { user: null },
-      error: null,
-    } as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGetUser.mockResolvedValue({ data: { user: null as any }, error: null });
 
     let component: renderer.ReactTestRenderer;
     await renderer.act(async () => {

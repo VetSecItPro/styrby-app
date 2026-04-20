@@ -2,6 +2,7 @@
   "name": "styrby",
   "version": "0.1.0",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "workspaces": [
     "packages/*"
   ],
@@ -10,9 +11,9 @@
     "mobile": "pnpm --filter styrby-mobile",
     "web": "pnpm --filter styrby-web",
     "lint": "pnpm -r --if-present run lint",
-    "typecheck": "pnpm -r run typecheck --if-present",
-    "build": "pnpm -r run build --if-present",
-    "test": "pnpm -r run test --if-present",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "build": "pnpm -r --if-present run build",
+    "test": "pnpm -r --if-present run test",
     "clean": "rm -rf node_modules packages/*/node_modules packages/*/dist"
   },
   "engines": {

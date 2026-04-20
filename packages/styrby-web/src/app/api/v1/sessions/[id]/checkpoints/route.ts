@@ -21,14 +21,17 @@
  * @tier Power only (Free users receive 403)
  *
  * @body {
- *   name: string,                          // 1–80 chars, unique within session
+ *   name: string,                          // 1–80 chars, [a-zA-Z0-9 \-_.] only, unique within session
  *   description?: string,                  // optional longer note
- *   messageSequenceNumber: number,         // the message position to bookmark
- *   contextSnapshot?: { totalTokens: number; fileCount: number }
+ *   messageSequenceNumber: number,         // non-negative integer, the message position to bookmark
+ *   contextSnapshot?: { totalTokens: number; fileCount: number }  // optional, defaults to 0
  * }
  *
+ * Validation: All body fields validated via PostBodySchema (Zod) per OWASP ASVS V5.1.3.
+ * name is trimmed after validation. Schema rejects unknown field types with structured 400 errors.
+ *
  * @returns 201 { checkpoint: SessionCheckpoint }
- * @error 400 { error: string }             // validation failure
+ * @error 400 { error: string }             // Zod validation failure
  * @error 403 { error: string }             // Free tier - upgrade required
  * @error 404 { error: 'Session not found' }
  * @error 409 { error: 'Checkpoint name already exists' }
@@ -39,6 +42,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { withApiAuth, addRateLimitHeaders, type ApiAuthContext } from '@/middleware/api-auth';
 import type { SessionCheckpoint } from '@styrby/shared';
+import { z } from 'zod';
 
 // ============================================================================
 // Constants
@@ -49,6 +53,43 @@ const MAX_NAME_LENGTH = 80;
 
 /** UUID validation regex */
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// ============================================================================
+// POST Body Schema
+// ============================================================================
+
+// WHY: The previous validateName() function only checked the name field; all
+// other fields (messageSequenceNumber, description, contextSnapshot) were
+// validated with ad-hoc typeof checks scattered through postHandler. Replacing
+// all of these with a single Zod schema provides:
+//   1. A single source of truth for the contract (OWASP ASVS V5.1.3)
+//   2. Structured error messages surfaced to callers as 400 responses
+//   3. SOC2 CC7.2 compliance — admin/API inputs fully validated before
+//      touching persistent state
+//
+// The name regex keeps the same character allowlist as the old validateName().
+const PostBodySchema = z.object({
+  name: z
+    .string()
+    .min(1, 'name is required and must be a non-empty string')
+    .max(MAX_NAME_LENGTH, `name must be ${MAX_NAME_LENGTH} characters or fewer`)
+    .regex(
+      /^[a-zA-Z0-9 \-_.]+$/,
+      'name may only contain letters, numbers, spaces, hyphens, underscores, and dots'
+    )
+    .transform((s) => s.trim()),
+  description: z.string().optional().nullable(),
+  messageSequenceNumber: z
+    .number()
+    .int('messageSequenceNumber must be an integer')
+    .min(0, 'messageSequenceNumber must be a non-negative integer'),
+  contextSnapshot: z
+    .object({
+      totalTokens: z.number().int().min(0).default(0),
+      fileCount: z.number().int().min(0).default(0),
+    })
+    .optional(),
+});
 
 // ============================================================================
 // Supabase Client
@@ -99,29 +140,6 @@ function rowToCheckpoint(row: Record<string, unknown>): SessionCheckpoint {
     },
     createdAt: row.created_at as string,
   };
-}
-
-// ============================================================================
-// Validation
-// ============================================================================
-
-/**
- * Validates a checkpoint name.
- *
- * @param name - Name to validate
- * @returns Error message or null if valid
- */
-function validateName(name: unknown): string | null {
-  if (typeof name !== 'string' || name.trim().length === 0) {
-    return 'name is required and must be a non-empty string';
-  }
-  if (name.length > MAX_NAME_LENGTH) {
-    return `name must be ${MAX_NAME_LENGTH} characters or fewer`;
-  }
-  if (!/^[a-zA-Z0-9 \-_.]+$/.test(name)) {
-    return 'name may only contain letters, numbers, spaces, hyphens, underscores, and dots';
-  }
-  return null;
 }
 
 // ============================================================================
@@ -225,34 +243,23 @@ async function postHandler(
     );
   }
 
-  // Parse request body
-  let body: Record<string, unknown>;
+  // Parse and validate request body via PostBodySchema (OWASP ASVS V5.1.3)
+  let rawBody: unknown;
   try {
-    body = (await request.json()) as Record<string, unknown>;
+    rawBody = await request.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { name, description, messageSequenceNumber, contextSnapshot } = body;
-
-  // Validate name
-  const nameError = validateName(name);
-  if (nameError) {
-    return NextResponse.json({ error: nameError }, { status: 400 });
-  }
-
-  // Validate messageSequenceNumber
-  if (typeof messageSequenceNumber !== 'number' || !Number.isInteger(messageSequenceNumber) || messageSequenceNumber < 0) {
+  const parseResult = PostBodySchema.safeParse(rawBody);
+  if (!parseResult.success) {
     return NextResponse.json(
-      { error: 'messageSequenceNumber must be a non-negative integer' },
+      { error: parseResult.error.errors.map((e) => e.message).join(', ') },
       { status: 400 }
     );
   }
 
-  // Validate optional description
-  if (description !== undefined && description !== null && typeof description !== 'string') {
-    return NextResponse.json({ error: 'description must be a string' }, { status: 400 });
-  }
+  const { name, description, messageSequenceNumber, contextSnapshot } = parseResult.data;
 
   const supabase = createApiAdminClient();
 
@@ -269,9 +276,8 @@ async function postHandler(
     return NextResponse.json({ error: 'Session not found' }, { status: 404 });
   }
 
-  const snapshot = contextSnapshot && typeof contextSnapshot === 'object'
-    ? contextSnapshot as { totalTokens?: number; fileCount?: number }
-    : {};
+  // snapshot defaults are guaranteed by PostBodySchema (totalTokens/fileCount default to 0)
+  const snapshot = contextSnapshot ?? { totalTokens: 0, fileCount: 0 };
 
   // Generate UUID on the server (Supabase will also do this via gen_random_uuid()
   // but we generate here so we can return the ID immediately)
@@ -284,12 +290,12 @@ async function postHandler(
       id: checkpointId,
       session_id: sessionId,
       user_id: userId,
-      name: (name as string).trim(),
+      name,  // already trimmed by PostBodySchema .transform()
       description: description ?? null,
       message_sequence_number: messageSequenceNumber,
       context_snapshot: {
-        totalTokens: snapshot.totalTokens ?? 0,
-        fileCount: snapshot.fileCount ?? 0,
+        totalTokens: snapshot.totalTokens,
+        fileCount: snapshot.fileCount,
       },
     })
     .select()

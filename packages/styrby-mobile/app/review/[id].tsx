@@ -352,6 +352,12 @@ export default function ReviewScreen() {
     }
 
     void loadReview();
+    // WHY: loadReview is a plain async function that reads params.id from
+    // closure. params.id IS in this dep array, so the effect re-fires whenever
+    // the review ID changes — loadReview always uses a fresh params.id value.
+    // params.review is read only in the early-return guard above, not in
+    // loadReview itself, so omitting it here is intentional.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
 
   /**

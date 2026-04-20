@@ -24,7 +24,6 @@ import type {
   ValidatedTeam,
   ValidatedTeamMember,
   ValidatedTeamInvitation,
-  ValidatedUserTeamRow,
 } from '../lib/schemas';
 
 // ============================================================================

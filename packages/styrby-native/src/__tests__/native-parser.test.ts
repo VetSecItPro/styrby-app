@@ -27,9 +27,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // ---------------------------------------------------------------------------
 
 // We import the JS module directly (index.js) rather than the napi binary.
-// vitest runs in Node.js ESM mode; use createRequire since index.js is CJS.
+// WHY: index.js is CJS (napi-rs convention). The host package is also CommonJS
+// (no "type": "module" in package.json), so we use __filename — works in both
+// CJS and ESM vitest contexts and avoids TS1470 (import.meta in CJS output).
 import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
+const require = createRequire(__filename);
 
 /** Resolves to the package root of @styrby/native */
 const NATIVE_PKG_ROOT = path.resolve(__dirname, '..', '..'); // packages/styrby-native

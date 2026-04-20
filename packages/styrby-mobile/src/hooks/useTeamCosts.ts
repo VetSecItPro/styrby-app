@@ -3,7 +3,8 @@
  *
  * Fetches per-member cost breakdown for a Power-tier team via the Supabase
  * `get_team_cost_summary` RPC function. The RPC aggregates cost data from
- * mv_daily_cost_summary for all team members and returns per-user totals.
+ * mv_daily_cost_summary (service-role access, bypasses the per-user v_my_daily_costs view)
+ * for all team members and returns per-user totals.
  *
  * WHY RPC: Team members' cost_records are scoped by user_id under RLS. The
  * server-side function runs with elevated privileges to join across member IDs

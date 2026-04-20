@@ -79,29 +79,6 @@ const BUILD_NUMBER = Constants.expoConfig?.ios?.buildNumber ?? '1';
 // ============================================================================
 
 /**
- * Represents the subset of notification_preferences columns that this screen
- * reads and writes. Matches the Supabase table schema.
- */
-interface NotificationPreferences {
-  /** Primary key */
-  id: string;
-  /** Foreign key to profiles */
-  user_id: string;
-  /** Master push notification toggle */
-  push_enabled: boolean;
-  /** Whether email notifications are enabled */
-  email_enabled: boolean;
-  /** Whether quiet hours are active */
-  quiet_hours_enabled: boolean;
-  /** Quiet hours start time (HH:MM:SS format) */
-  quiet_hours_start: string | null;
-  /** Quiet hours end time (HH:MM:SS format) */
-  quiet_hours_end: string | null;
-  /** Priority threshold for smart notifications (1-5, default 3) */
-  priority_threshold: number;
-}
-
-/**
  * Authenticated user data loaded on mount.
  */
 interface UserInfo {
@@ -509,6 +486,12 @@ export default function SettingsScreen() {
   useEffect(() => {
     loadUserData();
     loadLocalPreferences();
+    // WHY: loadUserData and loadLocalPreferences are declared after this effect
+    // in the component body, causing a TypeScript TDZ error if referenced in
+    // the dep array. Both are useCallback with [] deps (stable refs).
+    // This effect is mount-only — both functions are side-effect loaders that
+    // only need to run once. Deferred to a follow-up hook-ordering refactor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /**
@@ -604,6 +587,13 @@ export default function SettingsScreen() {
     } finally {
       setIsLoadingUser(false);
     }
+    // WHY: loadBillingData is defined after loadUserData in the component body.
+    // Adding it to the dep array is safe since both have [] deps (stable refs),
+    // but the declaration order means adding it here would require reordering
+    // the entire block to avoid a temporal dead zone — deferred to a follow-up
+    // refactor. The empty [] dep array is intentional: loadBillingData is called
+    // imperatively inside the effect body, not as a reactive dep.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /**
@@ -864,7 +854,7 @@ export default function SettingsScreen() {
           console.error('[Settings] Failed to save display name:', error);
         }
       }
-    } catch (err) {
+    } catch {
       setUserInfo((prev) => prev ? { ...prev, displayName: previous, initial: previous ? previous.charAt(0).toUpperCase() : prev.email.charAt(0).toUpperCase() } : prev);
       Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     } finally {

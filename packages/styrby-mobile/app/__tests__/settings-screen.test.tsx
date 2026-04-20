@@ -333,9 +333,9 @@ describe('SettingsScreen', () => {
   });
 
   it('shows "Not signed in" when getUser returns no user', async () => {
-    // WHY as any: Simulating unauthenticated state where Supabase returns null user.
-    // The mock default type is non-null so we cast to test the null-handling path.
-    mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: null } as any);
+    // WHY: Simulating unauthenticated state where Supabase returns null user.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGetUser.mockResolvedValueOnce({ data: { user: null as any }, error: null });
     const { tree } = await renderSettingsScreen();
     expect(hasText(tree, 'Not signed in')).toBe(true);
   });
@@ -544,9 +544,13 @@ describe('SettingsScreen', () => {
   });
 
   it('shows the Pro upgrade CTA for free-tier users', async () => {
-    // WHY: subscriptionTier defaults to 'free' (supabase from() returns null data)
+    // WHY: subscriptionTier defaults to 'free' (supabase from() returns null data).
+    // Jest runs with Babel caller platform:'ios', so Platform.OS === 'ios'.
+    // canShowUpgradePrompt() returns false on iOS (Apple Reader App §3.1.3(a)),
+    // so the Pressable with 'Upgrade to Pro to enable' is not rendered.
+    // The iOS fallback renders 'Pro plan required to enable' instead.
     const { tree } = await renderSettingsScreen();
-    expect(hasText(tree, 'Upgrade to Pro to enable')).toBe(true);
+    expect(hasText(tree, 'Pro plan required to enable')).toBe(true);
   });
 
   // --------------------------------------------------------------------------

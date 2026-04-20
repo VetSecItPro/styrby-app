@@ -55,9 +55,14 @@ jobs:
         uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
 
       - name: Setup Node.js
+        # WHY node 22: CI uses Node 22 (see ci.yml NODE_VERSION env). Using a
+        # different version here means the published package was tested against
+        # a different runtime than the one used to validate it. Pinned to 22
+        # for consistency. npm registry still accepts packages built on any
+        # modern Node LTS — this only affects the build/test environment.
         uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # v4
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
           cache: pnpm
 
@@ -96,6 +101,19 @@ jobs:
 
       - name: Verify publication
         if: ${{ github.event.inputs.dry_run != 'true' }}
+        # WHY set -euo pipefail + retry loop: npm registry propagation takes
+        # a few seconds. A bare `sleep 10` is fragile — too short on a slow
+        # registry day, too long otherwise. The loop polls up to 30s with
+        # set -e so a hard failure (npm CLI itself broken) still fails loudly.
         run: |
-          sleep 10
-          npm view styrby-cli
+          set -euo pipefail
+          for i in $(seq 1 6); do
+            if npm view styrby-cli version 2>/dev/null; then
+              echo "Package verified on npm registry."
+              exit 0
+            fi
+            echo "Waiting for npm registry propagation... attempt $i/6"
+            sleep 5
+          done
+          echo "::error::Package not found on npm registry after 30s. Check publish step output."
+          exit 1

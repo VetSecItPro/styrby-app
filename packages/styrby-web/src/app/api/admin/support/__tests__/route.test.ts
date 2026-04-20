@@ -327,15 +327,19 @@ describe('GET /api/admin/support', () => {
       expect(response.status).toBe(200);
     });
 
-    it('ignores invalid status parameter', async () => {
+    it('rejects invalid status parameter with 400', async () => {
+      // WHY: Previously the route silently ignored unrecognised status values.
+      // After adding Zod QuerySchema (OWASP ASVS V5.1.3) the route now returns
+      // 400 with a structured error — callers receive explicit feedback rather
+      // than a silently unfiltered result set.
       mockAuthenticated(ADMIN_USER);
       mockIsAdmin.mockResolvedValue(true);
 
-      adminFromQueue.push({ data: [], error: null, count: 0 });
-
       const url = 'http://localhost:3000/api/admin/support?status=invalid_status';
       const response = await GET(makeRequest(url));
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBeDefined();
     });
 
     it('respects page and limit parameters', async () => {
@@ -352,27 +356,31 @@ describe('GET /api/admin/support', () => {
       expect(body.total).toBe(100);
     });
 
-    it('caps limit at 100 (max allowed)', async () => {
+    it('rejects limit > 100 with 400', async () => {
+      // WHY: The old route silently clamped limit=200 to 100. Zod z.max(100)
+      // now explicitly rejects out-of-range values with a 400 error, providing
+      // clearer API contract feedback per OWASP ASVS V5.1.3.
       mockAuthenticated(ADMIN_USER);
       mockIsAdmin.mockResolvedValue(true);
 
-      adminFromQueue.push({ data: [], error: null, count: 0 });
-
-      // Request limit=200 — should be capped to 100
       const url = 'http://localhost:3000/api/admin/support?limit=200';
       const response = await GET(makeRequest(url));
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBeDefined();
     });
 
-    it('clamps page to minimum of 1', async () => {
+    it('rejects page < 1 with 400', async () => {
+      // WHY: The old route silently clamped page=-5 to 1. Zod z.min(1) now
+      // explicitly rejects sub-minimum values with a 400 error per OWASP ASVS V5.1.3.
       mockAuthenticated(ADMIN_USER);
       mockIsAdmin.mockResolvedValue(true);
-
-      adminFromQueue.push({ data: [], error: null, count: 0 });
 
       const url = 'http://localhost:3000/api/admin/support?page=-5';
       const response = await GET(makeRequest(url));
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBeDefined();
     });
   });
 

@@ -137,6 +137,27 @@ function findGlobalClaudePath(): string | null {
 export function getDefaultClaudeCodePath(): string {
     const nodeModulesPath = join(__dirname, '..', '..', '..', 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js')
     
+    /**
+     * HAPPY_CLAUDE_PATH — Absolute path to the claude CLI executable to use.
+     *
+     * Source: Set manually in shell profile or .env when testing a non-standard
+     *   claude build (e.g. a locally compiled version or a pinned version).
+     * Format: Absolute path string, e.g. "/usr/local/bin/claude" or
+     *   "/path/to/custom/build/claude"
+     * Required in: optional — omit to use auto-detection logic below
+     * Behavior when missing: falls through to HAPPY_USE_BUNDLED_CLAUDE check,
+     *   then global path detection, then bundled fallback.
+     * Rotation: not a secret — update whenever the override path changes.
+     *
+     * HAPPY_USE_BUNDLED_CLAUDE — Force use of the node_modules bundled claude binary.
+     *
+     * Source: Set to "1" in .env or shell to skip global claude search entirely.
+     *   Useful in CI or restricted environments where global installs are unavailable.
+     * Format: "1" to enable; any other value (or unset) disables.
+     * Required in: optional — only needed in CI or tightly controlled environments
+     * Behavior when missing: auto-detection compares global vs bundled versions.
+     * Rotation: not a secret — toggle as needed.
+     */
     // Allow explicit override via env var
     if (process.env.HAPPY_CLAUDE_PATH) {
         logger.debug(`[Claude SDK] Using HAPPY_CLAUDE_PATH: ${process.env.HAPPY_CLAUDE_PATH}`)

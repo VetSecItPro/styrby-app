@@ -19,7 +19,6 @@ import {
   Pressable,
   ActivityIndicator,
   TextInput,
-  Alert,
 } from 'react-native';
 import { useLocalSearchParams, Stack, router } from 'expo-router';
 import { useState, useEffect, useCallback } from 'react';
@@ -165,22 +164,6 @@ function formatDuration(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = Math.round(minutes % 60);
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
-}
-
-/**
- * Formats a timestamp to a readable date/time string.
- *
- * @param isoTimestamp - ISO 8601 timestamp
- * @returns Formatted date string
- */
-function formatTimestamp(isoTimestamp: string): string {
-  return new Date(isoTimestamp).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
 }
 
 /**
