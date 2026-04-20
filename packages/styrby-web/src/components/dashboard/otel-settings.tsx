@@ -13,10 +13,9 @@
  * @module components/dashboard/otel-settings
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import {
   type OtelUserConfig,
-  type OtelPreset,
   defaultOtelConfig,
   validateOtelConfig,
   generateEnvVars,

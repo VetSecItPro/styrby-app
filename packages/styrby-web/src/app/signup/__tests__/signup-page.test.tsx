@@ -43,6 +43,7 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('next/image', () => ({
+  // eslint-disable-next-line @next/next/no-img-element -- test stub replacing next/image itself; circular to use Image here
   default: ({ alt }: { alt: string }) => <img alt={alt} />,
 }));
 

@@ -66,28 +66,6 @@ function buildTokenRow(id: string, endpoint = `https://push.example.com/sub/${id
   };
 }
 
-/**
- * Builds a chainable Supabase query stub returning the given token rows.
- *
- * @param rows - Array of device_token rows to return
- * @param error - Optional query error
- */
-function buildTokenQuery(
-  rows: ReturnType<typeof buildTokenRow>[],
-  error: { message: string } | null = null
-) {
-  return {
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    delete: vi.fn().mockReturnThis(),
-    data: rows,
-    error,
-    // Resolved on await of the chain
-    then: (resolve: (v: { data: typeof rows; error: typeof error }) => unknown) =>
-      Promise.resolve(resolve({ data: rows, error })),
-  };
-}
-
 /** Minimal push payload used across tests. */
 const PAYLOAD: PushPayload = {
   title: 'Test Push',

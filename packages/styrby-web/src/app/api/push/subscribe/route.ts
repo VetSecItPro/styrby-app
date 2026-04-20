@@ -30,7 +30,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { z } from 'zod';
-import { rateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
+import { rateLimit, rateLimitResponse } from '@/lib/rateLimit';
 
 // ============================================================================
 // Push Service Allowlist

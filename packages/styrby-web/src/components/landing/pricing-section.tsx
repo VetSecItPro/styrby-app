@@ -263,7 +263,7 @@ function PricingCard({
 
       {/* Feature list - included */}
       <ul className="mt-6 flex-1 space-y-3">
-        {plan.included.map((feature, i) => (
+        {plan.included.map((feature) => (
           <li
             key={feature}
             className={cn(

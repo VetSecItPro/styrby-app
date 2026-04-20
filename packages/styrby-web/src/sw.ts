@@ -40,8 +40,6 @@ import {
  * the SW build context.
  */
 
-/* eslint-disable @typescript-eslint/no-empty-object-type */
-
 /**
  * Minimal ServiceWorkerGlobalScope for type checking.
  * The actual runtime provides the full interface.
@@ -148,8 +146,6 @@ interface NotificationObject {
   readonly tag: string;
   close(): void;
 }
-
-/* eslint-enable @typescript-eslint/no-empty-object-type */
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {}

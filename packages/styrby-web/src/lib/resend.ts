@@ -89,7 +89,6 @@ export async function sendEmail({
       from,
       to,
       subject,
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore React 19 types may be incompatible with Resend ReactElement type in CI
       react,
       replyTo,

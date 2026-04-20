@@ -16,7 +16,7 @@
  *   missing sender key, successful decrypt, wrong-key rejection
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { encryptForStorage, generateKeyPair } from '@styrby/shared';
 
 // ============================================================================

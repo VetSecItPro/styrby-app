@@ -80,21 +80,17 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({
     auth: { getUser: mockGetUser },
   })),
-  createAdminClient: vi.fn(() => {
-    let callCount = 0;
-    return {
-      from: vi.fn((table: string) => {
-        if (table === 'audit_log') return createAuditLogChainMock();
-        callCount++;
-        return createAdminChainMock();
-      }),
-      auth: {
-        admin: {
-          getUserById: mockGetUserById,
-        },
+  createAdminClient: vi.fn(() => ({
+    from: vi.fn((table: string) => {
+      if (table === 'audit_log') return createAuditLogChainMock();
+      return createAdminChainMock();
+    }),
+    auth: {
+      admin: {
+        getUserById: mockGetUserById,
       },
-    };
-  }),
+    },
+  })),
 }));
 
 vi.mock('@/lib/admin', () => ({
