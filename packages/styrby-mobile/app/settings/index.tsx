@@ -157,6 +157,20 @@ export default function SettingsHubScreen() {
           subtitle={tier ? `${tier.charAt(0).toUpperCase() + tier.slice(1)} Plan` : 'Manage profile & billing'}
           onPress={() => router.push('/settings/account')}
         />
+        {/*
+         * WHY passkeys is a sibling of account (not nested inside it):
+         * Passkey management has its own fetch/enroll/revoke lifecycle.
+         * A top-level settings row keeps the Account sub-screen lean and
+         * surfaces passkeys prominently so users can find it without drilling
+         * into Account > Security.
+         */}
+        <SettingRow
+          icon="key"
+          iconColor="#f59e0b"
+          title="Passkeys"
+          subtitle="Sign in with Face ID or Touch ID"
+          onPress={() => router.push('/settings/passkeys')}
+        />
       </View>
 
       {/* Preferences */}

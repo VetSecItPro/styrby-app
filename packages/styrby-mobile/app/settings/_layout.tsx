@@ -79,6 +79,19 @@ export default function SettingsLayout() {
           title: 'Account',
         }}
       />
+      {/*
+       * WHY passkeys is a separate Stack.Screen:
+       * Passkey management has its own fetch cycle, enroll flow, and
+       * per-row edit state. Keeping it as a sub-screen keeps account.tsx
+       * under the 400-line orchestrator limit and isolates the WebAuthn
+       * dependencies to one file.
+       */}
+      <Stack.Screen
+        name="passkeys"
+        options={{
+          title: 'Passkeys',
+        }}
+      />
     </Stack>
   );
 }
