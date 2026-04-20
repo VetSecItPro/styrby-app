@@ -486,7 +486,7 @@ export class SessionStorage {
 
     // Encrypt message content
     const encryptionKey = await this.getSessionKey(data.sessionId, machineId);
-    const encrypted = encryptMessage(data.content, encryptionKey);
+    const encrypted = await encryptMessage(data.content, encryptionKey);
 
     const { data: message, error } = await this.supabase
       .from('session_messages')
@@ -559,31 +559,35 @@ export class SessionStorage {
     }
 
     // Decrypt messages
+    // WHY Promise.all: decryptMessage is async (libsodium WASM init). Using
+    // a sync .map would return an array of Promises rather than values.
     const encryptionKey = await this.getSessionKey(sessionId, machineId);
 
-    return (messages as MessageRecord[]).map((msg) => {
-      let content: string | undefined;
+    return Promise.all(
+      (messages as MessageRecord[]).map(async (msg) => {
+        let content: string | undefined;
 
-      if (msg.content_encrypted && msg.encryption_nonce) {
-        try {
-          content = decryptMessage(
-            {
-              contentEncrypted: msg.content_encrypted,
-              nonce: msg.encryption_nonce,
-            },
-            encryptionKey
-          );
-        } catch (decryptError) {
-          this.log('Failed to decrypt message', {
-            messageId: msg.id,
-            error: decryptError instanceof Error ? decryptError.message : 'Unknown error',
-          });
-          content = '[Decryption failed]';
+        if (msg.content_encrypted && msg.encryption_nonce) {
+          try {
+            content = await decryptMessage(
+              {
+                contentEncrypted: msg.content_encrypted,
+                nonce: msg.encryption_nonce,
+              },
+              encryptionKey,
+            );
+          } catch (decryptError) {
+            this.log('Failed to decrypt message', {
+              messageId: msg.id,
+              error: decryptError instanceof Error ? decryptError.message : 'Unknown error',
+            });
+            content = '[Decryption failed]';
+          }
         }
-      }
 
-      return { ...msg, content };
-    });
+        return { ...msg, content };
+      }),
+    );
   }
 
   // --------------------------------------------------------------------------

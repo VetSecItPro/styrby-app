@@ -1,28 +1,53 @@
 /**
- * Session Message Encryption
+ * Session Message Encryption (libsodium)
  *
- * Provides end-to-end encryption for session messages using TweetNaCl secretbox.
- * Messages are encrypted before being stored in Supabase, ensuring the server
- * never sees plaintext content.
+ * Provides at-rest encryption for session messages. Messages are encrypted
+ * before being stored in Supabase, ensuring the server never sees plaintext.
  *
  * ## Encryption Scheme
  *
- * - Algorithm: XSalsa20-Poly1305 (TweetNaCl secretbox)
- * - Key derivation: HMAC-SHA512 from user seed + session context
+ * - Algorithm: XSalsa20-Poly1305 (libsodium crypto_secretbox — same primitive
+ *   as TweetNaCl's nacl.secretbox, byte-for-byte wire compatible)
+ * - Key derivation: HMAC-SHA512 from user seed + session context (unchanged)
  * - Nonce: Random 24 bytes per message (stored alongside ciphertext)
  *
  * ## Security Properties
  *
- * - Forward secrecy: Each session derives unique keys
- * - Authenticated encryption: Tampering is detected
- * - Random nonces: Safe to reuse key across messages
+ * - Compartmentalization: Each session + machine pair gets a unique derived key
+ * - Authenticated encryption: Tampering is detected (Poly1305 MAC)
+ * - Random nonces: Safe to reuse key across messages (XSalsa20's 192-bit nonce
+ *   makes collisions cryptographically impossible at realistic volumes)
+ *
+ * ## WHY libsodium
+ *
+ * Matches the migration already done in @styrby/shared. Same primitive, same
+ * byte output as TweetNaCl — existing encrypted session messages decrypt
+ * unchanged. Full rationale in packages/styrby-shared/src/encryption.ts.
+ *
+ * ## WHY async
+ *
+ * libsodium is WebAssembly; `sodium.ready` must resolve before any crypto
+ * call runs. The public API below is async to surface this honestly to
+ * callers. All existing callers already live in async code paths.
  *
  * @module session/encryption
  */
 
-import nacl from 'tweetnacl';
-import { encode as encodeBase64, decode as decodeBase64 } from '@stablelib/base64';
+import sodium from 'libsodium-wrappers';
+import { encode as b64encode, decode as b64decode } from '@stablelib/base64';
 import { deriveKey } from '@/utils/deriveKey';
+
+/**
+ * Coerces a Uint8Array-like value to a fresh Uint8Array in the current realm.
+ *
+ * WHY: libsodium's input validators use `instanceof Uint8Array`. Cross-realm
+ * values (e.g. Vitest + jsdom, Node workers, VM contexts) fail that check
+ * even when the byte content is identical. Normalizing through the local
+ * Uint8Array constructor guarantees the instanceof check passes.
+ */
+function asLocalU8(buf: Uint8Array): Uint8Array {
+  return buf instanceof Uint8Array ? new Uint8Array(buf) : new Uint8Array(buf as ArrayLike<number>);
+}
 
 // ============================================================================
 // Types
@@ -56,14 +81,36 @@ export interface KeyContext {
 
 /**
  * Key derivation usage string for session encryption.
- * Changes to this string invalidate all existing encrypted data.
+ * WHY: Changes to this string invalidate all existing encrypted data, so it
+ * must remain stable across the libsodium migration. A new "v2" string would
+ * silently break every stored message.
  */
 const KEY_USAGE = 'styrby-session-encryption-v1';
 
 /**
- * Nonce length for TweetNaCl secretbox (24 bytes).
+ * Nonce length for XSalsa20-Poly1305 (24 bytes).
+ * Hardcoded rather than reading from sodium constants at import time, since
+ * the WASM module is not yet ready at module load.
  */
-const NONCE_LENGTH = nacl.secretbox.nonceLength; // 24
+const NONCE_LENGTH = 24;
+
+/**
+ * Symmetric key length for crypto_secretbox (32 bytes).
+ */
+const KEY_LENGTH = 32;
+
+// ============================================================================
+// Initialization
+// ============================================================================
+
+/**
+ * Ensures libsodium's WASM module is loaded before any crypto call runs.
+ * WHY: libsodium-wrappers loads its WASM lazily on first `sodium.ready` await.
+ * Subsequent awaits resolve immediately — the promise is cached inside libsodium.
+ */
+async function ensureReady(): Promise<void> {
+  await sodium.ready;
+}
 
 // ============================================================================
 // Key Derivation
@@ -78,7 +125,7 @@ const NONCE_LENGTH = nacl.secretbox.nonceLength; // 24
  * - Only the owning machine can decrypt (device binding)
  *
  * @param context - Key derivation context
- * @returns 32-byte symmetric key for TweetNaCl secretbox
+ * @returns 32-byte symmetric key for crypto_secretbox
  *
  * @example
  * const key = await deriveSessionKey({
@@ -88,8 +135,6 @@ const NONCE_LENGTH = nacl.secretbox.nonceLength; // 24
  * });
  */
 export async function deriveSessionKey(context: KeyContext): Promise<Uint8Array> {
-  // Derive key with path: [sessionId, machineId]
-  // This creates unique keys per session per machine
   return deriveKey(context.userSecret, KEY_USAGE, [context.sessionId, context.machineId]);
 }
 
@@ -100,65 +145,85 @@ export async function deriveSessionKey(context: KeyContext): Promise<Uint8Array>
 /**
  * Encrypt a message for storage.
  *
- * Uses TweetNaCl secretbox (XSalsa20-Poly1305) which provides:
+ * Uses libsodium crypto_secretbox_easy (XSalsa20-Poly1305) which provides:
  * - Authenticated encryption (integrity + confidentiality)
  * - Random nonce generation for each message
  *
  * @param plaintext - Message content to encrypt
  * @param key - 32-byte symmetric encryption key
- * @returns Encrypted payload with ciphertext and nonce
- * @throws {Error} If encryption fails
+ * @returns Encrypted payload with ciphertext and nonce (both base64-encoded)
+ * @throws {Error} If the key length is invalid
  *
  * @example
- * const encrypted = encryptMessage('Hello, world!', sessionKey);
+ * const encrypted = await encryptMessage('Hello, world!', sessionKey);
  * // Store encrypted.contentEncrypted and encrypted.nonce in database
  */
-export function encryptMessage(plaintext: string, key: Uint8Array): EncryptedPayload {
-  // Generate random nonce
-  const nonce = nacl.randomBytes(NONCE_LENGTH);
+export async function encryptMessage(
+  plaintext: string,
+  key: Uint8Array,
+): Promise<EncryptedPayload> {
+  await ensureReady();
 
-  // Convert plaintext to bytes
-  const plaintextBytes = new TextEncoder().encode(plaintext);
-
-  // Encrypt
-  const ciphertext = nacl.secretbox(plaintextBytes, nonce, key);
-
-  if (!ciphertext) {
-    throw new Error('Encryption failed: secretbox returned null');
+  if (key.length !== KEY_LENGTH) {
+    throw new Error(`Invalid key length: expected ${KEY_LENGTH}, got ${key.length}`);
   }
 
+  const nonce = sodium.randombytes_buf(NONCE_LENGTH);
+  const plaintextBytes = new TextEncoder().encode(plaintext);
+  const ciphertext = sodium.crypto_secretbox_easy(
+    asLocalU8(plaintextBytes),
+    asLocalU8(nonce),
+    asLocalU8(key),
+  );
+
   return {
-    contentEncrypted: encodeBase64(ciphertext),
-    nonce: encodeBase64(nonce),
+    contentEncrypted: b64encode(ciphertext),
+    nonce: b64encode(nonce),
   };
 }
 
 /**
  * Decrypt a stored message.
  *
- * Verifies the authentication tag before returning plaintext.
- * Throws if the message has been tampered with.
+ * Verifies the Poly1305 authentication tag before returning plaintext.
+ * Throws if the message has been tampered with or the wrong key is used.
  *
  * @param payload - Encrypted payload from storage
  * @param key - 32-byte symmetric encryption key
  * @returns Decrypted plaintext
- * @throws {Error} If decryption fails (wrong key or tampered data)
+ * @throws {Error} If decryption fails (wrong key, tampered data, invalid lengths)
  *
  * @example
- * const plaintext = decryptMessage({
+ * const plaintext = await decryptMessage({
  *   contentEncrypted: storedCiphertext,
  *   nonce: storedNonce,
  * }, sessionKey);
  */
-export function decryptMessage(payload: EncryptedPayload, key: Uint8Array): string {
-  // Decode from base64
-  const ciphertext = decodeBase64(payload.contentEncrypted);
-  const nonce = decodeBase64(payload.nonce);
+export async function decryptMessage(
+  payload: EncryptedPayload,
+  key: Uint8Array,
+): Promise<string> {
+  await ensureReady();
 
-  // Decrypt
-  const plaintextBytes = nacl.secretbox.open(ciphertext, nonce, key);
+  if (key.length !== KEY_LENGTH) {
+    throw new Error(`Invalid key length: expected ${KEY_LENGTH}, got ${key.length}`);
+  }
 
-  if (!plaintextBytes) {
+  const ciphertext = b64decode(payload.contentEncrypted);
+  const nonce = b64decode(payload.nonce);
+
+  if (nonce.length !== NONCE_LENGTH) {
+    throw new Error(`Invalid nonce length: expected ${NONCE_LENGTH}, got ${nonce.length}`);
+  }
+
+  let plaintextBytes: Uint8Array;
+  try {
+    plaintextBytes = sodium.crypto_secretbox_open_easy(
+      asLocalU8(ciphertext),
+      asLocalU8(nonce),
+      asLocalU8(key),
+    );
+  } catch {
     throw new Error('Decryption failed: invalid key or tampered data');
   }
 
@@ -172,8 +237,7 @@ export function decryptMessage(payload: EncryptedPayload, key: Uint8Array): stri
 /**
  * Check if a payload appears to be encrypted.
  *
- * Simple validation that the payload has the expected structure.
- * Does not verify the encryption is valid.
+ * Simple structural validation only — does not verify the encryption is valid.
  *
  * @param payload - Object to check
  * @returns True if payload has encryption structure
@@ -188,15 +252,16 @@ export function isEncryptedPayload(payload: unknown): payload is EncryptedPayloa
 }
 
 /**
- * Generate a new random encryption key.
+ * Generate a new random 32-byte encryption key.
  *
- * Used for testing or when creating ephemeral encryption.
- * In production, always use deriveSessionKey instead.
+ * Used for testing or ephemeral encryption. In production, always use
+ * deriveSessionKey() so the key is bound to the user + session + machine.
  *
  * @returns 32-byte random key
  */
-export function generateRandomKey(): Uint8Array {
-  return nacl.randomBytes(nacl.secretbox.keyLength);
+export async function generateRandomKey(): Promise<Uint8Array> {
+  await ensureReady();
+  return sodium.randombytes_buf(KEY_LENGTH);
 }
 
 export default {

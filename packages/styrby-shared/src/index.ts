@@ -13,8 +13,16 @@ export * from './constants.js';
 // Re-export relay module
 export * from './relay/index.js';
 
-// Re-export encryption module
-export * from './encryption.js';
+// WHY encryption is NOT re-exported from the barrel:
+// libsodium-wrappers ships ~700KB of WASM. If `@styrby/shared` re-exports
+// encryption, every consumer pulls libsodium into its initial bundle even
+// when it only imports unrelated helpers (e.g. contextTemplateFromRow on
+// the templates page). Forcing crypto callers to import from the dedicated
+// subpath `@styrby/shared/encryption` keeps the WASM out of code that
+// doesn't need it - critical for the web's main client chunk staying under
+// the 750KB CI bundle-size budget.
+//
+// To use encryption: `import { encrypt, decrypt, ... } from '@styrby/shared/encryption'`
 
 // Re-export auth helpers (WebAuthn/passkey types + pure helpers)
 export * from './auth/index.js';

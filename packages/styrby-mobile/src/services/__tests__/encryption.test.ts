@@ -16,7 +16,7 @@ import * as SecureStore from 'expo-secure-store';
 // ============================================================================
 
 // Mock styrby-shared encryption functions
-jest.mock('styrby-shared', () => {
+jest.mock('styrby-shared/encryption', () => {
   const mockPublicKey = new Uint8Array(32).fill(1);
   const mockSecretKey = new Uint8Array(32).fill(2);
   return {
@@ -66,7 +66,7 @@ import {
   encryptForStorage,
   decryptFromStorage,
   generateFingerprint,
-} from 'styrby-shared';
+} from 'styrby-shared/encryption';
 import { supabase } from '../../lib/supabase';
 
 // Import the module under test (AFTER mocks are set up)

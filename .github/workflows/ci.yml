@@ -576,16 +576,21 @@ jobs:
           name: nextjs-build
           path: packages/styrby-web/.next
 
-      # Bundle size thresholds (reviewed 2026-02-05):
-      #   Largest chunk: ~526KB (vendor/framework bundle), next largest: ~412KB
-      #   500KB warn / 750KB fail are appropriate — the vendor chunk naturally
-      #   triggers a warning but shouldn't fail CI. If it grows past 750KB,
-      #   investigate code-splitting or dynamic imports for heavy dependencies.
+      # Bundle size thresholds (reviewed 2026-04-20):
+      #   Initial-load chunks: 500KB warn, 750KB fail
+      #   Async-loaded chunks: tracked but never fail CI (loaded on demand,
+      #   don't affect initial page weight). Next.js names async chunks
+      #   "<id>.<hash>.js" (dot separator); initial chunks "<name>-<hash>.js"
+      #   (dash). We use that pattern to distinguish.
+      #
+      #   The libsodium WASM (~700KB) is intentionally async-loaded and only
+      #   fetched when a user opens an encrypted session. Counting it against
+      #   the initial budget would be misleading.
       - name: Check bundle sizes
         run: |
           echo "## Bundle Size Report" >> $GITHUB_STEP_SUMMARY
-          echo '| File | Size |' >> $GITHUB_STEP_SUMMARY
-          echo '|------|------|' >> $GITHUB_STEP_SUMMARY
+          echo '| File | Size | Load |' >> $GITHUB_STEP_SUMMARY
+          echo '|------|------|------|' >> $GITHUB_STEP_SUMMARY
 
           WARN=0
           FAIL=0
@@ -595,14 +600,24 @@ jobs:
             SIZE_KB=$((SIZE / 1024))
             NAME=$(basename "$f")
 
-            if [ "$SIZE_KB" -gt 750 ]; then
-              echo "| \`$NAME\` | **${SIZE_KB}KB** :x: |" >> $GITHUB_STEP_SUMMARY
+            # Async chunks have "<id>.<hash>.js" (dot before hash);
+            # initial chunks have "<name>-<hash>.js" (dash). Strip the .js
+            # and check whether the remainder contains a dot.
+            STEM="${NAME%.js}"
+            if [[ "$STEM" == *.* ]]; then
+              LOAD="async"
+            else
+              LOAD="initial"
+            fi
+
+            if [ "$LOAD" = "initial" ] && [ "$SIZE_KB" -gt 750 ]; then
+              echo "| \`$NAME\` | **${SIZE_KB}KB** :x: | $LOAD |" >> $GITHUB_STEP_SUMMARY
               FAIL=$((FAIL + 1))
-            elif [ "$SIZE_KB" -gt 500 ]; then
-              echo "| \`$NAME\` | **${SIZE_KB}KB** :warning: |" >> $GITHUB_STEP_SUMMARY
+            elif [ "$LOAD" = "initial" ] && [ "$SIZE_KB" -gt 500 ]; then
+              echo "| \`$NAME\` | **${SIZE_KB}KB** :warning: | $LOAD |" >> $GITHUB_STEP_SUMMARY
               WARN=$((WARN + 1))
             elif [ "$SIZE_KB" -gt 200 ]; then
-              echo "| \`$NAME\` | ${SIZE_KB}KB |" >> $GITHUB_STEP_SUMMARY
+              echo "| \`$NAME\` | ${SIZE_KB}KB | $LOAD |" >> $GITHUB_STEP_SUMMARY
             fi
           done
 
