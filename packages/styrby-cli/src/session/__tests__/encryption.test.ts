@@ -115,8 +115,8 @@ describe('encryptMessage', () => {
     testKey = await deriveSessionKey(BASE_CONTEXT);
   });
 
-  it('returns an EncryptedPayload with contentEncrypted and nonce fields', () => {
-    const payload = encryptMessage('Hello, world!', testKey);
+  it('returns an EncryptedPayload with contentEncrypted and nonce fields', async () => {
+    const payload = await encryptMessage('Hello, world!', testKey);
 
     expect(typeof payload.contentEncrypted).toBe('string');
     expect(typeof payload.nonce).toBe('string');
@@ -124,26 +124,26 @@ describe('encryptMessage', () => {
     expect(payload.nonce.length).toBeGreaterThan(0);
   });
 
-  it('nonce is 24 bytes when decoded (base64 of 24 bytes = 32 base64 chars)', () => {
-    const payload = encryptMessage('test', testKey);
+  it('nonce is 24 bytes when decoded (base64 of 24 bytes = 32 base64 chars)', async () => {
+    const payload = await encryptMessage('test', testKey);
 
     // Base64 of 24 bytes with no padding = ceil(24 * 4/3) = 32 chars
     const nonceBytes = Buffer.from(payload.nonce, 'base64');
     expect(nonceBytes.length).toBe(24);
   });
 
-  it('ciphertext length is greater than plaintext length (has MAC overhead)', () => {
+  it('ciphertext length is greater than plaintext length (has MAC overhead)', async () => {
     const plaintext = 'Secret message content here.';
-    const payload = encryptMessage(plaintext, testKey);
+    const payload = await encryptMessage(plaintext, testKey);
 
     // XSalsa20-Poly1305 adds 16 bytes of authentication tag
     const cipherLen = Buffer.from(payload.contentEncrypted, 'base64').length;
     expect(cipherLen).toBeGreaterThan(plaintext.length);
   });
 
-  it('produces different ciphertext each call for same plaintext (random nonce)', () => {
-    const payload1 = encryptMessage('Same message', testKey);
-    const payload2 = encryptMessage('Same message', testKey);
+  it('produces different ciphertext each call for same plaintext (random nonce)', async () => {
+    const payload1 = await encryptMessage('Same message', testKey);
+    const payload2 = await encryptMessage('Same message', testKey);
 
     // Nonces must differ
     expect(payload1.nonce).not.toBe(payload2.nonce);
@@ -151,21 +151,21 @@ describe('encryptMessage', () => {
     expect(payload1.contentEncrypted).not.toBe(payload2.contentEncrypted);
   });
 
-  it('handles empty string plaintext', () => {
-    expect(() => encryptMessage('', testKey)).not.toThrow();
-    const payload = encryptMessage('', testKey);
+  it('handles empty string plaintext', async () => {
+    await expect(encryptMessage('', testKey)).resolves.toBeDefined();
+    const payload = await encryptMessage('', testKey);
     expect(typeof payload.contentEncrypted).toBe('string');
   });
 
-  it('handles Unicode plaintext', () => {
+  it('handles Unicode plaintext', async () => {
     const unicode = '日本語テスト 🔐 тест';
-    const payload = encryptMessage(unicode, testKey);
+    const payload = await encryptMessage(unicode, testKey);
     expect(typeof payload.contentEncrypted).toBe('string');
   });
 
-  it('handles large plaintext (> 64 KB)', () => {
+  it('handles large plaintext (> 64 KB)', async () => {
     const large = 'x'.repeat(100_000);
-    const payload = encryptMessage(large, testKey);
+    const payload = await encryptMessage(large, testKey);
     expect(typeof payload.contentEncrypted).toBe('string');
   });
 });
@@ -181,42 +181,42 @@ describe('decryptMessage', () => {
     testKey = await deriveSessionKey(BASE_CONTEXT);
   });
 
-  it('roundtrip: encrypt then decrypt returns original plaintext', () => {
+  it('roundtrip: encrypt then decrypt returns original plaintext', async () => {
     const original = 'Roundtrip test message 🔒';
-    const payload = encryptMessage(original, testKey);
-    const recovered = decryptMessage(payload, testKey);
+    const payload = await encryptMessage(original, testKey);
+    const recovered = await decryptMessage(payload, testKey);
 
     expect(recovered).toBe(original);
   });
 
-  it('roundtrip with empty string', () => {
-    const payload = encryptMessage('', testKey);
-    expect(decryptMessage(payload, testKey)).toBe('');
+  it('roundtrip with empty string', async () => {
+    const payload = await encryptMessage('', testKey);
+    expect(await decryptMessage(payload, testKey)).toBe('');
   });
 
-  it('roundtrip with multi-line JSON content', () => {
+  it('roundtrip with multi-line JSON content', async () => {
     const json = JSON.stringify({ type: 'user_prompt', content: 'Fix the bug\nand tests' });
-    const payload = encryptMessage(json, testKey);
-    expect(decryptMessage(payload, testKey)).toBe(json);
+    const payload = await encryptMessage(json, testKey);
+    expect(await decryptMessage(payload, testKey)).toBe(json);
   });
 
-  it('roundtrip with Unicode characters', () => {
+  it('roundtrip with Unicode characters', async () => {
     const unicode = '日本語テスト 🔐 тест مرحبا';
-    const payload = encryptMessage(unicode, testKey);
-    expect(decryptMessage(payload, testKey)).toBe(unicode);
+    const payload = await encryptMessage(unicode, testKey);
+    expect(await decryptMessage(payload, testKey)).toBe(unicode);
   });
 
   it('throws when decrypting with a wrong key', async () => {
-    const wrongKey = generateRandomKey();
-    const payload = encryptMessage('Secret', testKey);
+    const wrongKey = await generateRandomKey();
+    const payload = await encryptMessage('Secret', testKey);
 
-    expect(() => decryptMessage(payload, wrongKey)).toThrow(
-      'Decryption failed: invalid key or tampered data'
+    await expect(decryptMessage(payload, wrongKey)).rejects.toThrow(
+      'Decryption failed: invalid key or tampered data',
     );
   });
 
-  it('throws when contentEncrypted has been tampered with', () => {
-    const payload = encryptMessage('Tamper test', testKey);
+  it('throws when contentEncrypted has been tampered with', async () => {
+    const payload = await encryptMessage('Tamper test', testKey);
 
     // Flip a few bytes in the ciphertext by modifying the base64
     const bytes = Buffer.from(payload.contentEncrypted, 'base64');
@@ -226,13 +226,13 @@ describe('decryptMessage', () => {
       contentEncrypted: bytes.toString('base64'),
     };
 
-    expect(() => decryptMessage(tampered, testKey)).toThrow(
-      'Decryption failed: invalid key or tampered data'
+    await expect(decryptMessage(tampered, testKey)).rejects.toThrow(
+      'Decryption failed: invalid key or tampered data',
     );
   });
 
-  it('throws when nonce has been tampered with', () => {
-    const payload = encryptMessage('Nonce tamper test', testKey);
+  it('throws when nonce has been tampered with', async () => {
+    const payload = await encryptMessage('Nonce tamper test', testKey);
 
     const nonceBytes = Buffer.from(payload.nonce, 'base64');
     nonceBytes[0] ^= 0xff;
@@ -241,8 +241,8 @@ describe('decryptMessage', () => {
       nonce: nonceBytes.toString('base64'),
     };
 
-    expect(() => decryptMessage(tampered, testKey)).toThrow(
-      'Decryption failed: invalid key or tampered data'
+    await expect(decryptMessage(tampered, testKey)).rejects.toThrow(
+      'Decryption failed: invalid key or tampered data',
     );
   });
 
@@ -252,10 +252,10 @@ describe('decryptMessage', () => {
       sessionId: 'totally-different-session',
     });
 
-    const payload = encryptMessage('Wrong session', testKey);
+    const payload = await encryptMessage('Wrong session', testKey);
 
-    expect(() => decryptMessage(payload, otherKey)).toThrow(
-      'Decryption failed: invalid key or tampered data'
+    await expect(decryptMessage(payload, otherKey)).rejects.toThrow(
+      'Decryption failed: invalid key or tampered data',
     );
   });
 });
@@ -334,23 +334,25 @@ describe('isEncryptedPayload', () => {
 // ============================================================================
 
 describe('generateRandomKey', () => {
-  it('returns a Uint8Array of exactly 32 bytes', () => {
-    const key = generateRandomKey();
+  it('returns a Uint8Array of exactly 32 bytes', async () => {
+    const key = await generateRandomKey();
 
     expect(key).toBeInstanceOf(Uint8Array);
     expect(key.length).toBe(32);
   });
 
-  it('produces unique keys on each call', () => {
-    const keys = Array.from({ length: 50 }, () => generateRandomKey());
+  it('produces unique keys on each call', async () => {
+    const keys = await Promise.all(
+      Array.from({ length: 50 }, () => generateRandomKey()),
+    );
     const hexKeys = keys.map((k) => Buffer.from(k).toString('hex'));
     const unique = new Set(hexKeys);
 
     expect(unique.size).toBe(50);
   });
 
-  it('produces keys with high entropy — not all zeros or all same byte', () => {
-    const key = generateRandomKey();
+  it('produces keys with high entropy — not all zeros or all same byte', async () => {
+    const key = await generateRandomKey();
     const allZero = key.every((b) => b === 0);
     const allSame = key.every((b) => b === key[0]);
 
@@ -358,17 +360,17 @@ describe('generateRandomKey', () => {
     expect(allSame).toBe(false);
   });
 
-  it('key can be used directly with encryptMessage without error', () => {
-    const key = generateRandomKey();
+  it('key can be used directly with encryptMessage without error', async () => {
+    const key = await generateRandomKey();
 
-    expect(() => encryptMessage('test with random key', key)).not.toThrow();
+    await expect(encryptMessage('test with random key', key)).resolves.toBeDefined();
   });
 
-  it('key produced is compatible with decryptMessage roundtrip', () => {
-    const key = generateRandomKey();
+  it('key produced is compatible with decryptMessage roundtrip', async () => {
+    const key = await generateRandomKey();
     const plaintext = 'generated key roundtrip';
-    const payload = encryptMessage(plaintext, key);
+    const payload = await encryptMessage(plaintext, key);
 
-    expect(decryptMessage(payload, key)).toBe(plaintext);
+    expect(await decryptMessage(payload, key)).toBe(plaintext);
   });
 });

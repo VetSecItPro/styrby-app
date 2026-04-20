@@ -71,6 +71,9 @@ importers:
       ink:
         specifier: ^6.5.1
         version: 6.6.0(@types/react@19.2.13)(react@19.2.4)
+      libsodium-wrappers:
+        specifier: 0.7.15
+        version: 0.7.15
       open:
         specifier: ^11.0.0
         version: 11.0.0
@@ -93,6 +96,9 @@ importers:
       '@types/http-proxy':
         specifier: ^1.17.17
         version: 1.17.17
+      '@types/libsodium-wrappers':
+        specifier: 0.7.14
+        version: 0.7.14
       '@types/node':
         specifier: ~22.15.0
         version: 22.15.35
