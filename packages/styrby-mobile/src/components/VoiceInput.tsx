@@ -9,7 +9,7 @@
  *
  * Recording lifecycle:
  * 1. Request microphone permission on first use
- * 2. Start expo-av Audio recording at high-quality mono settings
+ * 2. Start expo-audio AudioRecorder at high-quality mono settings
  * 3. On stop, read the recorded file and POST to the transcription endpoint
  * 4. Surface the transcript text for the user to review before sending
  * 5. User can confirm (fill input) or dismiss (discard)
@@ -17,10 +17,11 @@
  * When no transcription endpoint is configured, the button shows a disabled
  * state with a tooltip directing the user to configure one in Settings.
  *
- * WHY expo-av over a native STT library: expo-av is already in the Expo SDK
- * and avoids adding a native module dependency. Whisper-compatible APIs are
- * widely available (OpenAI, self-hosted, enterprise) and the config-driven
- * approach keeps Styrby vendor-neutral.
+ * WHY expo-audio over a native STT library: expo-audio is Expo's official
+ * audio recording package (replaces the deprecated expo-av) and avoids adding
+ * a native module dependency. Whisper-compatible APIs are widely available
+ * (OpenAI, self-hosted, enterprise) and the config-driven approach keeps
+ * Styrby vendor-neutral.
  *
  * TIER GATE (mobile-side): Voice commands are a Power-only feature.
  * When integrating this component into the chat screen or settings screen,
@@ -62,24 +63,24 @@ import type { VoiceInputConfig } from 'styrby-shared';
  * WHY: We sample at 16 kHz mono because Whisper was trained primarily on
  * speech at that sample rate. Higher rates waste bandwidth; lower rates
  * degrade accuracy.
+ *
+ * expo-audio RecordingOptions uses a flat structure (no android/ios nesting
+ * at the top level). Platform-specific overrides are available via `ios`/`android`
+ * sub-objects but the top-level fields apply cross-platform.
  */
 const RECORDING_OPTIONS = {
   isMeteringEnabled: true,
+  extension: '.m4a',
+  sampleRate: 16000,
+  numberOfChannels: 1,
+  bitRate: 32000,
   android: {
-    extension: '.m4a',
-    outputFormat: 3 as const,   // MPEG_4
-    audioEncoder: 3 as const,   // AAC
-    sampleRate: 16000,
-    numberOfChannels: 1,
-    bitRate: 32000,
+    outputFormat: 'mpeg4' as const,
+    audioEncoder: 'aac' as const,
   },
   ios: {
-    extension: '.m4a',
     outputFormat: 'aac' as const,
-    audioQuality: 96 as const,  // MEDIUM
-    sampleRate: 16000,
-    numberOfChannels: 1,
-    bitRate: 32000,
+    audioQuality: 96 as const,  // AudioQuality.MEDIUM
     linearPCMBitDepth: 16 as const,
     linearPCMIsBigEndian: false,
     linearPCMIsFloat: false,
@@ -138,7 +139,7 @@ type RecordingState = 'idle' | 'recording' | 'transcribing' | 'confirming' | 'er
 /**
  * Voice-to-text input button for the chat screen.
  *
- * Renders a microphone icon button that records audio via expo-av and
+ * Renders a microphone icon button that records audio via expo-audio and
  * transcribes it via a configurable Whisper-compatible endpoint.
  *
  * @param props - VoiceInputProps
@@ -153,15 +154,14 @@ type RecordingState = 'idle' | 'recording' | 'transcribing' | 'confirming' | 'er
  */
 export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInputProps) {
   const [state, setState] = useState<RecordingState>('idle');
-  // WHY: transcript getter is unused — editedTranscript mirrors it and is what
-  // the UI reads. Prefixed with _ per ESLint convention to document the intent.
-  const [_transcript, setTranscript] = useState('');
+  const [transcript, setTranscript] = useState('');
   const [editedTranscript, setEditedTranscript] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
-  // WHY: Store recording ref so we can stop it from event handlers
-  // that don't have access to closure state.
+  // WHY: Store AudioRecorder ref so we can stop it from event handlers
+  // that don't have access to closure state. Typed as unknown to avoid
+  // importing the class at module level (dynamic import keeps bundle lean).
   const recordingRef = useRef<unknown>(null);
   const autoStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -245,13 +245,13 @@ export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInpu
     }
 
     try {
-      // WHY: We dynamically import expo-av here to avoid a hard crash if the
+      // WHY: We dynamically import expo-audio here to avoid a hard crash if the
       // module is unavailable (e.g. Expo Go environments that don't include it).
       // The component degrades to a disabled state instead.
-      const { Audio } = await import('expo-av');
+      const { requestRecordingPermissionsAsync, setAudioModeAsync, AudioRecorder } = await import('expo-audio');
 
-      const permission = await Audio.requestPermissionsAsync();
-      if (permission.status !== 'granted') {
+      const permission = await requestRecordingPermissionsAsync();
+      if (!permission.granted) {
         Alert.alert(
           'Microphone Permission',
           'Styrby needs microphone access for voice commands. Enable it in Settings.',
@@ -260,13 +260,19 @@ export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInpu
         return;
       }
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      // WHY: allowsRecording (not allowsRecordingIOS) is the expo-audio API.
+      // playsInSilentMode ensures recording works even when iOS silent switch is on.
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
       });
 
-      const { recording } = await Audio.Recording.createAsync(RECORDING_OPTIONS as Parameters<typeof Audio.Recording.createAsync>[0]);
-      recordingRef.current = recording;
+      // WHY: expo-audio uses an imperative AudioRecorder class.
+      // We prepareToRecordAsync first (allocates native resources), then record().
+      const recorder = new AudioRecorder(RECORDING_OPTIONS);
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      recordingRef.current = recorder;
 
       setState('recording');
       startPulse();
@@ -280,12 +286,6 @@ export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInpu
       setErrorMessage('Could not start recording. Check microphone permissions.');
       if (__DEV__) console.error('[VoiceInput] startRecording error:', err);
     }
-  // WHY: stopRecording is declared after startRecording in the component body.
-  // Referencing it in this dep array would cause a TypeScript TDZ error.
-  // The auto-stop timer calls stopRecording via closure; since config and
-  // disabled are in this array, startRecording re-memoizes when they change,
-  // picking up any updated stopRecording reference at that point.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [disabled, config, startPulse]);
 
   /**
@@ -306,15 +306,12 @@ export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInpu
     setState('transcribing');
 
     try {
-      // WHY: We only need the runtime recording object methods here — no Audio
-      // namespace needed. Cast to the minimal interface to avoid an unused-var
-      // warning from importing Audio solely for its type.
-      const recording = recordingRef.current as {
-        stopAndUnloadAsync: () => Promise<void>;
-        getURI: () => string | null;
-      };
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
+      // WHY: AudioRecorder.stop() is the expo-audio replacement for
+      // expo-av's stopAndUnloadAsync(). The uri property replaces getURI().
+      const { AudioRecorder } = await import('expo-audio');
+      const recorder = recordingRef.current as InstanceType<typeof AudioRecorder>;
+      await recorder.stop();
+      const uri = recorder.uri;
       recordingRef.current = null;
 
       if (!uri) {
@@ -329,12 +326,6 @@ export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInpu
       setErrorMessage('Recording stopped unexpectedly.');
       if (__DEV__) console.error('[VoiceInput] stopRecording error:', err);
     }
-  // WHY: transcribeAudio is declared after stopRecording in the component body,
-  // causing a TypeScript TDZ error if referenced in the dep array. The dep is
-  // omitted deliberately — transcribeAudio only depends on config which is a
-  // prop that doesn't change identity between renders when unchanged.
-  // This is a known limitation of defining useCallback hooks in declaration order.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopPulse]);
 
   // --------------------------------------------------------------------------
