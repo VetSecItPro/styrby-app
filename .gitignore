@@ -119,6 +119,7 @@ ARCHITECTURE.md
 
 # EXCEPTIONS: Public-facing files
 !README.md
+!SECURITY.md
 !.github/pull_request_template.md
 .cleancode-reports/
 .perf/
