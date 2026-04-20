@@ -219,9 +219,40 @@ jest.mock('@/contexts/ThemeContext', () => ({
 }));
 
 // -- styrby-shared --
+// WHY: settings.tsx imports formatTime, getThresholdDescription, and
+// getEstimatedNotificationPercentage from styrby-shared (extracted in S1 of the
+// Phase 0.6.1 refactor). The mock must preserve their real behavior for the
+// characterization tests that assert on priority labels and quiet-hours text.
 jest.mock('styrby-shared', () => ({
   decodePairingUrl: jest.fn(),
   isPairingExpired: jest.fn(() => false),
+  formatTime: (time: string | null, fallback: string): string => {
+    if (!time) return fallback;
+    const [hours, minutes] = time.split(':').map(Number);
+    const period = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${String(minutes).padStart(2, '0')} ${period}`;
+  },
+  getThresholdDescription: (threshold: number): string => {
+    switch (threshold) {
+      case 1: return 'Urgent only';
+      case 2: return 'High priority';
+      case 3: return 'Medium priority';
+      case 4: return 'Most notifications';
+      case 5: return 'All notifications';
+      default: return 'Unknown';
+    }
+  },
+  getEstimatedNotificationPercentage: (threshold: number): number => {
+    switch (threshold) {
+      case 1: return 5;
+      case 2: return 15;
+      case 3: return 50;
+      case 4: return 85;
+      case 5: return 100;
+      default: return 50;
+    }
+  },
 }));
 
 // ============================================================================

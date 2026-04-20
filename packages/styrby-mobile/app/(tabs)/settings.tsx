@@ -35,7 +35,12 @@ import {
   canShowUpgradePrompt,
   POLAR_CUSTOMER_PORTAL_URL,
 } from '../../src/lib/platform-billing';
-import type { VoiceInputConfig } from 'styrby-shared';
+import {
+  type VoiceInputConfig,
+  formatTime,
+  getThresholdDescription,
+  getEstimatedNotificationPercentage,
+} from 'styrby-shared';
 import {
   type OtelUserConfig,
   type OtelPreset,
@@ -104,21 +109,6 @@ interface UserInfo {
 const HELP_URL = SITE_URLS.help;
 const PRIVACY_URL = SITE_URLS.privacy;
 const TERMS_URL = SITE_URLS.terms;
-
-/**
- * Formats a time string from HH:MM:SS database format to human-readable
- * 12-hour format (e.g., "10:00 PM").
- *
- * @param time - Time string in HH:MM:SS format, or null
- * @returns Human-readable time string, or the fallback if null
- */
-function formatTime(time: string | null, fallback: string): string {
-  if (!time) return fallback;
-  const [hours, minutes] = time.split(':').map(Number);
-  const period = hours >= 12 ? 'PM' : 'AM';
-  const displayHours = hours % 12 || 12;
-  return `${displayHours}:${String(minutes).padStart(2, '0')} ${period}`;
-}
 
 /**
  * Extracts user display information from Supabase auth user metadata.
@@ -1334,30 +1324,12 @@ export default function SettingsScreen() {
   /**
    * Returns the label text for a priority threshold level.
    */
-  const getPriorityLabel = (value: number): string => {
-    switch (value) {
-      case 1: return 'Urgent only';
-      case 2: return 'High priority';
-      case 3: return 'Medium priority';
-      case 4: return 'Most notifications';
-      case 5: return 'All notifications';
-      default: return 'Medium priority';
-    }
-  };
-
-  /**
-   * Returns an estimated percentage of notifications at a given threshold.
-   */
-  const getPriorityPercentage = (value: number): number => {
-    switch (value) {
-      case 1: return 5;
-      case 2: return 15;
-      case 3: return 50;
-      case 4: return 85;
-      case 5: return 100;
-      default: return 50;
-    }
-  };
+  // WHY: getPriorityLabel + getPriorityPercentage were merged into styrby-shared
+  // as getThresholdDescription / getEstimatedNotificationPercentage (S1 of the
+  // Phase 0.6.1 settings refactor). Local aliases preserve the existing call
+  // sites verbatim while the functions live in one place shared with web.
+  const getPriorityLabel = getThresholdDescription;
+  const getPriorityPercentage = getEstimatedNotificationPercentage;
 
   /**
    * Updates the notification priority threshold and persists to Supabase.
