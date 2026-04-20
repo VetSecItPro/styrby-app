@@ -25,6 +25,14 @@ export * as errors from './errors/index.js';
 // Re-export utilities
 export * from './utils/index.js';
 
+// Phase 0.10 — integration readiness gates.
+// Billing tier-logic helpers; ApiError envelope; event registry/dispatcher;
+// platform-agnostic Realtime subscription factory.
+export * from './billing/index.js';
+export * from './api/index.js';
+export * from './events/index.js';
+export * from './hooks/index.js';
+
 // WHY: The full pricing module is NOT re-exported from the barrel.
 // litellm-pricing.ts uses Node.js builtins (node:path, node:os, node:fs, node:crypto)
 // which break webpack/Next.js client bundles. Import directly from

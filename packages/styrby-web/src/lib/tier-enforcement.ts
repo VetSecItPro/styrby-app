@@ -17,7 +17,7 @@
  * - Returns structured errors so callers can surface actionable messages
  */
 
-import { TIER_LIMITS } from '@styrby/shared';
+import { TIER_LIMITS, normalizeTier } from '@styrby/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { TierId } from '@/lib/polar';
 
@@ -87,11 +87,10 @@ async function resolveUserTier(supabase: SupabaseClient, userId: string): Promis
     return 'free';
   }
 
-  // Narrow to the three tiers polar.ts knows about. Any unknown value falls
-  // back to 'free' so future tiers in the DB don't accidentally grant full access.
-  const knownTiers: TierId[] = ['free', 'pro', 'power'];
-  const resolved = subscription.tier as string;
-  return knownTiers.includes(resolved as TierId) ? (resolved as TierId) : 'free';
+  // Phase 0.10 — delegate to the shared normalizeTier helper so web and
+  // mobile agree on the fail-closed default. Any unknown value falls back
+  // to 'free' so future tiers in the DB don't accidentally grant full access.
+  return normalizeTier(subscription.tier as string) as TierId;
 }
 
 /**

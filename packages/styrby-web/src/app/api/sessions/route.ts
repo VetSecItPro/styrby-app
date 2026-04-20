@@ -45,6 +45,10 @@ import { createClient } from '@/lib/supabase/server';
 import { checkTierLimit } from '@/lib/tier-enforcement';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 import { z } from 'zod';
+// Phase 0.10 — unified API error envelope (OWASP ASVS V7.4 / consistent
+// error contract for clients). Migrating routes incrementally; this is one
+// of the representative routes.
+import { apiError } from '@styrby/shared';
 
 // ---------------------------------------------------------------------------
 // Request Schema
@@ -105,7 +109,7 @@ export async function POST(request: NextRequest) {
 
     if (authError || !user) {
       return NextResponse.json(
-        { error: 'UNAUTHORIZED', message: 'Authentication required' },
+        apiError('UNAUTHORIZED', 'Authentication required'),
         { status: 401 }
       );
     }
@@ -116,7 +120,11 @@ export async function POST(request: NextRequest) {
 
     if (!parseResult.success) {
       return NextResponse.json(
-        { error: parseResult.error.errors.map((e) => e.message).join(', ') },
+        apiError(
+          'VALIDATION_FAILED',
+          parseResult.error.errors.map((e) => e.message).join(', '),
+          { issues: parseResult.error.errors.map((e) => ({ path: e.path, message: e.message })) },
+        ),
         { status: 400 }
       );
     }
@@ -137,7 +145,7 @@ export async function POST(request: NextRequest) {
 
     if (machineError || !machine) {
       return NextResponse.json(
-        { error: 'FORBIDDEN', message: 'Machine not found or access denied' },
+        apiError('FORBIDDEN', 'Machine not found or access denied'),
         { status: 403 }
       );
     }
@@ -149,13 +157,16 @@ export async function POST(request: NextRequest) {
 
     if (!tierCheck.allowed) {
       return NextResponse.json(
-        {
-          error: 'TIER_LIMIT_EXCEEDED',
-          limit: tierCheck.limit,
-          current: tierCheck.current,
-          tier: tierCheck.tier,
-          upgradeUrl: tierCheck.upgradeUrl,
-        },
+        apiError(
+          'TIER_LIMIT_EXCEEDED',
+          `Daily session limit reached for ${tierCheck.tier} tier`,
+          {
+            limit: tierCheck.limit,
+            current: tierCheck.current,
+            tier: tierCheck.tier,
+            upgradeUrl: tierCheck.upgradeUrl,
+          },
+        ),
         { status: 403 }
       );
     }
@@ -185,7 +196,7 @@ export async function POST(request: NextRequest) {
         isDev ? insertError : insertError.message
       );
       return NextResponse.json(
-        { error: 'INTERNAL_ERROR', message: 'Failed to create session' },
+        apiError('INTERNAL_ERROR', 'Failed to create session'),
         { status: 500 }
       );
     }
@@ -198,7 +209,7 @@ export async function POST(request: NextRequest) {
       isDev ? error : error instanceof Error ? error.message : 'Unknown'
     );
     return NextResponse.json(
-      { error: 'INTERNAL_ERROR', message: 'An unexpected error occurred' },
+      apiError('INTERNAL_ERROR', 'An unexpected error occurred'),
       { status: 500 }
     );
   }

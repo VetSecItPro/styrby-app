@@ -289,11 +289,12 @@ describe('checkTierLimit — team tier', () => {
     const result = await checkTierLimit(USER_ID, 'maxAgents', supabase);
     expect(isBlocked(result)).toBe(true);
     if (isBlocked(result)) {
-      // WHY: team tier is not a known tier in resolveUserTier's knownTiers list
-      // (['free', 'pro', 'power']). 'team' falls back to 'free'. This verifies
-      // that the current fail-closed behavior is intentional and tested.
-      // If team is later added to knownTiers, update this assertion.
-      expect(result.tier).toBe('free');
+      // WHY (Phase 0.10): tier resolution now delegates to the shared
+      // `normalizeTier` helper which recognises 'team' as a valid tier id
+      // (the Teams plan is reserved for future GA but the id itself is
+      // canonical). Web and mobile both agree on this normalisation.
+      expect(result.tier).toBe('team');
+      expect(result.limit).toBe(teamAgentLimit);
     }
   });
 });
