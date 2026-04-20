@@ -34,10 +34,28 @@ import * as path from 'node:path';
 // ============================================================================
 
 /**
- * Normalized price for a single model.
+ * Normalized pricing for a single AI model used in all cost calculations.
  *
- * All values are USD per 1,000 tokens (not per million — kept small for
- * readability in cost calculations).
+ * This is the core billing type: every `cost_record` row written to Supabase
+ * is computed by multiplying token counts against these rates. Budget alert
+ * thresholds, the mobile cost dashboard, and the daily cost summary
+ * materialized view all flow through this type.
+ *
+ * WHY per-1k instead of per-1M: Provider APIs report token counts per
+ * request. Multiplying a small token count (e.g. 500) by a per-1k rate
+ * gives a compact, readable decimal. Per-1M rates produce trailing zeros
+ * that hurt readability in cost-calculation code.
+ *
+ * Unit: USD per 1,000 tokens.
+ *
+ * Cache pricing notes (Anthropic only):
+ * - Cache reads are ~10x cheaper than fresh input reads.
+ * - Cache writes are ~1.25x more expensive than fresh input reads.
+ * - Only models that explicitly support prompt caching populate the
+ *   optional cache fields; other models leave them undefined.
+ *
+ * Source: LiteLLM canonical dataset (github.com/BerriAI/litellm).
+ * Last static fallback verified: 2026-03-27.
  */
 export interface ModelPrice {
   /** Cost per 1,000 input tokens in USD */

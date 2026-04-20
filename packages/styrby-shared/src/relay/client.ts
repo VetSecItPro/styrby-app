@@ -20,7 +20,19 @@ import { getChannelName, createBaseMessage, RelayMessageSchema } from './types.j
 // ============================================================================
 
 /**
- * Relay client configuration
+ * Configuration passed to `RelayClient` (or `createRelayClient`) to establish
+ * a Supabase Realtime channel connection between the CLI and the mobile app.
+ *
+ * WHY both `deviceId` and `userId`: The relay channel is scoped to a user
+ * (`relay:{userId}`), but multiple devices per user can be simultaneously
+ * connected (e.g., a developer's laptop CLI and their iPad). `deviceId` is
+ * the presence key that distinguishes each participant within the channel.
+ *
+ * WHY `channelSuffix` is optional: It was added in SEC-RELAY-001 to prevent
+ * channel enumeration attacks by anyone who knows only the user's UUID. Older
+ * CLI and mobile clients that pre-date this fix connect without a suffix.
+ * The optional field maintains backward compatibility while new clients
+ * always provide one.
  */
 export interface RelayClientConfig {
   /** Supabase client instance */
@@ -54,7 +66,21 @@ export interface RelayClientConfig {
 }
 
 /**
- * Connection state
+ * Current state of the relay WebSocket connection, emitted via the
+ * `RelayClient` event system and used to drive connection-status UI
+ * in both the mobile app and the web dashboard.
+ *
+ * State transitions:
+ * ```
+ * disconnected → connecting → connected
+ *                    ↓               ↓ (channel error or heartbeat failure)
+ *                  error ←── reconnecting ←── connected
+ * ```
+ *
+ * 'reconnecting' differs from 'connecting' in that it signals an automatic
+ * retry after an unexpected drop rather than an intentional initial connect.
+ * The mobile UI shows different copy for each ("Connecting..." vs.
+ * "Connection lost, retrying...").
  */
 export type ConnectionState =
   | 'disconnected'

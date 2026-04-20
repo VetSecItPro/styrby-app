@@ -67,11 +67,23 @@ export function generateRandomString(length: number): string {
 }
 
 /**
- * Result of generating an API key.
+ * The output of `generateApiKey()` for Styrby Power tier API access.
  *
- * - key: The full API key (show to user once, then discard)
- * - prefix: The key prefix for database lookup (store in plaintext)
- * - randomPart: Just the random portion (for debugging, don't store)
+ * This type models the "show once" security pattern: the full `key` is
+ * returned exactly once at creation time, shown to the user, and then
+ * discarded from memory. The database stores only `prefix` (plaintext, for
+ * lookup) and a bcrypt hash of `key` (for verification). The `randomPart`
+ * is provided for debugging and internal tooling — it must never be stored.
+ *
+ * WHY separate `prefix` and `randomPart`: The bcrypt comparison in the web
+ * package requires the full key, while database lookup only needs the prefix
+ * (to narrow the query before hashing). Exposing them separately prevents
+ * callers from having to re-parse the full key string.
+ *
+ * Security model:
+ * - `key` (styrby_ + 32 chars) — shown to user once, bcrypt-hashed for storage
+ * - `prefix` ("styrby_") — stored as plaintext for O(1) lookup by prefix
+ * - `randomPart` (32 chars) — never stored, debug only
  */
 export interface GeneratedApiKey {
   /** The full API key to show to the user (styrby_xxxxx...) */
