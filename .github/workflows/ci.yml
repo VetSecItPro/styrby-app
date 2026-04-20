@@ -152,7 +152,12 @@ jobs:
       # The forked Happy Coder code expects difft at tools/unpacked/difft
       # and ripgrep via scripts/ripgrep_launcher.cjs — symlink system binaries.
       - name: Install ripgrep and difftastic
+        # WHY set -euo pipefail: Without these flags a failing curl, tar, or ln
+        # command exits 0 (the last command in the script succeeds) and CI reports
+        # green even though the tooling is broken. -e = exit on error, -u = treat
+        # unset vars as errors, -o pipefail = pipe exit code = leftmost failure.
         run: |
+          set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq ripgrep
           DIFFT_VERSION="0.63.0"
@@ -234,16 +239,37 @@ jobs:
         run: pnpm audit --audit-level=high
 
       - name: Secret pattern scan
+        # WHY set -euo pipefail: the grep command uses || true intentionally
+        # (grep exits 1 on zero matches, which is not an error). The rest of
+        # the script must still fail on unexpected errors (e.g., disk full).
         run: |
+          set -uo pipefail
           echo "Scanning for leaked secrets in source..."
-          # FIX-057: Comprehensive secret patterns covering all services in use
-          # Stripe live keys, AWS access keys, private keys, GitHub tokens,
-          # Supabase service keys, Polar tokens, Resend keys, Expo tokens
-          PATTERNS='sk_live_[a-zA-Z0-9]{24,}|AKIA[0-9A-Z]{16}|-----BEGIN (RSA |EC )?PRIVATE KEY|ghp_[a-zA-Z0-9]{36}|glpat-[a-zA-Z0-9\-]{20}|sbp_[a-zA-Z0-9]{40}|polar_at_[a-zA-Z0-9]+|re_[a-zA-Z0-9]{20,}|eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.[a-zA-Z0-9_-]{50,}|expo_[a-zA-Z0-9]{20,}'
+          # Comprehensive secret patterns covering all services in Styrby's stack:
+          #   sk_live_*        Stripe live secret keys
+          #   AKIA*            AWS IAM access keys
+          #   BEGIN PRIVATE KEY RSA/EC private keys
+          #   ghp_*            GitHub personal access tokens
+          #   glpat-*          GitLab personal access tokens
+          #   sbp_*            Supabase service role keys
+          #   polar_at_*       Polar API tokens
+          #   re_[A-Za-z0-9]{20,} Resend API keys
+          #                    NOTE: env var placeholder "re_placeholder_key" is
+          #                    excluded via --exclude=*.yml on the workflow file
+          #                    itself, but the pattern requires >=20 chars after
+          #                    "re_" so "re_placeholder_key" (16 chars) does NOT
+          #                    match. No false positive risk.
+          #   eyJ...           Raw JWT tokens (Supabase anon/service keys)
+          #   expo_*           Expo push tokens
+          #   cfut_*           Cloudflare API tokens (format: cfut_[base64-like])
+          #   cfkey_*          Cloudflare Global API keys
+          #   hostinger_*      Hostinger API tokens
+          PATTERNS='sk_live_[a-zA-Z0-9]{24,}|AKIA[0-9A-Z]{16}|-----BEGIN (RSA |EC )?PRIVATE KEY|ghp_[a-zA-Z0-9]{36}|glpat-[a-zA-Z0-9\-]{20}|sbp_[a-zA-Z0-9]{40}|polar_at_[a-zA-Z0-9]{10,}|re_[a-zA-Z0-9]{20,}|eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.[a-zA-Z0-9_-]{50,}|expo_[a-zA-Z0-9]{20,}|cfut_[a-zA-Z0-9+/]{30,}|cfkey_[a-zA-Z0-9]{30,}|hostinger_[a-zA-Z0-9_\-]{16,}'
 
           # WHY two-step: piping grep | grep -v can fail unpredictably in
-          # GitHub Actions when the first grep has zero matches. Storing to
-          # a temp file avoids pipe exit code issues.
+          # GitHub Actions when the first grep has zero matches (exits 1).
+          # Storing to a temp file avoids pipe exit code issues and lets us
+          # inspect the file size cleanly.
           grep -rn --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.json" -E "$PATTERNS" . \
             --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=dist \
             --exclude=package-lock.json --exclude=pnpm-lock.yaml --exclude=env.ts \
@@ -302,7 +328,13 @@ jobs:
           name: shared-build
           path: packages/styrby-shared/dist/
           retention-days: 1
-          if-no-files-found: warn
+          # WHY error (not warn): shared-build is a required input for test-web,
+          # build-cli, build-web, build-mobile, e2e, and lighthouse. If the dist/
+          # directory is empty the build step already failed, but `warn` would let
+          # the artifact upload "succeed" silently and downstream jobs would
+          # receive empty artifacts with confusing errors. `error` makes the
+          # failure loud and at the right source.
+          if-no-files-found: error
 
   # ─── CLI package build ───
   build-cli:
@@ -332,9 +364,10 @@ jobs:
         run: pnpm --filter styrby-cli run build
 
       - name: Test CLI entry point
-        run: |
-          # Verify CLI can at least show help
-          node packages/styrby-cli/bin/styrby.mjs help || echo "CLI help check completed"
+        # WHY: Previously `|| echo "..."` silently swallowed a non-zero exit from
+        # the CLI, letting a broken binary pass CI. If the entry point can't even
+        # show help, the build is broken and CI must fail loudly.
+        run: node packages/styrby-cli/bin/styrby.mjs help
 
   # ─── Web package build ───
   build-web:
@@ -374,11 +407,18 @@ jobs:
       # Turbopack creates files with colons in names which can't be uploaded
       # Rename them before uploading
       - name: Prepare artifact
+        # WHY set -euo pipefail: the find | while read pipeline must propagate
+        # errors. Without pipefail, a failed mv or mkdir inside the loop exits 0
+        # and the artifact gets uploaded in a broken state. The downstream e2e
+        # job would then fail with an opaque "missing file" error rather than
+        # a clear failure here at the source.
         run: |
+          set -euo pipefail
           cd packages/styrby-web/.next
           # Find and rename files with colons (replace : with __)
-          find . -name "*:*" -type f | while read f; do
-            newname=$(echo "$f" | sed 's/:/__/g')
+          find . -name "*:*" -type f | while read -r f; do
+            # SC2001: use shell parameter expansion instead of sed for simple replacement
+            newname="${f//://__}"
             mkdir -p "$(dirname "$newname")"
             mv "$f" "$newname"
           done
@@ -390,7 +430,11 @@ jobs:
           path: packages/styrby-web/.next
           retention-days: 1
           include-hidden-files: true
-          if-no-files-found: warn
+          # WHY error (not warn): nextjs-build is required by e2e and lighthouse.
+          # An empty artifact upload would silently pass and confuse downstream
+          # consumers. The build step already validates correctness; this ensures
+          # the artifact can't vanish silently between build and consumption.
+          if-no-files-found: error
 
   # ─── Mobile (Expo) build check ───
   build-mobile:
@@ -414,7 +458,10 @@ jobs:
         run: pnpm --filter styrby-mobile run lint
 
       - name: Export web bundle (build check)
-        run: pnpm --filter styrby-mobile exec expo export --platform web --output-dir /tmp/expo-export 2>&1 || echo "Expo export check completed"
+        # WHY: Previously `|| echo "..."` silently swallowed Expo export failures,
+        # meaning a broken mobile build always appeared green. Expo export must
+        # fail CI if it exits non-zero — that's the entire point of the check.
+        run: pnpm --filter styrby-mobile exec expo export --platform web --output-dir /tmp/expo-export
 
   # ─── E2E tests ───
   e2e:
@@ -471,10 +518,13 @@ jobs:
     name: Lighthouse PWA
     runs-on: ubuntu-latest
     needs: build-web
-    # WHY continue-on-error: Lighthouse scores can vary between runs due to
-    # CI environment resource contention. We report the scores but do not
-    # block the pipeline on minor score fluctuations.
-    continue-on-error: true
+    # WHY no job-level continue-on-error: Previously this was set at the job
+    # level, which caused needs.lighthouse.result to always evaluate as
+    # "success" — even on genuine failures. The summary job's conditional
+    # was therefore dead code. continue-on-error is now on the lhci step only,
+    # so infrastructure failures (server won't start, artifact missing) still
+    # fail the job loudly, while score variance from the lhci step itself is
+    # the only thing that's tolerated as non-blocking.
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -504,14 +554,26 @@ jobs:
         run: npm install -g @lhci/cli@0.14.x
 
       - name: Run Lighthouse CI
+        # WHY continue-on-error here (step level, not job level): Lighthouse
+        # scores vary in CI due to resource contention — the same build can
+        # score 85 or 95 depending on runner load. We report the audit for
+        # visibility but do not gate merges on score variance. Infrastructure
+        # failures above (artifact download, server start) still fail the job.
+        # FOLLOW-UP: When deployed to production, run real Lighthouse via
+        # web-vitals.io or LHCI server and add a blocking regression check
+        # (score must not drop > 5 points from last passing run). Tracked in
+        # follow-up PR: "feat(ci): blocking Lighthouse regression ratchet".
+        continue-on-error: true
         working-directory: packages/styrby-web
         run: |
+          set -euo pipefail
           # Start the production server in the background
           pnpm start &
           SERVER_PID=$!
 
-          # Wait for the server to be ready
-          for i in $(seq 1 30); do
+          # Wait for the server to be ready (up to 30s)
+          # SC2034: _ prefix discards the loop variable intentionally
+          for _i in $(seq 1 30); do
             if curl -s http://localhost:3000 > /dev/null 2>&1; then
               break
             fi
@@ -539,11 +601,14 @@ jobs:
             --assert.assertions.unused-css-rules=off \
             --assert.assertions.unused-javascript=off
 
-          echo "## Lighthouse Results" >> $GITHUB_STEP_SUMMARY
-          echo "Lighthouse audit completed. Check annotations for details." >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Lighthouse Results"
+            echo "Lighthouse audit completed. Check annotations for details."
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          # Clean up
-          kill $SERVER_PID 2>/dev/null || true
+          # Clean up — intentional || true: kill can fail if server already
+          # exited (e.g., crashed), which is fine — the test already completed.
+          kill "${SERVER_PID}" 2>/dev/null || true
 
   # ─── Bundle size check ───
   bundle-size:
@@ -565,10 +630,17 @@ jobs:
       #   triggers a warning but shouldn't fail CI. If it grows past 750KB,
       #   investigate code-splitting or dynamic imports for heavy dependencies.
       - name: Check bundle sizes
+        # WHY set -euo pipefail: the find | sort pipeline must propagate errors.
+        # Without pipefail a broken find (e.g., wrong path, permission denied)
+        # exits 0 and the loop iterates zero times, reporting "0 failures" even
+        # though no files were actually checked.
         run: |
-          echo "## Bundle Size Report" >> $GITHUB_STEP_SUMMARY
-          echo '| File | Size |' >> $GITHUB_STEP_SUMMARY
-          echo '|------|------|' >> $GITHUB_STEP_SUMMARY
+          set -euo pipefail
+          {
+            echo "## Bundle Size Report"
+            echo '| File | Size |'
+            echo '|------|------|'
+          } >> "$GITHUB_STEP_SUMMARY"
 
           WARN=0
           FAIL=0
@@ -579,21 +651,23 @@ jobs:
             NAME=$(basename "$f")
 
             if [ "$SIZE_KB" -gt 750 ]; then
-              echo "| \`$NAME\` | **${SIZE_KB}KB** :x: |" >> $GITHUB_STEP_SUMMARY
+              echo "| \`${NAME}\` | **${SIZE_KB}KB** :x: |" >> "$GITHUB_STEP_SUMMARY"
               FAIL=$((FAIL + 1))
             elif [ "$SIZE_KB" -gt 500 ]; then
-              echo "| \`$NAME\` | **${SIZE_KB}KB** :warning: |" >> $GITHUB_STEP_SUMMARY
+              echo "| \`${NAME}\` | **${SIZE_KB}KB** :warning: |" >> "$GITHUB_STEP_SUMMARY"
               WARN=$((WARN + 1))
             elif [ "$SIZE_KB" -gt 200 ]; then
-              echo "| \`$NAME\` | ${SIZE_KB}KB |" >> $GITHUB_STEP_SUMMARY
+              echo "| ${NAME} | ${SIZE_KB}KB |" >> "$GITHUB_STEP_SUMMARY"
             fi
           done
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Chunks > 500KB: $WARN warnings, $FAIL failures" >> $GITHUB_STEP_SUMMARY
+          {
+            echo ""
+            echo "Chunks > 500KB: ${WARN} warnings, ${FAIL} failures"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          if [ "$FAIL" -gt 0 ]; then
-            echo "::error::$FAIL chunk(s) exceed 750KB limit"
+          if [ "${FAIL}" -gt 0 ]; then
+            echo "::error::${FAIL} chunk(s) exceed 750KB limit"
             exit 1
           fi
 
@@ -606,9 +680,11 @@ jobs:
     steps:
       - name: Evaluate results
         run: |
-          echo "## CI Results" >> $GITHUB_STEP_SUMMARY
-          echo '| Job | Status |' >> $GITHUB_STEP_SUMMARY
-          echo '|-----|--------|' >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## CI Results"
+            echo '| Job | Status |'
+            echo '|-----|--------|'
+          } >> "$GITHUB_STEP_SUMMARY"
 
           FAILED=0
 
@@ -616,11 +692,11 @@ jobs:
             local name="$1"
             local result="$2"
             if [ "$result" = "success" ]; then
-              echo "| $name | :white_check_mark: passed |" >> $GITHUB_STEP_SUMMARY
+              echo "| ${name} | :white_check_mark: passed |" >> "$GITHUB_STEP_SUMMARY"
             elif [ "$result" = "skipped" ]; then
-              echo "| $name | :fast_forward: skipped |" >> $GITHUB_STEP_SUMMARY
+              echo "| ${name} | :fast_forward: skipped |" >> "$GITHUB_STEP_SUMMARY"
             else
-              echo "| $name | :x: $result |" >> $GITHUB_STEP_SUMMARY
+              echo "| ${name} | :x: ${result} |" >> "$GITHUB_STEP_SUMMARY"
               FAILED=$((FAILED + 1))
             fi
           }
@@ -637,18 +713,22 @@ jobs:
           check_job "Build Mobile" "${{ needs.build-mobile.result }}"
           check_job "E2E Tests" "${{ needs.e2e.result }}"
           check_job "Bundle Size" "${{ needs.bundle-size.result }}"
-          # WHY: Lighthouse scores vary in CI. Report but don't block.
-          if [ "${{ needs.lighthouse.result }}" = "success" ]; then
-            echo "| Lighthouse PWA | :white_check_mark: passed |" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "| Lighthouse PWA | :warning: score variance (non-blocking) |" >> $GITHUB_STEP_SUMMARY
-          fi
+          # WHY separate handling: Lighthouse infrastructure failures (artifact
+          # download, server start) now fail the job and are caught by check_job.
+          # The lhci score step itself is continue-on-error at step level, so
+          # the job result reflects infra health. Score variance is documented
+          # in the step-level continue-on-error comment above.
+          check_job "Lighthouse PWA" "${{ needs.lighthouse.result }}"
 
-          if [ "$FAILED" -gt 0 ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo ":x: **$FAILED job(s) failed**" >> $GITHUB_STEP_SUMMARY
+          if [ "${FAILED}" -gt 0 ]; then
+            {
+              echo ""
+              echo ":x: **${FAILED} job(s) failed**"
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo ":white_check_mark: **All checks passed**" >> $GITHUB_STEP_SUMMARY
+          {
+            echo ""
+            echo ":white_check_mark: **All checks passed**"
+          } >> "$GITHUB_STEP_SUMMARY"
