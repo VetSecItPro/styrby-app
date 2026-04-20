@@ -16,6 +16,9 @@ export * from './relay/index.js';
 // Re-export encryption module
 export * from './encryption.js';
 
+// Re-export auth helpers (WebAuthn/passkey types + pure helpers)
+export * from './auth/index.js';
+
 // Re-export design system
 export * from './design/index.js';
 
