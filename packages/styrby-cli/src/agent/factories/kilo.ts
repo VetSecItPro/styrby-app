@@ -28,19 +28,19 @@
  * @module factories/kilo
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type {
   AgentBackend,
-  AgentMessage,
-  AgentMessageHandler,
   SessionId,
   StartSessionResult,
   AgentFactoryOptions,
+  AgentFactoryMetadata,
 } from '../core';
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
+import { StreamingAgentBackendBase } from '../StreamingAgentBackendBase';
 
 // ============================================================================
 // Types
@@ -112,6 +112,8 @@ export interface KiloBackendResult {
   backend: AgentBackend;
   /** The resolved model that will be used */
   model: string | undefined;
+  /** Optional capability / source metadata (additive, backward-compatible). */
+  metadata?: AgentFactoryMetadata;
 }
 
 // ============================================================================
@@ -254,11 +256,8 @@ function extractKiloFilePath(toolInput?: Record<string, unknown>): string | null
  * Memory Bank events are emitted as 'event' messages with names 'memory-bank-read'
  * and 'memory-bank-write' so the mobile app can surface them as special cards.
  */
-class KiloBackend implements AgentBackend {
-  private listeners: AgentMessageHandler[] = [];
-  private process: ChildProcess | null = null;
-  private disposed = false;
-  private sessionId: SessionId | null = null;
+class KiloBackend extends StreamingAgentBackendBase {
+  protected readonly logTag = 'KiloBackend';
   private lineBuffer = '';
   private inputTokens = 0;
   private outputTokens = 0;
@@ -278,46 +277,8 @@ class KiloBackend implements AgentBackend {
    */
   private memoryBankWrites: string[] = [];
 
-  constructor(private options: KiloBackendOptions) {}
-
-  /**
-   * Register a handler for agent messages.
-   *
-   * @param handler - Function to call when messages are received
-   */
-  onMessage(handler: AgentMessageHandler): void {
-    this.listeners.push(handler);
-  }
-
-  /**
-   * Remove a previously registered message handler.
-   *
-   * @param handler - The handler to remove
-   */
-  offMessage(handler: AgentMessageHandler): void {
-    const index = this.listeners.indexOf(handler);
-    if (index !== -1) {
-      this.listeners.splice(index, 1);
-    }
-  }
-
-  /**
-   * Emit a message to all registered handlers.
-   *
-   * Catches errors from individual handlers to prevent one bad handler
-   * from breaking the entire event pipeline.
-   *
-   * @param msg - The message to emit
-   */
-  private emit(msg: AgentMessage): void {
-    if (this.disposed) return;
-    for (const listener of this.listeners) {
-      try {
-        listener(msg);
-      } catch (error) {
-        logger.warn('[KiloBackend] Error in message handler:', error);
-      }
-    }
+  constructor(private options: KiloBackendOptions) {
+    super();
   }
 
   /**
@@ -720,15 +681,11 @@ class KiloBackend implements AgentBackend {
     if (this.process) {
       logger.debug('[KiloBackend] Cancelling Kilo process');
       this.process.kill('SIGTERM');
-
-      // WHY: Give Kilo 3 seconds to flush any pending Memory Bank writes to disk.
-      // A SIGKILL immediately after SIGTERM may leave .kilo/memory/ files partially
-      // written, which would corrupt the project context on next session start.
-      setTimeout(() => {
-        if (this.process && !this.process.killed) {
-          this.process.kill('SIGKILL');
-        }
-      }, 3000);
+      // WHY: Give Kilo 3 seconds to flush any pending Memory Bank writes to disk
+      // before SIGKILL. A partial write could corrupt the project context on next
+      // session start. The escalation timer is tracked by the base class so it is
+      // cancelled on clean exit / dispose / double-cancel (SOC2 CC7.2).
+      this.scheduleForceKill();
     }
 
     this.emit({ type: 'status', status: 'idle' });
@@ -761,60 +718,20 @@ class KiloBackend implements AgentBackend {
     }
   }
 
-  /**
-   * Wait for the current Kilo response to complete.
-   *
-   * WHY: Kilo sessions with Memory Bank enabled may take longer than simple
-   * agents because they read and write memory files at the end. The default
-   * 120s timeout accommodates large Memory Bank operations.
-   *
-   * @param timeoutMs - Maximum wait time in milliseconds (default: 120000)
-   * @throws {Error} When the timeout is exceeded before completion
-   */
-  async waitForResponseComplete(timeoutMs: number = 120000): Promise<void> {
-    if (!this.process) {
-      return;
-    }
-
-    return new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Timeout waiting for Kilo response'));
-      }, timeoutMs);
-
-      const poll = () => {
-        if (!this.process || this.process.killed) {
-          clearTimeout(timeout);
-          resolve();
-        } else {
-          setTimeout(poll, 100);
-        }
-      };
-
-      poll();
-    });
-  }
+  // waitForResponseComplete inherited from StreamingAgentBackendBase.
 
   /**
-   * Clean up resources and close the backend.
+   * Clean up Kilo-specific state and defer the rest to the base class.
    *
-   * Terminates any active Kilo process and removes all message listeners.
-   * After calling dispose(), all other methods will throw.
-   *
-   * WHY: Memory Bank read/write tracking is reset on dispose since it's
+   * WHY: Memory Bank read/write tracking is reset on dispose since it is
    * session-scoped state. A new backend instance starts with a clean slate.
+   * Base dispose() handles the listener array, the cancel timer, and process
+   * termination (SOC2 CC7.2 event-loop hygiene).
    */
   async dispose(): Promise<void> {
-    this.disposed = true;
-
-    if (this.process) {
-      this.process.kill('SIGTERM');
-      this.process = null;
-    }
-
     this.memoryBankReads = [];
     this.memoryBankWrites = [];
-    this.listeners = [];
-    logger.debug('[KiloBackend] Disposed');
+    await super.dispose();
   }
 }
 
@@ -874,6 +791,11 @@ export function createKiloBackend(options: KiloBackendOptions): KiloBackendResul
   return {
     backend: new KiloBackend(options),
     model: options.model,
+    metadata: {
+      modelSource: options.model ? 'explicit' : 'default',
+      supportsStreaming: true,
+      supportsTools: true,
+    },
   };
 }
 

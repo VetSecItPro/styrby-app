@@ -295,9 +295,15 @@ export abstract class StreamingAgentBackendBase implements AgentBackend {
   async waitForResponseComplete(timeoutMs: number = 120000): Promise<void> {
     if (!this.process) return;
 
+    // WHY: Strip the "Backend" suffix from the log tag so timeout error
+    // messages read "Timeout waiting for OpenCode response" (matching the
+    // pre-refactor phrasing) rather than "...OpenCodeBackend response".
+    // Preserves backward compatibility with test assertions.
+    const agentLabel = this.logTag.replace(/Backend$/, '');
+
     return new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        reject(new Error(`Timeout waiting for ${this.logTag} response`));
+        reject(new Error(`Timeout waiting for ${agentLabel} response`));
       }, timeoutMs);
 
       const poll = (): void => {

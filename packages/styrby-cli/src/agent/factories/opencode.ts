@@ -13,19 +13,19 @@
  * @module factories/opencode
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type {
   AgentBackend,
-  AgentMessage,
-  AgentMessageHandler,
   SessionId,
   StartSessionResult,
   AgentFactoryOptions,
+  AgentFactoryMetadata,
 } from '../core';
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
+import { StreamingAgentBackendBase } from '../StreamingAgentBackendBase';
 
 /**
  * Options for creating an OpenCode backend
@@ -76,6 +76,8 @@ export interface OpenCodeBackendResult {
   backend: AgentBackend;
   /** The resolved model that will be used */
   model: string | undefined;
+  /** Optional capability / source metadata (additive, backward-compatible). */
+  metadata?: AgentFactoryMetadata;
 }
 
 /**
@@ -131,54 +133,16 @@ function parseOpenCodeJson(line: string): OpenCodeJsonMessage | null {
  * Spawns OpenCode as a subprocess with JSON output format and parses
  * the structured responses.
  */
-class OpenCodeBackend implements AgentBackend {
-  private listeners: AgentMessageHandler[] = [];
-  private process: ChildProcess | null = null;
-  private disposed = false;
-  private sessionId: SessionId | null = null;
+class OpenCodeBackend extends StreamingAgentBackendBase {
+  protected readonly logTag = 'OpenCodeBackend';
   private openCodeSessionId: string | null = null;
   private inputTokens = 0;
   private outputTokens = 0;
   private totalCost = 0;
   private lineBuffer = '';
 
-  constructor(private options: OpenCodeBackendOptions) {}
-
-  /**
-   * Register a handler for agent messages.
-   *
-   * @param handler - Function to call when messages are received
-   */
-  onMessage(handler: AgentMessageHandler): void {
-    this.listeners.push(handler);
-  }
-
-  /**
-   * Remove a previously registered message handler.
-   *
-   * @param handler - The handler to remove
-   */
-  offMessage(handler: AgentMessageHandler): void {
-    const index = this.listeners.indexOf(handler);
-    if (index !== -1) {
-      this.listeners.splice(index, 1);
-    }
-  }
-
-  /**
-   * Emit a message to all registered handlers.
-   *
-   * @param msg - The message to emit
-   */
-  private emit(msg: AgentMessage): void {
-    if (this.disposed) return;
-    for (const listener of this.listeners) {
-      try {
-        listener(msg);
-      } catch (error) {
-        logger.warn('[OpenCodeBackend] Error in message handler:', error);
-      }
-    }
+  constructor(private options: OpenCodeBackendOptions) {
+    super();
   }
 
   /**
@@ -502,77 +466,17 @@ class OpenCodeBackend implements AgentBackend {
     if (this.process) {
       logger.debug('[OpenCodeBackend] Cancelling OpenCode process');
       this.process.kill('SIGTERM');
-
-      // Give it a moment to clean up, then force kill if needed
-      setTimeout(() => {
-        if (this.process && !this.process.killed) {
-          this.process.kill('SIGKILL');
-        }
-      }, 3000);
+      // WHY: Track escalation timer via the base class so it is cleared on
+      // clean exit / dispose / double-cancel. SOC2 CC7.2.
+      this.scheduleForceKill();
     }
 
     this.emit({ type: 'status', status: 'idle' });
   }
 
-  /**
-   * Respond to a permission request.
-   *
-   * OpenCode handles permissions internally via --non-interactive mode.
-   *
-   * @param requestId - The ID of the permission request
-   * @param approved - Whether the permission was granted
-   */
-  async respondToPermission?(requestId: string, approved: boolean): Promise<void> {
-    // OpenCode uses non-interactive mode, so permissions are auto-handled
-    this.emit({
-      type: 'permission-response',
-      id: requestId,
-      approved,
-    });
-  }
-
-  /**
-   * Wait for the current response to complete.
-   *
-   * @param timeoutMs - Maximum time to wait in milliseconds (default: 120000)
-   */
-  async waitForResponseComplete(timeoutMs: number = 120000): Promise<void> {
-    if (!this.process) {
-      return; // No active process
-    }
-
-    return new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Timeout waiting for OpenCode response'));
-      }, timeoutMs);
-
-      const checkComplete = () => {
-        if (!this.process || this.process.killed) {
-          clearTimeout(timeout);
-          resolve();
-        } else {
-          setTimeout(checkComplete, 100);
-        }
-      };
-
-      checkComplete();
-    });
-  }
-
-  /**
-   * Clean up resources and close the backend.
-   */
-  async dispose(): Promise<void> {
-    this.disposed = true;
-
-    if (this.process) {
-      this.process.kill('SIGTERM');
-      this.process = null;
-    }
-
-    this.listeners = [];
-    logger.debug('[OpenCodeBackend] Disposed');
-  }
+  // respondToPermission, waitForResponseComplete, and dispose are inherited
+  // from StreamingAgentBackendBase. OpenCode uses --non-interactive so the
+  // base default (emit-only) is exactly right for permission handling.
 }
 
 /**
@@ -609,6 +513,11 @@ export function createOpenCodeBackend(
   return {
     backend: new OpenCodeBackend(options),
     model: options.model,
+    metadata: {
+      modelSource: options.model ? 'explicit' : 'default',
+      supportsStreaming: true,
+      supportsTools: true,
+    },
   };
 }
 
