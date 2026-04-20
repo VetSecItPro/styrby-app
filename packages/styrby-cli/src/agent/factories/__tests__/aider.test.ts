@@ -16,16 +16,25 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before importing the module under test so that
 // Vitest's hoisting mechanism replaces the real modules in time.
 // ---------------------------------------------------------------------------
 
-/** Minimal mock of a writable stdio stream */
-function makeStream() {
-  const emitter = new EventEmitter();
-  return emitter;
+/**
+ * Minimal mock of a stdio stream.
+ *
+ * WHY (Phase 0.3): Switched from a bare EventEmitter to PassThrough so the
+ * stream is compatible with `node:readline` (which the new line-based stdout
+ * parser uses). PassThrough exposes the full Readable API (`resume`, `pause`,
+ * `read`, …) while still letting tests push bytes via `.emit('data', buf)`
+ * — but we now write through the stream so readline's internal buffering
+ * actually emits 'line' events.
+ */
+function makeStream(): PassThrough {
+  return new PassThrough();
 }
 
 /**
@@ -84,12 +93,22 @@ function collectMessages(backend: ReturnType<typeof createAiderBackend>['backend
   return messages;
 }
 
-/** Resolve a `sendPrompt` call by simulating a clean process exit */
+/**
+ * Resolve a `sendPrompt` call by simulating a clean process exit.
+ *
+ * WHY (Phase 0.3): The aider backend now consumes stdout via readline. Tests
+ * must therefore write to the PassThrough (so readline emits 'line' events)
+ * and end the stream so the readline interface closes before 'close' fires.
+ */
 function resolveProcess(proc: MockProcess, stdout = 'All done.', exitCode = 0) {
   if (stdout) {
-    (proc.stdout as EventEmitter).emit('data', Buffer.from(stdout));
+    const data = stdout.endsWith('\n') ? stdout : `${stdout}\n`;
+    (proc.stdout as PassThrough).write(data);
   }
-  proc.emit('close', exitCode);
+  (proc.stdout as PassThrough).end();
+  (proc.stderr as PassThrough).end();
+  // WHY: 'close' must fire after readline has flushed; nextTick is enough.
+  process.nextTick(() => proc.emit('close', exitCode));
 }
 
 /** Base options used across most tests */
@@ -453,7 +472,7 @@ describe('AiderBackend — output parsing and event emission', () => {
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    (currentMockProcess.stdout as EventEmitter).emit('data', Buffer.from('   \n  \n'));
+    (currentMockProcess.stdout as PassThrough).write('   \n  \n');
     resolveProcess(currentMockProcess, '', 0);
     await promptPromise;
 
@@ -613,10 +632,7 @@ describe('AiderBackend — error handling', () => {
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    (currentMockProcess.stderr as EventEmitter).emit(
-      'data',
-      Buffer.from('Error: cannot connect to model API'),
-    );
+    (currentMockProcess.stderr as PassThrough).write('Error: cannot connect to model API\n');
     resolveProcess(currentMockProcess, '', 0);
     await promptPromise;
 
@@ -630,10 +646,7 @@ describe('AiderBackend — error handling', () => {
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    (currentMockProcess.stderr as EventEmitter).emit(
-      'data',
-      Buffer.from('Exception: rate limit reached'),
-    );
+    (currentMockProcess.stderr as PassThrough).write('Exception: rate limit reached\n');
     resolveProcess(currentMockProcess, '', 0);
     await promptPromise;
 
@@ -641,23 +654,27 @@ describe('AiderBackend — error handling', () => {
     expect(errorStatuses.length).toBeGreaterThan(0);
   });
 
-  it('rejects sendPrompt when the spawned process emits an "error" event', async () => {
+  it('rejects with install-hint message when spawn fails with ENOENT (Phase 0.3)', async () => {
     const { backend } = createAiderBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    currentMockProcess.emit('error', new Error('ENOENT: aider not found'));
+    // WHY: Node's real spawn-ENOENT errors carry .code === 'ENOENT'. The
+    // backend keys off that code to surface the friendly install hint.
+    const err = new Error('spawn aider ENOENT') as NodeJS.ErrnoException;
+    err.code = 'ENOENT';
+    currentMockProcess.emit('error', err);
 
-    await expect(promptPromise).rejects.toThrow('ENOENT: aider not found');
+    await expect(promptPromise).rejects.toThrow(/Aider is not installed/);
   });
 
-  it('emits error status when process emits "error" event', async () => {
+  it('forwards non-ENOENT process errors verbatim', async () => {
     const { backend } = createAiderBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello').catch(() => {});
-    currentMockProcess.emit('error', new Error('spawn ENOENT'));
+    currentMockProcess.emit('error', new Error('EPERM: permission denied'));
     await promptPromise;
 
     const errorStatus = messages
@@ -665,7 +682,7 @@ describe('AiderBackend — error handling', () => {
       .at(0) as any;
 
     expect(errorStatus).toBeDefined();
-    expect(errorStatus.detail).toContain('spawn ENOENT');
+    expect(errorStatus.detail).toContain('EPERM');
   });
 });
 

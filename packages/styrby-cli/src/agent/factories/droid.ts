@@ -35,7 +35,7 @@ import type {
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
-import { StreamingAgentBackendBase } from '../StreamingAgentBackendBase';
+import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
 
 // ============================================================================
 // LiteLLM Pricing Table
@@ -689,13 +689,18 @@ class DroidBackend extends StreamingAgentBackendBase {
         });
 
         // Handle process spawn errors
-        this.process.on('error', (err) => {
+        // WHY (Phase 0.3 / SOC2 CC7.2): Surface friendly install hint on
+        // ENOENT instead of raw "spawn ... ENOENT" Node error.
+        this.process.on('error', (err: NodeJS.ErrnoException) => {
+          if (err.code === 'ENOENT') {
+            const message = formatInstallHint('droid');
+            logger.warn(`[DroidBackend] ${message}`);
+            this.emit({ type: 'status', status: 'error', detail: message });
+            reject(new Error(message));
+            return;
+          }
           logger.error(`[DroidBackend] Process error:`, err);
-          this.emit({
-            type: 'status',
-            status: 'error',
-            detail: err.message,
-          });
+          this.emit({ type: 'status', status: 'error', detail: err.message });
           reject(err);
         });
       } catch (error) {
