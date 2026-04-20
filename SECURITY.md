@@ -45,6 +45,26 @@ Current override floors (as of 2026-04-19):
 | `rollup` | `>=4.59.0` | DOM clobbering vulnerability |
 | `tar` | `>=7.5.13` | Path traversal |
 
+## Push Notification Attack Surface (Phase 0.5)
+
+Migration 017 adds a PostgreSQL trigger (`trigger_push_on_session_message`) that
+fires outbound HTTP requests to the Supabase Edge Function via `pg_net`.
+
+**New attack surface introduced:**
+
+| Surface | Mitigations |
+|---------|-------------|
+| `pg_net` async HTTP from trigger | Service role key stored in Supabase Vault (encrypted), not hardcoded in SQL |
+| Admin test endpoint (`POST /api/internal/test-push`) | Admin-only gate (`isAdmin()`), input validated with Zod UUID schema, all actions logged to `audit_log` with `control_ref: SOC2 CC7.2` |
+| Edge function `send-push-notification` | Timing-safe service role key comparison (XOR comparison, constant-time) |
+| Dead-letter token deactivation | Invalid tokens set `is_active=false`, not deleted - preserves audit trail |
+| Quiet hours enforcement | Checked at both trigger level (`push_enabled` fast-path) and edge function level (full quiet hours window logic) - GDPR Art. 25 privacy by design |
+
+**Not in scope for this route:**
+
+The admin test endpoint can send to any user's device. This is intentional admin
+capability and is audited. Restrict `isAdmin` grants accordingly.
+
 ## Accepted Risks
 
 The following known vulnerabilities are present in this codebase and have been evaluated and accepted. They will not be patched via overrides because no upstream fix exists or the exposure is limited to non-production contexts.
