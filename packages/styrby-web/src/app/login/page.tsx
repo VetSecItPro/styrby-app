@@ -5,12 +5,13 @@ import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Github, Mail } from 'lucide-react';
+import { Github, Mail, KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { isDisposableEmail, DISPOSABLE_EMAIL_ERROR } from '@/lib/disposable-emails';
 import { Label } from '@/components/ui/label';
 import { Footer } from '@/components/landing/footer';
+import { startAuthentication } from '@simplewebauthn/browser';
 
 /**
  * Validates a redirect path to prevent open redirect attacks.
@@ -33,18 +34,23 @@ function sanitizeRedirect(path: string | null): string {
 const OTP_COOLDOWN_MS = 30_000;
 
 /**
- * Login form with email OTP (6-digit code) and GitHub OAuth.
+ * Login form with email OTP (6-digit code), passkey, and GitHub OAuth.
  *
  * WHY OTP instead of magic link: Magic links open a new browser tab,
  * breaking the user's context. On mobile, they open in the email app's
  * embedded browser instead of the real browser. OTP keeps the user in
  * the same tab: enter email, check email for 6-digit code, type it in, done.
+ *
+ * WHY passkey: Passkeys are phishing-resistant (NIST AAL3) and provide a
+ * seamless biometric login experience. Users who have enrolled a passkey
+ * should prefer it over OTP for day-to-day access.
  */
 function LoginForm() {
   const [email, setEmail] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [step, setStep] = useState<'email' | 'otp'>('email');
   const [loading, setLoading] = useState(false);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [lastSentAt, setLastSentAt] = useState(0);
   const otpInputRef = useRef<HTMLInputElement>(null);
@@ -177,6 +183,89 @@ function LoginForm() {
     }
   }
 
+  /**
+   * Passkey authentication flow.
+   *
+   * WHY we send email for challenge-login even if unknown:
+   * The edge function returns an empty allow-list for unknown emails instead
+   * of a 404. This is intentional account-enumeration resistance per
+   * WebAuthn L3 spec — an attacker cannot distinguish "no account" from
+   * "account exists but no passkeys registered" via the challenge response.
+   * If the challenge succeeds but the allow-list is empty the device's
+   * passkey manager will naturally prompt for any available credential.
+   *
+   * If the user has no passkeys registered at all, @simplewebauthn/browser
+   * will throw NotAllowedError (user cancels or device has nothing), and we
+   * show a graceful message directing them to Settings > Passkeys.
+   */
+  async function handlePasskeyLogin() {
+    setPasskeyLoading(true);
+    setMessage(null);
+
+    try {
+      // 1. Request a challenge (sends email for allow-list resolution)
+      const challengeRes = await fetch('/api/auth/passkey/challenge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'challenge-login', email: email || undefined }),
+      });
+
+      if (!challengeRes.ok) {
+        const err = await challengeRes.json().catch(() => ({}));
+        throw new Error(err.message ?? 'Failed to get passkey challenge');
+      }
+
+      const challengeData = await challengeRes.json();
+
+      // 2. Invoke the browser WebAuthn API via @simplewebauthn/browser
+      const assertionResponse = await startAuthentication({ optionsJSON: challengeData });
+
+      // 3. Verify the assertion on the server
+      const verifyRes = await fetch('/api/auth/passkey/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'verify-login',
+          response: assertionResponse,
+          email: email || undefined,
+        }),
+      });
+
+      if (!verifyRes.ok) {
+        const err = await verifyRes.json().catch(() => ({}));
+        throw new Error(err.message ?? 'Passkey verification failed');
+      }
+
+      const verifyData = await verifyRes.json();
+
+      // 4. Set the Supabase session from the tokens the edge function returns
+      if (verifyData.access_token && verifyData.refresh_token) {
+        await supabase.auth.setSession({
+          access_token: verifyData.access_token,
+          refresh_token: verifyData.refresh_token,
+        });
+      }
+
+      router.push(redirect);
+    } catch (err) {
+      if (err instanceof Error) {
+        // NotAllowedError = user cancelled or no passkey available on device
+        if (err.name === 'NotAllowedError') {
+          setMessage({
+            type: 'error',
+            text: 'No passkey registered yet. Add one in Settings - Passkeys.',
+          });
+        } else {
+          setMessage({ type: 'error', text: err.message });
+        }
+      } else {
+        setMessage({ type: 'error', text: 'Passkey sign-in failed. Try again.' });
+      }
+    } finally {
+      setPasskeyLoading(false);
+    }
+  }
+
   return (
     <div className="flex min-h-screen flex-col">
       <div className="flex flex-1 items-center justify-center px-4">
@@ -235,7 +324,7 @@ function LoginForm() {
                   </div>
                   <Button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || passkeyLoading}
                     className="w-full bg-amber-500 text-background hover:bg-amber-600 font-medium gap-2"
                   >
                     <Mail className="h-4 w-4" />
@@ -250,11 +339,29 @@ function LoginForm() {
                   <div className="h-px flex-1 bg-border/40" />
                 </div>
 
-                {/* OAuth */}
+                {/* Passkey button */}
+                {/*
+                 * WHY passkey shown before GitHub:
+                 * Passkeys are the preferred auth method — phishing-resistant, no
+                 * password, no email round-trip. GitHub is kept as a fallback for
+                 * users who haven't enrolled a passkey yet.
+                 */}
+                <Button
+                  variant="outline"
+                  onClick={handlePasskeyLogin}
+                  disabled={loading || passkeyLoading}
+                  className="w-full gap-2 border-border/60 text-foreground bg-transparent hover:bg-accent mb-3"
+                  aria-label="Sign in with passkey (biometric or device PIN)"
+                >
+                  <KeyRound className="h-4 w-4" />
+                  {passkeyLoading ? 'Waiting for passkey...' : 'Continue with Passkey'}
+                </Button>
+
+                {/* GitHub OAuth */}
                 <Button
                   variant="outline"
                   onClick={handleGitHubLogin}
-                  disabled={loading}
+                  disabled={loading || passkeyLoading}
                   className="w-full gap-2 border-border/60 text-foreground bg-transparent hover:bg-accent"
                 >
                   <Github className="h-4 w-4" />
