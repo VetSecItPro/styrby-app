@@ -45,6 +45,89 @@ Current override floors (as of 2026-04-19):
 | `rollup` | `>=4.59.0` | DOM clobbering vulnerability |
 | `tar` | `>=7.5.13` | Path traversal |
 
+## Cryptographic Primitives (Phase 1.3 - libsodium migration)
+
+As of 2026-04-20, all E2E encryption uses libsodium-wrappers@0.7.15.
+Previous versions used TweetNaCl; see "Migration notes" below for the
+compatibility guarantees that let us switch without re-encrypting data.
+
+### Cipher matrix
+
+| Use case | Primitive | Key size | Nonce size | Where |
+|----------|-----------|----------|------------|-------|
+| CLI - mobile message E2E | crypto_box (Curve25519 + XSalsa20-Poly1305) | 32-byte pub + 32-byte sec per party | 24 bytes | `@styrby/shared/encryption` |
+| At-rest session messages | crypto_secretbox (XSalsa20-Poly1305) | 32-byte symmetric (HMAC-SHA512 derived from user seed) | 24 bytes | `styrby-cli/src/session/encryption` |
+| Future: file attachments, streaming | XChaCha20-Poly1305 IETF AEAD | 32-byte symmetric | 24 bytes | `@styrby/shared/encryption.encryptStream` |
+| Key fingerprint (display only) | SHA-256, truncated to first 8 bytes | N/A | N/A | `Web Crypto API` |
+
+All authenticated ciphers use Poly1305 for the MAC tag (16 bytes appended).
+
+### WHY libsodium (over TweetNaCl)
+
+- **Active maintenance**: TweetNaCl has been frozen since 2019. libsodium ships
+  regular releases with CVE response, which matters for audit posture and
+  acquirer due diligence.
+- **Expanded primitive set**: XChaCha20-Poly1305 (extended 192-bit nonce AEAD),
+  BLAKE2b, Argon2id, HKDF, and AEGIS are available for future feature work
+  without adding a second cryptography dependency.
+- **Constant-time guarantees**: The underlying C core has stronger
+  constant-time properties than the hand-audited pure-JS NaCl.
+- **Ecosystem alignment**: Signal, libsignal, FIDO2 reference libraries, and
+  most enterprise-grade cryptography depend on libsodium. Matches the library
+  that auditors expect to see.
+
+### WHY async API (`await sodium.ready`)
+
+libsodium is distributed as a WebAssembly module. The WASM binary must be
+compiled and loaded before any crypto call runs. The public API in
+`@styrby/shared/encryption` is therefore async: every function returns a
+`Promise` and internally awaits `ensureReady()`. Callers must `await` the
+call.
+
+Hiding this behind a sync facade would require either:
+1. A manual `init()` step callers forget until a user session crashes, or
+2. A ~3x-larger sync-only WASM build with fewer primitives.
+
+Neither is acceptable. Async API keeps the contract honest and
+TypeScript-checkable at every callsite.
+
+### Migration notes (2026-04-20)
+
+- **Wire format unchanged**: libsodium's `crypto_box_easy` and
+  `crypto_secretbox_easy` produce byte-for-byte identical ciphertext to
+  TweetNaCl's `nacl.box` / `nacl.secretbox` for the same inputs. Existing
+  rows in `session_messages` decrypt unchanged.
+- **Base64 variant**: Using `sodium.base64_variants.ORIGINAL` (standard
+  base64 with padding) to match tweetnacl-util's output. libsodium defaults
+  to URL-safe without padding, which would break existing stored values.
+- **Compatibility test**: `packages/styrby-shared/tests/encryption-compat.test.ts`
+  runs every migration CI cycle and asserts byte-for-byte interop between
+  TweetNaCl and libsodium. If this file ever fails, the migration has
+  introduced a regression and must be rolled back.
+- **Key rotation not required**: No user re-keying needed. All previously
+  generated keypairs in `machine_keys` continue to work unchanged.
+
+### Attack surface
+
+| Surface | Mitigations |
+|---------|-------------|
+| Nonce reuse | Fresh `randombytes_buf(24)` per message; 192-bit space makes collisions infeasible at any realistic volume |
+| Weak keys | 32-byte keys from `crypto_box_keypair` (Curve25519) or HMAC-SHA512 KDF (secretbox) |
+| Tamper detection | Poly1305 MAC on every ciphertext; `crypto_box_open_easy` throws on mismatch |
+| Key compromise | Forward secrecy NOT provided (Curve25519 static keys). For forward-secret sessions, future work: X3DH or Noise handshake on top |
+| WASM supply chain | `libsodium-wrappers@0.7.15` pinned exact; dependency audit in CI; SRI checks not applicable (bundler-emitted) |
+| Timing leaks | libsodium's C core uses constant-time comparisons; pure-JS NaCl was already acceptable here but the C impl is stronger |
+
+### Standards referenced
+
+- NIST SP 800-175B (cryptographic module selection)
+- RFC 8439 (ChaCha20-Poly1305)
+- NaCl / libsodium Cryptography Library documentation
+- OWASP ASVS V6 (Stored Cryptography) + V7 (Error Handling and Logging)
+- AICPA TSC CC6.7 (Transmission and movement of information) - authenticated encryption in transit + at rest
+
+---
+
 ## Passkey UX + Key Management (Phase 1.2)
 
 Migration 020 adds a `passkeys` table and the `verify-passkey` Supabase Edge Function
