@@ -54,7 +54,7 @@ import {
  */
 export default function NotificationsScreen() {
   const { user } = useCurrentUser();
-  const { tier, isPaid } = useSubscriptionTier(user?.id ?? null);
+  const { isPaid } = useSubscriptionTier(user?.id ?? null);
 
   // --------------------------------------------------------------------------
   // State
@@ -97,6 +97,34 @@ export default function NotificationsScreen() {
   /** Whether the initial data load is in progress */
   const [isLoading, setIsLoading] = useState(true);
 
+  /**
+   * Applies a notification_preferences row to local state.
+   *
+   * WHY defined before useEffect: the effect calls applyPrefs, so the callback
+   * must be declared first. useCallback ensures stable reference across renders,
+   * which satisfies the react-hooks/exhaustive-deps rule when applyPrefs is
+   * listed as an effect dependency.
+   *
+   * @param prefs - Row from notification_preferences
+   */
+  const applyPrefs = useCallback((prefs: {
+    id: string;
+    push_enabled: boolean;
+    email_enabled: boolean | null;
+    quiet_hours_enabled: boolean;
+    quiet_hours_start: string | null;
+    quiet_hours_end: string | null;
+    priority_threshold: number | null;
+  }) => {
+    setNotifPrefId(prefs.id);
+    setPushEnabled(prefs.push_enabled);
+    setEmailEnabled(prefs.email_enabled ?? false);
+    setQuietHoursEnabled(prefs.quiet_hours_enabled);
+    setQuietHoursStart(prefs.quiet_hours_start);
+    setQuietHoursEnd(prefs.quiet_hours_end);
+    setPriorityThreshold(prefs.priority_threshold ?? 3);
+  }, []);
+
   // --------------------------------------------------------------------------
   // Mount: Load notification preferences
   // --------------------------------------------------------------------------
@@ -134,30 +162,7 @@ export default function NotificationsScreen() {
         setIsLoading(false);
       }
     })();
-  }, [user]);
-
-  /**
-   * Applies a notification_preferences row to local state.
-   *
-   * @param prefs - Row from notification_preferences
-   */
-  const applyPrefs = useCallback((prefs: {
-    id: string;
-    push_enabled: boolean;
-    email_enabled: boolean | null;
-    quiet_hours_enabled: boolean;
-    quiet_hours_start: string | null;
-    quiet_hours_end: string | null;
-    priority_threshold: number | null;
-  }) => {
-    setNotifPrefId(prefs.id);
-    setPushEnabled(prefs.push_enabled);
-    setEmailEnabled(prefs.email_enabled ?? false);
-    setQuietHoursEnabled(prefs.quiet_hours_enabled);
-    setQuietHoursStart(prefs.quiet_hours_start);
-    setQuietHoursEnd(prefs.quiet_hours_end);
-    setPriorityThreshold(prefs.priority_threshold ?? 3);
-  }, []);
+  }, [user, applyPrefs]);
 
   // --------------------------------------------------------------------------
   // Handlers (optimistic update pattern)

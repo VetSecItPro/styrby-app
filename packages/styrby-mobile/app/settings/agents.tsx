@@ -19,7 +19,6 @@ import {
   View,
   Switch,
   ScrollView,
-  Alert,
 } from 'react-native';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'expo-router';

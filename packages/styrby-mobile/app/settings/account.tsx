@@ -27,7 +27,6 @@ import {
   Text,
   TextInput,
   Pressable,
-  Switch,
   ScrollView,
   Alert,
   ActivityIndicator,
