@@ -34,7 +34,7 @@ import type {
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
-import { StreamingAgentBackendBase } from '../StreamingAgentBackendBase';
+import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
 
 // ============================================================================
 // Constants
@@ -561,13 +561,18 @@ class KiroBackend extends StreamingAgentBackendBase {
         });
 
         // Handle process spawn errors (e.g., binary not found in PATH)
-        this.process.on('error', (err) => {
+        // WHY (Phase 0.3 / SOC2 CC7.2): Surface friendly install hint on
+        // ENOENT instead of raw "spawn ... ENOENT" Node error.
+        this.process.on('error', (err: NodeJS.ErrnoException) => {
+          if (err.code === 'ENOENT') {
+            const message = formatInstallHint('kiro');
+            logger.warn(`[KiroBackend] ${message}`);
+            this.emit({ type: 'status', status: 'error', detail: message });
+            reject(new Error(message));
+            return;
+          }
           logger.error(`[KiroBackend] Process error:`, err);
-          this.emit({
-            type: 'status',
-            status: 'error',
-            detail: err.message,
-          });
+          this.emit({ type: 'status', status: 'error', detail: err.message });
           reject(err);
         });
       } catch (error) {

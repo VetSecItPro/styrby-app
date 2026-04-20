@@ -9,13 +9,17 @@
  * - No native JSON output - must parse stdout
  * - Each run is ephemeral (no persistent sessions)
  * - Run with: `aider --message <msg> --no-stream --yes`
- * - Token estimation via simple heuristic (words * 1.3)
+ * - Token estimation via simple heuristic (words * 1.3) — Phase 1.1 will
+ *   migrate this to anthropic/openai-tokenizer for honest cost reporting.
+ * - Streaming: line-based via `streamLines()` (Phase 0.3) — bounded memory,
+ *   no UI freeze on long runs.
  *
  * @module factories/aider
  */
 
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { estimateTokensSync } from 'styrby-shared';
 import type {
   AgentBackend,
   SessionId,
@@ -25,7 +29,7 @@ import type {
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, validateExtraArgs } from '@/utils/safeEnv';
-import { StreamingAgentBackendBase } from '../StreamingAgentBackendBase';
+import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
 
 /**
  * Options for creating an Aider backend
@@ -73,17 +77,20 @@ export interface AiderBackendResult {
 }
 
 /**
- * Estimate token count from text using simple heuristic.
+ * Estimate token count from text.
  *
- * Uses the approximation that 1 token ~= 0.75 words (or words * 1.3 tokens).
- * This is a rough estimate; actual token counts vary by model and text content.
+ * Phase 1.1: Routes through the shared `estimateTokensSync()` so the rest
+ * of the system has one tokenizer dispatch point. This function is the
+ * synchronous hot-path estimator (per-line streaming) — the cost calculator
+ * reconciles to exact anthropic/openai counts via async `countTokens()` on
+ * session close, so any drift in this estimate is corrected before the
+ * record lands in the cost dashboard (SOC2 CC4.1 honest monitoring).
  *
  * @param text - The text to estimate tokens for
  * @returns Estimated token count
  */
 function estimateTokens(text: string): number {
-  const wordCount = text.split(/\s+/).filter((w) => w.length > 0).length;
-  return Math.ceil(wordCount * 1.3);
+  return estimateTokensSync(text);
 }
 
 /**
@@ -115,9 +122,18 @@ function parseFileEdit(line: string): { path: string; action: string } | null {
  */
 class AiderBackend extends StreamingAgentBackendBase {
   protected readonly logTag = 'AiderBackend';
-  private outputBuffer = '';
   private inputTokens = 0;
   private outputTokens = 0;
+  /**
+   * Running tally of output token estimate for the in-flight Aider run.
+   *
+   * WHY (Phase 0.3): Replaces the prior `outputBuffer += text` pattern that
+   * accumulated the entire transcript in memory. We now estimate tokens
+   * per-line as it streams in, then emit the cumulative count on close.
+   * Bounds memory at ~one line instead of the whole transcript and removes
+   * the 5-10s mobile UI freeze on long Aider runs (SOC2 CC7.2).
+   */
+  private streamingOutputTokens = 0;
 
   constructor(private options: AiderBackendOptions) {
     super();
@@ -177,7 +193,7 @@ class AiderBackend extends StreamingAgentBackendBase {
 
     // Update input token estimate
     this.inputTokens += estimateTokens(prompt);
-    this.outputBuffer = '';
+    this.streamingOutputTokens = 0;
 
     this.emit({ type: 'status', status: 'running' });
 
@@ -229,45 +245,42 @@ class AiderBackend extends StreamingAgentBackendBase {
           throw new Error('Failed to create stdio pipes');
         }
 
-        // Handle stdout - this is where Aider's responses come from
-        this.process.stdout.on('data', (data: Buffer) => {
-          const text = data.toString();
-          this.outputBuffer += text;
-
-          // Emit text as model output
-          if (text.trim()) {
-            this.emit({ type: 'model-output', textDelta: text });
-
-            // Check for file edits
-            const lines = text.split('\n');
-            for (const line of lines) {
-              const edit = parseFileEdit(line.trim());
-              if (edit) {
-                this.emit({
-                  type: 'fs-edit',
-                  description: `${edit.action} ${edit.path}`,
-                  path: edit.path,
-                });
-              }
-            }
+        // WHY (Phase 0.3 / SOC2 CC7.2): Stream stdout line-by-line via
+        // readline instead of the prior `outputBuffer += text` accumulator.
+        // The old pattern held the entire transcript in memory and serialised
+        // it in a single emit on process close, freezing the mobile UI for
+        // 5-10s on long runs. streamLines() yields per-line so the WS relay
+        // can flush deltas as they arrive and memory stays O(line length).
+        this.streamLines(this.process.stdout, (line) => {
+          // WHY: Preserve pre-Phase-0.3 behavior of skipping whitespace-only
+          // lines so model-output is not emitted for blank progress padding.
+          if (!line.trim()) return;
+          this.streamingOutputTokens += estimateTokens(line);
+          // Re-append the newline for downstream consumers that expect it.
+          this.emit({ type: 'model-output', textDelta: `${line}\n` });
+          const edit = parseFileEdit(line.trim());
+          if (edit) {
+            this.emit({
+              type: 'fs-edit',
+              description: `${edit.action} ${edit.path}`,
+              path: edit.path,
+            });
           }
         });
 
-        // Handle stderr - warnings and errors
-        this.process.stderr.on('data', (data: Buffer) => {
-          const text = data.toString();
-          logger.debug(`[AiderBackend] stderr: ${text.trim()}`);
-
-          // Check for common error patterns
+        // Handle stderr - warnings and errors (also line-based to stay consistent).
+        this.streamLines(this.process.stderr, (line) => {
+          if (!line) return;
+          logger.debug(`[AiderBackend] stderr: ${line}`);
           if (
-            text.includes('Error') ||
-            text.includes('error') ||
-            text.includes('Exception')
+            line.includes('Error') ||
+            line.includes('error') ||
+            line.includes('Exception')
           ) {
             this.emit({
               type: 'status',
               status: 'error',
-              detail: text.trim(),
+              detail: line,
             });
           }
         });
@@ -275,9 +288,12 @@ class AiderBackend extends StreamingAgentBackendBase {
         // Handle process exit
         this.process.on('close', (code) => {
           logger.debug(`[AiderBackend] Process exited with code: ${code}`);
+          // Cancel any in-flight SIGKILL escalation timer (clean exit).
+          this.clearCancelTimer();
 
-          // Update output token estimate
-          this.outputTokens += estimateTokens(this.outputBuffer);
+          // Use streamed token estimate (constant memory) instead of the
+          // removed outputBuffer accumulator.
+          this.outputTokens += this.streamingOutputTokens;
 
           // Emit token count
           this.emit({
@@ -302,16 +318,10 @@ class AiderBackend extends StreamingAgentBackendBase {
           this.process = null;
         });
 
-        // Handle process errors
-        this.process.on('error', (err) => {
-          logger.error(`[AiderBackend] Process error:`, err);
-          this.emit({
-            type: 'status',
-            status: 'error',
-            detail: err.message,
-          });
-          reject(err);
-        });
+        // Handle process errors. WHY (Phase 0.3): Surface a friendly install
+        // hint on ENOENT so mobile users see "Aider is not installed. Install
+        // via: pip install aider-chat" instead of "spawn aider ENOENT".
+        this.attachInstallHintErrorHandler(this.process, 'aider', reject);
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
         this.emit({

@@ -20,6 +20,26 @@
     "./pricing": {
       "types": "./dist/pricing/index.d.ts",
       "import": "./dist/pricing/index.js"
+    },
+    "./billing": {
+      "types": "./dist/billing/index.d.ts",
+      "import": "./dist/billing/index.js"
+    },
+    "./api": {
+      "types": "./dist/api/index.d.ts",
+      "import": "./dist/api/index.js"
+    },
+    "./events": {
+      "types": "./dist/events/index.d.ts",
+      "import": "./dist/events/index.js"
+    },
+    "./hooks": {
+      "types": "./dist/hooks/index.d.ts",
+      "import": "./dist/hooks/index.js"
+    },
+    "./tokenizers": {
+      "types": "./dist/tokenizers/index.d.ts",
+      "import": "./dist/tokenizers/index.js"
     }
   },
   "scripts": {

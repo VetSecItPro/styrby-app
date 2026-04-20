@@ -52,6 +52,8 @@
  */
 
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
+import type { Readable } from 'node:stream';
 import type {
   AgentBackend,
   AgentMessage,
@@ -61,6 +63,43 @@ import type {
 } from './core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, validateExtraArgs } from '@/utils/safeEnv';
+
+/**
+ * Install hint for the well-known agent CLIs we wrap. Used by
+ * `formatInstallHint()` to produce a friendly ENOENT error message
+ * (Phase 0.3 — SOC2 CC7.2 reliable streaming).
+ */
+const INSTALL_HINTS: Readonly<Record<string, string>> = Object.freeze({
+  aider: 'Install via: pip install aider-chat',
+  amp: 'Install via: npm install -g @sourcegraph/amp',
+  crush: 'Install via: brew install crush (or follow https://github.com/charmbracelet/crush)',
+  droid: 'Install via: see https://github.com/factory-ai/droid for installation',
+  goose: 'Install via: see https://github.com/block/goose for installation',
+  kilo: 'Install via: see https://kilocode.ai for installation',
+  kiro: 'Install via: see https://kiro.dev for installation',
+  opencode: 'Install via: npm install -g opencode-ai',
+});
+
+/**
+ * Build a friendly install-hint message for a missing agent binary.
+ *
+ * WHY (Phase 0.3 / SOC2 CC7.2): When `spawn()` fails with ENOENT, the raw
+ * Node error ("spawn aider ENOENT") is unhelpful to mobile users. We surface
+ * a per-agent install hint instead so they can self-recover without ssh-ing
+ * into the host. Falls back to a generic message for unknown agents.
+ *
+ * @param command - The agent CLI command that failed to spawn (e.g. 'aider').
+ * @returns A user-facing message such as "Aider is not installed. Install via: ...".
+ */
+export function formatInstallHint(command: string): string {
+  const key = command.toLowerCase();
+  const hint = INSTALL_HINTS[key];
+  const display = command.charAt(0).toUpperCase() + command.slice(1);
+  if (hint) {
+    return `${display} is not installed or not in PATH. ${hint}`;
+  }
+  return `${display} is not installed or not in PATH.`;
+}
 
 /**
  * How long (ms) to wait after SIGTERM before escalating to SIGKILL.
@@ -259,6 +298,77 @@ export abstract class StreamingAgentBackendBase implements AgentBackend {
 
     this.process = child;
     return child;
+  }
+
+  /**
+   * Stream lines from a readable stream (typically `child.stdout`) to a callback,
+   * using `node:readline` to avoid the unbounded `outputBuffer += text` pattern
+   * that grew without bound on long agent responses.
+   *
+   * WHY (Phase 0.3 / SOC2 CC7.2):
+   * - The prior pattern (`buf += chunk; if (buf.includes('\n')) split`) held the
+   *   entire transcript in memory until the process exited. On long Aider /
+   *   Goose runs (10k+ tokens), this caused a 5-10 second mobile UI freeze
+   *   during JSON serialisation of the message backlog.
+   * - readline yields one line at a time as data arrives, so the JS event loop
+   *   gets regular yields and the WebSocket relay can flush per-line frames
+   *   instead of one giant blob.
+   * - The returned `Interface` is closed automatically when the upstream
+   *   stream emits `end`. Callers do not need to manage its lifetime.
+   *
+   * @param stream - A `Readable` (typically `child.stdout` or `child.stderr`).
+   * @param onLine - Invoked once per complete line (no trailing newline).
+   * @returns The created readline `Interface`. Stored implicitly via `stream.end`;
+   *   callers may keep the reference if they want to call `.close()` early.
+   */
+  protected streamLines(
+    stream: Readable,
+    onLine: (line: string) => void,
+  ): ReadlineInterface {
+    const rl = createInterface({ input: stream, crlfDelay: Infinity });
+    rl.on('line', (line) => {
+      try {
+        onLine(line);
+      } catch (err) {
+        logger.warn(`[${this.logTag}] streamLines callback error:`, err);
+      }
+    });
+    // Close readline when upstream ends so we do not leak the interface.
+    stream.once('end', () => rl.close());
+    return rl;
+  }
+
+  /**
+   * Attach an ENOENT handler to a freshly spawned child process so missing-binary
+   * failures surface as a friendly per-agent install hint rather than a raw
+   * `spawn ... ENOENT` Node error.
+   *
+   * WHY (Phase 0.3): Mobile users cannot meaningfully act on
+   * "spawn aider ENOENT". They can act on "Aider is not installed. Install via:
+   * pip install aider-chat". Any other process error is forwarded to the
+   * provided rejection callback unchanged.
+   *
+   * @param child - The freshly spawned `ChildProcess`.
+   * @param command - The CLI command name (used to look up the install hint).
+   * @param reject - Promise rejection callback for the in-flight `sendPrompt`.
+   */
+  protected attachInstallHintErrorHandler(
+    child: ChildProcess,
+    command: string,
+    reject: (err: Error) => void,
+  ): void {
+    child.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT') {
+        const message = formatInstallHint(command);
+        logger.warn(`[${this.logTag}] ${message}`);
+        this.emit({ type: 'status', status: 'error', detail: message });
+        reject(new Error(message));
+        return;
+      }
+      logger.error(`[${this.logTag}] Process error:`, err);
+      this.emit({ type: 'status', status: 'error', detail: err.message });
+      reject(err);
+    });
   }
 
   /**

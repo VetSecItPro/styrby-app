@@ -15,6 +15,14 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
+      // WHY (Phase 1.1): Mirror the tsconfig.json path mapping so vitest
+      // can resolve `import ... from 'styrby-shared'` to the workspace
+      // package's built `dist/` output. Without this alias, vite's
+      // resolver fails because styrby-shared is not listed as a runtime
+      // dependency in styrby-cli's package.json (it is referenced via the
+      // tsconfig paths mechanism that the production esbuild build also
+      // honours via tsc-alias).
+      'styrby-shared': resolve(__dirname, '../styrby-shared/dist/index.js'),
     },
   },
 });
