@@ -261,7 +261,11 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: 'Access-Control-Allow-Origin',
-            value: process.env.NEXT_PUBLIC_APP_URL || 'https://styrbyapp.com',
+            // WHY `.trim()` + fallback chain: Vercel env vars occasionally get
+            // pasted with trailing newlines; an `\n` in a response header is
+            // URL-encoded to `%0A` by downstream proxies and also triggers
+            // strict header-validator rejections. Trim defensively before use.
+            value: (process.env.NEXT_PUBLIC_APP_URL || '').trim() || 'https://styrbyapp.com',
           },
           {
             key: 'Access-Control-Allow-Methods',

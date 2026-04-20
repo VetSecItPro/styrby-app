@@ -18,6 +18,7 @@
 
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
+import { getEnv } from './env';
 
 // ============================================================================
 // Types
@@ -56,21 +57,41 @@ type RateLimitResult = {
  *
  * WHY: In local development and CI, Redis env vars may not be set.
  * We fall back to in-memory rather than crashing at import time.
+ *
+ * WHY `getEnv` (not `process.env` directly): On 2026-04-20 a trailing
+ * newline in the Vercel-stored `UPSTASH_REDIS_REST_URL` was passed through
+ * to `new Redis({ url })` at module-import time, which threw during URL
+ * parsing and crashed the entire route module — causing 500s on every
+ * API endpoint that imported this module (including GETs with no handler
+ * defined, which should normally 405). `getEnv` trims whitespace so
+ * paste-errors in the Vercel dashboard can never crash the serverless
+ * function at boot.
  */
-const isRedisConfigured =
-  !!process.env.UPSTASH_REDIS_REST_URL &&
-  !!process.env.UPSTASH_REDIS_REST_TOKEN;
+const upstashUrl = getEnv('UPSTASH_REDIS_REST_URL');
+const upstashToken = getEnv('UPSTASH_REDIS_REST_TOKEN');
+const isRedisConfigured = !!upstashUrl && !!upstashToken;
 
 /**
  * Shared Redis client instance (singleton).
- * Only created if Upstash credentials are available.
+ * Only created if Upstash credentials are available AND the URL parses.
+ *
+ * The try/catch is defensive belt-and-suspenders: even after trimming,
+ * a malformed URL value (e.g., missing protocol, typo) should not crash
+ * the module — it should silently fall back to in-memory rate limiting.
  */
-const redis = isRedisConfigured
-  ? new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL!,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-    })
-  : null;
+let redis: Redis | null = null;
+if (isRedisConfigured) {
+  try {
+    redis = new Redis({ url: upstashUrl!, token: upstashToken! });
+  } catch (err) {
+    // Module-load error: log + continue with null. In-memory fallback takes over.
+    // Do not throw — throwing here crashes every route that imports rateLimit.
+    console.error(
+      '[rateLimit] Failed to initialize Upstash Redis client; falling back to in-memory:',
+      err,
+    );
+  }
+}
 
 // ============================================================================
 // Rate Limiter Instances (cached per config)
@@ -101,8 +122,12 @@ function getLimiter(prefix: string, config: RateLimitConfig): Ratelimit {
     const windowSeconds = Math.ceil(config.windowMs / 1000);
     const duration = `${windowSeconds} s` as `${number} s`;
 
+    // WHY non-null assertion: callers gate on `redis !== null` in the
+    // `rateLimit()` hot path before reaching this function. `Redis.fromEnv()`
+    // was removed because it re-reads `process.env` without trimming, which
+    // defeats the whitespace sanitization applied during singleton init.
     limiter = new Ratelimit({
-      redis: redis ?? Redis.fromEnv(),
+      redis: redis!,
       limiter: Ratelimit.slidingWindow(config.maxRequests, duration),
       prefix: `styrby:ratelimit:${prefix}`,
       analytics: false, // Disable analytics to reduce Redis commands
@@ -223,8 +248,9 @@ export async function rateLimit(
 ): Promise<RateLimitResult> {
   const ip = getClientIp(request);
 
-  // Fallback to in-memory if Redis is not configured
-  if (!isRedisConfigured) {
+  // Fallback to in-memory if Redis is not configured OR if client init failed
+  // (e.g., malformed URL in env var — we logged and set redis=null above).
+  if (!isRedisConfigured || redis === null) {
     return inMemoryRateLimit(ip, config, keyPrefix);
   }
 

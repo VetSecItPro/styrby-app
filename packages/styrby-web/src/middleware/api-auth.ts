@@ -28,6 +28,7 @@ import { extractApiKeyPrefix, isValidApiKeyFormat } from '@styrby/shared';
 import { getClientIp } from '@/lib/rateLimit';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
+import { getEnv } from '@/lib/env';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -84,21 +85,30 @@ const API_RATE_LIMIT = {
  * FALLBACK: If UPSTASH_REDIS_REST_URL is not set (local dev, CI), falls back
  * to in-memory rate limiting (better than no limiting at all).
  */
-const isRedisConfigured =
-  !!process.env.UPSTASH_REDIS_REST_URL &&
-  !!process.env.UPSTASH_REDIS_REST_TOKEN;
+// WHY getEnv: see packages/styrby-web/src/lib/env.ts for the root-cause write-up.
+// Trimmed env access prevents trailing-newline paste errors in Vercel from
+// crashing `new Redis({ url })` at module-import time (which 500s every route
+// that imports this file).
+const upstashUrl = getEnv('UPSTASH_REDIS_REST_URL');
+const upstashToken = getEnv('UPSTASH_REDIS_REST_TOKEN');
+const isRedisConfigured = !!upstashUrl && !!upstashToken;
 
-const apiKeyLimiter = isRedisConfigured
-  ? new Ratelimit({
-      redis: new Redis({
-        url: process.env.UPSTASH_REDIS_REST_URL!,
-        token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-      }),
+let apiKeyLimiter: Ratelimit | null = null;
+if (isRedisConfigured) {
+  try {
+    apiKeyLimiter = new Ratelimit({
+      redis: new Redis({ url: upstashUrl!, token: upstashToken! }),
       limiter: Ratelimit.slidingWindow(API_RATE_LIMIT.maxRequests, '60 s'),
       prefix: 'styrby:api-key-ratelimit',
       analytics: false,
-    })
-  : null;
+    });
+  } catch (err) {
+    console.error(
+      '[api-auth] Failed to initialize Upstash Redis rate limiter; falling back to in-memory:',
+      err,
+    );
+  }
+}
 
 /** In-memory fallback store for local dev/CI without Redis */
 const apiRateLimitStore = new Map<string, { count: number; resetAt: number }>();
