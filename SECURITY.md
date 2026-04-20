@@ -45,6 +45,65 @@ Current override floors (as of 2026-04-19):
 | `rollup` | `>=4.59.0` | DOM clobbering vulnerability |
 | `tar` | `>=7.5.13` | Path traversal |
 
+## Passkey UX + Key Management (Phase 1.2)
+
+Migration 020 adds a `passkeys` table and the `verify-passkey` Supabase Edge Function
+implementing WebAuthn Level 3 (FIDO2 / NIST 800-63B AAL3).
+
+### Enrollment flow
+
+1. User taps "Add a passkey" in **Settings > Passkeys** (web or mobile).
+2. Client POSTs `action: challenge-register` to the Next.js proxy (`/api/auth/passkey/challenge`).
+   The proxy forwards the request - with the user's Supabase JWT - to the edge function.
+3. The edge function reads the user record from the JWT, issues a random 32-byte challenge
+   (stored in-memory for 5 minutes), and returns `PublicKeyCredentialCreationOptions`.
+4. The browser or device calls `navigator.credentials.create()` (web) / `Passkey.create()` (mobile).
+   The user approves with Face ID, Touch ID, or their device PIN.
+5. Client POSTs the attestation to `action: verify-register`. The edge function verifies the
+   signature, checks the challenge, and inserts a row into `passkeys` using the service role key
+   (INSERT is blocked from the anon key by RLS).
+6. The new credential row is owned by the user (RLS: `user_id = auth.uid()`).
+
+### Authentication flow
+
+1. User taps "Continue with Passkey" on the login screen (email optional).
+2. Client POSTs `action: challenge-login` with optional email. The edge function returns an empty
+   `allowCredentials` list for unknown emails (account-enumeration resistance per WebAuthn L3 §14.5).
+3. Browser/device resolves credentials. User approves biometric/PIN.
+4. Client POSTs `action: verify-login`. The edge function verifies the assertion counter
+   (clone-detection per L3 §7.2 step 19), updates `last_used_at` and the counter, then mints
+   a Supabase session and returns `access_token` + `refresh_token`.
+
+### Revocation semantics
+
+- Revoked credentials are **soft-deleted** (`revoked_at = now()`), never hard-deleted.
+  Hard deletion would cause a 404 on a revoked-credential presentation, making it
+  indistinguishable from a misconfigured RP ID. A row with `revoked_at` set lets the server
+  return a clear `CREDENTIAL_REVOKED` error. (SOC2 CC6.6)
+- Users revoke via Settings > Passkeys. Revocation takes effect immediately - the edge function
+  checks `revoked_at` before verifying signatures.
+- Admins can revoke any user's credential via the admin dashboard (audit-logged).
+
+### Cross-device considerations
+
+Passkeys are synced by the platform (iCloud Keychain on Apple, Google Password Manager on Android,
+Windows Hello on Windows). Revoking one credential revokes the logical key; the platform may have
+synced it to multiple physical devices. Revoking in Styrby removes it from the server's trust list
+regardless of which physical device holds the key material.
+
+### Attack surface
+
+| Surface | Mitigations |
+|---------|-------------|
+| Challenge issuance (`/api/auth/passkey/challenge`) | Rate-limited 10/min per IP (distributed via Upstash Redis); no auth required but edge fn enforces auth for `challenge-register` |
+| Assertion verification (`/api/auth/passkey/verify`) | Rate-limited 10/min per IP; counter-rollback check (clone detection); revoked_at check before any verification |
+| Service role key | Never in browser; only in edge function env and Next.js server context (never NEXT_PUBLIC_) |
+| Account enumeration | `challenge-login` returns empty `allowCredentials` for unknown emails - identical response shape, no timing oracle |
+| RP ID binding | RP ID derived from request host via `extractRpId(url)` - mismatched origins (e.g. phishing sites) produce SecurityError in browser before any server call |
+| Replay attacks | 5-minute challenge TTL enforced in edge function; signature counter monotonicity enforced per L3 §7.2 step 19 |
+
+---
+
 ## Push Notification Attack Surface (Phase 0.5)
 
 Migration 017 adds a PostgreSQL trigger (`trigger_push_on_session_message`) that

@@ -48,6 +48,7 @@
     "@react-email/components": "^1.0.6",
     "@sentry/nextjs": "10.46.0",
     "@serwist/next": "9.5.7",
+    "@simplewebauthn/browser": "13.3.0",
     "@styrby/shared": "workspace:*",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.47.10",
