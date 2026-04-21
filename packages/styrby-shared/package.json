@@ -56,6 +56,11 @@
     "libsodium-wrappers": "^0.7.15",
     "zod": "^3.25.76"
   },
+  "optionalDependencies": {
+    "@anthropic-ai/tokenizer": "0.0.4",
+    "gpt-tokenizer": "3.4.0"
+  },
+  "//optionalDependencies": "PINNED EXACT — bumping these requires regenerating fixtures in src/tokenizers/__tests__/accuracy.test.ts. Declared optional because src/tokenizers/index.ts uses dynamic-import-with-string-toString to hide them from Metro (mobile bundle) and falls back to the heuristic when they're absent.",
   "devDependencies": {
     "@types/libsodium-wrappers": "^0.7.14",
     "@types/node": "^22.15.18",
