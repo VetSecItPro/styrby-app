@@ -1,8 +1,9 @@
 /**
  * Daemon Management Commands
  *
- * Handles `styrby daemon install` and `styrby daemon uninstall` for setting up
- * auto-start on boot. Supports macOS (LaunchAgent) and Linux (systemd user service).
+ * Handles `styrby daemon install`, `styrby daemon uninstall`, and
+ * `styrby daemon install --refresh-install` for setting up auto-start on boot.
+ * Supports macOS (LaunchAgent) and Linux (systemd user service).
  *
  * WHY: Auto-start ensures the Styrby daemon is always available, so the mobile app
  * can reach the machine even after a reboot. This is essential for a seamless
@@ -40,15 +41,19 @@ const LINUX_SERVICE_PATH = path.join(homedir(), '.config', 'systemd', 'user', 's
  *
  * Routes to install, uninstall, or usage based on the subcommand.
  *
- * @param args - Command arguments (subcommand: install, uninstall, status)
+ * Supports `--refresh-install` flag on `install` to regenerate the service file
+ * with the current environment variables without a full uninstall/reinstall cycle.
+ *
+ * @param args - Command arguments (subcommand: install, uninstall, status; optional flags: --refresh-install)
  * @returns Promise that resolves when the command completes
  */
 export async function handleDaemon(args: string[]): Promise<void> {
   const subCommand = args[0];
+  const isRefresh = args.includes('--refresh-install');
 
   switch (subCommand) {
     case 'install':
-      await handleDaemonInstall();
+      await handleDaemonInstall(isRefresh);
       break;
 
     case 'uninstall':
@@ -72,15 +77,18 @@ export async function handleDaemon(args: string[]): Promise<void> {
  * On macOS: Creates a LaunchAgent plist and loads it.
  * On Linux: Creates a systemd user service and enables it.
  *
+ * @param refreshOnly - When true, regenerates the service file and reloads without
+ *   a full uninstall. Use after updating SUPABASE_URL / SUPABASE_ANON_KEY in the
+ *   shell environment so the new values are baked into the service file immediately.
  * @returns Promise that resolves when installation completes
  */
-export async function handleDaemonInstall(): Promise<void> {
+export async function handleDaemonInstall(refreshOnly = false): Promise<void> {
   const os = platform();
 
   if (os === 'darwin') {
-    await installMacOSLaunchAgent();
+    await installMacOSLaunchAgent(refreshOnly);
   } else if (os === 'linux') {
-    await installLinuxSystemdService();
+    await installLinuxSystemdService(refreshOnly);
   } else {
     console.log(chalk.yellow(`Auto-start not supported on ${os}`));
     console.log(chalk.gray('You can manually start the daemon with: styrby start --daemon'));
@@ -112,10 +120,50 @@ export async function handleDaemonUninstall(): Promise<void> {
 // ============================================================================
 
 /**
+ * Build the plist XML entries for env vars that should be baked into the LaunchAgent.
+ *
+ * WHY: LaunchAgents on macOS launch before any shell profile (.zshrc, .zprofile)
+ * is sourced. Without baking SUPABASE_URL and SUPABASE_ANON_KEY directly into the
+ * plist EnvironmentVariables dict, process.env in the daemon is empty on fresh boot
+ * and the daemon transitions straight to connectionState = 'error'.
+ *
+ * Missing vars are omitted with a warning so the plist remains valid XML even when
+ * the caller has not yet run `styrby onboard`.
+ *
+ * @returns Plist XML string for the EnvironmentVariables dict body (indented, no outer <dict> tags)
+ */
+function buildPlistEnvEntries(): string {
+  const required: Array<{ key: string; envVar: string }> = [
+    { key: 'SUPABASE_URL', envVar: 'SUPABASE_URL' },
+    { key: 'SUPABASE_ANON_KEY', envVar: 'SUPABASE_ANON_KEY' },
+  ];
+
+  const lines: string[] = [
+    '    <key>PATH</key>',
+    '    <string>/usr/local/bin:/usr/bin:/bin</string>',
+  ];
+
+  for (const { key, envVar } of required) {
+    const value = process.env[envVar];
+    if (value) {
+      lines.push(`    <key>${key}</key>`);
+      // Escape XML special chars so the plist stays well-formed
+      lines.push(`    <string>${value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</string>`);
+    } else {
+      logger.debug(`Warning: ${envVar} not found in environment — not baked into plist. Run 'styrby daemon install --refresh-install' after setting it.`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+/**
  * Generate the LaunchAgent plist content for macOS.
  *
  * WHY: LaunchAgent plists let macOS run a process on login without
  * requiring root access or running as a full system service.
+ * SUPABASE_URL and SUPABASE_ANON_KEY are baked in at install time so the daemon
+ * can connect on a fresh boot before any shell profile is sourced.
  *
  * @returns Plist XML string
  */
@@ -160,8 +208,7 @@ function generateMacOSPlist(): string {
 
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PATH</key>
-    <string>/usr/local/bin:/usr/bin:/bin</string>
+${buildPlistEnvEntries()}
   </dict>
 
   <key>ThrottleInterval</key>
@@ -173,9 +220,21 @@ function generateMacOSPlist(): string {
 
 /**
  * Install the LaunchAgent on macOS.
+ *
+ * @param refreshOnly - When true, regenerates plist + reloads without printing full
+ *   install success messaging. Exits early with a warning if the plist is not
+ *   already installed (refresh assumes prior install).
  */
-async function installMacOSLaunchAgent(): Promise<void> {
-  console.log(chalk.blue('Installing Styrby daemon for macOS...'));
+async function installMacOSLaunchAgent(refreshOnly = false): Promise<void> {
+  if (refreshOnly) {
+    if (!fs.existsSync(MACOS_PLIST_PATH)) {
+      console.log(chalk.yellow('No existing daemon install found. Run `styrby daemon install` first.'));
+      return;
+    }
+    console.log(chalk.blue('Refreshing Styrby daemon plist with current environment...'));
+  } else {
+    console.log(chalk.blue('Installing Styrby daemon for macOS...'));
+  }
 
   // Ensure LaunchAgents directory exists
   const launchAgentsDir = path.dirname(MACOS_PLIST_PATH);
@@ -201,13 +260,19 @@ async function installMacOSLaunchAgent(): Promise<void> {
   // Load the service
   try {
     execSync(`launchctl load "${MACOS_PLIST_PATH}"`, { encoding: 'utf-8' });
-    console.log(chalk.green('Daemon installed and started'));
-    console.log('');
-    console.log(chalk.gray('The daemon will now start automatically on login.'));
-    console.log(chalk.gray(`Plist location: ${MACOS_PLIST_PATH}`));
-    console.log('');
-    console.log(chalk.gray('To uninstall: styrby daemon uninstall'));
-    console.log(chalk.gray('To check status: styrby status'));
+
+    if (refreshOnly) {
+      console.log(chalk.green('Daemon plist refreshed and reloaded'));
+      console.log(chalk.gray('New environment variables are now active.'));
+    } else {
+      console.log(chalk.green('Daemon installed and started'));
+      console.log('');
+      console.log(chalk.gray('The daemon will now start automatically on login.'));
+      console.log(chalk.gray(`Plist location: ${MACOS_PLIST_PATH}`));
+      console.log('');
+      console.log(chalk.gray('To uninstall: styrby daemon uninstall'));
+      console.log(chalk.gray('To check status: styrby status'));
+    }
   } catch (error) {
     console.log(chalk.red('Failed to load LaunchAgent'));
     if (error instanceof Error) {
@@ -258,16 +323,52 @@ async function uninstallMacOSLaunchAgent(): Promise<void> {
 // ============================================================================
 
 /**
+ * Build the `Environment=` directives for the systemd unit file.
+ *
+ * WHY: systemd user services launch outside the user's shell session, so
+ * SUPABASE_URL and SUPABASE_ANON_KEY are unavailable unless explicitly baked in
+ * via Environment= directives at install time.
+ *
+ * Missing vars are omitted with a warning so the unit file remains valid even when
+ * the caller has not yet run `styrby onboard`.
+ *
+ * @returns Newline-separated `Environment="KEY=value"` lines (empty string if no vars found)
+ */
+function buildSystemdEnvDirectives(): string {
+  const required: Array<{ envVar: string }> = [
+    { envVar: 'SUPABASE_URL' },
+    { envVar: 'SUPABASE_ANON_KEY' },
+  ];
+
+  const lines: string[] = [];
+
+  for (const { envVar } of required) {
+    const value = process.env[envVar];
+    if (value) {
+      // Systemd Environment= values with spaces must be quoted; always quote for safety.
+      lines.push(`Environment="${envVar}=${value}"`);
+    } else {
+      logger.debug(`Warning: ${envVar} not found in environment — not baked into systemd unit. Run 'styrby daemon install --refresh-install' after setting it.`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+/**
  * Generate the systemd user service unit file for Linux.
  *
  * WHY: systemd user services run under the user's session without root,
  * and can be configured to start on login via lingering.
+ * SUPABASE_URL and SUPABASE_ANON_KEY are baked in at install time so the daemon
+ * can connect on a fresh boot before any shell profile is sourced.
  *
  * @returns Service unit file content
  */
 function generateLinuxServiceFile(): string {
   const styrbyPath = process.argv[1];
   const nodePath = process.execPath;
+  const extraEnv = buildSystemdEnvDirectives();
 
   return `[Unit]
 Description=Styrby Daemon - Mobile Remote Control for AI Coding Agents
@@ -284,7 +385,7 @@ StandardError=journal
 # Environment
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Environment=HOME=${homedir()}
-
+${extraEnv ? `${extraEnv}\n` : ''}
 # Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict
@@ -298,9 +399,21 @@ WantedBy=default.target
 
 /**
  * Install the systemd user service on Linux.
+ *
+ * @param refreshOnly - When true, regenerates the unit file + reloads/restarts without
+ *   printing full install success messaging. Exits early with a warning if the service
+ *   file is not already present (refresh assumes prior install).
  */
-async function installLinuxSystemdService(): Promise<void> {
-  console.log(chalk.blue('Installing Styrby daemon for Linux...'));
+async function installLinuxSystemdService(refreshOnly = false): Promise<void> {
+  if (refreshOnly) {
+    if (!fs.existsSync(LINUX_SERVICE_PATH)) {
+      console.log(chalk.yellow('No existing daemon install found. Run `styrby daemon install` first.'));
+      return;
+    }
+    console.log(chalk.blue('Refreshing Styrby daemon service file with current environment...'));
+  } else {
+    console.log(chalk.blue('Installing Styrby daemon for Linux...'));
+  }
 
   // Ensure systemd user directory exists
   const serviceDir = path.dirname(LINUX_SERVICE_PATH);
@@ -332,23 +445,28 @@ async function installLinuxSystemdService(): Promise<void> {
     process.exit(1);
   }
 
-  // Enable and start the service
+  // Enable and start (or restart on refresh) the service
   try {
-    execSync('systemctl --user enable styrby-daemon', { encoding: 'utf-8' });
-    execSync('systemctl --user start styrby-daemon', { encoding: 'utf-8' });
-
-    console.log(chalk.green('Daemon installed and started'));
-    console.log('');
-    console.log(chalk.gray('The daemon will start automatically on login.'));
-    console.log(chalk.gray(`Service file: ${LINUX_SERVICE_PATH}`));
-    console.log('');
-    console.log(chalk.gray('To enable lingering (start before login):'));
-    console.log(chalk.gray('  loginctl enable-linger $USER'));
-    console.log('');
-    console.log(chalk.gray('To uninstall: styrby daemon uninstall'));
-    console.log(chalk.gray('To check status: systemctl --user status styrby-daemon'));
+    if (refreshOnly) {
+      execSync('systemctl --user restart styrby-daemon', { encoding: 'utf-8' });
+      console.log(chalk.green('Daemon service file refreshed and restarted'));
+      console.log(chalk.gray('New environment variables are now active.'));
+    } else {
+      execSync('systemctl --user enable styrby-daemon', { encoding: 'utf-8' });
+      execSync('systemctl --user start styrby-daemon', { encoding: 'utf-8' });
+      console.log(chalk.green('Daemon installed and started'));
+      console.log('');
+      console.log(chalk.gray('The daemon will start automatically on login.'));
+      console.log(chalk.gray(`Service file: ${LINUX_SERVICE_PATH}`));
+      console.log('');
+      console.log(chalk.gray('To enable lingering (start before login):'));
+      console.log(chalk.gray('  loginctl enable-linger $USER'));
+      console.log('');
+      console.log(chalk.gray('To uninstall: styrby daemon uninstall'));
+      console.log(chalk.gray('To check status: systemctl --user status styrby-daemon'));
+    }
   } catch (error) {
-    console.log(chalk.red('Failed to enable or start service'));
+    console.log(chalk.red(refreshOnly ? 'Failed to restart service' : 'Failed to enable or start service'));
     if (error instanceof Error) {
       console.log(chalk.red(error.message));
     }
@@ -464,17 +582,23 @@ async function handleDaemonServiceStatus(): Promise<void> {
  */
 function printDaemonUsage(): void {
   console.log(`
-${chalk.bold('Usage:')} styrby daemon <command>
+${chalk.bold('Usage:')} styrby daemon <command> [flags]
 
 ${chalk.bold('Commands:')}
   install     Install daemon to start automatically on boot
   uninstall   Remove daemon from auto-start
   status      Check if daemon auto-start is configured
 
+${chalk.bold('Flags:')}
+  --refresh-install   Regenerate the service file with the current environment
+                      variables and reload, without a full uninstall/reinstall.
+                      Use after updating SUPABASE_URL or SUPABASE_ANON_KEY.
+
 ${chalk.bold('Examples:')}
-  styrby daemon install    # Set up auto-start
-  styrby daemon uninstall  # Remove auto-start
-  styrby daemon status     # Check auto-start status
+  styrby daemon install                    # Set up auto-start
+  styrby daemon install --refresh-install  # Re-bake env vars into service file
+  styrby daemon uninstall                  # Remove auto-start
+  styrby daemon status                     # Check auto-start status
 
 ${chalk.bold('Platform Support:')}
   macOS   LaunchAgent (~/Library/LaunchAgents/)

@@ -26,6 +26,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { createClient } from '@supabase/supabase-js';
 import { createRelayClient, type RelayClient } from 'styrby-shared';
+import { loadDaemonConfig } from './configFile';
 
 // ============================================================================
 // Configuration
@@ -116,12 +117,22 @@ async function connectToRelay(): Promise<void> {
       return;
     }
 
-    // FIX-019: No hardcoded fallback — URL must come from environment
-    const supabaseUrl = process.env.SUPABASE_URL || '';
-    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
+    // Precedence: env vars → ~/.styrby/config.json → error with actionable message.
+    //
+    // WHY: On macOS, LaunchAgents start before any shell profile (.zshrc, .zprofile)
+    // is sourced. SUPABASE_URL and SUPABASE_ANON_KEY are baked into the plist at
+    // install time, but the plist may be stale (installed before onboard, or never
+    // refreshed). config.json is written on every successful auth and serves as a
+    // persistent fallback so the daemon can connect after a reboot even when the
+    // plist is stale. See daemon/configFile.ts for the write path.
+    const fileConfig = loadDaemonConfig();
+
+    const supabaseUrl = process.env.SUPABASE_URL || fileConfig?.supabaseUrl || '';
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || fileConfig?.supabaseAnonKey || '';
 
     if (!supabaseUrl) {
-      errorMessage = 'SUPABASE_URL not set. Cannot connect to relay.';
+      errorMessage =
+        'SUPABASE_URL not set. Run `styrby onboard` or `styrby daemon install --refresh-install` to fix.';
       connectionState = 'error';
       log('Cannot connect: no Supabase URL');
       return;
@@ -129,7 +140,8 @@ async function connectToRelay(): Promise<void> {
 
     if (!supabaseAnonKey) {
       // WHY: Without the anon key, Supabase client cannot authenticate.
-      errorMessage = 'SUPABASE_ANON_KEY not set. Cannot connect to relay.';
+      errorMessage =
+        'SUPABASE_ANON_KEY not set. Run `styrby onboard` or `styrby daemon install --refresh-install` to fix.';
       connectionState = 'error';
       log('Cannot connect: no anon key');
       return;
