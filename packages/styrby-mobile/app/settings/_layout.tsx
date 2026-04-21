@@ -92,6 +92,18 @@ export default function SettingsLayout() {
           title: 'Passkeys',
         }}
       />
+      {/*
+       * MCP tools registry: pure-presentation mirror of the web
+       * /dashboard/tools page. Lives at the same nav level as Passkeys so
+       * users can find it without drilling through Account. See
+       * settings/tools.tsx for the full rationale.
+       */}
+      <Stack.Screen
+        name="tools"
+        options={{
+          title: 'MCP Tools',
+        }}
+      />
     </Stack>
   );
 }

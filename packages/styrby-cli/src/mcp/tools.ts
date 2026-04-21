@@ -101,54 +101,11 @@ export type RequestApprovalOutput = {
 // Tool catalog metadata
 // ============================================================================
 
-/**
- * Public catalog of tools exposed by Styrby's MCP server.
- *
- * The web's /dashboard/tools page and mobile's settings/tools.tsx both
- * render this list to show users what their MCP-aware agents can call.
- * Keep entries human-readable - end users see them, not just developers.
- */
-export interface MCPToolDescriptor {
-  /** Stable tool name used by MCP clients (snake_case per MCP spec). */
-  name: string;
-  /** Human-readable title shown in registry UIs. */
-  title: string;
-  /** One-paragraph description shown when expanded. */
-  description: string;
-  /** Risk class affecting UI surfacing. */
-  category: 'approval' | 'policy' | 'audit' | 'query' | 'mutation';
-  /** Whether the tool is GA in this release or still experimental. */
-  status: 'ga' | 'beta' | 'planned';
-  /** Loose semver of when introduced. */
-  introducedIn: string;
-}
-
-export const STYRBY_MCP_TOOLS: readonly MCPToolDescriptor[] = [
-  {
-    name: 'request_approval',
-    title: 'Request human approval',
-    description:
-      'Sends a push notification to the paired mobile device asking the user to approve or deny a high-risk action. Returns when the user decides or the timeout fires. Lets agents safely run destructive operations under explicit human oversight.',
-    category: 'approval',
-    status: 'ga',
-    introducedIn: '0.2.0',
-  },
-  {
-    name: 'get_team_policy',
-    title: 'Look up team policy',
-    description:
-      'Returns the effective approval/budget/blocked-tool policy for the agent\'s session. Lets agents check before attempting an action whether it would auto-block or require approval. Phase 4.',
-    category: 'policy',
-    status: 'planned',
-    introducedIn: '0.4.0',
-  },
-  {
-    name: 'log_to_audit',
-    title: 'Write to audit log',
-    description:
-      'Appends a structured event to the user\'s audit log table. Useful for compliance trails (SOC2 CC7.2) when agents take significant actions. Phase 4.',
-    category: 'audit',
-    status: 'planned',
-    introducedIn: '0.4.0',
-  },
-] as const;
+// The catalog itself lives in @styrby/shared so web + mobile registry UIs
+// render the same list. Re-export here for CLI-local convenience.
+export {
+  STYRBY_MCP_TOOLS,
+  type MCPToolDescriptor,
+  type MCPToolCategory,
+  type MCPToolStatus,
+} from 'styrby-shared';
