@@ -52,6 +52,15 @@ export * from './hooks/index.js';
 // when present, falls back to the words*1.3 heuristic everywhere else).
 export * from './tokenizers/index.js';
 
+// Phase 2 — Team Tier (0.8.7 + 0.9.2).
+// Team governance types (DB-mirroring interfaces + Zod schemas + runtime
+// constant arrays). Safe to barrel: pure types/data, zero platform deps.
+export * from './teams/index.js';
+// Tier-check utilities covering all six billing tiers including the team family.
+// Both web and mobile consume these so a gating decision can never disagree
+// across surfaces (SOC2 CC6.1).
+export * from './tiers/index.js';
+
 // WHY: The full pricing module is NOT re-exported from the barrel.
 // litellm-pricing.ts uses Node.js builtins (node:path, node:os, node:fs, node:crypto)
 // which break webpack/Next.js client bundles. Import directly from
