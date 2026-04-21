@@ -127,20 +127,22 @@ describe('rate limiter — distributed Redis backend', () => {
 // ============================================================================
 
 describe('CLI — agent type allowlist validation', () => {
-  it('CLI index defines VALID_AGENTS allowlist', () => {
-    const content = readCli('index.ts');
+  // WHY moved: the CLI entry point was split in PR #99 (Phase 1 #4 batch 4b);
+  // `VALID_AGENTS` now lives in `cli/handlers/start.ts` where the `start`
+  // command enforces the allowlist. The regression guarantee is unchanged —
+  // agent type must be validated against a finite list before dispatch.
+  it('CLI start handler defines VALID_AGENTS allowlist', () => {
+    const content = readCli('cli/handlers/start.ts');
     expect(content).toContain('VALID_AGENTS');
   });
 
-  it('CLI validates agent type against VALID_AGENTS before accepting it', () => {
-    const content = readCli('index.ts');
-    // Must include() check against the allowlist
+  it('CLI start handler validates agent type against VALID_AGENTS before accepting it', () => {
+    const content = readCli('cli/handlers/start.ts');
     expect(content).toMatch(/VALID_AGENTS\.includes\(/);
   });
 
   it('CLI VALID_AGENTS includes all supported agent names', () => {
-    const content = readCli('index.ts');
-    // All agents that were in scope at fix time
+    const content = readCli('cli/handlers/start.ts');
     expect(content).toContain("'claude'");
     expect(content).toContain("'codex'");
     expect(content).toContain("'gemini'");
