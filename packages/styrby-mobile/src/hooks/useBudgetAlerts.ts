@@ -5,6 +5,11 @@
  * Calculates current spend and percentage used for each alert by querying
  * cost_records for the relevant time period.
  *
+ * Supports three alert types (migration 023):
+ *   cost_usd:           sum(cost_usd) for billing_model = 'api-key' rows
+ *   subscription_quota: MAX(subscription_fraction_used) for billing_model = 'subscription'
+ *   credits:            sum(credits_consumed) for billing_model = 'credit'
+ *
  * Also fetches the user's subscription tier to enforce alert count limits:
  * - Free: 0 budget alerts (feature locked)
  * - Pro: 3 budget alerts
@@ -31,6 +36,15 @@ import type { AgentType, SubscriptionTier } from 'styrby-shared';
  * Determines the time window over which spend is measured against the threshold.
  */
 export type BudgetAlertPeriod = 'daily' | 'weekly' | 'monthly';
+
+/**
+ * Alert type controlling which cost_records aggregation is used.
+ * Added in migration 023 (PR-E: quota-aware budget alerts).
+ *
+ * WHY: Subscription users have cost_usd = $0 so a cost_usd alert never fires.
+ * quota and credits types use billing-model-specific columns instead.
+ */
+export type BudgetAlertType = 'cost_usd' | 'subscription_quota' | 'credits';
 
 /**
  * Action to take when a budget alert threshold is reached.
@@ -70,7 +84,7 @@ export interface BudgetAlert {
   userId: string;
   /** Human-readable alert name (e.g., "Daily Limit") */
   name: string;
-  /** USD threshold that triggers the alert */
+  /** USD threshold that triggers the alert (used for cost_usd type) */
   threshold: number;
   /** Time period for spend aggregation */
   period: BudgetAlertPeriod;
@@ -83,7 +97,10 @@ export interface BudgetAlert {
   action: BudgetAlertAction;
   /** Whether the alert is currently active */
   enabled: boolean;
-  /** Calculated current spend in USD for the alert's period */
+  /**
+   * Calculated current spend (or fraction / credits) for the alert's period.
+   * For subscription_quota: fraction (0–1). For credits: integer credit count.
+   */
   currentSpend: number;
   /** Calculated percentage of threshold used (currentSpend / threshold * 100) */
   percentUsed: number;
@@ -91,6 +108,20 @@ export interface BudgetAlert {
   triggeredAt: string | null;
   /** ISO timestamp when the alert was created */
   createdAt: string;
+  /**
+   * Alert type (migration 023). Defaults to 'cost_usd' for legacy rows.
+   * Controls which cost_records column is aggregated.
+   */
+  alertType: BudgetAlertType;
+  /**
+   * Quota fraction threshold (0–1). Set when alertType = 'subscription_quota'.
+   * NULL for other types.
+   */
+  thresholdQuotaFraction: number | null;
+  /**
+   * Credit count threshold. Set when alertType = 'credits'. NULL for other types.
+   */
+  thresholdCredits: number | null;
 }
 
 /**
@@ -100,7 +131,7 @@ export interface BudgetAlert {
 export interface CreateBudgetAlertInput {
   /** Human-readable alert name */
   name: string;
-  /** USD threshold amount */
+  /** USD threshold amount (used when alertType = 'cost_usd') */
   threshold: number;
   /** Time period for spend aggregation */
   period: BudgetAlertPeriod;
@@ -110,6 +141,19 @@ export interface CreateBudgetAlertInput {
   agentType?: AgentType | null;
   /** Whether the alert starts enabled (defaults to true) */
   enabled?: boolean;
+  /**
+   * Alert type (migration 023). Defaults to 'cost_usd' for backward compatibility.
+   * Controls which cost_records column is aggregated.
+   */
+  alertType?: BudgetAlertType;
+  /**
+   * Quota fraction threshold (0–1). Required when alertType = 'subscription_quota'.
+   */
+  thresholdQuotaFraction?: number | null;
+  /**
+   * Credit count threshold (positive integer). Required when alertType = 'credits'.
+   */
+  thresholdCredits?: number | null;
 }
 
 /**
@@ -183,6 +227,7 @@ const TIER_ALERT_LIMITS: Record<SubscriptionTier, number> = {
 
 /**
  * Raw row shape from the budget_alerts table.
+ * Includes migration 023 columns: alert_type, threshold_quota_fraction, threshold_credits.
  */
 interface BudgetAlertRow {
   id: string;
@@ -196,6 +241,12 @@ interface BudgetAlertRow {
   is_enabled: boolean;
   last_triggered_at: string | null;
   created_at: string;
+  /** Migration 023: alert type controlling aggregation logic. */
+  alert_type?: string | null;
+  /** Migration 023: quota fraction threshold. */
+  threshold_quota_fraction?: number | null;
+  /** Migration 023: credit count threshold. */
+  threshold_credits?: number | null;
 }
 
 // ============================================================================
@@ -233,43 +284,84 @@ function getPeriodStartDate(period: BudgetAlertPeriod): string {
 }
 
 /**
- * Fetch the current user's spend for a given period from cost_records,
- * optionally filtered by agent type.
+ * Fetch the current user's spend (or quota fraction / credit count) for a
+ * given period from cost_records, branching on alert type.
  *
- * WHY: Budget alerts can be scoped to a specific agent type. When agentType
- * is set, only costs from that agent count against the threshold. This
- * matches the web dashboard's behavior and the database schema which has
- * an optional agent_type column on budget_alerts.
+ * WHY per-type fetching:
+ *   cost_usd:           SUM(cost_usd) WHERE billing_model = 'api-key'
+ *                       Subscription rows have cost_usd = $0 (migration 022
+ *                       constraint) so filtering to api-key is belt-and-suspenders
+ *                       correctness and avoids diluting the sum.
+ *   subscription_quota: MAX(subscription_fraction_used) WHERE billing_model = 'subscription'
+ *                       The fraction is cumulative within an agent session, so MAX
+ *                       gives the high-water mark for the period.
+ *   credits:            SUM(credits_consumed) WHERE billing_model = 'credit'
+ *                       Credits are independently consumed per session — sum them.
  *
  * @param userId - The user's UUID
  * @param period - Budget alert period to aggregate
+ * @param alertType - Which aggregation to use (migration 023)
  * @param agentType - Optional agent type to filter by (null = all agents)
- * @returns Total spend in USD for the period
+ * @returns Aggregated value: USD spend, quota fraction (0–1), or credit count
  */
-async function fetchPeriodSpend(
+async function fetchPeriodMetric(
   userId: string,
   period: BudgetAlertPeriod,
+  alertType: BudgetAlertType,
   agentType?: string | null,
 ): Promise<number> {
   const startDate = getPeriodStartDate(period);
 
+  if (alertType === 'subscription_quota') {
+    let query = supabase
+      .from('cost_records')
+      .select('subscription_fraction_used')
+      .eq('user_id', userId)
+      .eq('billing_model', 'subscription')
+      .gte('record_date', startDate)
+      .not('subscription_fraction_used', 'is', null);
+    if (agentType) query = query.eq('agent_type', agentType);
+    const { data, error } = await query;
+    if (error) {
+      console.error('[BudgetAlerts] Failed to fetch subscription fraction:', __DEV__ ? error : (error instanceof Error ? error.message : 'Unknown error'));
+      return 0;
+    }
+    if (!data || data.length === 0) return 0;
+    return Math.max(...data.map((r) => Number(r.subscription_fraction_used) || 0));
+  }
+
+  if (alertType === 'credits') {
+    let query = supabase
+      .from('cost_records')
+      .select('credits_consumed')
+      .eq('user_id', userId)
+      .eq('billing_model', 'credit')
+      .gte('record_date', startDate)
+      .not('credits_consumed', 'is', null);
+    if (agentType) query = query.eq('agent_type', agentType);
+    const { data, error } = await query;
+    if (error) {
+      console.error('[BudgetAlerts] Failed to fetch credits consumed:', __DEV__ ? error : (error instanceof Error ? error.message : 'Unknown error'));
+      return 0;
+    }
+    return (data || []).reduce((sum, r) => sum + (Number(r.credits_consumed) || 0), 0);
+  }
+
+  // cost_usd (default): filter to api-key rows only.
+  // WHY: subscription rows have cost_usd = $0 (migration 022 constraint).
+  // Filtering prevents accidental dilution if that constraint is ever relaxed.
   let query = supabase
     .from('cost_records')
     .select('cost_usd')
     .eq('user_id', userId)
+    .eq('billing_model', 'api-key')
     .gte('record_date', startDate);
-
-  if (agentType) {
-    query = query.eq('agent_type', agentType);
-  }
-
+  if (agentType) query = query.eq('agent_type', agentType);
   const { data, error } = await query;
-
   if (error) {
     console.error(`[BudgetAlerts] Failed to fetch ${period} spend:`, __DEV__ ? error : (error instanceof Error ? error.message : 'Unknown error'));
     return 0;
   }
-
   return (data || []).reduce((sum, record) => sum + (Number(record.cost_usd) || 0), 0);
 }
 
@@ -306,35 +398,50 @@ async function fetchUserTier(): Promise<SubscriptionTier> {
 }
 
 /**
- * Spend cache key combining period and agent type for lookup.
+ * Metric cache key combining alert type, period, and agent type for lookup.
  *
- * WHY: When alerts have different agent_type scopes, we need separate spend
- * calculations for each unique (period, agentType) combination. This key
- * format allows us to cache and look up the correct spend for each alert.
+ * WHY: Alerts with the same alertType, period, and agentType can share one
+ * Supabase query. Adding alertType to the key prevents a subscription_quota
+ * alert from reusing the cache entry of a cost_usd alert with the same period
+ * (they query different columns from cost_records).
  *
+ * @param alertType - Alert aggregation type (migration 023)
  * @param period - Budget alert period
  * @param agentType - Agent type scope (null = all agents)
  * @returns Cache key string
  */
-function spendCacheKey(period: BudgetAlertPeriod, agentType: string | null): string {
-  return `${period}:${agentType || 'all'}`;
+function metricCacheKey(alertType: BudgetAlertType, period: BudgetAlertPeriod, agentType: string | null): string {
+  return `${alertType}:${period}:${agentType || 'all'}`;
 }
 
 /**
- * Map a database row to a BudgetAlert with computed spend data.
+ * Map a database row to a BudgetAlert with computed spend/metric data.
  *
- * @param row - Raw database row
- * @param spendCache - Pre-fetched spend totals keyed by (period:agentType)
+ * @param row - Raw database row (including migration 023 columns)
+ * @param metricCache - Pre-fetched metric totals keyed by (alertType:period:agentType)
  * @returns A fully hydrated BudgetAlert object
  */
 function mapRowToAlert(
   row: BudgetAlertRow,
-  spendCache: Map<string, number>,
+  metricCache: Map<string, number>,
 ): BudgetAlert {
-  const threshold = Number(row.threshold_usd) || 0;
   const period = row.period as BudgetAlertPeriod;
-  const key = spendCacheKey(period, row.agent_type);
-  const currentSpend = spendCache.get(key) || 0;
+  const alertType = (row.alert_type as BudgetAlertType) || 'cost_usd';
+  const thresholdQuotaFraction = row.threshold_quota_fraction ?? null;
+  const thresholdCredits = row.threshold_credits ?? null;
+
+  // WHY per-type threshold: each alert type uses a different threshold column.
+  let threshold: number;
+  if (alertType === 'subscription_quota') {
+    threshold = thresholdQuotaFraction ?? 0;
+  } else if (alertType === 'credits') {
+    threshold = thresholdCredits ?? 0;
+  } else {
+    threshold = Number(row.threshold_usd) || 0;
+  }
+
+  const key = metricCacheKey(alertType, period, row.agent_type);
+  const currentSpend = metricCache.get(key) || 0;
 
   return {
     id: row.id,
@@ -349,6 +456,9 @@ function mapRowToAlert(
     percentUsed: threshold > 0 ? (currentSpend / threshold) * 100 : 0,
     triggeredAt: row.last_triggered_at,
     createdAt: row.created_at,
+    alertType,
+    thresholdQuotaFraction,
+    thresholdCredits,
   };
 }
 
@@ -404,11 +514,13 @@ export function useBudgetAlerts(): UseBudgetAlertsReturn {
         return;
       }
 
-      // Fetch alerts and tier in parallel
+      // Fetch alerts and tier in parallel.
+      // WHY explicit column list: mirrors the web route convention and makes
+      // migration 023 columns explicit for reviewers.
       const [alertsResult, userTier] = await Promise.all([
         supabase
           .from('budget_alerts')
-          .select('id, user_id, name, threshold_usd, period, agent_type, action, is_enabled, last_triggered_at, created_at')
+          .select('id, user_id, name, threshold_usd, period, agent_type, action, is_enabled, last_triggered_at, created_at, alert_type, threshold_quota_fraction, threshold_credits')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false }),
         fetchUserTier(),
@@ -433,25 +545,34 @@ export function useBudgetAlerts(): UseBudgetAlertsReturn {
         return;
       }
 
-      // WHY: Determine which unique (period, agentType) combinations we need
-      // spend data for. Alerts with different agent scopes need separate spend
-      // queries even if they share the same period.
-      const spendKeysNeeded = new Set<string>(
-        rows.map((r) => spendCacheKey(r.period as BudgetAlertPeriod, r.agent_type))
+      // WHY: Determine which unique (alertType, period, agentType) combinations
+      // we need metric data for. Adding alertType to the key means a cost_usd
+      // alert and a subscription_quota alert with the same period never share
+      // a cache entry — they query different columns from cost_records.
+      const metricKeysNeeded = new Set<string>(
+        rows.map((r) =>
+          metricCacheKey(
+            ((r.alert_type as BudgetAlertType) || 'cost_usd'),
+            r.period as BudgetAlertPeriod,
+            r.agent_type
+          )
+        )
       );
 
-      const spendCache = new Map<string, number>();
+      const metricCache = new Map<string, number>();
 
-      const spendPromises = Array.from(spendKeysNeeded).map(async (key) => {
-        const [period, agentPart] = key.split(':') as [BudgetAlertPeriod, string];
+      const metricPromises = Array.from(metricKeysNeeded).map(async (key) => {
+        // Key format: "alertType:period:agentType|all"
+        const parts = key.split(':') as [BudgetAlertType, BudgetAlertPeriod, string];
+        const [alertType, period, agentPart] = parts;
         const agentType = agentPart === 'all' ? null : agentPart;
-        const spend = await fetchPeriodSpend(user.id, period, agentType);
-        spendCache.set(key, spend);
+        const metric = await fetchPeriodMetric(user.id, period, alertType, agentType);
+        metricCache.set(key, metric);
       });
 
-      await Promise.all(spendPromises);
+      await Promise.all(metricPromises);
 
-      const mappedAlerts = rows.map((row) => mapRowToAlert(row, spendCache));
+      const mappedAlerts = rows.map((row) => mapRowToAlert(row, metricCache));
       setAlerts(mappedAlerts);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load budget alerts';
@@ -511,6 +632,10 @@ export function useBudgetAlerts(): UseBudgetAlertsReturn {
           agent_type: input.agentType || null,
           action: ACTION_TO_DB[input.action],
           is_enabled: input.enabled !== false,
+          // Migration 023 fields — default to cost_usd / null when not supplied.
+          alert_type: input.alertType ?? 'cost_usd',
+          threshold_quota_fraction: input.thresholdQuotaFraction ?? null,
+          threshold_credits: input.thresholdCredits ?? null,
         });
 
       if (insertError) {
@@ -543,7 +668,8 @@ export function useBudgetAlerts(): UseBudgetAlertsReturn {
     try {
       setError(null);
 
-      // Build the database update object, mapping field names and values
+      // Build the database update object, mapping field names and values.
+      // WHY: Only include fields that were actually provided in the input.
       const dbUpdates: Record<string, unknown> = {};
       if (updates.name !== undefined) dbUpdates.name = updates.name;
       if (updates.threshold !== undefined) dbUpdates.threshold_usd = updates.threshold;
@@ -551,6 +677,10 @@ export function useBudgetAlerts(): UseBudgetAlertsReturn {
       if (updates.agentType !== undefined) dbUpdates.agent_type = updates.agentType || null;
       if (updates.action !== undefined) dbUpdates.action = ACTION_TO_DB[updates.action];
       if (updates.enabled !== undefined) dbUpdates.is_enabled = updates.enabled;
+      // Migration 023 fields
+      if (updates.alertType !== undefined) dbUpdates.alert_type = updates.alertType;
+      if (updates.thresholdQuotaFraction !== undefined) dbUpdates.threshold_quota_fraction = updates.thresholdQuotaFraction;
+      if (updates.thresholdCredits !== undefined) dbUpdates.threshold_credits = updates.thresholdCredits;
 
       const { error: updateError } = await supabase
         .from('budget_alerts')

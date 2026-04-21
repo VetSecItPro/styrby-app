@@ -11,4 +11,4 @@ export { AlertsHeader } from './AlertsHeader';
 export { EmptyState } from './EmptyState';
 export { AlertCard } from './AlertCard';
 export { AlertModal } from './AlertModal';
-export type { BudgetAlertWithSpend, AlertFormData } from './types';
+export type { BudgetAlertWithSpend, AlertFormData, BudgetAlertType } from './types';

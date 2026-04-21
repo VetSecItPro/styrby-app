@@ -7,7 +7,7 @@
  * concerns inside React components.
  */
 
-import type { AlertAction, AlertPeriod, AgentType } from './types';
+import type { AlertAction, AlertPeriod, AgentType, BudgetAlertType } from './types';
 
 /**
  * Human-readable descriptions for each alert action.
@@ -82,6 +82,44 @@ export const ALERT_ACTIONS: AlertAction[] = [
   'warn_and_slowdown',
   'hard_stop',
 ];
+
+/** Ordered list of alert types for rendering the alert-type picker. */
+export const ALERT_TYPES: BudgetAlertType[] = [
+  'cost_usd',
+  'subscription_quota',
+  'credits',
+];
+
+/**
+ * Human-readable labels and descriptions for each alert type.
+ *
+ * WHY: Users need to understand what each type monitors. These descriptions
+ * are shown in the AlertModal's alert-type picker so they can make an
+ * informed choice based on how their agent is billed.
+ */
+export const ALERT_TYPE_INFO: Record<
+  BudgetAlertType,
+  { label: string; description: string; thresholdLabel: string; thresholdHint: string }
+> = {
+  cost_usd: {
+    label: 'API Cost (USD)',
+    description: 'Alert when API spend exceeds a dollar amount. Best for agents using your own API key.',
+    thresholdLabel: 'Threshold (USD)',
+    thresholdHint: 'Alert fires when spending reaches this amount in the period.',
+  },
+  subscription_quota: {
+    label: 'Subscription Quota (%)',
+    description: 'Alert when subscription quota usage exceeds a percentage. Best for Claude Max, Kiro subscription.',
+    thresholdLabel: 'Quota Threshold (%)',
+    thresholdHint: 'Alert fires when this fraction of your subscription quota is consumed (e.g., 80 = 80%).',
+  },
+  credits: {
+    label: 'Credits Consumed',
+    description: 'Alert when credit consumption exceeds a count. Best for Kiro credit-pack billing.',
+    thresholdLabel: 'Credit Threshold',
+    thresholdHint: 'Alert fires when this many credits have been consumed in the period.',
+  },
+};
 
 /**
  * Returns the Tailwind CSS color class for a progress bar based on usage
