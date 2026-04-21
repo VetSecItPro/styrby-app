@@ -19,15 +19,15 @@ jest.mock('@/lib/supabase', () => ({
   supabase: { auth: { getUser: jest.fn() }, from: jest.fn() },
 }));
 
-const mockDecryptMessage = jest.fn(async () => 'decrypted-content');
+const mockDecryptMessage = jest.fn<Promise<any>, any[]>(async () => 'decrypted-content');
 jest.mock('@/services/encryption', () => ({
   decryptMessage: (...args: unknown[]) => mockDecryptMessage(...args),
 }));
 
-const mockSaveMessageToDb = jest.fn(async () => {});
+const mockSaveMessageToDb = jest.fn<Promise<any>, any[]>(async () => {});
 jest.mock('../../chat-session', () => ({
   saveMessageToDb: (...args: unknown[]) => mockSaveMessageToDb(...args),
-  createSession: jest.fn(async () => null),
+  createSession: jest.fn<Promise<any>, any[]>(async () => null),
 }));
 
 jest.mock('../../agent-config', () => ({
@@ -114,7 +114,7 @@ describe('useRelayMessageHandler', () => {
       lastMessage: buildAgentResponseMessage() as never,
     });
     const { rerender } = renderHook(() => useRelayMessageHandler(deps));
-    await act(async () => { rerender(); });
+    await act(async () => { (rerender as () => void)(); });
 
     expect(deps.setMessages).toHaveBeenCalledWith(expect.any(Function));
     const updater = (deps.setMessages as jest.Mock).mock.calls[0][0];
@@ -128,7 +128,7 @@ describe('useRelayMessageHandler', () => {
       lastMessage: buildAgentResponseMessage({ is_complete: true }) as never,
     });
     const { rerender } = renderHook(() => useRelayMessageHandler(deps));
-    await act(async () => { rerender(); });
+    await act(async () => { (rerender as () => void)(); });
 
     expect(deps.setAgentState).toHaveBeenCalledWith('idle');
     expect(deps.setIsAgentThinking).toHaveBeenCalledWith(false);
@@ -140,7 +140,7 @@ describe('useRelayMessageHandler', () => {
       lastMessage: buildAgentResponseMessage({ is_complete: false }) as never,
     });
     const { rerender } = renderHook(() => useRelayMessageHandler(deps));
-    await act(async () => { rerender(); });
+    await act(async () => { (rerender as () => void)(); });
 
     expect(deps.setAgentState).not.toHaveBeenCalledWith('idle');
   });
@@ -151,7 +151,7 @@ describe('useRelayMessageHandler', () => {
       sessionId: 'session-x',
     });
     const { rerender } = renderHook(() => useRelayMessageHandler(deps));
-    await act(async () => { rerender(); });
+    await act(async () => { (rerender as () => void)(); });
 
     expect(mockSaveMessageToDb).toHaveBeenCalledWith(
       'session-x',
@@ -169,7 +169,7 @@ describe('useRelayMessageHandler', () => {
       sessionId: null,
     });
     const { rerender } = renderHook(() => useRelayMessageHandler(deps));
-    await act(async () => { rerender(); });
+    await act(async () => { (rerender as () => void)(); });
 
     expect(mockSaveMessageToDb).not.toHaveBeenCalled();
   });
@@ -188,7 +188,7 @@ describe('useRelayMessageHandler', () => {
       }) as never,
     });
     const { rerender } = renderHook(() => useRelayMessageHandler(deps));
-    await act(async () => { rerender(); });
+    await act(async () => { (rerender as () => void)(); });
 
     expect(mockDecryptMessage).toHaveBeenCalledWith('enc-data', 'nonce-val', 'machine-1');
     const updater = (deps.setMessages as jest.Mock).mock.calls[0][0];
@@ -206,7 +206,7 @@ describe('useRelayMessageHandler', () => {
       }) as never,
     });
     const { rerender } = renderHook(() => useRelayMessageHandler(deps));
-    await act(async () => { rerender(); });
+    await act(async () => { (rerender as () => void)(); });
 
     const updater = (deps.setMessages as jest.Mock).mock.calls[0][0];
     expect(updater([])[0].content[0].content).toBe('[Decryption failed]');
@@ -236,7 +236,7 @@ describe('useRelayMessageHandler', () => {
       } as never,
     });
     const { rerender } = renderHook(() => useRelayMessageHandler(deps));
-    await act(async () => { rerender(); });
+    await act(async () => { (rerender as () => void)(); });
 
     expect(deps.setPendingPermissions).toHaveBeenCalledWith(expect.any(Function));
     const permUpdater = (deps.setPendingPermissions as jest.Mock).mock.calls[0][0];
@@ -265,7 +265,7 @@ describe('useRelayMessageHandler', () => {
       } as never,
     });
     const { rerender } = renderHook(() => useRelayMessageHandler(deps));
-    await act(async () => { rerender(); });
+    await act(async () => { (rerender as () => void)(); });
 
     // Timer not fired yet
     expect(deps.setPendingPermissions).not.toHaveBeenCalled();
@@ -292,7 +292,7 @@ describe('useRelayMessageHandler', () => {
       } as never,
     });
     const { rerender } = renderHook(() => useRelayMessageHandler(deps));
-    await act(async () => { rerender(); });
+    await act(async () => { (rerender as () => void)(); });
 
     expect(deps.setAgentState).toHaveBeenCalledWith('thinking');
     expect(deps.setIsAgentThinking).toHaveBeenCalledWith(true);
@@ -308,7 +308,7 @@ describe('useRelayMessageHandler', () => {
       } as never,
     });
     const { rerender } = renderHook(() => useRelayMessageHandler(deps));
-    await act(async () => { rerender(); });
+    await act(async () => { (rerender as () => void)(); });
 
     expect(deps.setAgentState).toHaveBeenCalledWith('idle');
     expect(deps.setIsAgentThinking).toHaveBeenCalledWith(false);
@@ -325,7 +325,7 @@ describe('useRelayMessageHandler', () => {
       } as never,
     });
     const { rerender } = renderHook(() => useRelayMessageHandler(deps));
-    await act(async () => { rerender(); });
+    await act(async () => { (rerender as () => void)(); });
 
     expect(deps.setIsAgentThinking).toHaveBeenCalledWith(true);
   });

@@ -107,7 +107,7 @@ describe('useSubscriptionTier', () => {
     const chain = {
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
-      maybeSingle: jest.fn(() => new Promise(() => {})),
+      maybeSingle: jest.fn<any, any[]>(() => new Promise(() => {})),
     };
     mockFrom.mockReturnValue(chain);
 

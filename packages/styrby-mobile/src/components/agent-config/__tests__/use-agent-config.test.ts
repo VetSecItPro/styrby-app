@@ -31,7 +31,7 @@ jest.mock('react-native', () => ({
 const mockFetchAgentConfig = jest.fn();
 const mockInsertAgentConfig = jest.fn();
 const mockUpdateAgentConfig = jest.fn();
-const mockBuildRow = jest.fn(() => ({}));
+const mockBuildRow = jest.fn<any, any[]>(() => ({}));
 const mockMapRowToState = jest.fn();
 
 jest.mock('../agent-config-io', () => ({

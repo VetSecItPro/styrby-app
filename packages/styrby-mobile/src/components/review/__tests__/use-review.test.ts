@@ -23,7 +23,7 @@ jest.mock('@/lib/supabase', () => ({
   },
 }));
 
-const mockSendMessage = jest.fn(async () => {});
+const mockSendMessage = jest.fn<Promise<void>, any[]>(async () => {});
 jest.mock('@/hooks/useRelay', () => ({
   useRelay: () => ({ sendMessage: mockSendMessage }),
 }));
@@ -325,9 +325,11 @@ describe('useReview', () => {
       await result.current.submitDecision();
     });
 
-    const sentPayload = mockSendMessage.mock.calls[0][0];
+    const sentPayload = mockSendMessage.mock.calls[0]?.[0] as {
+      payload: { comments: { filePath: string; body: string }[] };
+    };
     const hasOverall = sentPayload.payload.comments.some(
-      (c: { filePath: string; body: string }) => c.filePath === '' && c.body === 'LGTM overall',
+      (c) => c.filePath === '' && c.body === 'LGTM overall',
     );
     expect(hasOverall).toBe(true);
   });

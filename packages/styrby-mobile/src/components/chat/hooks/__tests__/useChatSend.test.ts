@@ -28,12 +28,12 @@ jest.mock('@/lib/supabase', () => ({
 // Jest resolves jest.mock paths relative to the test file, so we use the @/ alias which
 // maps to src/ — same absolute destination as the source file's relative import.
 jest.mock('@/services/encryption', () => ({
-  encryptMessage: jest.fn(async () => ({ encrypted: 'enc-base64', nonce: 'nonce-base64' })),
+  encryptMessage: jest.fn<Promise<any>, any[]>(async () => ({ encrypted: 'enc-base64', nonce: 'nonce-base64' })),
 }));
 
 /** Capture createSession / saveMessageToDb calls for assertion. */
-const mockCreateSession = jest.fn(async () => 'session-abc');
-const mockSaveMessageToDb = jest.fn(async () => {});
+const mockCreateSession = jest.fn<Promise<any>, any[]>(async () => 'session-abc');
+const mockSaveMessageToDb = jest.fn<Promise<any>, any[]>(async () => {});
 
 jest.mock('../../chat-session', () => ({
   createSession: (...args: unknown[]) => mockCreateSession(...args),
@@ -70,7 +70,7 @@ function buildDeps(overrides: Partial<UseChatSendDeps> = {}): UseChatSendDeps {
     selectedAgent: 'claude',
     sessionId: null,
     pairingInfo: null,
-    sendMessage: jest.fn(async () => {}),
+    sendMessage: jest.fn<Promise<any>, any[]>(async () => {}),
     sessionCreationLockRef: { current: false },
     setMessages: jest.fn(),
     setInputText: jest.fn(),
@@ -299,7 +299,7 @@ describe('useChatSend', () => {
 
   it('appends an error message and resets state when sendMessage throws', async () => {
     const deps = buildDeps({
-      sendMessage: jest.fn(async () => { throw new Error('relay down'); }),
+      sendMessage: jest.fn<Promise<any>, any[]>(async () => { throw new Error('relay down'); }),
     });
     const { result } = renderHook(() => useChatSend(deps));
 
