@@ -41,6 +41,7 @@ Commands:
 
   Session
     start                   Start a coding session (same as bare styrby)
+    resume [sessionId]      Re-attach relay to an existing session (no new agent)
     stop                    Stop running daemon
     status                  Show connection and session status
     logs                    View daemon logs (--follow, --lines N)
@@ -135,6 +136,8 @@ Examples:
   Session Management
     styrby stop                         Stop running daemon
     styrby status                       Check connection and session state
+    styrby resume                       Re-attach relay to the most recent live session
+    styrby resume <sessionId>           Re-attach relay to a specific session
     styrby logs                         View daemon logs (last 50 lines)
     styrby logs -f                      Follow logs in real-time
     styrby logs -n 100                  View last 100 lines

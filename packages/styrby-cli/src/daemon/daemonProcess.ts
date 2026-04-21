@@ -266,6 +266,31 @@ function handleIpcCommand(rawMessage: string, conn: net.Socket): void {
         response = { success: true, data: { devices: relay ? relay.getConnectedDevices() : [] } };
         break;
 
+      case 'attach-relay': {
+        // WHY: resume does NOT re-spawn an agent. The daemon re-subscribes its
+        // RelayClient to the named session's channel so the mobile app can see
+        // the session as live again without a new agent process being launched.
+        // If the relay is not yet connected we still ACK success — the relay will
+        // pick up the session id on its next reconnect cycle.
+        const attachCmd = command as { type: 'attach-relay'; sessionId?: string };
+        if (!attachCmd.sessionId) {
+          response = { success: false, error: 'attach-relay: sessionId is required' };
+          break;
+        }
+        if (relay) {
+          // Re-connect relay, which re-broadcasts presence on the channel.
+          // The relay is already keyed on machine_id; a reconnect refreshes
+          // last_seen_at on the Supabase side through the presence heartbeat.
+          relay.scheduleReconnect(false, 0, 'attach-relay');
+        }
+        log('attach-relay: scheduling relay reconnect for session', attachCmd.sessionId);
+        response = {
+          success: true,
+          data: { attached: true, sessionId: attachCmd.sessionId },
+        };
+        break;
+      }
+
       default:
         response = { success: false, error: `Unknown command: ${command.type}` };
     }
