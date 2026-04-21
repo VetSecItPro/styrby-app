@@ -53,16 +53,19 @@ export * from './hooks/index.js';
 export * from './tokenizers/index.js';
 
 // Phase 2 — Team Tier (0.8.7 + 0.9.2).
-// Team governance types (DB-mirroring interfaces + Zod schemas + runtime
-// constant arrays). Safe to barrel: pure types/data, zero platform deps.
+// DB-mirror types (interfaces + Zod schemas + runtime constants). These
+// are the thin shape-of-table types used by CRUD API code. The policy
+// engine in `./team/` owns the canonical names `TeamPolicy` and
+// `ApprovalStatus` (richer engine-flavored variants); the DB variants are
+// prefixed `Db*` at the source to keep both accessible without collision.
 export * from './teams/index.js';
 // Tier-check utilities covering all six billing tiers including the team family.
 // Both web and mobile consume these so a gating decision can never disagree
 // across surfaces (SOC2 CC6.1).
 export * from './tiers/index.js';
 // Phase 2.1 — team governance runtime helpers (role matrix, approval chain
-// evaluator). Team TYPES live in `./teams/`; this module adds the behavioral
-// utilities consumed by CLI policyEngine + web admin + mobile push-approval.
+// evaluator) + the engine-flavored TeamPolicy/ApprovalStatus used by the
+// policy engine in CLI, web admin, and mobile push-approval.
 export * from './team/index.js';
 
 // WHY: The full pricing module is NOT re-exported from the barrel.
