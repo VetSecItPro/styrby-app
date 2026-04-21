@@ -198,13 +198,17 @@ describe('startOfflineReconnection', () => {
             const { handle } = createTestHandle({ healthCheck });
 
             // With real exponential backoff (5s + 10s delays with jitter),
-            // we need ~20s to reach attempt 3
-            await waitForReconnection(handle, 25000);
+            // we need ~20s to reach attempt 3. CI runners can be slow under
+            // load — the prior 25s budget flaked in CI (the 3rd retry missed
+            // its window by ~1-2s). Bumped to 35s in-test + 40s test timeout
+            // so we only fail if the reconnect logic is genuinely broken,
+            // not on CI scheduling jitter.
+            await waitForReconnection(handle, 35000);
 
             expect(attemptCount).toBe(3);
 
             handle.cancel();
-        }, 30000);
+        }, 40000);
     });
 
     describe('cancellation', () => {
