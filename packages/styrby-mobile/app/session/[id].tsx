@@ -23,7 +23,8 @@ import { SessionTagEditor } from '../../src/components/SessionTagEditor';
 import { ContextBreakdown } from '../../src/components/ContextBreakdown';
 import { SessionCheckpoints } from '../../src/components/SessionCheckpoints';
 import { formatCost } from '../../src/hooks/useCosts';
-import type { AgentType, SessionExport, SessionExportMetadata, SessionExportMessage, SessionExportCost } from 'styrby-shared';
+import type { AgentType, SessionExport, SessionExportMetadata, SessionExportMessage, SessionExportCost, BillingModel, CostSource } from 'styrby-shared';
+import { CostPill } from '../../src/components/costs/CostPill';
 
 // ============================================================================
 // Types
@@ -179,6 +180,17 @@ export default function SessionDetailScreen() {
   const [isExporting, setIsExporting] = useState(false);
 
   /**
+   * Billing model and source for the session's cost records.
+   * Derived from the most common billing_model in cost_records for this session.
+   * Defaults to 'api-key' / 'styrby-estimate' when data is unavailable.
+   */
+  const [sessionBillingModel, setSessionBillingModel] = useState<BillingModel>('api-key');
+  const [sessionCostSource, setSessionCostSource] = useState<CostSource>('styrby-estimate');
+  const [sessionSubscriptionFraction, setSessionSubscriptionFraction] = useState<number | null>(null);
+  const [sessionCreditsConsumed, setSessionCreditsConsumed] = useState<number | null>(null);
+  const [sessionCreditRateUsd, setSessionCreditRateUsd] = useState<number | null>(null);
+
+  /**
    * Share link state for session sharing (Phase 7.10).
    * Holds the generated URL and share ID after creation.
    */
@@ -223,6 +235,57 @@ export default function SessionDetailScreen() {
           .single();
 
         setUserTier((subscription?.tier as 'free' | 'pro' | 'power') || 'free');
+
+        // Fetch billing model metadata for this session's cost records.
+        // WHY: The sessions table stores total_cost_usd but not billing_model
+        // (which is a cost_records column from migration 022). We query a
+        // small subset of cost_records to determine the predominant billing model
+        // so the cost display can branch correctly ($ / quota / credits).
+        // We take the first row's billing_model since most sessions use one model.
+        const { data: billingData } = await supabase
+          .from('cost_records')
+          .select('billing_model, source, subscription_fraction_used, credits_consumed, credit_rate_usd')
+          .eq('session_id', id)
+          .limit(50);
+
+        if (billingData && billingData.length > 0) {
+          // Determine predominant billing model by counting occurrences
+          const modelCounts: Partial<Record<BillingModel, number>> = {};
+          let dominantSource: CostSource = 'styrby-estimate';
+          let totalSubFraction = 0;
+          let subCount = 0;
+          let totalCredits = 0;
+          let totalCreditRate = 0;
+          let creditCount = 0;
+
+          for (const row of billingData) {
+            const bm = (row.billing_model as BillingModel | null) ?? 'api-key';
+            modelCounts[bm] = (modelCounts[bm] ?? 0) + 1;
+
+            if (row.source === 'agent-reported') {
+              dominantSource = 'agent-reported';
+            }
+            if (bm === 'subscription' && row.subscription_fraction_used != null) {
+              totalSubFraction += Number(row.subscription_fraction_used) || 0;
+              subCount++;
+            }
+            if (bm === 'credit') {
+              totalCredits += Number(row.credits_consumed) || 0;
+              totalCreditRate += Number(row.credit_rate_usd) || 0;
+              creditCount++;
+            }
+          }
+
+          // Pick the billing model with the most records
+          const dominant = (Object.entries(modelCounts) as Array<[BillingModel, number]>)
+            .sort(([, a], [, b]) => b - a)[0]?.[0] ?? 'api-key';
+
+          setSessionBillingModel(dominant);
+          setSessionCostSource(dominantSource);
+          setSessionSubscriptionFraction(subCount > 0 ? totalSubFraction / subCount : null);
+          setSessionCreditsConsumed(totalCredits > 0 ? totalCredits : null);
+          setSessionCreditRateUsd(creditCount > 0 ? totalCreditRate / creditCount : null);
+        }
 
         // Fetch messages for replay if session is completed
         const isSessionComplete = ['stopped', 'error', 'expired'].includes(sessionData.status);
@@ -650,12 +713,20 @@ export default function SessionDetailScreen() {
           </Text>
 
           <View className="flex-row flex-wrap">
-            {/* Cost */}
+            {/* Cost — branched on billing model from migration 022 cost_records columns */}
             <View className="w-1/2 mb-4">
               <Text className="text-zinc-500 text-xs mb-1">Total Cost</Text>
-              <Text className="text-white text-lg font-semibold">
-                {formatCost(session.total_cost_usd)}
-              </Text>
+              <View className="flex-row items-center flex-wrap gap-1 mt-0.5">
+                <CostPill
+                  billingModel={sessionBillingModel}
+                  costUsd={session.total_cost_usd}
+                  subscriptionFractionUsed={sessionSubscriptionFraction}
+                  creditsConsumed={sessionCreditsConsumed}
+                  creditRateUsd={sessionCreditRateUsd}
+                  source={sessionCostSource}
+                  decimals={4}
+                />
+              </View>
             </View>
 
             {/* Duration */}
