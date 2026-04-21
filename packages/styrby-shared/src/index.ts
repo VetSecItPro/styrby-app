@@ -52,6 +52,11 @@ export * from './hooks/index.js';
 // when present, falls back to the words*1.3 heuristic everywhere else).
 export * from './tokenizers/index.js';
 
+// Phase 1.6.1 — unified cost report type for real LLM cost surfacing.
+// CostReport, CostReportSchema, BillingModel, CostSource, and supporting
+// constants are consumed by the CLI reporter and the web/mobile dashboards.
+export * from './cost/index.js';
+
 // Phase 2 — Team Tier (0.8.7 + 0.9.2).
 // DB-mirror types (interfaces + Zod schemas + runtime constants). These
 // are the thin shape-of-table types used by CRUD API code. The policy
