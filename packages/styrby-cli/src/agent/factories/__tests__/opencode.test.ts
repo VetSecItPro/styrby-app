@@ -926,3 +926,89 @@ describe('OpenCodeBackend — stderr handling', () => {
     await backend.dispose();
   });
 });
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Tests for the new cost-report event shape emitted by OpenCodeBackend.
+ *
+ * WHY: migration 022 adds billing_model / source / raw_agent_payload columns.
+ * These tests assert that cost-report events carry the correct shape so
+ * cost-reporter can persist them without data loss.
+ */
+describe('OpenCodeBackend — cost-report emission', () => {
+  it('emits cost-report with billingModel=api-key and source=agent-reported when session has Cost', async () => {
+    const { backend } = createOpenCodeBackend({ cwd: '/tmp/project', model: 'claude-sonnet-4' });
+    const { messages } = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+    const promptPromise = backend.sendPrompt(sessionId, 'go');
+
+    emitStdout(
+      JSON.stringify({
+        type: 'session',
+        session: {
+          id: 'oc-sess-abc',
+          Cost: 0.0055,
+          PromptTokens: 2000,
+          CompletionTokens: 400,
+          TotalTokens: 2400,
+        },
+      }),
+    );
+    setImmediate(() => closeProcess(0));
+    await promptPromise;
+
+    const reports = messages.filter((m: any) => m.type === 'cost-report');
+    expect(reports).toHaveLength(1);
+    const r = reports[0] as any;
+    expect(r.report.billingModel).toBe('api-key');
+    expect(r.report.source).toBe('agent-reported');
+    expect(r.report.agentType).toBe('opencode');
+    expect(r.report.inputTokens).toBe(2000);
+    expect(r.report.outputTokens).toBe(400);
+    expect(r.report.rawAgentPayload).toMatchObject({ id: 'oc-sess-abc', Cost: 0.0055 });
+    await backend.dispose();
+  });
+
+  it('does NOT emit cost-report when session event has no Cost field', async () => {
+    const { backend } = createOpenCodeBackend({ cwd: '/tmp/project' });
+    const { messages } = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+    const promptPromise = backend.sendPrompt(sessionId, 'go');
+
+    emitStdout(
+      JSON.stringify({
+        type: 'session',
+        session: { PromptTokens: 100, CompletionTokens: 50 },
+      }),
+    );
+    setImmediate(() => closeProcess(0));
+    await promptPromise;
+
+    const reports = messages.filter((m: any) => m.type === 'cost-report');
+    expect(reports).toHaveLength(0);
+    await backend.dispose();
+  });
+
+  it('cost-report timestamp is a valid ISO 8601 string', async () => {
+    const { backend } = createOpenCodeBackend({ cwd: '/tmp/project' });
+    const { messages } = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+    const promptPromise = backend.sendPrompt(sessionId, 'go');
+
+    emitStdout(
+      JSON.stringify({
+        type: 'session',
+        session: { Cost: 0.001, PromptTokens: 10, CompletionTokens: 5 },
+      }),
+    );
+    setImmediate(() => closeProcess(0));
+    await promptPromise;
+
+    const r = messages.find((m: any) => m.type === 'cost-report') as any;
+    expect(r).toBeDefined();
+    expect(() => new Date(r.report.timestamp)).not.toThrow();
+    expect(new Date(r.report.timestamp).toISOString()).toBe(r.report.timestamp);
+    await backend.dispose();
+  });
+});

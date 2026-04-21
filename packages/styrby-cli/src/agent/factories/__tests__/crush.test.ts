@@ -1037,3 +1037,70 @@ describe('CrushBackend — line buffer handling', () => {
     expect(textMessages).toHaveLength(1);
   });
 });
+
+// ===========================================================================
+// CrushBackend — cost-report emission
+// ===========================================================================
+
+/**
+ * Tests for the unified CostReport event added to Crush usage events.
+ *
+ * WHY: migration 022 requires billing_model / source / raw_agent_payload.
+ * Crush always emits agent-reported because its usage event always carries the
+ * full cost breakdown from the Sourcegraph backend.
+ */
+describe('CrushBackend — cost-report emission', () => {
+  it('emits cost-report with billingModel=api-key and source=agent-reported on usage event', async () => {
+    const { backend } = createCrushBackend({ ...BASE_OPTIONS, model: 'claude-sonnet-4' });
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [
+      crushUsage({
+        input_tokens: 1000,
+        output_tokens: 400,
+        cache_read_input_tokens: 60,
+        cache_creation_input_tokens: 20,
+        cost_usd: 0.018,
+      }),
+    ]);
+    await promptPromise;
+
+    const reports = messages.filter((m: any) => m.type === 'cost-report');
+    expect(reports.length).toBeGreaterThanOrEqual(1);
+    const r = reports[0] as any;
+    expect(r.report.billingModel).toBe('api-key');
+    expect(r.report.source).toBe('agent-reported');
+    expect(r.report.agentType).toBe('crush');
+    expect(r.report.inputTokens).toBe(1000);
+    expect(r.report.outputTokens).toBe(400);
+    expect(r.report.cacheReadTokens).toBe(60);
+    expect(r.report.cacheWriteTokens).toBe(20);
+    expect(r.report.rawAgentPayload).not.toBeNull();
+  });
+
+  it('emits one cost-report per usage event with per-event incremental token counts', async () => {
+    const { backend } = createCrushBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [
+      crushUsage({ input_tokens: 200, output_tokens: 80, cost_usd: 0.002 }),
+      crushUsage({ input_tokens: 300, output_tokens: 120, cost_usd: 0.003 }),
+    ]);
+    await promptPromise;
+
+    const reports = messages.filter((m: any) => m.type === 'cost-report');
+    // WHY: Each cost-report carries the incremental tokens from a single usage
+    // event, not session-accumulated totals. The cost-reporter sums them server-side.
+    expect(reports.length).toBe(2);
+    const r1 = reports[0] as any;
+    expect(r1.report.inputTokens).toBe(200);
+    expect(r1.report.outputTokens).toBe(80);
+    const r2 = reports[1] as any;
+    expect(r2.report.inputTokens).toBe(300);
+    expect(r2.report.outputTokens).toBe(120);
+  });
+});

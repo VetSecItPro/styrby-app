@@ -39,6 +39,7 @@ import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
+import type { CostReport } from '@styrby/shared/cost';
 
 // ============================================================================
 // Types
@@ -274,12 +275,14 @@ class GooseBackend extends StreamingAgentBackendBase {
         // WHY: Goose emits a cost event after each model response with MCP usage data.
         // We accumulate these across the session for accurate total cost reporting.
         if (event.usage) {
+          const prevCostUsd = this.totalCostUsd;
           this.inputTokens += event.usage.input_tokens ?? 0;
           this.outputTokens += event.usage.output_tokens ?? 0;
           this.cacheReadTokens += event.usage.cache_read_input_tokens ?? 0;
           this.cacheWriteTokens += event.usage.cache_creation_input_tokens ?? 0;
           this.totalCostUsd += event.usage.cost_usd ?? 0;
 
+          // Emit legacy token-count (keep for existing consumers)
           this.emit({
             type: 'token-count',
             inputTokens: this.inputTokens,
@@ -288,6 +291,28 @@ class GooseBackend extends StreamingAgentBackendBase {
             cacheWriteTokens: this.cacheWriteTokens,
             costUsd: this.totalCostUsd,
           });
+
+          // WHY: Emit unified CostReport for the cost-reporter to persist.
+          // source='agent-reported' when Goose provides cost_usd; otherwise
+          // 'styrby-estimate' since we don't have a fallback estimator here.
+          // rawAgentPayload=null for estimates (schema refinement 3 requirement).
+          const hasAgentCost = event.usage.cost_usd !== undefined;
+          const costReport: CostReport = {
+            sessionId: this.sessionId ?? '',
+            messageId: null,
+            agentType: 'goose',
+            model: this.options.model ?? 'unknown',
+            timestamp: new Date().toISOString(),
+            source: hasAgentCost ? 'agent-reported' : 'styrby-estimate',
+            billingModel: 'api-key',
+            costUsd: this.totalCostUsd - prevCostUsd, // incremental cost for this event
+            inputTokens: event.usage.input_tokens ?? 0,
+            outputTokens: event.usage.output_tokens ?? 0,
+            cacheReadTokens: event.usage.cache_read_input_tokens ?? 0,
+            cacheWriteTokens: event.usage.cache_creation_input_tokens ?? 0,
+            rawAgentPayload: hasAgentCost ? (event.usage as unknown as Record<string, unknown>) : null,
+          };
+          this.emit({ type: 'cost-report', report: costReport } as any);
         }
         break;
 

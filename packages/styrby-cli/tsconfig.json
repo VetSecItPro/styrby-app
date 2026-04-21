@@ -25,7 +25,8 @@
     "paths": {
       "@/*": ["./*"],
       "styrby-shared": ["../../styrby-shared/dist"],
-      "@styrby/shared/pricing": ["../../styrby-shared/dist/pricing/index"]
+      "@styrby/shared/pricing": ["../../styrby-shared/dist/pricing/index"],
+      "@styrby/shared/cost": ["../../styrby-shared/dist/cost/index"]
     }
   },
   "include": ["src/**/*"],

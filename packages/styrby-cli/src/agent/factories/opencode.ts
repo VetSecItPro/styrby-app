@@ -26,6 +26,7 @@ import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
+import type { CostReport } from '@styrby/shared/cost';
 
 /**
  * Options for creating an OpenCode backend
@@ -240,7 +241,7 @@ class OpenCodeBackend extends StreamingAgentBackendBase {
             this.outputTokens = session.CompletionTokens;
           }
 
-          // Emit token count update
+          // Emit legacy token-count (keep for existing consumers)
           this.emit({
             type: 'token-count',
             inputTokens: this.inputTokens,
@@ -248,6 +249,30 @@ class OpenCodeBackend extends StreamingAgentBackendBase {
             totalTokens: session.TotalTokens ?? this.inputTokens + this.outputTokens,
             costUsd: this.totalCost,
           });
+
+          // WHY: Emit unified CostReport alongside token-count so cost-reporter
+          // can persist the full source-of-truth shape to cost_records (migration 022).
+          // source='agent-reported' because OpenCode's session event carries Cost
+          // directly from the agent. rawAgentPayload preserves the session JSON for
+          // SOC2 CC7.2 audit trail.
+          if (session.Cost !== undefined) {
+            const costReport: CostReport = {
+              sessionId: this.sessionId ?? '',
+              messageId: null,
+              agentType: 'opencode',
+              model: this.options.model ?? 'unknown',
+              timestamp: new Date().toISOString(),
+              source: 'agent-reported',
+              billingModel: 'api-key',
+              costUsd: this.totalCost,
+              inputTokens: this.inputTokens,
+              outputTokens: this.outputTokens,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              rawAgentPayload: session as unknown as Record<string, unknown>,
+            };
+            this.emit({ type: 'cost-report', report: costReport } as any);
+          }
         }
         break;
 

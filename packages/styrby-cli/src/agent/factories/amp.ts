@@ -35,6 +35,7 @@ import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
+import type { CostReport } from '@styrby/shared/cost';
 
 // ============================================================================
 // Types
@@ -349,12 +350,19 @@ class AmpBackend extends StreamingAgentBackendBase {
         // per-sub-agent usage in deep mode). We accumulate all usage so
         // the total token count reflects the full cost of the deep analysis.
         if (msg.usage) {
-          this.inputTokens += msg.usage.input_tokens ?? 0;
-          this.outputTokens += msg.usage.output_tokens ?? 0;
-          this.cacheReadTokens += msg.usage.cache_read_tokens ?? 0;
-          this.cacheWriteTokens += msg.usage.cache_write_tokens ?? 0;
-          this.totalCostUsd += msg.usage.cost_usd ?? 0;
+          const incrInput = msg.usage.input_tokens ?? 0;
+          const incrOutput = msg.usage.output_tokens ?? 0;
+          const incrCacheRead = msg.usage.cache_read_tokens ?? 0;
+          const incrCacheWrite = msg.usage.cache_write_tokens ?? 0;
+          const incrCost = msg.usage.cost_usd ?? 0;
 
+          this.inputTokens += incrInput;
+          this.outputTokens += incrOutput;
+          this.cacheReadTokens += incrCacheRead;
+          this.cacheWriteTokens += incrCacheWrite;
+          this.totalCostUsd += incrCost;
+
+          // Emit legacy token-count (keep for existing consumers)
           this.emit({
             type: 'token-count',
             inputTokens: this.inputTokens,
@@ -365,6 +373,30 @@ class AmpBackend extends StreamingAgentBackendBase {
             // Include sub-agent attribution for deep mode cost visibility
             subAgentId: msg.usage.sub_agent_id,
           });
+
+          // WHY: Emit unified CostReport for cost-reporter. Amp always reports
+          // agent-provided cost_usd. Include sub_agent_id in rawAgentPayload so
+          // deep-mode attribution is preserved in the audit trail.
+          const rawPayload: Record<string, unknown> = { ...(msg.usage as unknown as Record<string, unknown>) };
+          if (msg.usage.sub_agent_id) {
+            rawPayload.sub_agent_id = msg.usage.sub_agent_id;
+          }
+          const costReport: CostReport = {
+            sessionId: this.sessionId ?? '',
+            messageId: null,
+            agentType: 'amp',
+            model: this.options.model ?? 'unknown',
+            timestamp: new Date().toISOString(),
+            source: 'agent-reported',
+            billingModel: 'api-key',
+            costUsd: incrCost,
+            inputTokens: incrInput,
+            outputTokens: incrOutput,
+            cacheReadTokens: incrCacheRead,
+            cacheWriteTokens: incrCacheWrite,
+            rawAgentPayload: rawPayload,
+          };
+          this.emit({ type: 'cost-report', report: costReport } as any);
         }
         break;
 

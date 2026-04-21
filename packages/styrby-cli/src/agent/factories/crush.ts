@@ -34,6 +34,7 @@ import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
+import type { CostReport } from '@styrby/shared/cost';
 
 // ============================================================================
 // Types
@@ -299,12 +300,19 @@ class CrushBackend extends StreamingAgentBackendBase {
         // WHY: Crush emits a usage event after each model turn with ACP usage data.
         // We accumulate across the session so the mobile app shows a running total.
         if (event.usage) {
-          this.inputTokens += event.usage.input_tokens ?? 0;
-          this.outputTokens += event.usage.output_tokens ?? 0;
-          this.cacheReadTokens += event.usage.cache_read_input_tokens ?? 0;
-          this.cacheWriteTokens += event.usage.cache_creation_input_tokens ?? 0;
-          this.totalCostUsd += event.usage.cost_usd ?? 0;
+          const incrInput = event.usage.input_tokens ?? 0;
+          const incrOutput = event.usage.output_tokens ?? 0;
+          const incrCacheRead = event.usage.cache_read_input_tokens ?? 0;
+          const incrCacheWrite = event.usage.cache_creation_input_tokens ?? 0;
+          const incrCost = event.usage.cost_usd ?? 0;
 
+          this.inputTokens += incrInput;
+          this.outputTokens += incrOutput;
+          this.cacheReadTokens += incrCacheRead;
+          this.cacheWriteTokens += incrCacheWrite;
+          this.totalCostUsd += incrCost;
+
+          // Emit legacy token-count (keep for existing consumers)
           this.emit({
             type: 'token-count',
             inputTokens: this.inputTokens,
@@ -313,6 +321,25 @@ class CrushBackend extends StreamingAgentBackendBase {
             cacheWriteTokens: this.cacheWriteTokens,
             costUsd: this.totalCostUsd,
           });
+
+          // WHY: Emit unified CostReport. Crush always reports agent-provided
+          // cost_usd via ACP, so source is always 'agent-reported'.
+          const costReport: CostReport = {
+            sessionId: this.sessionId ?? '',
+            messageId: null,
+            agentType: 'crush',
+            model: this.options.model ?? 'unknown',
+            timestamp: new Date().toISOString(),
+            source: 'agent-reported',
+            billingModel: 'api-key',
+            costUsd: incrCost,
+            inputTokens: incrInput,
+            outputTokens: incrOutput,
+            cacheReadTokens: incrCacheRead,
+            cacheWriteTokens: incrCacheWrite,
+            rawAgentPayload: event.usage as unknown as Record<string, unknown>,
+          };
+          this.emit({ type: 'cost-report', report: costReport } as any);
         }
         break;
 
