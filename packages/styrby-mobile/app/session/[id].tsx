@@ -11,7 +11,7 @@
  * @route /session/:id
  */
 
-import { View, Text, ScrollView, Pressable, ActivityIndicator, Share, Alert } from 'react-native';
+import { View, Text, ScrollView, Pressable, ActivityIndicator, Share, Alert, Modal } from 'react-native';
 import { useLocalSearchParams, Stack, router } from 'expo-router';
 import { useEffect, useState, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,6 +25,8 @@ import { SessionCheckpoints } from '../../src/components/SessionCheckpoints';
 import { formatCost } from '../../src/hooks/useCosts';
 import type { AgentType, SessionExport, SessionExportMetadata, SessionExportMessage, SessionExportCost, BillingModel, CostSource } from 'styrby-shared';
 import { CostPill } from '../../src/components/costs/CostPill';
+import { useSessionConnectionState } from '../../src/hooks/useSessionConnectionState';
+import { ConnectionStatePill } from '../../src/components/sessions/ConnectionStateBadge';
 
 // ============================================================================
 // Types
@@ -199,6 +201,26 @@ export default function SessionDetailScreen() {
   // read it without re-fetching.
   const [_shareUrl, setShareUrl] = useState<string | null>(null);
   const [isSharing, setIsSharing] = useState(false);
+
+  /**
+   * Connection detail modal visibility.
+   * WHY: Tapping the ConnectionStatePill expands to show last_seen_at and
+   * connection details in a lightweight bottom-sheet-style modal rather
+   * than a separate screen.
+   */
+  const [isConnectionDetailVisible, setIsConnectionDetailVisible] = useState(false);
+
+  /**
+   * Daemon connection state for this session.
+   * WHY: We always mount the hook (React rules), but the UI only surfaces
+   * the badge for active sessions.  For completed sessions the daemon is
+   * always offline and the session status badge already conveys that.
+   */
+  const {
+    status: connectionStatus,
+    lastSeenAt: connectionLastSeenAt,
+    attempt: connectionAttempt,
+  } = useSessionConnectionState(id ?? '');
 
   // Fetch session data on mount
   useEffect(() => {
@@ -528,6 +550,15 @@ export default function SessionDetailScreen() {
     }
   }, [session]);
 
+  /**
+   * Whether the session is currently active (daemon may be running).
+   * WHY: The connection badge is only meaningful for active sessions; we
+   * hide it for completed/error/expired sessions to avoid noise.
+   */
+  const isActiveSession = session
+    ? ['starting', 'running', 'idle', 'paused'].includes(session.status)
+    : false;
+
   // Calculate derived values
   const agentConfig = session ? AGENT_CONFIG[session.agent_type] || { name: session.agent_type, color: '#71717a' } : null;
   const statusConfig = session ? STATUS_CONFIG[session.status] || { label: session.status, color: '#71717a' } : null;
@@ -689,6 +720,19 @@ export default function SessionDetailScreen() {
                 {statusConfig?.label}
               </Text>
             </View>
+
+            {/* Daemon connection badge — only shown for active sessions.
+                WHY: For completed sessions the daemon is always offline;
+                showing an "Offline" badge on a "Completed" session is
+                misleading rather than informative. */}
+            {isActiveSession && connectionStatus !== 'unknown' && (
+              <ConnectionStatePill
+                status={connectionStatus}
+                lastSeenAt={connectionLastSeenAt}
+                attempt={connectionAttempt}
+                onPress={() => setIsConnectionDetailVisible(true)}
+              />
+            )}
           </View>
         </View>
 
@@ -916,6 +960,93 @@ export default function SessionDetailScreen() {
           </Pressable>
         </View>
       </ScrollView>
+
+      {/* Connection Detail Modal
+          WHY: A lightweight modal gives the user last_seen_at and status
+          context without navigating away from the session detail screen.
+          We use a full-screen transparent overlay with a bottom sheet feel
+          rather than an external dependency. */}
+      <Modal
+        visible={isConnectionDetailVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsConnectionDetailVisible(false)}
+        accessibilityViewIsModal
+      >
+        <Pressable
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }}
+          onPress={() => setIsConnectionDetailVisible(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Close connection details"
+        >
+          {/* Bottom sheet — inner Pressable prevents tap propagation */}
+          <Pressable
+            style={{
+              backgroundColor: '#18181b',
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              padding: 24,
+              paddingBottom: 40,
+            }}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Text style={{ color: '#f4f4f5', fontSize: 16, fontWeight: '700', marginBottom: 16 }}>
+              Connection Details
+            </Text>
+
+            {/* Status row */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text style={{ color: '#71717a', fontSize: 14 }}>Status</Text>
+              <ConnectionStatePill
+                status={connectionStatus}
+                lastSeenAt={connectionLastSeenAt}
+                attempt={connectionAttempt}
+              />
+            </View>
+
+            {/* Last seen row */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text style={{ color: '#71717a', fontSize: 14 }}>Last seen</Text>
+              <Text style={{ color: '#a1a1aa', fontSize: 14 }}>
+                {connectionLastSeenAt
+                  ? connectionLastSeenAt.toLocaleString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    })
+                  : 'Unknown'}
+              </Text>
+            </View>
+
+            {/* Attempt row (reconnecting only) */}
+            {connectionStatus === 'reconnecting' && connectionAttempt !== undefined && (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                <Text style={{ color: '#71717a', fontSize: 14 }}>Reconnect attempt</Text>
+                <Text style={{ color: '#fbbf24', fontSize: 14, fontWeight: '600' }}>
+                  {connectionAttempt}
+                </Text>
+              </View>
+            )}
+
+            <Pressable
+              onPress={() => setIsConnectionDetailVisible(false)}
+              style={{
+                marginTop: 8,
+                backgroundColor: '#27272a',
+                borderRadius: 12,
+                paddingVertical: 14,
+                alignItems: 'center',
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+            >
+              <Text style={{ color: '#f4f4f5', fontWeight: '600' }}>Close</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </>
   );
 }

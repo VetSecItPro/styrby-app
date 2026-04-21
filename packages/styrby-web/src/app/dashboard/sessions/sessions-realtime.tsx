@@ -30,6 +30,11 @@ interface Session {
   summary: string | null;
   /** User-applied tags */
   tags: string[] | null;
+  /**
+   * ISO 8601 timestamp of the last relay daemon heartbeat (PR #115).
+   * Null for older sessions before the relay started writing this column.
+   */
+  last_seen_at: string | null;
 }
 
 /**

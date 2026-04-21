@@ -31,3 +31,8 @@ export {
   DATE_RANGE_CHIPS,
   getAgentConfig,
 } from './constants';
+export { ConnectionStatePill, ConnectionStateDot } from './ConnectionStateBadge';
+export type {
+  ConnectionStatePillProps,
+  ConnectionStateDotProps,
+} from './ConnectionStateBadge';

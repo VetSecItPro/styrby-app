@@ -55,7 +55,7 @@ export default async function SessionsPage() {
   const [sessionsResult, bookmarksResult, teamCountResult] = await Promise.all([
     supabase
       .from('sessions')
-      .select('id, title, agent_type, status, total_cost_usd, message_count, created_at, summary, tags')
+      .select('id, title, agent_type, status, total_cost_usd, message_count, created_at, summary, tags, last_seen_at')
       .eq('user_id', user.id)
       .is('deleted_at', null)
       .order('created_at', { ascending: false })

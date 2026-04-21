@@ -20,6 +20,7 @@ import { SessionExportButton } from './session-export-button';
 import { SessionShareButton } from './session-share-button';
 import { SessionCheckpoints } from './session-checkpoints';
 import { SessionBookmarkButton } from './session-bookmark-button';
+import { SessionConnectionBadge } from '@/components/sessions/SessionConnectionBadge';
 
 /**
  * Props for the session detail page.
@@ -172,6 +173,25 @@ export default async function SessionPage({ params }: SessionPageProps) {
                   />
                   {session.status}
                 </span>
+
+                {/* Daemon connection badge — active sessions only.
+                    WHY: The server component can compute connection state
+                    directly from last_seen_at without a client round-trip.
+                    For active sessions the badge gives real-time insight; for
+                    completed sessions it would always show "Offline" which is
+                    uninformative noise. */}
+                {isSessionActive && (
+                  <SessionConnectionBadge
+                    status={
+                      (session as { last_seen_at?: string | null }).last_seen_at
+                        ? Date.now() - new Date((session as { last_seen_at: string }).last_seen_at).getTime() > 60_000
+                          ? 'offline'
+                          : 'connected'
+                        : 'unknown'
+                    }
+                    lastSeenAt={(session as { last_seen_at?: string | null }).last_seen_at ?? null}
+                  />
+                )}
 
                 <span>
                   Started{' '}

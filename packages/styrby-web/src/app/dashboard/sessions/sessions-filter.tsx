@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { SessionBookmarkButton } from './[id]/session-bookmark-button';
+import { SessionConnectionBadge } from '@/components/sessions/SessionConnectionBadge';
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -26,6 +27,11 @@ interface Session {
   summary: string | null;
   /** User-applied tags */
   tags: string[] | null;
+  /**
+   * ISO 8601 timestamp of the last relay daemon heartbeat (PR #115).
+   * Used to compute daemon connection state for active sessions.
+   */
+  last_seen_at: string | null;
 }
 
 interface SessionsFilterProps {
@@ -385,7 +391,7 @@ export function SessionsFilter({
         const supabase = createClient();
         const { data } = await supabase
           .from('sessions')
-          .select('id, title, agent_type, status, total_cost_usd, message_count, created_at, summary, tags')
+          .select('id, title, agent_type, status, total_cost_usd, message_count, created_at, summary, tags, last_seen_at')
           .is('deleted_at', null)
           .not('team_id', 'is', null)
           .order('created_at', { ascending: false })
@@ -423,7 +429,7 @@ export function SessionsFilter({
       const supabase = createClient();
       let query = supabase
         .from('sessions')
-        .select('id, title, agent_type, status, total_cost_usd, message_count, created_at, summary, tags')
+        .select('id, title, agent_type, status, total_cost_usd, message_count, created_at, summary, tags, last_seen_at')
         .is('deleted_at', null)
         .order('created_at', { ascending: false })
         .range(allSessions.length, allSessions.length + PAGE_SIZE - 1);
@@ -732,6 +738,23 @@ export function SessionsFilter({
                                 ? 'Idle'
                                 : 'Ended'}
                           </span>
+
+                          {/* Daemon connection badge — only for active sessions.
+                              WHY: Completed sessions are always offline from the
+                              daemon perspective; showing "Offline" next to "Ended"
+                              is redundant and adds visual noise. */}
+                          {['starting', 'running', 'idle', 'paused'].includes(session.status) && (
+                            <SessionConnectionBadge
+                              status={
+                                session.last_seen_at
+                                  ? Date.now() - new Date(session.last_seen_at).getTime() > 60_000
+                                    ? 'offline'
+                                    : 'connected'
+                                  : 'unknown'
+                              }
+                              lastSeenAt={session.last_seen_at}
+                            />
+                          )}
 
                           {/* Tags */}
                           {session.tags &&

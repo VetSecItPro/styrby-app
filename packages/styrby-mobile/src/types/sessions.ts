@@ -7,6 +7,7 @@
  */
 
 import type { SessionRow } from '../hooks/useSessions';
+import type { ConnectionStatus } from '../hooks/useSessionConnectionState';
 
 /**
  * Section shape for the SectionList. Each section contains a date label,
@@ -37,4 +38,12 @@ export interface SessionCardProps {
   bookmarkError: string | undefined;
   /** Callback fired when the bookmark star is tapped */
   onBookmarkPress: (sessionId: string) => void;
+  /**
+   * Optional daemon connection status for the session.
+   * When provided, a small dot indicator is rendered in the badges row.
+   * Only meaningful for active sessions (starting/running/idle/paused).
+   */
+  connectionStatus?: ConnectionStatus;
+  /** Last time the daemon sent a heartbeat (shown for offline sessions). */
+  connectionLastSeenAt?: Date | null;
 }

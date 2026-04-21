@@ -2,9 +2,8 @@
  * SessionCard — single row in the sessions list.
  *
  * Displays the agent icon, title, status badge, cost, relative timestamp,
- * the first line of the AI-generated summary, and a bookmark star icon.
- * Tapping the card triggers navigation; tapping the star toggles the
- * bookmark state without navigating.
+ * the first line of the AI-generated summary, a bookmark star icon, and
+ * (when available) a small daemon connection-state dot.
  *
  * WHY: Extracted from sessions.tsx so the orchestrator stays under 400
  * LOC and so this presentational unit can be unit-tested independently.
@@ -20,6 +19,7 @@ import {
   STATUS_COLORS,
   STATUS_LABELS,
 } from './constants';
+import { ConnectionStateDot } from './ConnectionStateBadge';
 
 /**
  * A single session list item — see module doc.
@@ -33,6 +33,8 @@ export function SessionCard({
   isTogglingBookmark,
   bookmarkError,
   onBookmarkPress,
+  connectionStatus,
+  connectionLastSeenAt,
 }: SessionCardProps) {
   const agentConfig = getAgentConfig(session.agent_type);
   const statusColor = STATUS_COLORS[session.status] ?? '#71717a';
@@ -150,6 +152,19 @@ export function SessionCard({
             <Text className="text-zinc-500 text-xs">
               {session.message_count} msg{session.message_count !== 1 ? 's' : ''}
             </Text>
+
+            {/* Daemon connection dot — shown only when connection state is known.
+                WHY: The dot is additive context for active sessions; we do not
+                render it for completed sessions where the daemon is always offline
+                and the status badge already conveys that. */}
+            {connectionStatus && connectionStatus !== 'unknown' && (
+              <View style={{ marginLeft: 6 }}>
+                <ConnectionStateDot
+                  status={connectionStatus}
+                  lastSeenAt={connectionLastSeenAt ?? null}
+                />
+              </View>
+            )}
           </View>
         </View>
       </View>
