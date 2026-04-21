@@ -21,6 +21,13 @@
  */
 import * as Sentry from '@sentry/nextjs';
 
+/**
+ * STYRBY_SENTRY_MUTED — emergency kill switch for the edge runtime.
+ * Set to 'true' in Vercel env vars + redeploy to silence the SDK without
+ * a code change when notifications are spamming the founder inbox.
+ */
+const isMuted = process.env.STYRBY_SENTRY_MUTED === 'true';
+
 Sentry.init({
   /**
    * SENTRY_DSN — Server-only DSN for the edge runtime (same key as server config).
@@ -46,9 +53,8 @@ Sentry.init({
   environment: process.env.NODE_ENV,
 
   /**
-   * Only report errors in production builds.
-   * WHY: Local middleware errors appear in the Next.js dev server terminal.
-   * Routing them to Sentry would create noise in the production dashboard.
+   * Only report errors in production builds AND when the mute kill switch
+   * is not engaged. See `STYRBY_SENTRY_MUTED` doc at the top of this file.
    */
-  enabled: process.env.NODE_ENV === 'production',
+  enabled: process.env.NODE_ENV === 'production' && !isMuted,
 });
