@@ -1228,4 +1228,79 @@ describe('Offline Queue Service', () => {
       expect(mod.offlineQueue).toBeInstanceOf(SQLiteOfflineQueue);
     });
   });
+
+  // ==========================================================================
+  // GAP-FILL: additional uncovered branches
+  // ==========================================================================
+
+  describe('enqueue() — all EnqueueOptions fields forwarded', () => {
+    it('passes priority, ttl, and maxAttempts to createQueuedCommand', async () => {
+      const message = createTestMessage('opts-test');
+      const opts = { priority: 99, ttl: 10000, maxAttempts: 5 };
+      const futureDate = new Date(Date.now() + 10000).toISOString();
+      const mockCmd = createMockQueuedCommand(message, {
+        priority: 99, maxAttempts: 5, expiresAt: futureDate,
+      });
+      mockCreateQueuedCommand.mockReturnValueOnce(mockCmd);
+
+      const result = await queue.enqueue(message, opts);
+
+      expect(mockCreateQueuedCommand).toHaveBeenCalledWith(message, opts);
+      expect(result.priority).toBe(99);
+      expect(result.maxAttempts).toBe(5);
+    });
+  });
+
+  describe('clearAll() — empty queue', () => {
+    it('resolves without error when queue is already empty', async () => {
+      // mockRows is already empty (cleared in beforeEach)
+      await expect(queue.clearAll()).resolves.toBeUndefined();
+
+      expect(mockRunAsync).toHaveBeenCalledWith(
+        expect.stringContaining('DELETE FROM command_queue')
+      );
+    });
+  });
+
+  describe('processQueue() — sequential drain of all pending items', () => {
+    it('calls sendFn for every item until queue is empty', async () => {
+      const futureDate = new Date(Date.now() + 60000).toISOString();
+      const now = new Date().toISOString();
+
+      // Seed 3 pending rows with distinct IDs
+      const rowIds = ['drain_1', 'drain_2', 'drain_3'];
+      for (const rid of rowIds) {
+        mockRows.set(rid, {
+          id: rid,
+          message: JSON.stringify(createTestMessage(rid)),
+          status: 'pending',
+          attempts: 0,
+          max_attempts: 3,
+          created_at: now,
+          expires_at: futureDate,
+          priority: 0,
+          last_attempt_at: null,
+          last_error: null,
+        });
+      }
+
+      // Simulate dequeue returning each row once then null
+      let dequeueIdx = 0;
+      mockGetFirstAsync.mockImplementation(async (sql: string) => {
+        if (sql.includes("status = 'pending'") && sql.includes('LIMIT 1')) {
+          if (dequeueIdx < rowIds.length) {
+            return { ...mockRows.get(rowIds[dequeueIdx++]) };
+          }
+          return null;
+        }
+        // markFailed lookup by id — not called here since sendFn succeeds
+        return null;
+      });
+
+      const sentMessages: unknown[] = [];
+      await queue.processQueue(async (msg) => { sentMessages.push(msg); });
+
+      expect(sentMessages).toHaveLength(3);
+    });
+  });
 });

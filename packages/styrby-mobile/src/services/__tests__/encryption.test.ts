@@ -551,4 +551,37 @@ describe('Encryption Service', () => {
       expect(supabase.from).toHaveBeenCalledWith('machine_keys');
     });
   });
+
+  // ==========================================================================
+  // GAP-FILL: additional uncovered branches
+  // ==========================================================================
+
+  describe('getOrCreateKeyPair() — SecureStore write failure', () => {
+    it('throws if SecureStore.setItemAsync fails during keypair generation', async () => {
+      // No stored keypair → will call generateKeyPair then setItemAsync
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
+      (SecureStore.setItemAsync as jest.Mock).mockRejectedValueOnce(
+        new Error('Keychain unavailable')
+      );
+
+      await expect(getOrCreateKeyPair()).rejects.toThrow('Keychain unavailable');
+    });
+  });
+
+  describe('getRecipientPublicKey() — row exists but public_key is null', () => {
+    it('throws "No public key found" when machine_keys row has public_key = null', async () => {
+      (supabase.from as jest.Mock).mockReturnValueOnce({
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn().mockResolvedValueOnce({
+          data: { public_key: null }, // row exists, field is null
+          error: null,
+        }),
+      });
+
+      await expect(getRecipientPublicKey('machine-null-key')).rejects.toThrow(
+        'No public key found for machine machine-null-key'
+      );
+    });
+  });
 });

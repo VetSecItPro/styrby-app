@@ -368,4 +368,69 @@ describe('Notifications Service', () => {
       expect(await getLastNotificationResponse()).toBeNull();
     });
   });
+
+  // ==========================================================================
+  // GAP-FILL: additional uncovered branches
+  // ==========================================================================
+
+  describe('registerForPushNotifications() — Android channels', () => {
+    it('calls setNotificationChannelAsync for default and permissions channels on android', async () => {
+      // WHY: react-native Platform.OS is mocked as 'ios' in jest.setup.js.
+      // We override Platform to android for this single test without re-importing
+      // the module (the notifications module reads Platform.OS at call time,
+      // not at module initialization time).
+      const RN = require('react-native');
+      const originalOS = RN.Platform.OS;
+      RN.Platform.OS = 'android';
+
+      (Notifications.getPermissionsAsync as jest.Mock).mockResolvedValueOnce({
+        status: 'granted',
+      });
+      (Notifications.getExpoPushTokenAsync as jest.Mock).mockResolvedValueOnce({
+        data: 'ExponentPushToken[android-gap]',
+      });
+
+      const result = await registerForPushNotifications();
+
+      // Restore Platform.OS so other tests are unaffected
+      RN.Platform.OS = originalOS;
+
+      expect(Notifications.setNotificationChannelAsync).toHaveBeenCalledWith(
+        'default',
+        expect.objectContaining({ name: 'Default' })
+      );
+      expect(Notifications.setNotificationChannelAsync).toHaveBeenCalledWith(
+        'permissions',
+        expect.objectContaining({ name: 'Permission Requests' })
+      );
+      expect(result).toBe('ExponentPushToken[android-gap]');
+    });
+  });
+
+  describe('registerForPushNotifications() — non-physical device', () => {
+    it('returns null when Device.isDevice is false', async () => {
+      // WHY: We mock the expo-device module directly so all importers of
+      // 'expo-device' see isDevice: false for this test. The module-level
+      // mock registered in jest.setup.js is replaced via jest.resetModules
+      // + re-import within this test.
+      //
+      // Because the notifications module is already imported at the top of
+      // this test file (before any per-test mock overrides), we cannot use
+      // isolateModules without --experimental-vm-modules. Instead we rely on
+      // the fact that notifications.ts reads `Device.isDevice` at call time
+      // from its imported reference. We mutate the mock object directly.
+      const DeviceMod = require('expo-device');
+      const original = DeviceMod.isDevice;
+      DeviceMod.isDevice = false;
+
+      const result = await registerForPushNotifications();
+
+      // Restore before assertions to avoid state leak
+      DeviceMod.isDevice = original;
+
+      // WHY: When isDevice is false, the function returns null immediately
+      // before touching Notifications APIs. Result must be null.
+      expect(result).toBeNull();
+    });
+  });
 });

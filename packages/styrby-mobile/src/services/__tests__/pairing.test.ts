@@ -389,4 +389,64 @@ describe('pairing service', () => {
       expect(result).toBeNull();
     });
   });
+
+  // ==========================================================================
+  // GAP-FILL: additional uncovered branches
+  // ==========================================================================
+
+  describe('getStoredPairingInfo() — SecureStore throws', () => {
+    it('returns null when SecureStore.getItemAsync throws', async () => {
+      const mockGetItemAsync = SecureStore.getItemAsync as jest.MockedFunction<typeof SecureStore.getItemAsync>;
+      mockGetItemAsync.mockRejectedValueOnce(new Error('Keychain locked'));
+
+      const result = await getStoredPairingInfo();
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('isPaired() — SecureStore throws', () => {
+    it('returns false when underlying getStoredPairingInfo encounters a SecureStore error', async () => {
+      const mockGetItemAsync = SecureStore.getItemAsync as jest.MockedFunction<typeof SecureStore.getItemAsync>;
+      mockGetItemAsync.mockRejectedValueOnce(new Error('Keychain locked'));
+
+      const result = await isPaired();
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('executePairing() — null push token skips savePushToken', () => {
+    it('succeeds and does not call savePushToken when registerForPushNotifications returns null', async () => {
+      // WHY: When the device refuses push permissions or returns null token,
+      // we must skip the savePushToken call. This is the fire-and-forget
+      // path inside registerPushNotificationsAsync.
+      mockRegisterForPushNotifications.mockResolvedValueOnce(null);
+
+      const result = await executePairing('styrby://pair?data=...');
+
+      expect(result.success).toBe(true);
+      expect(result.pairingInfo).toBeDefined();
+
+      // Allow the fire-and-forget async to settle
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(mockRegisterForPushNotifications).toHaveBeenCalled();
+      expect(mockSavePushToken).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('clearPairingInfo() — both SecureStore keys deleted', () => {
+    it('calls deleteItemAsync for PAIRING_INFO_KEY and PAIRING_TOKEN_KEY', async () => {
+      // Pre-populate so the in-memory mock has values to delete
+      await SecureStore.setItemAsync('styrby_pairing_info', JSON.stringify(validPayload));
+      await SecureStore.setItemAsync('styrby_pairing_token', 'tok-gap-fill');
+
+      await clearPairingInfo();
+
+      const mockDeleteItemAsync = SecureStore.deleteItemAsync as jest.MockedFunction<typeof SecureStore.deleteItemAsync>;
+      expect(mockDeleteItemAsync).toHaveBeenCalledWith('styrby_pairing_info');
+      expect(mockDeleteItemAsync).toHaveBeenCalledWith('styrby_pairing_token');
+    });
+  });
 });

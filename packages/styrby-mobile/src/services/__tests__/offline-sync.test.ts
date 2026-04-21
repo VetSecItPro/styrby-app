@@ -624,4 +624,54 @@ describe('Offline Sync Service', () => {
       );
     });
   });
+
+  // ==========================================================================
+  // GAP-FILL: additional uncovered branches
+  // ==========================================================================
+
+  describe('syncPendingCommands() — clearSynced not called when all inserts fail', () => {
+    it('does not call clearSynced when every command fails to insert', async () => {
+      mockGetPendingCommands.mockResolvedValueOnce([
+        createStoredCommand({ id: 'gap_f1' }),
+        createStoredCommand({ id: 'gap_f2' }),
+      ]);
+
+      // All Supabase inserts return an error
+      let callCount = 0;
+      (supabase.from as jest.Mock).mockImplementation(() => {
+        callCount++;
+        const chain: Record<string, unknown> = {
+          insert: jest.fn().mockReturnThis(),
+        };
+        chain.then = (resolve: (v: unknown) => void) =>
+          Promise.resolve({ error: { message: 'Constraint violation' } }).then(resolve);
+        return chain;
+      });
+
+      const result = await syncPendingCommands();
+
+      expect(result).toBe(0);
+      expect(mockClearSynced).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('syncPendingCommands() — null user with null error defers sync', () => {
+    it('returns 0 when auth.getUser returns null user and null error', async () => {
+      // WHY: If the session is missing but no error is returned (e.g. anonymous
+      // or expired session), we should still defer sync rather than crash.
+      mockGetPendingCommands.mockResolvedValueOnce([
+        createStoredCommand({ id: 'gap_nouser' }),
+      ]);
+
+      (supabase.auth.getUser as jest.Mock).mockResolvedValueOnce({
+        data: { user: null },
+        error: null,
+      });
+
+      const result = await syncPendingCommands();
+
+      expect(result).toBe(0);
+      expect(supabase.from).not.toHaveBeenCalled();
+    });
+  });
 });

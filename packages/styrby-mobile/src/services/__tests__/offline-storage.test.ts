@@ -589,4 +589,26 @@ describe('Offline Storage Service', () => {
       expect(mockStorageRows.size).toBe(10);
     });
   });
+
+  // ==========================================================================
+  // GAP-FILL: additional uncovered branches
+  // ==========================================================================
+
+  describe('saveCommand() — SQLite write failure', () => {
+    it('propagates error when runAsync throws (e.g. SQLITE_FULL)', async () => {
+      mockRunAsync.mockRejectedValueOnce(new Error('SQLITE_FULL'));
+
+      await expect(
+        saveCommand({ command_type: 'chat', payload: { content: 'fail-write' } })
+      ).rejects.toThrow('SQLITE_FULL');
+    });
+  });
+
+  describe('getPendingCommands() — SQLite read failure', () => {
+    it('propagates error when getAllAsync throws (e.g. SQLITE_CORRUPT)', async () => {
+      mockGetAllAsync.mockRejectedValueOnce(new Error('SQLITE_CORRUPT'));
+
+      await expect(getPendingCommands()).rejects.toThrow('SQLITE_CORRUPT');
+    });
+  });
 });
