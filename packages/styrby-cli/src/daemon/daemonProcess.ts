@@ -27,6 +27,7 @@ import * as os from 'node:os';
 import { createClient } from '@supabase/supabase-js';
 import { createRelayClient, type RelayClient } from 'styrby-shared';
 import { loadDaemonConfig } from './configFile';
+import { WakeDetector } from './wakeDetector';
 
 // ============================================================================
 // Configuration
@@ -56,6 +57,7 @@ const DAEMON_FILES = {
 let relay: RelayClient | null = null;
 let ipcServer: net.Server | null = null;
 let statusInterval: ReturnType<typeof setInterval> | null = null;
+let wakeDetector: WakeDetector | null = null;
 const startedAt = new Date().toISOString();
 let connectionState: 'connected' | 'connecting' | 'disconnected' | 'reconnecting' | 'error' = 'disconnected';
 let errorMessage: string | undefined;
@@ -83,6 +85,7 @@ async function main(): Promise<void> {
   startIpcServer();
   await connectToRelay();
   startStatusWriter();
+  startWakeDetector();
 
   // Signal parent that we are ready.
   // WHY: The parent waits for this before disconnecting IPC and exiting.
@@ -301,6 +304,46 @@ function startStatusWriter(): void {
 }
 
 // ============================================================================
+// Wake Detector (sleep/wake + network-change proactive reconnect)
+// ============================================================================
+
+/**
+ * Start the WakeDetector and wire its events to the relay client.
+ *
+ * WHY proactive reconnect instead of waiting for the next backoff tick:
+ *   After a macOS sleep/wake or a network topology change the relay WebSocket
+ *   is silently dead. Without proactive detection the daemon waits up to 60s
+ *   (the backoff ceiling) before the heartbeat timer fires and triggers a
+ *   reconnect. With WakeDetector, the relay is back within ~5 seconds of the
+ *   wake event — before the user even opens the mobile app.
+ *
+ * WHY delayMs = 0 (immediate): There is no value in waiting. The OS has
+ *   already signalled that something changed; the sooner we attempt reconnect
+ *   the sooner the mobile link is live again. If the attempt fails it falls
+ *   through to the standard exponential-backoff path.
+ */
+function startWakeDetector(): void {
+  wakeDetector = new WakeDetector();
+
+  wakeDetector.on('wake', () => {
+    log('Wake event detected — triggering immediate relay reconnect');
+    if (relay && !shuttingDown) {
+      relay.scheduleReconnect(false, 0, 'sleep-wake');
+    }
+  });
+
+  wakeDetector.on('network-change', () => {
+    log('Network change detected — triggering immediate relay reconnect');
+    if (relay && !shuttingDown) {
+      relay.scheduleReconnect(false, 0, 'network-change');
+    }
+  });
+
+  wakeDetector.start();
+  log('WakeDetector started');
+}
+
+// ============================================================================
 // Signal Handling & Cleanup
 // ============================================================================
 
@@ -347,6 +390,8 @@ async function gracefulShutdown(reason: string): Promise<void> {
   log('Graceful shutdown initiated', { reason });
 
   if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
+
+  if (wakeDetector) { wakeDetector.stop(); wakeDetector = null; }
 
   if (relay) {
     try { await relay.disconnect(); } catch (err) {
