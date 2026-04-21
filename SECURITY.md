@@ -187,6 +187,83 @@ regardless of which physical device holds the key material.
 
 ---
 
+## MCP Server Surface (Phase 1 wedge — full Phase 4)
+
+Styrby exposes a Model Context Protocol (MCP) server via `styrby mcp serve`
+so MCP-aware coding agents (Claude Code, Codex, Cursor) can call back into
+Styrby for capabilities only Styrby has. The Phase 1 wedge ships a single
+tool — `request_approval` — that delivers a push to the user's mobile
+device and awaits the user's decision before returning to the agent.
+
+### Trust model
+
+The MCP server runs as a child process spawned by the user's local coding
+agent. It inherits the user's authenticated CLI context (the same
+persisted credentials as `styrby start`). The agent process and the MCP
+server communicate over stdio (JSON-RPC); no network surface is exposed.
+
+| Trust boundary | What crosses it |
+|----------------|-----------------|
+| Agent → MCP server (stdio JSON-RPC) | Tool calls + arguments — already inside the user's local trust zone |
+| MCP server → Supabase (HTTPS) | Approval requests, audit log writes, future tool DB calls |
+| Supabase trigger → Edge Function (HTTPS) | Push delivery payload (no plaintext credentials) |
+| Edge Function → APNs/FCM | Push notification body (action summary; **no secrets, no message content**) |
+| Mobile device → Supabase (HTTPS) | User decision (approve/deny + optional reason) |
+
+### Authentication and session
+
+- The MCP server **must** have a valid Supabase JWT in the persisted CLI
+  credentials. If the user hasn't onboarded or paired, the server exits
+  rather than starting in a degraded state.
+- All Supabase calls use the user's anon-key + Authorization header. The
+  service role key is never read or required by the MCP server process.
+- The MCP server is a one-shot process bound to the agent's lifetime; it
+  exits when stdin closes (parent agent quit). No long-lived state.
+
+### `request_approval` tool — privacy properties
+
+| Property | Mitigation |
+|----------|------------|
+| **Action description visibility** | The action + reason strings are written to `audit_log.metadata` (RLS-scoped to the user) and rendered on the user's mobile device. Both flows are user-only — Styrby admins cannot see arbitrary user actions absent explicit DB privilege. |
+| **Push notification body** | The push payload contains only the action summary text (max 500 chars). No agent output, no file contents, no diffs are pushed. |
+| **Optional context object** | Free-form JSONB stored in `audit_log.metadata`. Same RLS scope. Callers should avoid putting secrets in `context`; we will add a Zod refinement to redact common secret patterns in Phase 4. |
+| **Decision metadata** | The user's decision (approve/deny) and optional message string are written back to `audit_log` via the mobile client. Same RLS scope. |
+| **Timeout default** | 5 minutes (matches WebAuthn challenge TTL and push round-trip budget). Caller can override per-request up to 30 minutes. Beyond 30 min the tool returns a denied + "request timed out" reason. |
+
+### Threat model
+
+| Threat | Mitigation |
+|--------|------------|
+| Malicious agent calls `request_approval` to phish user with confusing prompts | The mobile UI shows the agent's source process metadata + risk level in the approval card. The user is the trust gate; Styrby surfaces enough context for them to decide. |
+| Compromised MCP server fabricates a "decision" return value | The server **only** returns what the audit_log decision row says. It cannot synthesize approvals. The decision row is written by the authenticated mobile client; an attacker would need the user's mobile session to forge one. |
+| Race condition between two concurrent approval requests | Each request gets a fresh UUID `approval_id`. The poll loop matches on that ID, so two simultaneous requests cannot resolve to the same decision. |
+| Timeout-spoofing by the server (claiming user approved when they didn't) | The audit log's INSERT is server-side; the user's decision INSERT comes from the mobile client. A server fabrication would require write access from the CLI, which it has — but the audit log is append-only and tamper-evident (no UPDATE/DELETE permissions on user rows). |
+| Stdio framing corruption from stray stdout writes | All Styrby logging routes to stderr. `console.log` is forbidden in the `commands/mcpServe.ts` path; tests assert this. |
+
+### Phase 4 expansions
+
+When the full MCP implementation lands:
+- Dedicated `mcp_approvals` table (replaces audit_log overload) with
+  realtime subscription instead of poll
+- Per-team policy table that the new `get_team_policy` tool reads
+- Rate-limiting at the tool layer (per-user, per-tool quotas)
+- HTTP/SSE transport for remote agents (today: stdio only)
+- MCP client side (consume user-configured MCP servers per `agent_configs`)
+- Registry browser at `/dashboard/tools` expanded with install/authorize
+  flow for third-party MCP servers (modelcontextprotocol/registry)
+
+### Standards
+
+- **MCP Specification 2024-11-05** (Anthropic) — protocol, tool annotations
+- **OWASP ASVS V13 (API)** — input validation via Zod schemas on every tool
+- **AICPA TSC CC7.2 (System Operations)** — tool calls + decisions are
+  audit-logged for compliance trails
+- **NIST SP 800-53 AC-3 (Access Enforcement)** — request_approval is the
+  human-in-the-loop control for agent actions that should require explicit
+  authorization
+
+---
+
 ## Push Notification Attack Surface (Phase 0.5)
 
 Migration 017 adds a PostgreSQL trigger (`trigger_push_on_session_message`) that

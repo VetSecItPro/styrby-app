@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Home, MessageSquare, BarChart3, Cpu, Settings, HelpCircle, PanelLeftClose, PanelLeft } from "lucide-react"
+import { Home, MessageSquare, BarChart3, Cpu, KeyRound, Settings, HelpCircle, PanelLeftClose, PanelLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Progress } from "@/components/ui/progress"
 
@@ -11,6 +11,7 @@ const navItems = [
   { label: "Sessions", href: "/dashboard/sessions", icon: MessageSquare },
   { label: "Costs", href: "/dashboard/costs", icon: BarChart3 },
   { label: "Agents", href: "/dashboard/agents", icon: Cpu },
+  { label: "MCP Tools", href: "/dashboard/tools", icon: KeyRound },
   { label: "Settings", href: "/dashboard/settings", icon: Settings },
   { label: "Support", href: "/dashboard/support", icon: HelpCircle },
 ]

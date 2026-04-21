@@ -171,6 +171,18 @@ export default function SettingsHubScreen() {
           subtitle="Sign in with Face ID or Touch ID"
           onPress={() => router.push('/settings/passkeys')}
         />
+        {/*
+         * MCP Tools registry: shows users what their MCP-aware coding agents
+         * can call back into Styrby for. Sibling of Passkeys for the same
+         * surfacing reasons - it's a top-level capability, not buried in Account.
+         */}
+        <SettingRow
+          icon="extension-puzzle"
+          iconColor="#f59e0b"
+          title="MCP Tools"
+          subtitle="What your coding agents can call into Styrby"
+          onPress={() => router.push('/settings/tools')}
+        />
       </View>
 
       {/* Preferences */}

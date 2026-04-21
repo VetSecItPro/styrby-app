@@ -27,6 +27,10 @@ export * from './relay/index.js';
 // Re-export auth helpers (WebAuthn/passkey types + pure helpers)
 export * from './auth/index.js';
 
+// Re-export MCP catalog (tool descriptors only — runtime server lives in CLI).
+// Safe to barrel: pure data, zero crypto/WASM weight.
+export * from './mcp/catalog.js';
+
 // Re-export design system
 export * from './design/index.js';
 
