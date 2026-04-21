@@ -19,6 +19,26 @@
  */
 import * as Sentry from '@sentry/nextjs';
 
+/**
+ * STYRBY_SENTRY_MUTED — emergency kill switch for the server runtime.
+ * Set to 'true' in Vercel env vars + redeploy to silence the SDK without
+ * a code change when notifications are spamming the founder inbox.
+ */
+const isMuted = process.env.STYRBY_SENTRY_MUTED === 'true';
+
+/**
+ * Server-side noise filter — matches high-volume benign errors (bot scans,
+ * aborted requests, upstream timeouts Sentry would alert on even though the
+ * user-facing retry handles them).
+ */
+const NOISE_PATTERNS: readonly RegExp[] = [
+  /ECONNRESET/i,
+  /The operation was aborted/i,
+  /Request aborted/i,
+  /socket hang up/i,
+  /ETIMEDOUT/i,
+];
+
 Sentry.init({
   /**
    * SENTRY_DSN — Server-only Data Source Name that routes server-side errors to Sentry.
@@ -44,9 +64,20 @@ Sentry.init({
   environment: process.env.NODE_ENV,
 
   /**
-   * Only report errors in production builds.
-   * WHY: Development stack traces are visible in the terminal — no need to
-   * route them to Sentry and generate false-positive alerts.
+   * Only report errors in production builds AND when the mute kill switch
+   * is not engaged. See `STYRBY_SENTRY_MUTED` doc at the top of this file.
    */
-  enabled: process.env.NODE_ENV === 'production',
+  enabled: process.env.NODE_ENV === 'production' && !isMuted,
+
+  /** Drop known-benign server-side errors before they reach Sentry. */
+  beforeSend(event, hint) {
+    const msg =
+      (hint?.originalException instanceof Error ? hint.originalException.message : '') ||
+      event.message ||
+      '';
+    if (NOISE_PATTERNS.some((rx) => rx.test(msg))) return null;
+    return event;
+  },
+
+  ignoreErrors: [/ECONNRESET/i, /socket hang up/i, /ETIMEDOUT/i],
 });

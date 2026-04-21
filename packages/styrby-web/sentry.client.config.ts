@@ -21,6 +21,37 @@
  */
 import * as Sentry from '@sentry/nextjs';
 
+/**
+ * STYRBY_SENTRY_MUTED — emergency kill switch.
+ *
+ * Set `STYRBY_SENTRY_MUTED=true` (or `NEXT_PUBLIC_STYRBY_SENTRY_MUTED=true` for
+ * the client bundle) to silence the SDK regardless of environment. Flip it in
+ * Vercel env vars + redeploy to stop notification spam without a code change.
+ *
+ * WHY: real production errors can drown the founder inbox during an incident
+ * or a preview-deploy error cascade. The env-var kill switch takes effect at
+ * boot with no SDK calls going out. Unset it once the noise is handled.
+ */
+const isMuted =
+  process.env.NEXT_PUBLIC_STYRBY_SENTRY_MUTED === 'true' ||
+  process.env.STYRBY_SENTRY_MUTED === 'true';
+
+/**
+ * Noise filter — errors matching any of these patterns are dropped before
+ * reaching Sentry. Add specific pattern here when a known-benign error class
+ * is spamming notifications; keep the list short so real regressions still
+ * reach the dashboard.
+ */
+const NOISE_PATTERNS: readonly RegExp[] = [
+  /ResizeObserver loop limit exceeded/i,
+  /Non-Error promise rejection captured/i,
+  /NetworkError when attempting to fetch resource/i,
+  /Load failed/i,
+  /The operation was aborted/i,
+  // Chrome extension injection noise
+  /extension:\/\//i,
+];
+
 Sentry.init({
   /**
    * NEXT_PUBLIC_SENTRY_DSN — Public Data Source Name that routes browser errors to Sentry.
@@ -59,9 +90,34 @@ Sentry.init({
   environment: process.env.NODE_ENV,
 
   /**
-   * Only report errors in production builds.
-   * WHY: Dev errors appear in the browser console — no need to pollute the
-   * Sentry dashboard with local development noise.
+   * Only report errors in production builds AND when not muted by env var.
+   * WHY: dev noise stays in the browser console; the mute switch lets the
+   * founder stop live notification spam without a code push.
    */
-  enabled: process.env.NODE_ENV === 'production',
+  enabled: process.env.NODE_ENV === 'production' && !isMuted,
+
+  /**
+   * Hard-drop known noise before it ever becomes a Sentry event.
+   * Anything matching a NOISE_PATTERN returns null here — Sentry discards it.
+   */
+  beforeSend(event, hint) {
+    const msg =
+      (hint?.originalException instanceof Error ? hint.originalException.message : '') ||
+      event.message ||
+      '';
+    if (NOISE_PATTERNS.some((rx) => rx.test(msg))) return null;
+    return event;
+  },
+
+  /**
+   * SDK-level ignore list — stops common browser-quirk errors from even
+   * reaching `beforeSend`. Cheaper than a beforeSend check for very common
+   * noise. Keep synchronized in spirit with NOISE_PATTERNS.
+   */
+  ignoreErrors: [
+    'ResizeObserver loop limit exceeded',
+    'Non-Error promise rejection captured',
+    /^NetworkError when attempting to fetch resource/,
+    /^The operation was aborted/,
+  ],
 });
