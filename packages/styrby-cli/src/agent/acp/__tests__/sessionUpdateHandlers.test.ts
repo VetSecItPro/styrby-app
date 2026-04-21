@@ -27,6 +27,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AgentMessage } from '../../core';
 import type { TransportHandler } from '../../transport';
+
+// ============================================================================
+// Mock node:fs for detectGeminiBillingModel (reads ~/.gemini/*.json)
+// ============================================================================
+
+/**
+ * WHY: detectGeminiBillingModel reads OAuth credential files from the user's
+ * home directory. We mock fs.readFileSync so tests are hermetic and don't
+ * depend on the developer's actual Gemini auth state.
+ */
+vi.mock('node:fs', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...original,
+    readFileSync: vi.fn((_path: unknown) => { throw new Error('ENOENT: mock'); }),
+  };
+});
+import * as fs from 'node:fs';
 import {
   parseArgsFromContent,
   extractErrorDetail,
@@ -39,10 +57,13 @@ import {
   handleLegacyMessageChunk,
   handlePlanUpdate,
   handleThinkingUpdate,
+  handleGeminiUsageMetadata,
+  detectGeminiBillingModel,
   DEFAULT_IDLE_TIMEOUT_MS,
   DEFAULT_TOOL_CALL_TIMEOUT_MS,
   type SessionUpdate,
   type HandlerContext,
+  type GeminiUsageContext,
 } from '../sessionUpdateHandlers';
 
 // ============================================================================
@@ -716,5 +737,218 @@ describe('handleThinkingUpdate', () => {
 
     expect(thinkEvent).toBeDefined();
     expect(thinkEvent!.payload).toBe('plain string thought');
+  });
+});
+
+// ============================================================================
+// detectGeminiBillingModel — Phase 1.6.1 Gap 3
+// ============================================================================
+
+/**
+ * Tests for the Gemini billing-mode detector.
+ *
+ * WHY: The billing model drives whether `costUsd` appears on the dashboard.
+ * For subscription / free modes the schema requires costUsd === 0. A wrong
+ * detection would either silence real costs or fabricate fake charges.
+ */
+describe('detectGeminiBillingModel', () => {
+  const mockReadFileSync = fs.readFileSync as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default: all credential files throw ENOENT (no auth found).
+    mockReadFileSync.mockImplementation(() => { throw new Error('ENOENT: mock'); });
+  });
+
+  it('returns "api-key" when apiKey is provided (highest priority)', () => {
+    // WHY: If the user explicitly passed an API key, billing is per-token
+    // regardless of any OAuth files that may be present.
+    expect(detectGeminiBillingModel('sk-abc123')).toBe('api-key');
+  });
+
+  it('returns "free" when no apiKey and no OAuth files exist', () => {
+    expect(detectGeminiBillingModel(undefined)).toBe('free');
+  });
+
+  it('returns "subscription" when oauth_creds.json has access_token', () => {
+    mockReadFileSync.mockImplementationOnce(() =>
+      JSON.stringify({ access_token: 'ya29.some_token' })
+    );
+
+    expect(detectGeminiBillingModel(undefined)).toBe('subscription');
+  });
+
+  it('returns "subscription" when auth.json has token field', () => {
+    // First path (oauth_creds.json) throws; second path (auth.json) hits.
+    mockReadFileSync
+      .mockImplementationOnce(() => { throw new Error('ENOENT'); })
+      .mockImplementationOnce(() => JSON.stringify({ token: 'ya29.legacy_token' }));
+
+    expect(detectGeminiBillingModel(undefined)).toBe('subscription');
+  });
+
+  it('returns "free" when credential files exist but contain no token', () => {
+    mockReadFileSync.mockImplementationOnce(() =>
+      JSON.stringify({ some_other_key: 'value' })
+    );
+
+    expect(detectGeminiBillingModel(undefined)).toBe('free');
+  });
+});
+
+// ============================================================================
+// handleGeminiUsageMetadata — Phase 1.6.1 Gap 3
+// ============================================================================
+
+/**
+ * Tests for the Gemini ACP usage event handler.
+ *
+ * WHY: This is the primary path for surfacing Gemini token counts in the cost
+ * dashboard. Every Gemini session previously wrote $0 cost_records; these tests
+ * verify that usage is now correctly extracted and emitted.
+ */
+describe('handleGeminiUsageMetadata', () => {
+  const mockReadFileSync = fs.readFileSync as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockReadFileSync.mockImplementation(() => { throw new Error('ENOENT: mock'); });
+  });
+
+  /**
+   * Build a GeminiUsageContext with the Gemini-specific fields set.
+   */
+  function makeGeminiContext(overrides: Partial<GeminiUsageContext> = {}): GeminiUsageContext {
+    return {
+      ...makeContext(),
+      styrbySssionId: 'test-session-gemini-001',
+      geminiApiKey: undefined,
+      geminiModel: 'gemini-2.5-pro',
+      ...overrides,
+    } as GeminiUsageContext;
+  }
+
+  it('returns handled=false when usageMetadata is absent', () => {
+    const ctx = makeGeminiContext();
+    const result = handleGeminiUsageMetadata({}, ctx);
+
+    expect(result.handled).toBe(false);
+  });
+
+  it('returns handled=false when usageMetadata is not an object', () => {
+    const ctx = makeGeminiContext();
+    const update = { usageMetadata: 'not-an-object' } as unknown as SessionUpdate;
+
+    expect(handleGeminiUsageMetadata(update, ctx).handled).toBe(false);
+  });
+
+  it('returns handled=false when all token counts are zero', () => {
+    const ctx = makeGeminiContext();
+    const update = {
+      usageMetadata: { promptTokenCount: 0, candidatesTokenCount: 0 },
+    } as unknown as SessionUpdate;
+
+    expect(handleGeminiUsageMetadata(update, ctx).handled).toBe(false);
+  });
+
+  it('emits cost-report with api-key billing when geminiApiKey is set', () => {
+    const ctx = makeGeminiContext({ geminiApiKey: 'sk-test-123' });
+    const update = {
+      usageMetadata: {
+        promptTokenCount: 2000,
+        candidatesTokenCount: 800,
+        cachedContentTokenCount: 100,
+        model: 'gemini-2.5-pro',
+      },
+    } as unknown as SessionUpdate;
+
+    handleGeminiUsageMetadata(update, ctx);
+
+    const messages = getEmitted(ctx);
+    const costReport = messages.find((m: any) => m.type === 'cost-report') as any;
+
+    expect(costReport).toBeDefined();
+    expect(costReport.report.billingModel).toBe('api-key');
+    expect(costReport.report.inputTokens).toBe(2000);
+    expect(costReport.report.outputTokens).toBe(800);
+    expect(costReport.report.cacheReadTokens).toBe(100);
+    expect(costReport.report.source).toBe('agent-reported');
+    expect(costReport.report.agentType).toBe('gemini');
+    expect(costReport.report.rawAgentPayload).not.toBeNull();
+  });
+
+  it('emits cost-report with subscription billing when OAuth file found', () => {
+    // WHY: OAuth presence signals Gemini Workspace plan → subscription billing → costUsd=0.
+    mockReadFileSync.mockImplementationOnce(() =>
+      JSON.stringify({ access_token: 'ya29.workspace_token' })
+    );
+
+    const ctx = makeGeminiContext({ geminiApiKey: undefined });
+    const update = {
+      usageMetadata: {
+        promptTokenCount: 1500,
+        candidatesTokenCount: 600,
+      },
+    } as unknown as SessionUpdate;
+
+    handleGeminiUsageMetadata(update, ctx);
+
+    const messages = getEmitted(ctx);
+    const costReport = messages.find((m: any) => m.type === 'cost-report') as any;
+
+    expect(costReport).toBeDefined();
+    expect(costReport.report.billingModel).toBe('subscription');
+    expect(costReport.report.costUsd).toBe(0);
+    expect(costReport.report.subscriptionUsage).toBeDefined();
+    expect(costReport.report.subscriptionUsage.fractionUsed).toBeNull();
+  });
+
+  it('emits cost-report with free billing when no API key and no OAuth', () => {
+    const ctx = makeGeminiContext({ geminiApiKey: undefined });
+    const update = {
+      usageMetadata: {
+        promptTokenCount: 500,
+        candidatesTokenCount: 200,
+      },
+    } as unknown as SessionUpdate;
+
+    handleGeminiUsageMetadata(update, ctx);
+
+    const messages = getEmitted(ctx);
+    const costReport = messages.find((m: any) => m.type === 'cost-report') as any;
+
+    expect(costReport).toBeDefined();
+    expect(costReport.report.billingModel).toBe('free');
+    expect(costReport.report.costUsd).toBe(0);
+  });
+
+  it('also emits legacy token-count event alongside cost-report', () => {
+    const ctx = makeGeminiContext({ geminiApiKey: 'sk-test' });
+    const update = {
+      usageMetadata: {
+        promptTokenCount: 1000,
+        candidatesTokenCount: 400,
+      },
+    } as unknown as SessionUpdate;
+
+    handleGeminiUsageMetadata(update, ctx);
+
+    const messages = getEmitted(ctx);
+    // WHY: Existing consumers may still listen for token-count events.
+    const tokenCount = messages.find((m: any) => m.type === 'token-count');
+    expect(tokenCount).toBeDefined();
+    expect((tokenCount as any).inputTokens).toBe(1000);
+    expect((tokenCount as any).outputTokens).toBe(400);
+  });
+
+  it('returns handled=true on success', () => {
+    const ctx = makeGeminiContext({ geminiApiKey: 'sk-test' });
+    const update = {
+      usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 },
+    } as unknown as SessionUpdate;
+
+    const result = handleGeminiUsageMetadata(update, ctx);
+
+    expect(result.handled).toBe(true);
   });
 });

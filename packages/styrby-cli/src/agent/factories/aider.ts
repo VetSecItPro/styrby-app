@@ -30,6 +30,7 @@ import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, validateExtraArgs } from '@/utils/safeEnv';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
+import type { CostReport } from '@styrby/shared/cost';
 
 /**
  * Options for creating an Aider backend
@@ -120,6 +121,48 @@ function parseFileEdit(line: string): { path: string; action: string } | null {
  * Spawns Aider as a subprocess and parses its stdout output.
  * Each prompt creates a new Aider process (ephemeral sessions).
  */
+/**
+ * Regex that matches Aider's `--show-tokens` summary line emitted at session close.
+ *
+ * Example line:
+ *   > Tokens: 1,234 sent, 567 received, cost: $0.012
+ *
+ * WHY: Aider uses --show-tokens to print one summary line after the main response.
+ * We capture the last 20 lines of stdout and scan for this pattern. The regex
+ * tolerates comma-formatted numbers and slight phrasing variations Aider has
+ * shipped across minor releases.
+ *
+ * Named capture groups:
+ *   - sent    — input tokens (may contain commas)
+ *   - received — output tokens (may contain commas)
+ *   - cost    — USD cost string (digits + optional decimal point)
+ */
+const AIDER_TOKEN_SUMMARY_RE =
+  /tokens?:\s*(?<sent>[\d,]+)\s*sent[,\s]+(?<received>[\d,]+)\s*received(?:.*?cost:\s*\$(?<cost>[\d.]+))?/i;
+
+/**
+ * Parse Aider's `--show-tokens` summary line.
+ *
+ * @param lines - The last N lines of stdout captured from the Aider process.
+ * @returns Parsed token counts and cost, or null if no summary line matched.
+ */
+export function parseAiderTokenSummary(
+  lines: string[]
+): { inputTokens: number; outputTokens: number; costUsd: number; summaryLine: string } | null {
+  // Scan from newest to oldest — the summary is the last matching line.
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    const match = AIDER_TOKEN_SUMMARY_RE.exec(line);
+    if (match?.groups) {
+      const inputTokens = parseInt((match.groups['sent'] ?? '0').replace(/,/g, ''), 10);
+      const outputTokens = parseInt((match.groups['received'] ?? '0').replace(/,/g, ''), 10);
+      const costUsd = match.groups['cost'] ? parseFloat(match.groups['cost']) : 0;
+      return { inputTokens, outputTokens, costUsd, summaryLine: line.trim() };
+    }
+  }
+  return null;
+}
+
 class AiderBackend extends StreamingAgentBackendBase {
   protected readonly logTag = 'AiderBackend';
   private inputTokens = 0;
@@ -134,6 +177,16 @@ class AiderBackend extends StreamingAgentBackendBase {
    * the 5-10s mobile UI freeze on long Aider runs (SOC2 CC7.2).
    */
   private streamingOutputTokens = 0;
+
+  /**
+   * Circular buffer holding the last 20 stdout lines for `--show-tokens` parsing.
+   *
+   * WHY: We only need the tail of stdout to find the token summary line.
+   * Keeping a small fixed-size ring prevents unbounded memory growth on
+   * long Aider sessions (SOC2 CC7.2).
+   */
+  private readonly stdoutTail: string[] = [];
+  private static readonly TAIL_SIZE = 20;
 
   constructor(private options: AiderBackendOptions) {
     super();
@@ -197,12 +250,19 @@ class AiderBackend extends StreamingAgentBackendBase {
 
     this.emit({ type: 'status', status: 'running' });
 
+    // Reset the per-prompt stdout tail buffer.
+    this.stdoutTail.length = 0;
+
     // Build Aider command arguments
     const args: string[] = [
       '--message',
       prompt,
-      '--no-stream', // Disable streaming for easier parsing
-      '--yes', // Auto-confirm all prompts
+      '--no-stream',    // Disable streaming for easier parsing
+      '--show-tokens',  // WHY: Instructs Aider to print a token/cost summary line at
+                        // session close ("Tokens: N sent, N received, cost: $X").
+                        // We parse this in the 'close' handler to emit an accurate
+                        // CostReport (source='agent-reported') rather than a heuristic.
+      '--yes',          // Auto-confirm all prompts
     ];
 
     // Add model if specified
@@ -255,6 +315,13 @@ class AiderBackend extends StreamingAgentBackendBase {
           // WHY: Preserve pre-Phase-0.3 behavior of skipping whitespace-only
           // lines so model-output is not emitted for blank progress padding.
           if (!line.trim()) return;
+
+          // Maintain a fixed-size tail buffer for the --show-tokens summary line.
+          this.stdoutTail.push(line);
+          if (this.stdoutTail.length > AiderBackend.TAIL_SIZE) {
+            this.stdoutTail.shift();
+          }
+
           this.streamingOutputTokens += estimateTokens(line);
           // Re-append the newline for downstream consumers that expect it.
           this.emit({ type: 'model-output', textDelta: `${line}\n` });
@@ -295,13 +362,54 @@ class AiderBackend extends StreamingAgentBackendBase {
           // removed outputBuffer accumulator.
           this.outputTokens += this.streamingOutputTokens;
 
-          // Emit token count
+          // WHY: Attempt to parse the --show-tokens summary line from the captured
+          // stdout tail. When found, we emit source='agent-reported' with exact
+          // token counts and costUsd from Aider. When missing (e.g. parse failure,
+          // Aider version without --show-tokens), we fall back to the heuristic
+          // estimate so downstream consumers always receive a CostReport.
+          const parsed = parseAiderTokenSummary(this.stdoutTail);
+          const costReport: CostReport = parsed
+            ? {
+                sessionId: this.sessionId ?? '',
+                messageId: null,
+                agentType: 'aider',
+                model: this.options.model ?? 'unknown',
+                timestamp: new Date().toISOString(),
+                source: 'agent-reported',
+                billingModel: 'api-key',
+                costUsd: parsed.costUsd,
+                inputTokens: parsed.inputTokens,
+                outputTokens: parsed.outputTokens,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                rawAgentPayload: { summaryLine: parsed.summaryLine },
+              }
+            : {
+                sessionId: this.sessionId ?? '',
+                messageId: null,
+                agentType: 'aider',
+                model: this.options.model ?? 'unknown',
+                timestamp: new Date().toISOString(),
+                source: 'styrby-estimate',
+                billingModel: 'api-key',
+                costUsd: 0,
+                inputTokens: this.inputTokens,
+                outputTokens: this.outputTokens,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                rawAgentPayload: null,
+              };
+
+          // Emit legacy token-count (keep for existing consumers).
           this.emit({
             type: 'token-count',
-            inputTokens: this.inputTokens,
-            outputTokens: this.outputTokens,
-            estimatedCostUsd: 0, // Aider doesn't provide cost directly
+            inputTokens: costReport.inputTokens,
+            outputTokens: costReport.outputTokens,
+            estimatedCostUsd: costReport.costUsd,
           });
+
+          // Emit unified CostReport for the cost-reporter to persist.
+          this.emit({ type: 'cost-report', report: costReport } as any);
 
           if (code === 0) {
             this.emit({ type: 'status', status: 'idle' });

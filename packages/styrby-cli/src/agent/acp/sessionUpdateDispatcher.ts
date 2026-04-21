@@ -21,6 +21,7 @@ import {
   handleLegacyMessageChunk,
   handlePlanUpdate,
   handleThinkingUpdate,
+  handleGeminiUsageMetadata,
 } from './sessionUpdateHandlers';
 import type { ExtendedSessionNotification } from './acpTypes';
 
@@ -105,15 +106,34 @@ export function dispatchSessionUpdate(
     return {};
   }
 
+  // WHY: Cast to string first — the ACP SDK discriminated union only models the
+  // standard update types. Gemini CLI extends the protocol with non-standard names
+  // ('usage_metadata', 'turn_complete', 'response_complete') that TypeScript
+  // would flag as impossible comparisons on the narrowed `sessionUpdateType` type.
+  const updateTypeStr = sessionUpdateType as string;
+
+  // WHY: Gemini CLI emits usage metadata in dedicated session update types
+  // AND sometimes as a top-level `usageMetadata` field on any update type.
+  // We check both paths so we never miss a usage event regardless of CLI version.
+  if (
+    updateTypeStr === 'usage_metadata' ||
+    updateTypeStr === 'turn_complete' ||
+    updateTypeStr === 'response_complete'
+  ) {
+    handleGeminiUsageMetadata(update as SessionUpdate, ctx);
+    return {};
+  }
+
   // Legacy / auxiliary update types — these handlers are no-ops if the
   // corresponding fields aren't present, so calling all three is safe.
   handleLegacyMessageChunk(update as SessionUpdate, ctx);
   handlePlanUpdate(update as SessionUpdate, ctx);
   handleThinkingUpdate(update as SessionUpdate, ctx);
 
-  // WHY: Cast to string — the SDK's enum doesn't include all Gemini-specific
-  // update types, but we still want to log unknown shapes for debugging.
-  const updateTypeStr = sessionUpdateType as string;
+  // Always probe for usageMetadata on any update type — Gemini may embed it
+  // alongside other update types (e.g., 'agent_message_chunk').
+  handleGeminiUsageMetadata(update as SessionUpdate, ctx);
+
   if (
     updateTypeStr &&
     !(HANDLED_TYPES as readonly string[]).includes(updateTypeStr) &&
