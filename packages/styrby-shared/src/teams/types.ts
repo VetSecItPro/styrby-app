@@ -30,7 +30,7 @@ import { z } from 'zod';
 export const TEAM_ROLES = ['owner', 'admin', 'member'] as const;
 
 /**
- * All policy type strings a TeamPolicy can have.
+ * All policy type strings a DbTeamPolicy can have.
  * Drives both DB values and UI label lookups.
  */
 export const POLICY_TYPES = [
@@ -43,7 +43,7 @@ export const POLICY_TYPES = [
 /**
  * All status strings for a TeamApprovalRequest lifecycle.
  */
-export const APPROVAL_STATUSES = ['pending', 'approved', 'rejected', 'expired'] as const;
+export const DB_APPROVAL_STATUSES = ['pending', 'approved', 'rejected', 'expired'] as const;
 
 /**
  * Tier identifiers that qualify as "team" tiers in the billing model.
@@ -62,7 +62,7 @@ export type TeamRole = (typeof TEAM_ROLES)[number];
 export type PolicyType = (typeof POLICY_TYPES)[number];
 
 /** Lifecycle status for an approval request. */
-export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
+export type DbApprovalStatus = (typeof DB_APPROVAL_STATUSES)[number];
 
 /** Billing tier identifier for teams (superset of TierId's 'team'). */
 export type TeamBillingTier = 'team' | 'business' | 'enterprise';
@@ -257,7 +257,7 @@ export const TeamInvitationSchema = z.object({
 });
 
 // ============================================================================
-// TeamPolicy
+// DbTeamPolicy
 // ============================================================================
 
 /**
@@ -272,7 +272,7 @@ export const TeamInvitationSchema = z.object({
  *
  * DB table: `team_policies` (migration 021)
  */
-export interface TeamPolicy {
+export interface DbTeamPolicy {
   /** UUID primary key. */
   id: string;
 
@@ -297,13 +297,13 @@ export interface TeamPolicy {
 }
 
 /**
- * Zod schema for {@link TeamPolicy}. Use for API response validation.
+ * Zod schema for {@link DbTeamPolicy}. Use for API response validation.
  *
  * WHY `value` is `z.unknown()`: the JSON blob is policyType-specific and
  * validated at the application layer where the type is narrowed. Keeping
  * this schema generic avoids duplicating policy-specific validation here.
  */
-export const TeamPolicySchema = z.object({
+export const DbTeamPolicySchema = z.object({
   id: z.string().uuid(),
   teamId: z.string().uuid(),
   policyType: z.enum(POLICY_TYPES),
@@ -348,7 +348,7 @@ export interface TeamApprovalRequest {
   command: string;
 
   /** Current lifecycle stage of the approval request. */
-  status: ApprovalStatus;
+  status: DbApprovalStatus;
 
   /** ISO-8601 timestamp when the request was submitted. */
   createdAt: string;
@@ -369,7 +369,7 @@ export const TeamApprovalRequestSchema = z.object({
   requesterId: z.string().uuid(),
   approverId: z.string().uuid().nullable(),
   command: z.string().min(1),
-  status: z.enum(APPROVAL_STATUSES),
+  status: z.enum(DB_APPROVAL_STATUSES),
   createdAt: z.string().datetime(),
   resolvedAt: z.string().datetime().nullable(),
 });

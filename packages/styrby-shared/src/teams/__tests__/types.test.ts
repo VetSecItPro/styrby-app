@@ -12,12 +12,12 @@ import { describe, it, expect } from 'vitest';
 import {
   TEAM_ROLES,
   POLICY_TYPES,
-  APPROVAL_STATUSES,
+  DB_APPROVAL_STATUSES,
   TEAM_TIER_IDS,
   TeamSchema,
   TeamMemberSchema,
   TeamInvitationSchema,
-  TeamPolicySchema,
+  DbTeamPolicySchema,
   TeamApprovalRequestSchema,
   SharedSessionSchema,
   TeamExportSchema,
@@ -47,13 +47,13 @@ describe('POLICY_TYPES', () => {
   });
 });
 
-describe('APPROVAL_STATUSES', () => {
+describe('DB_APPROVAL_STATUSES', () => {
   it('contains pending, approved, rejected, and expired', () => {
-    expect(APPROVAL_STATUSES).toContain('pending');
-    expect(APPROVAL_STATUSES).toContain('approved');
-    expect(APPROVAL_STATUSES).toContain('rejected');
-    expect(APPROVAL_STATUSES).toContain('expired');
-    expect(APPROVAL_STATUSES).toHaveLength(4);
+    expect(DB_APPROVAL_STATUSES).toContain('pending');
+    expect(DB_APPROVAL_STATUSES).toContain('approved');
+    expect(DB_APPROVAL_STATUSES).toContain('rejected');
+    expect(DB_APPROVAL_STATUSES).toContain('expired');
+    expect(DB_APPROVAL_STATUSES).toHaveLength(4);
   });
 });
 
@@ -209,10 +209,10 @@ describe('TeamInvitationSchema', () => {
 });
 
 // ---------------------------------------------------------------------------
-// TeamPolicySchema
+// DbTeamPolicySchema
 // ---------------------------------------------------------------------------
 
-describe('TeamPolicySchema', () => {
+describe('DbTeamPolicySchema', () => {
   const valid = {
     id: uuid,
     teamId: uuid,
@@ -222,23 +222,23 @@ describe('TeamPolicySchema', () => {
   };
 
   it('accepts a valid policy row', () => {
-    expect(() => TeamPolicySchema.parse(valid)).not.toThrow();
+    expect(() => DbTeamPolicySchema.parse(valid)).not.toThrow();
   });
 
   it('accepts all policyType values', () => {
     for (const pt of POLICY_TYPES) {
-      expect(() => TeamPolicySchema.parse({ ...valid, policyType: pt })).not.toThrow();
+      expect(() => DbTeamPolicySchema.parse({ ...valid, policyType: pt })).not.toThrow();
     }
   });
 
   it('accepts arbitrary value shapes (unknown)', () => {
-    expect(() => TeamPolicySchema.parse({ ...valid, value: [1, 2, 3] })).not.toThrow();
-    expect(() => TeamPolicySchema.parse({ ...valid, value: 'string' })).not.toThrow();
-    expect(() => TeamPolicySchema.parse({ ...valid, value: null })).not.toThrow();
+    expect(() => DbTeamPolicySchema.parse({ ...valid, value: [1, 2, 3] })).not.toThrow();
+    expect(() => DbTeamPolicySchema.parse({ ...valid, value: 'string' })).not.toThrow();
+    expect(() => DbTeamPolicySchema.parse({ ...valid, value: null })).not.toThrow();
   });
 
   it('rejects unknown policyType', () => {
-    expect(() => TeamPolicySchema.parse({ ...valid, policyType: 'unknown_policy' })).toThrow();
+    expect(() => DbTeamPolicySchema.parse({ ...valid, policyType: 'unknown_policy' })).toThrow();
   });
 });
 
@@ -263,7 +263,7 @@ describe('TeamApprovalRequestSchema', () => {
   });
 
   it('accepts all status values', () => {
-    for (const st of APPROVAL_STATUSES) {
+    for (const st of DB_APPROVAL_STATUSES) {
       expect(() => TeamApprovalRequestSchema.parse({ ...valid, status: st })).not.toThrow();
     }
   });

@@ -44,6 +44,10 @@
     "./tokenizers": {
       "types": "./dist/tokenizers/index.d.ts",
       "import": "./dist/tokenizers/index.js"
+    },
+    "./team": {
+      "types": "./dist/team/index.d.ts",
+      "import": "./dist/team/index.js"
     }
   },
   "scripts": {
