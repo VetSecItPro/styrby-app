@@ -160,6 +160,10 @@ async function main(): Promise<void> {
       await handleCheckpointCommand(args.slice(1));
       break;
 
+    case 'mcp':
+      await handleMcpCommand(args.slice(1));
+      break;
+
     case 'help':
     case '--help':
     case '-h':
@@ -1162,6 +1166,19 @@ async function handleImportCommand(args: string[]): Promise<void> {
 async function handleCheckpointCommand(args: string[]): Promise<void> {
   const { handleCheckpointCommand: checkpoint } = await import('@/commands/checkpoint');
   await checkpoint(args);
+}
+
+/**
+ * Handle the 'mcp' command family.
+ *
+ * Currently exposes `mcp serve` to spawn the MCP stdio server. See
+ * commands/mcpServe.ts for setup-config examples and tool catalog.
+ *
+ * @param args - Command arguments (subcommand + options)
+ */
+async function handleMcpCommand(args: string[]): Promise<void> {
+  const { handleMcpCommand: mcp } = await import('@/commands/mcpServe');
+  await mcp(args);
 }
 
 // Run main
