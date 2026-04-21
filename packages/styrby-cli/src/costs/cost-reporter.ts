@@ -27,6 +27,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { RelayClient } from 'styrby-shared';
 import type { AgentType } from '@/auth/agent-credentials';
 import type { CostRecord } from './cost-extractor.js';
+import type { CostReport } from '@styrby/shared/cost';
 
 // ============================================================================
 // Types
@@ -57,7 +58,10 @@ export interface CostReporterConfig {
 }
 
 /**
- * Cost record ready for Supabase insertion
+ * Cost record ready for Supabase insertion.
+ *
+ * Includes migration-022 columns: billing_model, source, raw_agent_payload,
+ * subscription_fraction_used, credits_consumed, credit_rate_usd.
  */
 interface SupabaseCostRecord {
   user_id: string;
@@ -74,6 +78,19 @@ interface SupabaseCostRecord {
   recorded_at: string;
   record_date: string;
   is_pending: boolean;
+  // ---- migration-022 columns ----
+  /** Billing model enum: 'api-key' | 'subscription' | 'credit' | 'free' */
+  billing_model: string;
+  /** Cost source enum: 'agent-reported' | 'styrby-estimate' */
+  source: string;
+  /** Raw agent payload for SOC2 CC7.2 audit trail */
+  raw_agent_payload: Record<string, unknown> | null;
+  /** Subscription quota fraction used (null if not available) */
+  subscription_fraction_used: number | null;
+  /** Number of credits consumed (credit billing only) */
+  credits_consumed: number | null;
+  /** USD rate per credit (credit billing only) */
+  credit_rate_usd: number | null;
 }
 
 /**
@@ -264,8 +281,16 @@ export class CostReporter extends EventEmitter {
     const batchCostUsd = recordsToReport.reduce((sum, r) => sum + r.costUsd, 0);
 
     try {
-      // Convert to Supabase format
-      const supabaseRecords = recordsToReport.map((r) => this.toSupabaseRecord(r));
+      // Convert to Supabase format.
+      // WHY: Records that came through addCostReport() carry a __costReport extension
+      // field with the full CostReport, enabling the migration-022 column mapping.
+      // Legacy records from addRecord() fall back to toSupabaseRecord() with defaults.
+      const supabaseRecords = recordsToReport.map((r) => {
+        const ext = r as CostRecord & { __costReport?: CostReport };
+        return ext.__costReport
+          ? this.toSupabaseRecordFromCostReport(ext.__costReport)
+          : this.toSupabaseRecord(r);
+      });
 
       // Insert into cost_records table
       const { error } = await this.config.supabase
@@ -314,7 +339,10 @@ export class CostReporter extends EventEmitter {
     this.sessionTotalCostUsd += record.costUsd;
 
     try {
-      const supabaseRecord = this.toSupabaseRecord(record);
+      const ext = record as CostRecord & { __costReport?: CostReport };
+      const supabaseRecord = ext.__costReport
+        ? this.toSupabaseRecordFromCostReport(ext.__costReport)
+        : this.toSupabaseRecord(record);
 
       const { error } = await this.config.supabase
         .from('cost_records')
@@ -532,6 +560,9 @@ export class CostReporter extends EventEmitter {
   /**
    * Convert a CostRecord to Supabase format.
    *
+   * Uses migration-022 defaults for billing_model / source columns when the
+   * caller has only a legacy CostRecord and no CostReport is available.
+   *
    * @param record - Internal cost record
    * @returns Supabase-compatible record
    */
@@ -554,7 +585,130 @@ export class CostReporter extends EventEmitter {
       recorded_at: record.timestamp.toISOString(),
       record_date: dateStr,
       is_pending: false,
+      // migration-022 defaults for legacy CostRecord callers
+      billing_model: 'api-key',
+      source: 'styrby-estimate',
+      raw_agent_payload: null,
+      subscription_fraction_used: null,
+      credits_consumed: null,
+      credit_rate_usd: null,
     };
+  }
+
+  /**
+   * Convert a unified {@link CostReport} to Supabase format.
+   *
+   * This is the preferred path for all new code. It maps CostReport 1:1 to the
+   * migration-022 columns in `cost_records`, preserving billing_model, source,
+   * raw_agent_payload, and credit / subscription metadata for the cost dashboard.
+   *
+   * WHY: Migration 022 adds billing_model, source, raw_agent_payload,
+   * subscription_fraction_used, credits_consumed, and credit_rate_usd. Mapping
+   * these from CostReport (rather than re-deriving them) ensures the DB reflects
+   * exactly what the agent reported — critical for SOC2 CC7.2 audit trail.
+   *
+   * @param report - Unified CostReport from the agent factory
+   * @returns Supabase-compatible record with all migration-022 columns populated
+   */
+  toSupabaseRecordFromCostReport(report: CostReport): SupabaseCostRecord {
+    const recordedAt = report.timestamp;
+    const dateStr = recordedAt.split('T')[0]; // YYYY-MM-DD
+
+    return {
+      user_id: this.config.userId,
+      session_id: report.sessionId,
+      agent_type: report.agentType as AgentType,
+      model: report.model,
+      input_tokens: report.inputTokens,
+      output_tokens: report.outputTokens,
+      cache_read_tokens: report.cacheReadTokens,
+      cache_write_tokens: report.cacheWriteTokens,
+      cost_usd: report.costUsd,
+      price_per_input_token: null,
+      price_per_output_token: null,
+      recorded_at: recordedAt,
+      record_date: dateStr,
+      is_pending: false,
+      // ---- migration-022 columns ----
+      billing_model: report.billingModel,
+      source: report.source,
+      raw_agent_payload: report.rawAgentPayload ?? null,
+      // Subscription quota fraction — null if agent didn't expose it
+      subscription_fraction_used: report.subscriptionUsage?.fractionUsed ?? null,
+      // Credit billing fields — null for non-credit billing models
+      credits_consumed: report.credits?.consumed ?? null,
+      credit_rate_usd: report.credits?.rateUsdPerCredit ?? null,
+    };
+  }
+
+  /**
+   * Add a unified CostReport to the pending batch.
+   *
+   * This is the preferred method for new cost-report event consumers.
+   * It converts CostReport → SupabaseCostRecord using the migration-022 mapping
+   * and queues it alongside legacy CostRecord entries.
+   *
+   * WHY: Introducing addCostReport alongside addRecord lets callers gradually
+   * migrate to the CostReport path without breaking the existing batch/flush
+   * infrastructure. Both paths share the same pending queue and retry logic.
+   *
+   * @param report - Unified CostReport from the agent factory
+   */
+  addCostReport(report: CostReport): void {
+    // WHY: Cap the pending buffer to prevent unbounded memory growth when
+    // flush() keeps failing (e.g. sustained network outage). Drop the oldest
+    // record (index 0) before pushing the new one — identical policy as addRecord().
+    if (this.pendingRecords.length >= MAX_PENDING) {
+      this.pendingRecords.shift();
+      console.warn(
+        `[CostReporter] pendingRecords exceeded MAX_PENDING (${MAX_PENDING}). ` +
+          'Oldest record dropped. Check network connectivity.'
+      );
+    }
+
+    // Convert CostReport to the CostRecord shape that pendingRecords holds, then
+    // flush via the existing infrastructure. We store the Supabase record directly
+    // in a thin wrapper so flush() can insert it without branching.
+    const costUsd = report.costUsd;
+    this.sessionTotalCostUsd += costUsd;
+
+    // Build a synthetic CostRecord for the legacy pending queue so flush() can
+    // call toSupabaseRecord(). The supabaseRecord override is applied by flush()
+    // calling toSupabaseRecordFromCostReport when the item carries a costReport ref.
+    // WHY: Rather than duplicating flush() logic, we attach the CostReport to the
+    // CostRecord using an extension property so the existing batch path picks it up.
+    const syntheticRecord: CostRecord & { __costReport?: CostReport } = {
+      sessionId: report.sessionId,
+      agentType: report.agentType as AgentType,
+      model: report.model,
+      inputTokens: report.inputTokens,
+      outputTokens: report.outputTokens,
+      cacheReadTokens: report.cacheReadTokens,
+      cacheWriteTokens: report.cacheWriteTokens,
+      costUsd,
+      timestamp: new Date(report.timestamp),
+      __costReport: report,
+    };
+
+    this.pendingRecords.push(syntheticRecord);
+
+    this.log('CostReport added', {
+      agentType: report.agentType,
+      billingModel: report.billingModel,
+      source: report.source,
+      costUsd,
+      pendingCount: this.pendingRecords.length,
+    });
+
+    // Auto-flush if batch is full
+    if (this.pendingRecords.length >= this.config.maxBatchSize) {
+      this.flush().catch((error) => {
+        this.emit('error', {
+          message: 'Batch flush failed',
+          error: error instanceof Error ? error : undefined,
+        });
+      });
+    }
   }
 
   /**

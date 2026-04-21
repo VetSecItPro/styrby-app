@@ -987,3 +987,86 @@ describe('KiroBackend — extra args validation', () => {
     await expect(backend.sendPrompt(sessionId, 'test')).rejects.toThrow('Unsafe character');
   });
 });
+
+// ===========================================================================
+// KiroBackend — cost-report emission
+// ===========================================================================
+
+/**
+ * Tests for the unified CostReport event emitted by Kiro usage events.
+ *
+ * WHY: Kiro uses credit-based billing (AWS credits). The CostReport must carry
+ * billingModel='credit' and a credits object with consumed + rateUsdPerCredit.
+ * KIRO_CREDIT_TO_USD is exported for downstream config; we snapshot it here
+ * so any rate change causes a visible test failure.
+ */
+describe('KiroBackend — cost-report emission', () => {
+  it('emits cost-report with billingModel=credit and credits object on usage event', async () => {
+    const { backend } = createKiroBackend({ ...BASE_OPTIONS, model: 'kiro-default' });
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [
+      kiroUsage({ credits_consumed: 5, input_tokens: 400, output_tokens: 150 }),
+    ]);
+    await promptPromise;
+
+    const reports = messages.filter((m: any) => m.type === 'cost-report');
+    expect(reports.length).toBeGreaterThanOrEqual(1);
+    const r = reports[0] as any;
+    expect(r.report.billingModel).toBe('credit');
+    expect(r.report.source).toBe('agent-reported');
+    expect(r.report.agentType).toBe('kiro');
+    expect(r.report.credits).toBeDefined();
+    expect(r.report.credits.consumed).toBe(5);
+    expect(typeof r.report.credits.rateUsdPerCredit).toBe('number');
+    expect(r.report.credits.rateUsdPerCredit).toBeGreaterThan(0);
+  });
+
+  it('costUsd equals credits * rateUsdPerCredit when cost_usd is not provided', async () => {
+    const { backend } = createKiroBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [
+      kiroUsage({ credits_consumed: 10, input_tokens: 200, output_tokens: 80 }),
+    ]);
+    await promptPromise;
+
+    const r = messages.find((m: any) => m.type === 'cost-report') as any;
+    const { credits } = r.report;
+    expect(r.report.costUsd).toBeCloseTo(credits.consumed * credits.rateUsdPerCredit);
+  });
+
+  it('cost-report has rawAgentPayload set on agent-reported event', async () => {
+    const { backend } = createKiroBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [
+      kiroUsage({ credits_consumed: 3, input_tokens: 150, output_tokens: 60 }),
+    ]);
+    await promptPromise;
+
+    const r = messages.find((m: any) => m.type === 'cost-report') as any;
+    expect(r.report.rawAgentPayload).not.toBeNull();
+  });
+
+  it('uses cost_usd directly when Kiro provides it', async () => {
+    const { backend } = createKiroBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [
+      kiroUsage({ credits_consumed: 2, cost_usd: 0.025, input_tokens: 100, output_tokens: 50 }),
+    ]);
+    await promptPromise;
+
+    const r = messages.find((m: any) => m.type === 'cost-report') as any;
+    expect(r.report.costUsd).toBeCloseTo(0.025);
+  });
+});

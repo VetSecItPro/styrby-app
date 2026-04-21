@@ -38,6 +38,7 @@ import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
+import type { CostReport } from '@styrby/shared/cost';
 
 // ============================================================================
 // LiteLLM Pricing Table
@@ -420,18 +421,21 @@ class DroidBackend extends StreamingAgentBackendBase {
           const usageModel = msg.usage.model ?? this.currentModel ?? 'unknown';
           const newInput = msg.usage.prompt_tokens ?? 0;
           const newOutput = msg.usage.completion_tokens ?? 0;
+          const newCacheRead = msg.usage.cache_read_tokens ?? 0;
+          const newCacheWrite = msg.usage.cache_write_tokens ?? 0;
 
           this.inputTokens += newInput;
           this.outputTokens += newOutput;
-          this.cacheReadTokens += msg.usage.cache_read_tokens ?? 0;
-          this.cacheWriteTokens += msg.usage.cache_write_tokens ?? 0;
+          this.cacheReadTokens += newCacheRead;
+          this.cacheWriteTokens += newCacheWrite;
 
-          if (msg.usage.cost_usd !== undefined) {
-            this.totalCostUsd += msg.usage.cost_usd;
-          } else {
-            this.totalCostUsd += estimateCostFromTokens(usageModel, newInput, newOutput);
-          }
+          const hasAgentCost = msg.usage.cost_usd !== undefined;
+          const incrCost = hasAgentCost
+            ? msg.usage.cost_usd!
+            : estimateCostFromTokens(usageModel, newInput, newOutput);
+          this.totalCostUsd += incrCost;
 
+          // Emit legacy token-count (keep for existing consumers)
           this.emit({
             type: 'token-count',
             inputTokens: this.inputTokens,
@@ -440,6 +444,27 @@ class DroidBackend extends StreamingAgentBackendBase {
             cacheWriteTokens: this.cacheWriteTokens,
             costUsd: this.totalCostUsd,
           });
+
+          // WHY: Emit unified CostReport. source='agent-reported' when Droid's
+          // LiteLLM backend provides cost_usd directly; 'styrby-estimate' when
+          // we compute it from the LiteLLM pricing table (BYOK model).
+          // rawAgentPayload=null for estimates (schema refinement 3).
+          const costReport: CostReport = {
+            sessionId: this.sessionId ?? '',
+            messageId: null,
+            agentType: 'droid',
+            model: usageModel,
+            timestamp: new Date().toISOString(),
+            source: hasAgentCost ? 'agent-reported' : 'styrby-estimate',
+            billingModel: 'api-key',
+            costUsd: incrCost,
+            inputTokens: newInput,
+            outputTokens: newOutput,
+            cacheReadTokens: newCacheRead,
+            cacheWriteTokens: newCacheWrite,
+            rawAgentPayload: hasAgentCost ? (msg.usage as unknown as Record<string, unknown>) : null,
+          };
+          this.emit({ type: 'cost-report', report: costReport } as any);
         }
         break;
 

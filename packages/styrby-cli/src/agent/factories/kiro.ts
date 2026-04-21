@@ -35,6 +35,7 @@ import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
+import type { CostReport } from '@styrby/shared/cost';
 
 // ============================================================================
 // Constants
@@ -44,11 +45,13 @@ import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentB
  * USD cost per single Kiro credit.
  *
  * WHY: Kiro bills in credits rather than tokens. As of the current pricing
- * schedule, 1 credit = $0.01 USD. This constant lets us emit costUsd values
- * in our unified token-count events without requiring callers to know the
- * credit pricing model.
+ * schedule, 1 credit = $0.01 USD. This constant is exported so downstream
+ * code (e.g., future cost-reporter config) can read it without hardcoding
+ * the rate. It is also snapshotted into each CostReport for audit accuracy.
+ *
+ * @see https://kiro.dev/pricing
  */
-const KIRO_CREDIT_TO_USD = 0.01;
+export const KIRO_CREDIT_TO_USD = 0.01;
 
 // ============================================================================
 // Types
@@ -303,17 +306,19 @@ class KiroBackend extends StreamingAgentBackendBase {
         if (event.usage) {
           const credits = event.usage.credits_consumed ?? 0;
           this.creditsConsumed += credits;
-          this.inputTokens += event.usage.input_tokens ?? 0;
-          this.outputTokens += event.usage.output_tokens ?? 0;
+          const incrInput = event.usage.input_tokens ?? 0;
+          const incrOutput = event.usage.output_tokens ?? 0;
+          this.inputTokens += incrInput;
+          this.outputTokens += incrOutput;
 
           // WHY: If Kiro provides a pre-computed cost_usd, prefer it over our
           // conversion. Otherwise compute from credits * KIRO_CREDIT_TO_USD.
-          if (event.usage.cost_usd !== undefined) {
-            this.totalCostUsd += event.usage.cost_usd;
-          } else {
-            this.totalCostUsd += credits * KIRO_CREDIT_TO_USD;
-          }
+          const incrCost = event.usage.cost_usd !== undefined
+            ? event.usage.cost_usd
+            : credits * KIRO_CREDIT_TO_USD;
+          this.totalCostUsd += incrCost;
 
+          // Emit legacy token-count (keep for existing consumers)
           this.emit({
             type: 'token-count',
             inputTokens: this.inputTokens,
@@ -324,6 +329,30 @@ class KiroBackend extends StreamingAgentBackendBase {
             // Include credit count for Kiro-specific display in the dashboard
             creditsConsumed: this.creditsConsumed,
           });
+
+          // WHY: Emit unified CostReport with billingModel='credit'. The credits
+          // object snapshots the current rateUsdPerCredit so historical cost records
+          // remain accurate even if Kiro reprices their credit packs.
+          const costReport: CostReport = {
+            sessionId: this.sessionId ?? '',
+            messageId: null,
+            agentType: 'kiro',
+            model: this.options.model ?? 'unknown',
+            timestamp: new Date().toISOString(),
+            source: 'agent-reported',
+            billingModel: 'credit',
+            costUsd: incrCost,
+            inputTokens: incrInput,
+            outputTokens: incrOutput,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            credits: {
+              consumed: credits,
+              rateUsdPerCredit: KIRO_CREDIT_TO_USD,
+            },
+            rawAgentPayload: event.usage as unknown as Record<string, unknown>,
+          };
+          this.emit({ type: 'cost-report', report: costReport } as any);
         }
         break;
 

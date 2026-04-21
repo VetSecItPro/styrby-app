@@ -23,6 +23,9 @@ export default defineConfig({
       // tsconfig paths mechanism that the production esbuild build also
       // honours via tsc-alias).
       'styrby-shared': resolve(__dirname, '../styrby-shared/dist/index.js'),
+      // WHY: Mirror the tsconfig path for the cost module so vitest can
+      // resolve `import ... from '@styrby/shared/cost'` during test runs.
+      '@styrby/shared/cost': resolve(__dirname, '../styrby-shared/dist/cost/index.js'),
     },
   },
 });

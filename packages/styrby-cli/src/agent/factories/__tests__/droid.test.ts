@@ -1093,3 +1093,67 @@ describe('DroidBackend — session_id tracking', () => {
     expect(args).toContain('droid-sess-abc');
   });
 });
+
+// ===========================================================================
+// DroidBackend — cost-report emission
+// ===========================================================================
+
+/**
+ * Tests for the unified CostReport event emitted by Droid usage events.
+ *
+ * WHY: Droid mirrors Goose's pattern — source='agent-reported' with rawAgentPayload
+ * when cost_usd is present; source='styrby-estimate' with rawAgentPayload=null
+ * when cost_usd is absent.
+ */
+describe('DroidBackend — cost-report emission', () => {
+  it('emits cost-report with source=agent-reported when usage event has cost_usd', async () => {
+    const { backend } = createDroidBackend({ ...BASE_OPTIONS, model: 'droid-v2' });
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [
+      droidUsage({ prompt_tokens: 1200, completion_tokens: 600, cost_usd: 0.045 }),
+    ]);
+    await promptPromise;
+
+    const reports = messages.filter((m: any) => m.type === 'cost-report');
+    expect(reports.length).toBeGreaterThanOrEqual(1);
+    const r = reports[0] as any;
+    expect(r.report.billingModel).toBe('api-key');
+    expect(r.report.source).toBe('agent-reported');
+    expect(r.report.agentType).toBe('droid');
+    expect(r.report.rawAgentPayload).not.toBeNull();
+  });
+
+  it('emits cost-report with source=styrby-estimate and rawAgentPayload=null when cost_usd is absent', async () => {
+    const { backend } = createDroidBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [
+      droidUsage({ prompt_tokens: 800, completion_tokens: 300 }),
+    ]);
+    await promptPromise;
+
+    const r = messages.find((m: any) => m.type === 'cost-report') as any;
+    expect(r.report.source).toBe('styrby-estimate');
+    expect(r.report.rawAgentPayload).toBeNull();
+  });
+
+  it('cost-report costUsd reflects the agent-provided value', async () => {
+    const { backend } = createDroidBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [
+      droidUsage({ prompt_tokens: 500, completion_tokens: 200, cost_usd: 0.022 }),
+    ]);
+    await promptPromise;
+
+    const r = messages.find((m: any) => m.type === 'cost-report') as any;
+    expect(r.report.costUsd).toBeCloseTo(0.022);
+  });
+});

@@ -41,6 +41,36 @@ import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
+import type { CostReport, BillingModel } from '@styrby/shared/cost';
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Detect whether the Kilo session is using a local/free model.
+ *
+ * WHY: Kilo supports 500+ models including local ones via Ollama and LM Studio.
+ * Local models have zero marginal cost — charging users for them would be wrong.
+ * We detect local usage by matching the model name pattern or checking whether
+ * the apiBaseUrl resolves to localhost/127.0.0.1.
+ *
+ * @param model - Model identifier (e.g., 'ollama/llama3', 'local-codellama')
+ * @param apiBaseUrl - Optional API base URL (e.g., 'http://localhost:11434/v1')
+ * @returns true when the model is local/free-tier
+ */
+function isKiloLocalModel(model: string | undefined, apiBaseUrl: string | undefined): boolean {
+  if (model && /ollama|^local-/i.test(model)) return true;
+  if (apiBaseUrl) {
+    try {
+      const url = new URL(apiBaseUrl);
+      return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1';
+    } catch {
+      // Invalid URL - not local
+    }
+  }
+  return false;
+}
 
 // ============================================================================
 // Types
@@ -383,12 +413,23 @@ class KiloBackend extends StreamingAgentBackendBase {
         // WHY: Kilo emits token counts after each model request. We accumulate
         // across the session so the mobile app shows a running cost total.
         if (msg.usage) {
-          this.inputTokens += msg.usage.input_tokens ?? 0;
-          this.outputTokens += msg.usage.output_tokens ?? 0;
-          this.cacheReadTokens += msg.usage.cache_read_tokens ?? 0;
-          this.cacheWriteTokens += msg.usage.cache_write_tokens ?? 0;
-          this.totalCostUsd += msg.usage.cost_usd ?? 0;
+          const incrInput = msg.usage.input_tokens ?? 0;
+          const incrOutput = msg.usage.output_tokens ?? 0;
+          const incrCacheRead = msg.usage.cache_read_tokens ?? 0;
+          const incrCacheWrite = msg.usage.cache_write_tokens ?? 0;
 
+          // WHY: Local/free models (Ollama, LM Studio) have zero marginal cost.
+          // We detect local usage by model name or apiBaseUrl and set costUsd=0.
+          const isLocal = isKiloLocalModel(this.options.model, this.options.apiBaseUrl);
+          const incrCost = isLocal ? 0 : (msg.usage.cost_usd ?? 0);
+
+          this.inputTokens += incrInput;
+          this.outputTokens += incrOutput;
+          this.cacheReadTokens += incrCacheRead;
+          this.cacheWriteTokens += incrCacheWrite;
+          this.totalCostUsd += incrCost;
+
+          // Emit legacy token-count (keep for existing consumers)
           this.emit({
             type: 'token-count',
             inputTokens: this.inputTokens,
@@ -397,6 +438,28 @@ class KiloBackend extends StreamingAgentBackendBase {
             cacheWriteTokens: this.cacheWriteTokens,
             costUsd: this.totalCostUsd,
           });
+
+          // WHY: Emit unified CostReport. Kilo local models use billingModel='free'
+          // with costUsd=0; remote models use 'api-key'. source='agent-reported'
+          // when Kilo reports cost_usd; 'styrby-estimate' otherwise.
+          const billingModel: BillingModel = isLocal ? 'free' : 'api-key';
+          const hasAgentCost = !isLocal && msg.usage.cost_usd !== undefined;
+          const costReport: CostReport = {
+            sessionId: this.sessionId ?? '',
+            messageId: null,
+            agentType: 'kilo',
+            model: this.options.model ?? 'unknown',
+            timestamp: new Date().toISOString(),
+            source: hasAgentCost ? 'agent-reported' : 'styrby-estimate',
+            billingModel,
+            costUsd: incrCost,
+            inputTokens: incrInput,
+            outputTokens: incrOutput,
+            cacheReadTokens: incrCacheRead,
+            cacheWriteTokens: incrCacheWrite,
+            rawAgentPayload: hasAgentCost ? (msg.usage as unknown as Record<string, unknown>) : null,
+          };
+          this.emit({ type: 'cost-report', report: costReport } as any);
         }
         break;
 

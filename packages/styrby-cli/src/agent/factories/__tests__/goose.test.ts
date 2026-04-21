@@ -1036,3 +1036,77 @@ describe('GooseBackend — waitForResponseComplete', () => {
     await expect(backend.waitForResponseComplete?.(1000)).resolves.toBeUndefined();
   });
 });
+
+// ===========================================================================
+// GooseBackend — cost-report emission
+// ===========================================================================
+
+/**
+ * Tests for the unified CostReport event added to Goose cost events.
+ *
+ * WHY: migration 022 columns require billing_model / source / raw_agent_payload.
+ * When Goose provides cost_usd the source is 'agent-reported' with rawAgentPayload.
+ * When cost_usd is absent, source falls back to 'styrby-estimate' and rawAgentPayload is null.
+ */
+describe('GooseBackend — cost-report emission', () => {
+  it('emits cost-report with source=agent-reported when cost event has cost_usd', async () => {
+    const { backend } = createGooseBackend({ ...BASE_OPTIONS, model: 'claude-opus-4' });
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [
+      gooseCost({
+        input_tokens: 500,
+        output_tokens: 200,
+        cache_read_input_tokens: 30,
+        cache_creation_input_tokens: 10,
+        cost_usd: 0.0088,
+      }),
+    ]);
+    await promptPromise;
+
+    const reports = messages.filter((m: any) => m.type === 'cost-report');
+    expect(reports.length).toBeGreaterThanOrEqual(1);
+    const r = reports[0] as any;
+    expect(r.report.billingModel).toBe('api-key');
+    expect(r.report.source).toBe('agent-reported');
+    expect(r.report.agentType).toBe('goose');
+    expect(r.report.inputTokens).toBe(500);
+    expect(r.report.outputTokens).toBe(200);
+    expect(r.report.cacheReadTokens).toBe(30);
+    expect(r.report.cacheWriteTokens).toBe(10);
+    expect(r.report.rawAgentPayload).not.toBeNull();
+  });
+
+  it('emits cost-report with source=styrby-estimate and rawAgentPayload=null when cost_usd is absent', async () => {
+    const { backend } = createGooseBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [
+      gooseCost({ input_tokens: 100, output_tokens: 40 }),
+    ]);
+    await promptPromise;
+
+    const reports = messages.filter((m: any) => m.type === 'cost-report');
+    expect(reports.length).toBeGreaterThanOrEqual(1);
+    const r = reports[0] as any;
+    expect(r.report.source).toBe('styrby-estimate');
+    expect(r.report.rawAgentPayload).toBeNull();
+  });
+
+  it('cost-report billingModel is always api-key for Goose', async () => {
+    const { backend } = createGooseBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [gooseCost({ cost_usd: 0.005 })]);
+    await promptPromise;
+
+    const r = messages.find((m: any) => m.type === 'cost-report') as any;
+    expect(r.report.billingModel).toBe('api-key');
+  });
+});

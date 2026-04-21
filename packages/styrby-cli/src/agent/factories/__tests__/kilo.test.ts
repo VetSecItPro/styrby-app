@@ -1195,3 +1195,108 @@ describe('KiloBackend — line buffer handling', () => {
     expect((textMessages[0] as any).textDelta).toBe('Split JSON content');
   });
 });
+
+// ===========================================================================
+// KiloBackend — cost-report emission
+// ===========================================================================
+
+/**
+ * Tests for the unified CostReport event emitted by Kilo token events.
+ *
+ * WHY: Kilo supports local (Ollama / local-* models) and cloud models.
+ * Local models → billingModel='free', costUsd=0.
+ * Cloud models → billingModel='api-key', source determined by presence of cost_usd.
+ */
+describe('KiloBackend — cost-report emission (cloud model)', () => {
+  it('emits billingModel=api-key and source=agent-reported when cost_usd is present', async () => {
+    const { backend } = createKiloBackend({ ...BASE_OPTIONS, model: 'claude-sonnet-4' });
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [
+      kiloTokens({ input_tokens: 600, output_tokens: 250, cache_read_tokens: 40, cost_usd: 0.009 }),
+    ]);
+    await promptPromise;
+
+    const reports = messages.filter((m: any) => m.type === 'cost-report');
+    expect(reports.length).toBeGreaterThanOrEqual(1);
+    const r = reports[0] as any;
+    expect(r.report.billingModel).toBe('api-key');
+    expect(r.report.source).toBe('agent-reported');
+    expect(r.report.agentType).toBe('kilo');
+    expect(r.report.costUsd).toBe(0.009);
+    expect(r.report.inputTokens).toBe(600);
+    expect(r.report.cacheReadTokens).toBe(40);
+  });
+
+  it('emits billingModel=api-key and source=styrby-estimate when cost_usd is absent', async () => {
+    const { backend } = createKiloBackend({ ...BASE_OPTIONS, model: 'claude-sonnet-4' });
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [
+      kiloTokens({ input_tokens: 400, output_tokens: 100 }),
+    ]);
+    await promptPromise;
+
+    const r = messages.find((m: any) => m.type === 'cost-report') as any;
+    expect(r.report.billingModel).toBe('api-key');
+    expect(r.report.source).toBe('styrby-estimate');
+  });
+});
+
+describe('KiloBackend — cost-report emission (local / Ollama model)', () => {
+  it('emits billingModel=free and costUsd=0 for ollama model names', async () => {
+    const { backend } = createKiloBackend({ ...BASE_OPTIONS, model: 'ollama/llama3' });
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [
+      kiloTokens({ input_tokens: 300, output_tokens: 120, cost_usd: 0 }),
+    ]);
+    await promptPromise;
+
+    const r = messages.find((m: any) => m.type === 'cost-report') as any;
+    expect(r.report.billingModel).toBe('free');
+    expect(r.report.costUsd).toBe(0);
+  });
+
+  it('emits billingModel=free for local- prefixed model names', async () => {
+    const { backend } = createKiloBackend({ ...BASE_OPTIONS, model: 'local-mistral-7b' });
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [
+      kiloTokens({ input_tokens: 200, output_tokens: 80 }),
+    ]);
+    await promptPromise;
+
+    const r = messages.find((m: any) => m.type === 'cost-report') as any;
+    expect(r.report.billingModel).toBe('free');
+    expect(r.report.costUsd).toBe(0);
+  });
+
+  it('emits billingModel=free when apiBaseUrl points to localhost', async () => {
+    const { backend } = createKiloBackend({
+      ...BASE_OPTIONS,
+      model: 'llama3',
+      apiBaseUrl: 'http://localhost:11434',
+    });
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [
+      kiloTokens({ input_tokens: 100, output_tokens: 50 }),
+    ]);
+    await promptPromise;
+
+    const r = messages.find((m: any) => m.type === 'cost-report') as any;
+    expect(r.report.billingModel).toBe('free');
+    expect(r.report.costUsd).toBe(0);
+  });
+});
