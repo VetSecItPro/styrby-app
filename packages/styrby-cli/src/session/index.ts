@@ -7,3 +7,4 @@
  */
 
 export * from './agent-session';
+export * from './session-storage';
