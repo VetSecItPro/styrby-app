@@ -88,6 +88,17 @@ export interface SessionRecord {
   started_at: string;
   ended_at?: string;
   last_activity_at: string;
+  /**
+   * Timestamp of the most recent relay heartbeat or state transition.
+   *
+   * WHY: Distinct from `last_activity_at` (which tracks message/cost writes).
+   * `last_seen_at` is updated on every relay event — even during idle periods
+   * when the agent is connected but not producing output. This powers the
+   * "Session last seen X minutes ago" indicator in the mobile UI.
+   *
+   * Added by migration 024_session_state_tracking.sql.
+   */
+  last_seen_at?: string;
   total_cost_usd: number;
   total_input_tokens: number;
   total_output_tokens: number;
@@ -127,6 +138,38 @@ export interface UpdateSessionData {
   errorMessage?: string;
   contextWindowUsed?: number;
   contextWindowLimit?: number;
+}
+
+/**
+ * Data for updating session connection state and heartbeat timestamp.
+ *
+ * Used by `SessionStorage.updateState()` to persist relay lifecycle
+ * transitions (connected → reconnecting → error, etc.) so the mobile app
+ * can display accurate connection status and the daemon can re-attach after
+ * a network drop with the correct session ID.
+ */
+export interface UpdateStateData {
+  /** UUID of the session to update */
+  sessionId: string;
+  /**
+   * The new connection/run state to persist.
+   *
+   * Maps from `SessionState` (agent-session.ts internal enum) to the
+   * database `session_status` enum:
+   *   running   → running
+   *   reconnecting → paused  (session not dead, just temporarily disconnected)
+   *   error     → error
+   *   stopped   → stopped
+   *
+   * WHY "paused" for reconnecting: The database `session_status` enum does
+   * not have a "reconnecting" value. "paused" most accurately conveys
+   * "session is alive but the relay is temporarily interrupted" — the agent
+   * process is still running on the developer's machine, it's only the
+   * mobile link that is down.
+   */
+  state: SessionStatus;
+  /** ISO timestamp of the last relay heartbeat or state transition */
+  lastSeenAt: string;
 }
 
 /**
@@ -440,6 +483,59 @@ export class SessionStorage {
     this.keyCache.delete(sessionId);
 
     return session as SessionRecord;
+  }
+
+  /**
+   * Update session connection state and last-seen timestamp.
+   *
+   * Called by `AgentSession` whenever the `RelayClient` transitions between
+   * connection states (connected → reconnecting → error → connected). Writing
+   * these transitions to the database lets the mobile app display accurate
+   * connection status ("Session reconnecting…", "Session last seen 4 min ago")
+   * without requiring an active WebSocket connection from the phone.
+   *
+   * WHY a dedicated method (vs. calling `updateSession`):
+   *   - `updateState` is called on every relay heartbeat transition — potentially
+   *     many times per minute. Keeping it slim (two columns, no `RETURNING *`)
+   *     minimises Supabase read-unit consumption.
+   *   - The `last_seen_at` column does not exist in `UpdateSessionData`, which
+   *     covers higher-level session metadata. Separating the concerns prevents
+   *     callers from accidentally overwriting cost totals or tags during a
+   *     routine heartbeat update.
+   *
+   * @param data - State and timestamp to write
+   * @throws {Error} If the UPDATE fails (e.g., session not found, RLS violation)
+   *
+   * @example
+   * await storage.updateState({
+   *   sessionId: 'session-uuid',
+   *   state: 'paused',
+   *   lastSeenAt: new Date().toISOString(),
+   * });
+   */
+  async updateState(data: UpdateStateData): Promise<void> {
+    this.log('Updating session state', {
+      sessionId: data.sessionId,
+      state: data.state,
+      lastSeenAt: data.lastSeenAt,
+    });
+
+    const { error } = await this.supabase
+      .from('sessions')
+      .update({
+        status: data.state,
+        last_seen_at: data.lastSeenAt,
+        last_activity_at: data.lastSeenAt,
+      })
+      .eq('id', data.sessionId);
+
+    if (error) {
+      this.log('Failed to update session state', {
+        sessionId: data.sessionId,
+        error: error.message,
+      });
+      throw new Error(`Failed to update session state: ${error.message}`);
+    }
   }
 
   // --------------------------------------------------------------------------

@@ -36,6 +36,7 @@ import {
   type AgentStatus,
 } from '@/auth/agent-credentials';
 import { RelayClient, createRelayClient } from 'styrby-shared';
+import { SessionStorage, type SessionStatus } from './session-storage';
 
 // ============================================================================
 // Types
@@ -51,12 +52,30 @@ export interface SessionConfig {
   cwd: string;
   /** User ID (for Realtime channel) */
   userId: string;
-  /** Machine ID (for Realtime presence) */
+  /**
+   * Machine ID — identifies the developer's registered machine.
+   *
+   * WHY machineId is distinct from sessionId: `machineId` is a durable
+   * identifier for a physical or virtual developer workstation (persisted in
+   * the `machines` table). `sessionId` identifies a single agent run on that
+   * machine (persisted in the `sessions` table). Confusing the two caused a
+   * bug where `sendToMobile()` sent `machineId` as `session_id` in relay
+   * payloads, so mobile received the machine UUID where it expected a session
+   * UUID, breaking resume, history, and scoped notifications.
+   */
   machineId: string;
   /** Machine name for display */
   machineName: string;
   /** Supabase client */
   supabase: SupabaseClient;
+  /**
+   * Optional pre-wired `SessionStorage` instance for DB persistence.
+   *
+   * When provided, `AgentSession` writes session lifecycle transitions
+   * (state, last_seen_at) to Supabase so the mobile app can display accurate
+   * connection status and re-attach via `styrby resume`.
+   */
+  storage?: SessionStorage;
   /** Initial prompt to send (optional) */
   initialPrompt?: string;
   /** Enable debug logging */
@@ -129,6 +148,21 @@ export class AgentSession extends EventEmitter {
   private stats: SessionStats;
   private outputBuffer: string = '';
 
+  /**
+   * UUID for this specific agent session run.
+   *
+   * WHY this field exists: Previously, `sendToMobile()` used
+   * `this.config.machineId` as `session_id` in relay payloads. That sent the
+   * machine UUID where mobile expected a session UUID, breaking resume,
+   * per-session history, and scoped push notifications. `sessionId` is
+   * generated fresh at `start()` via `crypto.randomUUID()`, distinct from
+   * `machineId` (which identifies the developer's machine, not this run).
+   *
+   * Set to empty string until `start()` is called so the field is always
+   * defined and TypeScript callers do not need null checks.
+   */
+  private sessionId: string = '';
+
   constructor(config: SessionConfig) {
     super();
     this.config = config;
@@ -167,9 +201,17 @@ export class AgentSession extends EventEmitter {
         throw new Error(`${this.agentStatus.name} is not installed`);
       }
 
+      // Generate a real session UUID distinct from the machine ID.
+      // WHY: machineId identifies the developer's machine (durable, reused
+      // across sessions). sessionId identifies THIS specific agent run.
+      // Using machineId as session_id in relay payloads caused mobile to
+      // misroute session history, resume, and scoped notifications.
+      this.sessionId = crypto.randomUUID();
+
       this.log('Starting session', {
         agent: this.config.agent,
         cwd: this.config.cwd,
+        sessionId: this.sessionId,
       });
 
       // Connect to Realtime for mobile relay
@@ -179,7 +221,7 @@ export class AgentSession extends EventEmitter {
       await this.spawnAgent();
 
       this.setState('running');
-      this.log('Session started');
+      this.log('Session started', { sessionId: this.sessionId });
     } catch (error) {
       this.setState('error');
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -274,6 +316,17 @@ export class AgentSession extends EventEmitter {
     return this.relay?.isDeviceTypeOnline('mobile') ?? false;
   }
 
+  /**
+   * Get the session UUID for this run.
+   *
+   * Returns an empty string if called before `start()`.
+   * Use this value (not `config.machineId`) wherever a `session_id` FK is
+   * expected — relay payloads, Supabase writes, resume tokens.
+   */
+  getSessionId(): string {
+    return this.sessionId;
+  }
+
   // --------------------------------------------------------------------------
   // Private: Relay Connection
   // --------------------------------------------------------------------------
@@ -311,13 +364,53 @@ export class AgentSession extends EventEmitter {
       this.emit('mobileDisconnected', { deviceId: data.device_id });
     });
 
+    // -----------------------------------------------------------------------
+    // Persist relay lifecycle transitions to Supabase.
+    //
+    // WHY: When the daemon disconnects and reconnects, the sessions table row
+    // remains stale unless we write the transition. Mobile has no way to tell
+    // "agent is back on the same session" vs "brand new session" without an
+    // updated status + last_seen_at. These handlers feed `updateState()` so
+    // the phone can display accurate connection status ("Reconnecting…",
+    // "Session last seen 4 min ago") and `styrby resume` can re-attach to
+    // the correct session row.
+    // -----------------------------------------------------------------------
+    this.relay.on('subscribed', () => {
+      this.persistRelayState('running').catch((err) =>
+        this.log('Failed to persist relay connected state', { err })
+      );
+    });
+
+    this.relay.on('reconnecting', () => {
+      // WHY 'paused': the agent process is still alive; only the relay link
+      // is interrupted. "paused" is the closest DB session_status value.
+      this.persistRelayState('paused').catch((err) =>
+        this.log('Failed to persist relay reconnecting state', { err })
+      );
+    });
+
+    this.relay.on('error', () => {
+      this.persistRelayState('error').catch((err) =>
+        this.log('Failed to persist relay error state', { err })
+      );
+    });
+
+    this.relay.on('closed', () => {
+      // 'closed' fires on manual disconnect (stop()). We do NOT call
+      // persistRelayState here because stop() already calls SessionStorage
+      // methods that transition the session to 'stopped'.
+      this.log('Relay closed');
+    });
+
     // Connect
     await this.relay.connect();
     this.log('Relay connected');
 
-    // Update presence with session info
+    // Update presence with session info — include the real sessionId so
+    // mobile presence state reflects the correct session UUID (not machineId).
     await this.relay.updatePresence({
       active_agent: this.config.agent,
+      session_id: this.sessionId,
     });
   }
 
@@ -369,7 +462,11 @@ export class AgentSession extends EventEmitter {
         payload: {
           content,
           agent: this.config.agent,
-          session_id: this.config.machineId, // Using machine ID as session ID for now
+          // WHY sessionId (not machineId): machineId identifies the developer's
+          // machine. sessionId identifies this specific agent run. Previously
+          // machineId was sent here, causing mobile to misroute history, resume,
+          // and scoped notifications. Fixed in PR-3 (Phase 1.6.2).
+          session_id: this.sessionId,
           is_streaming: true,
           is_complete: false,
         },
@@ -456,6 +553,30 @@ export class AgentSession extends EventEmitter {
   // --------------------------------------------------------------------------
   // Private: Helpers
   // --------------------------------------------------------------------------
+
+  /**
+   * Persist a relay connection state transition to Supabase.
+   *
+   * Called from relay event listeners (subscribed, reconnecting, error) so
+   * the sessions table row stays in sync with the actual connection state.
+   * No-ops silently when `config.storage` is not provided or when `sessionId`
+   * has not yet been assigned (before `start()` completes).
+   *
+   * @param state - The `session_status` value to write
+   */
+  private async persistRelayState(state: SessionStatus): Promise<void> {
+    if (!this.config.storage || !this.sessionId) {
+      return;
+    }
+
+    await this.config.storage.updateState({
+      sessionId: this.sessionId,
+      state,
+      lastSeenAt: new Date().toISOString(),
+    });
+
+    this.log('Persisted relay state', { sessionId: this.sessionId, state });
+  }
 
   /**
    * Update session state and emit event.
