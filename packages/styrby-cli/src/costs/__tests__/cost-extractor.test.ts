@@ -42,11 +42,24 @@ import {
   parseCodexOutput,
   parseGeminiOutput,
   parseOpenCodeOutput,
+  readCodexSessionFile,
   CostExtractor,
   createCostExtractor,
   type CostRecord,
 } from '../cost-extractor.js';
 import type { TokenUsage } from '../jsonl-parser.js';
+
+// ============================================================================
+// fs mock (for readCodexSessionFile tests)
+// ============================================================================
+vi.mock('node:fs', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...original,
+    readFileSync: vi.fn(original.readFileSync),
+  };
+});
+import * as fs from 'node:fs';
 
 // ============================================================================
 // Fixtures
@@ -456,5 +469,121 @@ describe('CostExtractor', () => {
       // Both calls extract records after reset
       expect(extractor.getRecords()).toHaveLength(1);
     });
+  });
+});
+
+// ============================================================================
+// readCodexSessionFile — Phase 1.6.1 Gap 2
+// ============================================================================
+
+/**
+ * Tests for the Codex session-file reader.
+ *
+ * WHY: `readCodexSessionFile` is the authoritative cost source for Codex. It
+ * reads the JSONL session transcript that Codex writes to ~/.codex/sessions/.
+ * Bugs here silently drop cost records or produce incorrect totals on the
+ * mobile cost dashboard.
+ *
+ * We mock `node:fs` so no real file I/O is required.
+ */
+describe('readCodexSessionFile', () => {
+  const mockReadFileSync = fs.readFileSync as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns null when the file does not exist', () => {
+    mockReadFileSync.mockImplementation(() => { throw new Error('ENOENT: no such file'); });
+
+    expect(readCodexSessionFile('/fake/path/session.jsonl')).toBeNull();
+  });
+
+  it('parses a session file with camelCase token fields', () => {
+    const entries = [
+      JSON.stringify({ type: 'usage', inputTokens: 1000, outputTokens: 400, totalCostUsd: 0.015, model: 'gpt-4o' }),
+      JSON.stringify({ type: 'usage', inputTokens: 500, outputTokens: 200, totalCostUsd: 0.008, model: 'gpt-4o' }),
+    ].join('\n');
+    mockReadFileSync.mockReturnValue(entries);
+
+    const result = readCodexSessionFile('/fake/session.jsonl');
+
+    expect(result).not.toBeNull();
+    expect(result!.inputTokens).toBe(1500);
+    expect(result!.outputTokens).toBe(600);
+    expect(result!.totalCostUsd).toBeCloseTo(0.023);
+    expect(result!.model).toBe('gpt-4o');
+  });
+
+  it('parses a session file with snake_case token fields', () => {
+    const entries = JSON.stringify({
+      type: 'usage',
+      input_tokens: 800,
+      output_tokens: 300,
+      total_cost_usd: 0.01,
+      model: 'o1-mini',
+    });
+    mockReadFileSync.mockReturnValue(entries);
+
+    const result = readCodexSessionFile('/fake/session.jsonl');
+
+    expect(result!.inputTokens).toBe(800);
+    expect(result!.outputTokens).toBe(300);
+    expect(result!.totalCostUsd).toBeCloseTo(0.01);
+    expect(result!.model).toBe('o1-mini');
+  });
+
+  it('returns null when no token counts are found in any entry', () => {
+    const entries = JSON.stringify({ type: 'message', content: 'Hello' });
+    mockReadFileSync.mockReturnValue(entries);
+
+    expect(readCodexSessionFile('/fake/session.jsonl')).toBeNull();
+  });
+
+  it('returns null when file contains only malformed JSON lines', () => {
+    mockReadFileSync.mockReturnValue('{broken json\n{also broken');
+
+    expect(readCodexSessionFile('/fake/session.jsonl')).toBeNull();
+  });
+
+  it('aggregates tokens across multiple entries', () => {
+    const entries = [
+      JSON.stringify({ inputTokens: 100, outputTokens: 50 }),
+      JSON.stringify({ inputTokens: 200, outputTokens: 100 }),
+      JSON.stringify({ inputTokens: 300, outputTokens: 150 }),
+    ].join('\n');
+    mockReadFileSync.mockReturnValue(entries);
+
+    const result = readCodexSessionFile('/fake/session.jsonl');
+
+    expect(result!.inputTokens).toBe(600);
+    expect(result!.outputTokens).toBe(300);
+  });
+
+  it('uses the last model seen in the file', () => {
+    const entries = [
+      JSON.stringify({ inputTokens: 100, outputTokens: 50, model: 'gpt-4o' }),
+      JSON.stringify({ inputTokens: 200, outputTokens: 100, model: 'o1-mini' }),
+    ].join('\n');
+    mockReadFileSync.mockReturnValue(entries);
+
+    const result = readCodexSessionFile('/fake/session.jsonl');
+
+    expect(result!.model).toBe('o1-mini');
+  });
+
+  it('skips non-JSON lines (e.g. blank lines or progress output)', () => {
+    const entries = [
+      '',
+      'Starting Codex session...',
+      JSON.stringify({ inputTokens: 500, outputTokens: 250, model: 'gpt-4o' }),
+      '',
+    ].join('\n');
+    mockReadFileSync.mockReturnValue(entries);
+
+    const result = readCodexSessionFile('/fake/session.jsonl');
+
+    expect(result!.inputTokens).toBe(500);
+    expect(result!.outputTokens).toBe(250);
   });
 });

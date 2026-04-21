@@ -77,7 +77,7 @@ vi.mock('@/ui/logger', () => ({
 // ---------------------------------------------------------------------------
 
 import { spawn } from 'node:child_process';
-import { createAiderBackend, registerAiderAgent, type AiderBackendOptions } from '../aider';
+import { createAiderBackend, registerAiderAgent, parseAiderTokenSummary, type AiderBackendOptions } from '../aider';
 import { agentRegistry } from '../../core';
 
 // ---------------------------------------------------------------------------
@@ -832,5 +832,161 @@ describe('AiderBackend — waitForResponseComplete', () => {
     await backend.startSession();
 
     await expect(backend.waitForResponseComplete?.(1000)).resolves.toBeUndefined();
+  });
+});
+
+// ===========================================================================
+// parseAiderTokenSummary — pure parser unit tests (Phase 1.6.1 Gap 1)
+// ===========================================================================
+
+/**
+ * Tests for the `--show-tokens` summary line parser.
+ *
+ * WHY: These tests are separate from the backend integration tests so they
+ * run without spawning any subprocess, keeping them fast and deterministic.
+ * Parser regressions are caught here before touching the full process flow.
+ */
+describe('parseAiderTokenSummary', () => {
+  it('returns null for an empty array', () => {
+    expect(parseAiderTokenSummary([])).toBeNull();
+  });
+
+  it('returns null when no summary line is present', () => {
+    const lines = ['Applied 3 edits to src/main.ts', 'Wrote src/main.ts', ''];
+    expect(parseAiderTokenSummary(lines)).toBeNull();
+  });
+
+  it('parses a standard --show-tokens line correctly (happy path)', () => {
+    const lines = [
+      'Applied edits to src/auth.ts',
+      '> Tokens: 1,234 sent, 567 received, cost: $0.012',
+    ];
+    const result = parseAiderTokenSummary(lines);
+
+    expect(result).not.toBeNull();
+    expect(result!.inputTokens).toBe(1234);
+    expect(result!.outputTokens).toBe(567);
+    expect(result!.costUsd).toBeCloseTo(0.012);
+    expect(result!.summaryLine).toBe('> Tokens: 1,234 sent, 567 received, cost: $0.012');
+  });
+
+  it('parses without commas in token counts', () => {
+    const lines = ['> Tokens: 800 sent, 200 received, cost: $0.005'];
+    const result = parseAiderTokenSummary(lines);
+
+    expect(result!.inputTokens).toBe(800);
+    expect(result!.outputTokens).toBe(200);
+  });
+
+  it('parses when cost field is absent (no cost information)', () => {
+    const lines = ['> Tokens: 500 sent, 300 received'];
+    const result = parseAiderTokenSummary(lines);
+
+    expect(result!.inputTokens).toBe(500);
+    expect(result!.outputTokens).toBe(300);
+    expect(result!.costUsd).toBe(0);
+  });
+
+  it('is case-insensitive ("TOKENS:" prefix)', () => {
+    const lines = ['TOKENS: 100 sent, 50 received, cost: $0.001'];
+    const result = parseAiderTokenSummary(lines);
+
+    expect(result).not.toBeNull();
+    expect(result!.inputTokens).toBe(100);
+  });
+
+  it('handles singular "token" (no trailing s)', () => {
+    const lines = ['> Token: 1 sent, 1 received'];
+    const result = parseAiderTokenSummary(lines);
+
+    expect(result).not.toBeNull();
+    expect(result!.inputTokens).toBe(1);
+    expect(result!.outputTokens).toBe(1);
+  });
+
+  it('scans from the end — returns the last matching line', () => {
+    const lines = [
+      '> Tokens: 100 sent, 50 received',
+      'Some other output',
+      '> Tokens: 999 sent, 111 received, cost: $0.099',
+    ];
+    const result = parseAiderTokenSummary(lines);
+
+    // Should pick the last matching line (index 2), not the first.
+    expect(result!.inputTokens).toBe(999);
+    expect(result!.outputTokens).toBe(111);
+  });
+});
+
+// ===========================================================================
+// AiderBackend — cost-report event emission (Phase 1.6.1 Gap 1)
+// ===========================================================================
+
+/**
+ * Integration tests verifying that the backend emits a `cost-report` event
+ * with the correct shape after process close.
+ */
+describe('AiderBackend — cost-report emission', () => {
+  it('emits cost-report with source="agent-reported" when summary line found', async () => {
+    const { backend } = createAiderBackend({ ...BASE_OPTIONS, model: 'gpt-4o' });
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    // WHY: Include the --show-tokens summary line in stdout so the parser finds it.
+    resolveProcess(
+      currentMockProcess,
+      'Here is the answer.\n> Tokens: 1,234 sent, 567 received, cost: $0.012',
+      0,
+    );
+    await promptPromise;
+
+    const costReports = messages.filter((m: any) => m.type === 'cost-report');
+    expect(costReports.length).toBe(1);
+
+    const report = (costReports[0] as any).report;
+    expect(report.source).toBe('agent-reported');
+    expect(report.agentType).toBe('aider');
+    expect(report.billingModel).toBe('api-key');
+    expect(report.inputTokens).toBe(1234);
+    expect(report.outputTokens).toBe(567);
+    expect(report.costUsd).toBeCloseTo(0.012);
+    expect(report.rawAgentPayload).not.toBeNull();
+    expect(report.rawAgentPayload.summaryLine).toContain('Tokens:');
+    expect(report.model).toBe('gpt-4o');
+  });
+
+  it('emits cost-report with source="styrby-estimate" when summary line is absent', async () => {
+    const { backend } = createAiderBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    // WHY: Plain output without a --show-tokens line → parser finds nothing → fallback.
+    resolveProcess(currentMockProcess, 'Applied edits successfully.', 0);
+    await promptPromise;
+
+    const costReports = messages.filter((m: any) => m.type === 'cost-report');
+    expect(costReports.length).toBe(1);
+
+    const report = (costReports[0] as any).report;
+    expect(report.source).toBe('styrby-estimate');
+    expect(report.billingModel).toBe('api-key');
+    expect(report.rawAgentPayload).toBeNull();
+    // Heuristic tokens come from estimateTokensSync on the input prompt.
+    expect(typeof report.inputTokens).toBe('number');
+    expect(report.costUsd).toBe(0);
+  });
+
+  it('passes --show-tokens flag to the aider subprocess', async () => {
+    const { backend } = createAiderBackend(BASE_OPTIONS);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    resolveProcess(currentMockProcess);
+    await promptPromise;
+
+    const [, args] = mockSpawn.mock.calls[0];
+    expect(args).toContain('--show-tokens');
   });
 });

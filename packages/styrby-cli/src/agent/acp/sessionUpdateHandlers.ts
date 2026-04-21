@@ -8,9 +8,13 @@
  * Extracted from AcpBackend to improve maintainability and testability.
  */
 
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { AgentMessage } from '../core';
 import type { TransportHandler } from '../transport';
 import { logger } from '@/ui/logger';
+import type { CostReport } from '@styrby/shared/cost';
 
 /**
  * Default timeout for idle detection after message chunks (ms)
@@ -553,6 +557,191 @@ export function handleThinkingUpdate(
     name: 'thinking',
     payload: update.thinking,
   });
+
+  return { handled: true };
+}
+
+// ============================================================================
+// Gemini ACP usage wiring (Gap 3 — Phase 1.6.1)
+// ============================================================================
+
+/**
+ * Gemini usage metadata as emitted via ACP session updates.
+ *
+ * WHY: Gemini CLI appends usage metadata to the ACP `turn_complete` /
+ * `response_complete` session update (or as a standalone
+ * `usage_metadata` update). The field names follow the Gemini REST API
+ * convention (`promptTokenCount`, `candidatesTokenCount`, etc.) rather
+ * than the generic `inputTokens`/`outputTokens` used by other agents.
+ *
+ * See: https://ai.google.dev/gemini-api/docs/tokens
+ */
+interface GeminiUsageMetadata {
+  /** Tokens in the prompt (input). */
+  promptTokenCount?: number;
+  /** Tokens in all candidates combined (output). */
+  candidatesTokenCount?: number;
+  /** Sum of prompt + candidates (informational). */
+  totalTokenCount?: number;
+  /** Cached input tokens (Gemini implicit context caching). */
+  cachedContentTokenCount?: number;
+  /** Model name as reported by Gemini (e.g. "gemini-2.5-pro"). */
+  model?: string;
+}
+
+/**
+ * Determine the Gemini billing model from local config and environment.
+ *
+ * Priority:
+ *  1. `config.apiKey` set → `'api-key'` (user-supplied Gemini API key, variable cost).
+ *  2. OAuth credentials exist at `~/.gemini/oauth_creds.json` or auth.json → `'subscription'`
+ *     (Gemini Code Assist Workspace flat-rate plan).
+ *  3. No credentials → `'free'` (Gemini free tier, informational only).
+ *
+ * WHY: The billing model drives how the cost dashboard interprets `costUsd`. For
+ * subscription and free tiers, costUsd must be 0 (schema refinement 1). Detecting
+ * OAuth at the handler level avoids importing the full Gemini config module into
+ * the ACP layer (which would create a circular dependency with the factory).
+ *
+ * @param apiKey - The API key resolved by the Gemini factory, or undefined.
+ * @returns The billing model for this session.
+ */
+export function detectGeminiBillingModel(apiKey: string | undefined): 'api-key' | 'subscription' | 'free' {
+  if (apiKey) {
+    return 'api-key';
+  }
+
+  // WHY: Check for OAuth credential files. The Gemini CLI stores OAuth tokens in
+  // ~/.gemini/oauth_creds.json (primary) or ~/.gemini/auth.json (legacy). If any
+  // of these exist and has an `access_token`, the user is authenticated via OAuth
+  // (Google Workspace / Code Assist subscription plan), so cost is 0.
+  const oauthPaths = [
+    path.join(os.homedir(), '.gemini', 'oauth_creds.json'),
+    path.join(os.homedir(), '.gemini', 'auth.json'),
+    path.join(os.homedir(), '.config', 'gemini', 'auth.json'),
+  ];
+
+  for (const p of oauthPaths) {
+    try {
+      const raw = fs.readFileSync(p, 'utf-8');
+      const cfg = JSON.parse(raw) as Record<string, unknown>;
+      if (cfg.access_token || cfg.token) {
+        return 'subscription';
+      }
+    } catch {
+      // File absent or unreadable — continue probing.
+    }
+  }
+
+  return 'free';
+}
+
+/**
+ * Shape of the HandlerContext extension used by the Gemini usage handler.
+ *
+ * WHY: The base HandlerContext does not carry the Gemini session ID or resolved
+ * API key because those are only needed by the usage handler. We extend the
+ * context via an intersection type so existing handlers are unaffected.
+ */
+export interface GeminiUsageContext extends HandlerContext {
+  /** Styrby session ID (UUID). Required for CostReport.sessionId. */
+  styrbySssionId?: string;
+  /** Resolved Gemini API key (from factory config). Undefined = OAuth or free tier. */
+  geminiApiKey?: string;
+  /** Resolved Gemini model name (e.g. "gemini-2.5-pro"). */
+  geminiModel?: string;
+}
+
+/**
+ * Handle an ACP session update that carries Gemini usage metadata.
+ *
+ * Gemini CLI emits a `usageMetadata` field (or standalone `usage_metadata`
+ * session update) after a turn completes. This handler extracts token counts,
+ * determines the billing model, and emits a `CostReport` via the backend event
+ * channel — identical to the pattern used by PR-C factories (Goose, Amp, etc.).
+ *
+ * Supported update shapes:
+ *   - `{ sessionUpdate: 'usage_metadata', usageMetadata: { ... } }`
+ *   - `{ sessionUpdate: 'turn_complete', usageMetadata: { ... } }`
+ *   - `{ sessionUpdate: 'response_complete', usageMetadata: { ... } }`
+ *   - Any update with a top-level `usageMetadata` object (Gemini ACP extension)
+ *
+ * @param update - Raw ACP session update object.
+ * @param ctx    - Handler context (may carry optional Gemini-specific fields).
+ * @returns HandlerResult with `handled: true` when usage was extracted.
+ */
+export function handleGeminiUsageMetadata(
+  update: SessionUpdate,
+  ctx: HandlerContext
+): HandlerResult {
+  // WHY: Gemini injects `usageMetadata` at the top-level update object. The
+  // SessionUpdate interface allows `[key: string]: unknown` so we can read it
+  // without unsafe casting of the entire object.
+  const raw = (update as Record<string, unknown>).usageMetadata;
+
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { handled: false };
+  }
+
+  const meta = raw as GeminiUsageMetadata;
+  const inputTokens = meta.promptTokenCount ?? 0;
+  const outputTokens = meta.candidatesTokenCount ?? 0;
+  const cacheReadTokens = meta.cachedContentTokenCount ?? 0;
+
+  // Nothing useful in this payload if all counts are zero.
+  if (inputTokens === 0 && outputTokens === 0) {
+    return { handled: false };
+  }
+
+  const geminiCtx = ctx as GeminiUsageContext;
+  const billingModel = detectGeminiBillingModel(geminiCtx.geminiApiKey);
+
+  // WHY: For subscription and free tiers, costUsd must be 0 (CostReport schema
+  // refinement 1). For api-key billing we set 0 here as well because Gemini
+  // does not report a costUsd in ACP — the cost dashboard derives it from token
+  // counts × pricing using the litellm pricing table.
+  const costUsd = 0;
+
+  const model = meta.model ?? geminiCtx.geminiModel ?? 'gemini-2.5-pro';
+
+  const costReport: CostReport = {
+    sessionId: geminiCtx.styrbySssionId ?? '',
+    messageId: null,
+    agentType: 'gemini',
+    model,
+    timestamp: new Date().toISOString(),
+    source: 'agent-reported',
+    billingModel,
+    costUsd,
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens: 0,
+    // WHY: subscriptionUsage is optional and only populated for subscription billing.
+    // Gemini Workspace does not surface quota fraction in the ACP response so we
+    // set fractionUsed=null and rawSignal=null.
+    ...(billingModel === 'subscription'
+      ? { subscriptionUsage: { fractionUsed: null, rawSignal: null } }
+      : {}),
+    rawAgentPayload: meta as unknown as Record<string, unknown>,
+  };
+
+  logger.debug(
+    `[AcpBackend] Gemini usage extracted: inputTokens=${inputTokens}, ` +
+    `outputTokens=${outputTokens}, billingModel=${billingModel}`
+  );
+
+  // Emit legacy token-count (keep for existing consumers).
+  ctx.emit({
+    type: 'token-count',
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    estimatedCostUsd: costUsd,
+  } as any);
+
+  // Emit unified CostReport.
+  ctx.emit({ type: 'cost-report', report: costReport } as any);
 
   return { handled: true };
 }

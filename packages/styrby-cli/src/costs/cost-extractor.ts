@@ -170,19 +170,126 @@ export function parseClaudeOutput(output: string): TokenUsage | null {
   }
 }
 
+// ============================================================================
+// Codex session-file types
+// ============================================================================
+
 /**
- * Parse Codex streaming output for usage data.
+ * Shape of the cost/usage entry stored in a Codex session JSONL file.
  *
- * Codex logs token usage in its session files and also displays
- * status information that can be parsed.
+ * WHY: Codex writes structured session transcripts to ~/.codex/sessions/*.jsonl.
+ * Each turn that incurs API usage appends a JSON line with this shape. Reading
+ * this file at session close is more reliable than regex-matching stdout, which
+ * varies across Codex releases and is absent when Codex runs in pipe mode.
+ */
+interface CodexSessionEntry {
+  type?: string;
+  /** Model used for the turn */
+  model?: string;
+  /** Input / prompt token count */
+  inputTokens?: number;
+  /** Alternative field name used by some Codex builds */
+  input_tokens?: number;
+  /** Output / completion token count */
+  outputTokens?: number;
+  /** Alternative field name used by some Codex builds */
+  output_tokens?: number;
+  /** Total USD cost as reported by Codex */
+  totalCostUsd?: number;
+  /** Alternative field name used by some Codex builds */
+  total_cost_usd?: number;
+}
+
+/**
+ * Result of reading a Codex session file.
+ */
+export interface CodexSessionFileResult {
+  /** Input tokens aggregated across all turns in the session */
+  inputTokens: number;
+  /** Output tokens aggregated across all turns in the session */
+  outputTokens: number;
+  /** Total cost in USD aggregated across all turns */
+  totalCostUsd: number;
+  /** Model reported by the last turn that specified one */
+  model: string;
+}
+
+/**
+ * Read and parse a Codex session JSONL file to extract aggregated usage.
  *
- * @param output - Raw output from Codex
- * @returns Token usage if found, null otherwise
+ * WHY: Codex writes per-turn cost/usage entries to a JSONL transcript at
+ * `~/.codex/sessions/*.jsonl`. This is the authoritative source of truth for
+ * Codex costs — far more reliable than regex-matching stdout, which varies
+ * across Codex CLI versions and may be absent in pipe/non-TTY modes.
+ *
+ * When the file does not exist or cannot be parsed, returns null so the caller
+ * can fall back to the stdout-regex path.
+ *
+ * @param sessionFilePath - Absolute path to the Codex .jsonl session file.
+ * @returns Parsed aggregated usage, or null on failure.
+ */
+export function readCodexSessionFile(sessionFilePath: string): CodexSessionFileResult | null {
+  try {
+    const raw = fs.readFileSync(sessionFilePath, 'utf-8');
+    const lines = raw.split('\n').filter((l) => l.trim().startsWith('{'));
+
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let totalCostUsd = 0;
+    let model = 'gpt-4o';
+
+    for (const line of lines) {
+      let entry: CodexSessionEntry;
+      try {
+        entry = JSON.parse(line) as CodexSessionEntry;
+      } catch {
+        continue; // Skip malformed lines
+      }
+
+      // Accumulate token counts across all turns.
+      // WHY: Codex sessions span multiple turns; we want the session total.
+      inputTokens += (entry.inputTokens ?? entry.input_tokens ?? 0);
+      outputTokens += (entry.outputTokens ?? entry.output_tokens ?? 0);
+      totalCostUsd += (entry.totalCostUsd ?? entry.total_cost_usd ?? 0);
+
+      // Use the most recent model reported (last turn wins).
+      if (entry.model) {
+        model = entry.model;
+      }
+    }
+
+    // Only treat as valid if we extracted at least some token data.
+    if (inputTokens === 0 && outputTokens === 0) {
+      return null;
+    }
+
+    return { inputTokens, outputTokens, totalCostUsd, model };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parse Codex streaming output for usage data (stdout regex fallback).
+ *
+ * This is the fallback path used when a Codex session file is not available
+ * (e.g., Codex running in a mode that does not write session files, or for
+ * in-flight per-line extraction before session close).
+ *
+ * Downgraded to `source: 'styrby-estimate'` by callers — use
+ * {@link readCodexSessionFile} for the authoritative agent-reported path.
+ *
+ * Supported patterns:
+ *   - "Tokens: 1234 in, 567 out"
+ *   - "Usage: input=1234, output=567"
+ *   - "input_tokens: 1234, output_tokens: 567"
+ *
+ * @param output - Raw stdout from Codex
+ * @returns Token usage if a pattern matched, null otherwise
  */
 export function parseCodexOutput(output: string): TokenUsage | null {
-  // Codex status output format varies, look for common patterns
-  // Example: "Tokens: 1234 in, 567 out"
-  // Or: "Usage: input=1234, output=567"
+  // WHY: Codex stdout format varies across CLI releases and provider backends.
+  // We try multiple patterns in priority order — most specific first.
   const tokensRegex1 = /Tokens:\s*(\d+)\s*in[^\d]*(\d+)\s*out/i;
   const tokensRegex2 = /input[_\s]*tokens?[:\s=]+(\d+)[^\d]*output[_\s]*tokens?[:\s=]+(\d+)/i;
   const modelRegex = /model[:\s=]+["']?([^"'\s,]+)["']?/i;
@@ -611,4 +718,5 @@ export default {
   parseCodexOutput,
   parseGeminiOutput,
   parseOpenCodeOutput,
+  readCodexSessionFile,
 };
