@@ -87,6 +87,10 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
 
   return (
     <style
+      // nosemgrep: typescript.react.security.audit.react-dangerouslysetinnerhtml
+      // Safe: `safeId` is sanitized above (alphanumeric + hyphens + underscores
+      // only); itemConfig.color and itemConfig.theme values are
+      // developer-controlled (from chart config objects, not user input).
       dangerouslySetInnerHTML={{
         __html: Object.entries(THEMES)
           .map(
