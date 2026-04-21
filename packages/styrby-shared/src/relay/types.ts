@@ -374,6 +374,12 @@ export interface RelayChannelEvents {
   error: { message: string; code?: string };
   /** Channel closed */
   closed: { reason: string };
+  /**
+   * Automatic reconnect attempt in progress.
+   * Emitted each time the relay schedules a retry after an unexpected drop.
+   * UI should show "Connection lost, retrying... (attempt N)" copy.
+   */
+  reconnecting: { attempt: number; delayMs: number };
   /** Index signature for EventEmitter compatibility */
   [key: string]: unknown;
 }

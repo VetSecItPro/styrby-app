@@ -304,7 +304,22 @@ function startStatusWriter(): void {
 // Signal Handling & Cleanup
 // ============================================================================
 
+/**
+ * Register OS signal handlers for graceful shutdown.
+ *
+ * WHY SIGHUP is explicit: `launchctl` (macOS) sends SIGHUP before SIGTERM
+ * when restarting a service (e.g., after a system update or `launchctl reload`).
+ * Node.js's default behavior on SIGHUP is immediate termination — the same
+ * as an unhandled SIGKILL from the daemon's perspective. Without an explicit
+ * handler the PID file is not cleaned up, the relay is not disconnected, and
+ * the cost-flush queue is not flushed, leaving the daemon in a zombie state
+ * that the `styrby status` command reports as running when it isn't.
+ *
+ * All three signals (SIGHUP, SIGTERM, SIGINT) run the same graceful-shutdown
+ * path so the outcome is identical regardless of how the OS stops the process.
+ */
 function setupSignalHandlers(): void {
+  process.on('SIGHUP', () => gracefulShutdown('SIGHUP'));
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 

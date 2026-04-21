@@ -132,7 +132,13 @@ export class RelayClient extends EventEmitter<RelayChannelEvents> {
   private state: ConnectionState = 'disconnected';
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
+  // WHY: No maxReconnectAttempts cap. A developer working from a coffee shop
+  // may lose wifi for 3+ days (e.g., travelling). Capping at 10 attempts
+  // (~5 min) permanently silences the mobile link until they manually restart
+  // the daemon. Unbounded retry keeps the link alive across arbitrarily long
+  // offline periods. The ONLY unrecoverable condition is a 401/403 auth error
+  // (token revoked) — everything else, including network outages and transient
+  // Supabase 5xx errors, retries forever with 60s-capped exponential backoff.
   private presenceState: PresenceState | null = null;
   private connectedDevices: Map<string, PresenceState> = new Map();
 
@@ -182,14 +188,26 @@ export class RelayClient extends EventEmitter<RelayChannelEvents> {
           reject(new Error('Connection timeout'));
         }, this.config.connectionTimeout);
 
-        this.channel!.subscribe(async (status) => {
+        this.channel!.subscribe(async (status, err) => {
           if (status === 'SUBSCRIBED') {
             clearTimeout(timeout);
             await this.trackPresence();
             resolve();
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
             clearTimeout(timeout);
-            reject(new Error(`Channel error: ${status}`));
+            // WHY: Supabase Realtime surfaces 401/403 as a CHANNEL_ERROR with
+            // an error object whose message contains the HTTP status code.
+            // We detect auth failures here so scheduleReconnect() can stop
+            // retrying permanently rather than looping forever on a revoked token.
+            const isAuthError = err != null && (
+              String(err).includes('401') ||
+              String(err).includes('403') ||
+              String(err).toLowerCase().includes('unauthorized') ||
+              String(err).toLowerCase().includes('forbidden')
+            );
+            const channelErr = new Error(`Channel error: ${status}`);
+            (channelErr as Error & { isAuthError?: boolean }).isAuthError = isAuthError;
+            reject(channelErr);
           }
         });
       });
@@ -200,11 +218,18 @@ export class RelayClient extends EventEmitter<RelayChannelEvents> {
       this.emit('subscribed', undefined);
       this.log('Connected to relay channel');
     } catch (error) {
+      const isAuthError = (error as Error & { isAuthError?: boolean }).isAuthError === true;
       this.setState('error');
-      this.emit('error', {
-        message: error instanceof Error ? error.message : 'Connection failed',
-      });
-      this.scheduleReconnect();
+      // WHY: For auth errors we delegate the error emit to scheduleReconnect()
+      // which also halts retries and produces the AUTH_ERROR code. Emitting
+      // here too would produce a duplicate event. For non-auth errors we emit
+      // a generic connection-failed event and then schedule the next retry.
+      if (!isAuthError) {
+        this.emit('error', {
+          message: error instanceof Error ? error.message : 'Connection failed',
+        });
+      }
+      this.scheduleReconnect(isAuthError);
     }
   }
 
@@ -451,19 +476,43 @@ export class RelayClient extends EventEmitter<RelayChannelEvents> {
     }
   }
 
-  private scheduleReconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.log('Max reconnect attempts reached');
-      this.emit('error', { message: 'Max reconnect attempts reached' });
+  /**
+   * Schedule an automatic reconnect attempt with capped exponential backoff.
+   *
+   * WHY no cap on attempts: see the class-level comment on `reconnectAttempts`.
+   * WHY 60s max delay (raised from 30s): unbounded retry means the backoff
+   * settles at its ceiling permanently. 30s was acceptable for 10 attempts
+   * but is unnecessarily aggressive over days of network outage — 60s halves
+   * the steady-state reconnect traffic against Supabase infra.
+   *
+   * @param isAuthError - When true, the error is unrecoverable (401/403) and
+   *   retrying will never succeed. Emits `error` with code AUTH_ERROR and stops.
+   */
+  private scheduleReconnect(isAuthError = false): void {
+    // WHY: 401/403 means the token is revoked or invalid. Retrying will always
+    // fail and would spam Supabase auth logs. Surface it as a fatal error so
+    // the daemon can notify the user to re-authenticate.
+    if (isAuthError) {
+      this.log('Auth error (401/403) — stopping reconnect. Re-authenticate to restore connection.');
+      this.setState('error');
+      this.emit('error', {
+        message: 'Authentication failed (401/403). Run "styrby onboard" to re-authenticate.',
+        code: 'AUTH_ERROR',
+      });
       return;
     }
 
     this.setState('reconnecting');
     this.reconnectAttempts++;
 
-    // Exponential backoff: 1s, 2s, 4s, 8s... up to 30s
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 30000);
+    // Exponential backoff: 1s, 2s, 4s, 8s... capped at 60s.
+    // WHY 60s ceiling (up from 30s): With unbounded retries the backoff stays
+    // at its ceiling indefinitely. 60s is less aggressive on infra during long
+    // outages while still recovering promptly from short drops.
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 60_000);
     this.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+
+    this.emit('reconnecting', { attempt: this.reconnectAttempts, delayMs: delay });
 
     setTimeout(() => {
       this.connect();
