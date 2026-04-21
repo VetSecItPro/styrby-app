@@ -44,10 +44,11 @@ interface BudgetAlertsClientProps {
 /**
  * Default values for the alert creation form.
  *
- * WHY these defaults: Daily/$10/notify is the safest "training wheels"
+ * WHY these defaults: Daily/$10/notify/cost_usd is the safest "training wheels"
  * configuration — low impact (notify-only), short window (1 day), and
  * a small enough threshold that most users will see it trigger
- * organically and learn how alerts behave.
+ * organically and learn how alerts behave. alert_type defaults to 'cost_usd'
+ * so existing users upgrading from pre-023 behavior are unaffected.
  */
 const DEFAULT_FORM_DATA: AlertFormData = {
   name: '',
@@ -56,6 +57,9 @@ const DEFAULT_FORM_DATA: AlertFormData = {
   agent_type: null,
   action: 'notify',
   notification_channels: ['push', 'in_app'],
+  alert_type: 'cost_usd',
+  threshold_quota_fraction: null,
+  threshold_credits: null,
 };
 
 /**
@@ -104,6 +108,9 @@ export function BudgetAlertsClient({
       agent_type: alert.agent_type,
       action: alert.action,
       notification_channels: alert.notification_channels,
+      alert_type: alert.alert_type ?? 'cost_usd',
+      threshold_quota_fraction: alert.threshold_quota_fraction ?? null,
+      threshold_credits: alert.threshold_credits ?? null,
     });
     setError(null);
     setShowModal(true);

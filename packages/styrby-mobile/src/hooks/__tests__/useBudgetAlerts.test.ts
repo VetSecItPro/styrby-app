@@ -7,6 +7,8 @@
  * - Action descriptions
  * - Alert progress color calculation based on usage percentage
  * - Action badge color mapping
+ * - BudgetAlertType type guard (migration 023)
+ * - metricCacheKey correctness for all three alert types
  *
  * Note: This file does NOT test the React hook itself, only the exported utilities.
  */
@@ -32,6 +34,7 @@ import {
   getActionDescription,
   getAlertProgressColor,
   getActionBadgeColor,
+  type BudgetAlertType,
 } from '../useBudgetAlerts';
 
 describe('useBudgetAlerts utility functions', () => {
@@ -193,5 +196,44 @@ describe('useBudgetAlerts utility functions', () => {
         expect(typeof colors.text).toBe('string');
       });
     });
+  });
+});
+
+// ============================================================================
+// Migration 023: BudgetAlertType type shape tests
+// ============================================================================
+
+describe('BudgetAlertType (migration 023)', () => {
+  /**
+   * WHY: TypeScript types are erased at runtime, but we can verify at compile
+   * time that the type accepts exactly the three expected values and that
+   * downstream code branching on alertType handles all cases.
+   */
+
+  it('the three valid alert types are recognised by the type system', () => {
+    // WHY: This test would fail to compile if BudgetAlertType is changed to
+    // exclude any of these values, catching regressions at build time.
+    const validTypes: BudgetAlertType[] = ['cost_usd', 'subscription_quota', 'credits'];
+    expect(validTypes).toHaveLength(3);
+  });
+
+  it('getAlertProgressColor works correctly for subscription_quota percentUsed values', () => {
+    // subscription_quota stores percentUsed as (fraction / threshold_fraction) * 100.
+    // At 80% of an 80% threshold → percentUsed = 100 → orange (at-threshold, not exceeded).
+    expect(getAlertProgressColor(100)).toBe('#f97316');
+    // At 101% (exceeded) → red.
+    expect(getAlertProgressColor(101)).toBe('#ef4444');
+    // At 0% (no quota used) → green.
+    expect(getAlertProgressColor(0)).toBe('#22c55e');
+  });
+
+  it('getAlertProgressColor works correctly for credits percentUsed values', () => {
+    // credits: percentUsed = (consumed / threshold) * 100.
+    // 400 / 500 = 80% → orange.
+    expect(getAlertProgressColor(80)).toBe('#f97316');
+    // 250 / 500 = 50% → yellow.
+    expect(getAlertProgressColor(50)).toBe('#eab308');
+    // 600 / 500 = 120% → red (exceeded).
+    expect(getAlertProgressColor(120)).toBe('#ef4444');
   });
 });

@@ -42,6 +42,7 @@ import type {
   BudgetAlert,
   BudgetAlertPeriod,
   BudgetAlertAction,
+  BudgetAlertType,
   CreateBudgetAlertInput,
 } from '../src/hooks/useBudgetAlerts';
 import type { AgentType } from 'styrby-shared';
@@ -292,12 +293,37 @@ interface CreateAlertFormProps {
  * @param props - Component props
  * @returns Rendered creation form
  */
+/**
+ * Labels and hints for each alert type shown in the mobile form.
+ *
+ * WHY: Mobile screen space is constrained so we show abbreviated labels
+ * compared to the web modal. Same conceptual descriptions, terser text.
+ */
+const ALERT_TYPE_OPTIONS: { value: BudgetAlertType; label: string; description: string }[] = [
+  {
+    value: 'cost_usd',
+    label: 'API Cost ($)',
+    description: 'Alert on USD spend — for agents using your own API key.',
+  },
+  {
+    value: 'subscription_quota',
+    label: 'Subscription Quota (%)',
+    description: 'Alert on quota usage — for Claude Max, Kiro subscription.',
+  },
+  {
+    value: 'credits',
+    label: 'Credits Used',
+    description: 'Alert on credit count — for Kiro credit-pack billing.',
+  },
+];
+
 function CreateAlertForm({ onSubmit, onCancel }: CreateAlertFormProps) {
   const [name, setName] = useState('');
   const [threshold, setThreshold] = useState('');
   const [period, setPeriod] = useState<BudgetAlertPeriod>('daily');
   const [agentScope, setAgentScope] = useState<AgentType | null>(null);
   const [action, setAction] = useState<BudgetAlertAction>('notify');
+  const [alertType, setAlertType] = useState<BudgetAlertType>('cost_usd');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const periodOptions: SegmentOption<BudgetAlertPeriod>[] = [
@@ -341,6 +367,10 @@ function CreateAlertForm({ onSubmit, onCancel }: CreateAlertFormProps) {
 
   /**
    * Validate and submit the form.
+   *
+   * WHY per-type threshold validation: each alert type requires a different
+   * threshold field. We validate the relevant one based on alertType so users
+   * get a specific, actionable error message.
    */
   const handleSubmit = async () => {
     const trimmedName = name.trim();
@@ -350,19 +380,38 @@ function CreateAlertForm({ onSubmit, onCancel }: CreateAlertFormProps) {
     }
 
     const thresholdNum = parseFloat(threshold);
-    if (isNaN(thresholdNum) || thresholdNum <= 0) {
-      Alert.alert('Invalid Threshold', 'Please enter a valid amount greater than $0.');
-      return;
+
+    if (alertType === 'cost_usd') {
+      if (isNaN(thresholdNum) || thresholdNum <= 0) {
+        Alert.alert('Invalid Threshold', 'Please enter a valid amount greater than $0.');
+        return;
+      }
+    } else if (alertType === 'subscription_quota') {
+      if (isNaN(thresholdNum) || thresholdNum <= 0 || thresholdNum > 100) {
+        Alert.alert('Invalid Threshold', 'Please enter a valid percentage between 1 and 100.');
+        return;
+      }
+    } else if (alertType === 'credits') {
+      if (isNaN(thresholdNum) || thresholdNum < 1 || !Number.isInteger(thresholdNum)) {
+        Alert.alert('Invalid Threshold', 'Please enter a valid whole number of credits (minimum 1).');
+        return;
+      }
     }
 
     setIsSubmitting(true);
     try {
       await onSubmit({
         name: trimmedName,
-        threshold: thresholdNum,
+        // WHY: For cost_usd, threshold is USD. For subscription_quota,
+        // we store the raw number (API expects the fraction but the hook
+        // converts: user enters 80, we send 0.80). For credits, integer.
+        threshold: alertType === 'cost_usd' ? thresholdNum : 0,
         period,
         agentType: agentScope,
         action,
+        alertType,
+        thresholdQuotaFraction: alertType === 'subscription_quota' ? thresholdNum / 100 : null,
+        thresholdCredits: alertType === 'credits' ? Math.round(thresholdNum) : null,
       });
       onCancel(); // Close form on success
     } catch {
@@ -392,21 +441,87 @@ function CreateAlertForm({ onSubmit, onCancel }: CreateAlertFormProps) {
         />
       </View>
 
-      {/* Threshold Input */}
+      {/* Alert Type Picker (migration 023) */}
       <View className="mb-4">
-        <Text className="text-zinc-400 text-sm font-medium mb-2">Threshold (USD)</Text>
+        <Text className="text-zinc-400 text-sm font-medium mb-2">Alert Type</Text>
+        {ALERT_TYPE_OPTIONS.map((opt) => {
+          const isSelected = opt.value === alertType;
+          return (
+            <Pressable
+              key={opt.value}
+              onPress={() => {
+                setAlertType(opt.value);
+                setThreshold(''); // WHY: reset threshold when type changes to avoid invalid cross-type state
+              }}
+              className={`flex-row items-start p-3 rounded-xl mb-2 ${
+                isSelected ? 'bg-zinc-800 border border-zinc-600' : 'bg-zinc-800/50'
+              }`}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: isSelected }}
+              accessibilityLabel={`${opt.label}: ${opt.description}`}
+            >
+              <View
+                className="w-5 h-5 rounded-full border-2 mr-3 mt-0.5 items-center justify-center flex-shrink-0"
+                style={{
+                  borderColor: isSelected ? '#f97316' : '#52525b',
+                  backgroundColor: isSelected ? '#f97316' : 'transparent',
+                }}
+              />
+              <View className="flex-1">
+                <Text className={`text-sm font-medium ${isSelected ? 'text-white' : 'text-zinc-500'}`}>
+                  {opt.label}
+                </Text>
+                <Text className="text-zinc-500 text-xs mt-0.5">{opt.description}</Text>
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {/* Threshold Input — label + hint adapts to alertType */}
+      <View className="mb-4">
+        <Text className="text-zinc-400 text-sm font-medium mb-2">
+          {alertType === 'cost_usd'
+            ? 'Threshold (USD)'
+            : alertType === 'subscription_quota'
+            ? 'Quota Threshold (%)'
+            : 'Credits Threshold'}
+        </Text>
         <View className="flex-row items-center bg-zinc-800 rounded-xl px-4">
-          <Text className="text-zinc-500 text-lg mr-1">$</Text>
+          {alertType === 'cost_usd' && (
+            <Text className="text-zinc-500 text-lg mr-1">$</Text>
+          )}
           <TextInput
             value={threshold}
             onChangeText={setThreshold}
-            placeholder="0.00"
+            placeholder={
+              alertType === 'cost_usd'
+                ? '0.00'
+                : alertType === 'subscription_quota'
+                ? '80'
+                : '500'
+            }
             placeholderTextColor="#52525b"
             className="flex-1 text-white py-3 text-base"
-            keyboardType="decimal-pad"
-            accessibilityLabel="Threshold amount in US dollars"
-            accessibilityHint="Enter the spending limit that triggers the alert"
+            keyboardType={alertType === 'credits' ? 'number-pad' : 'decimal-pad'}
+            accessibilityLabel={
+              alertType === 'cost_usd'
+                ? 'Threshold amount in US dollars'
+                : alertType === 'subscription_quota'
+                ? 'Subscription quota percentage threshold'
+                : 'Credits threshold'
+            }
+            accessibilityHint={
+              alertType === 'cost_usd'
+                ? 'Enter the spending limit that triggers the alert'
+                : alertType === 'subscription_quota'
+                ? 'Enter 1-100 for the quota percentage that triggers the alert'
+                : 'Enter the number of credits consumed that triggers the alert'
+            }
           />
+          {alertType === 'subscription_quota' && (
+            <Text className="text-zinc-500 text-lg ml-1">%</Text>
+          )}
         </View>
       </View>
 

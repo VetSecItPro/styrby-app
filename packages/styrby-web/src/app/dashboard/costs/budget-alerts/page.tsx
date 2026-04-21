@@ -20,7 +20,7 @@ import { BudgetAlertsClient } from './budget-alerts-client';
 // Types
 // ---------------------------------------------------------------------------
 
-/** Budget alert row from Supabase */
+/** Budget alert row from Supabase (includes migration 023 quota-aware columns) */
 interface BudgetAlertRow {
   id: string;
   user_id: string;
@@ -34,6 +34,12 @@ interface BudgetAlertRow {
   last_triggered_at: string | null;
   created_at: string;
   updated_at: string;
+  /** Migration 023: which billing metric this alert monitors */
+  alert_type: 'cost_usd' | 'subscription_quota' | 'credits' | null;
+  /** Migration 023: fraction threshold for subscription_quota alerts (0.01–1.00) */
+  threshold_quota_fraction: number | null;
+  /** Migration 023: credit count threshold for credits alerts */
+  threshold_credits: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,7 +97,9 @@ export default async function BudgetAlertsPage() {
   const [alertsResult, subscriptionResult] = await Promise.all([
     supabase
       .from('budget_alerts')
-      .select('*')
+      .select(
+        'id, user_id, name, threshold_usd, period, agent_type, action, notification_channels, is_enabled, last_triggered_at, created_at, updated_at, alert_type, threshold_quota_fraction, threshold_credits'
+      )
       .eq('user_id', user.id)
       .order('created_at', { ascending: false }),
     supabase
@@ -106,43 +114,101 @@ export default async function BudgetAlertsPage() {
   const tier = (subscriptionResult.data?.tier as TierId) || 'free';
   const alertLimit = TIERS[tier]?.limits.budgetAlerts ?? 0;
 
-  // WHY: Calculate current spend for each alert's period. We do this server-side
+  // WHY: Calculate current metric for each alert's period. We do this server-side
   // so the progress bars render immediately without a second client-side fetch.
-  // Queries are deduplicated by (period, agent_type) composite key to eliminate
-  // the N+1 pattern - one query per unique combination instead of one per alert.
+  // Queries are deduplicated by (alertType, period, agent_type) composite key to
+  // eliminate the N+1 pattern — one query per unique combination.
+  // Migration 023 introduced three alert types, each reading a different column:
+  // - cost_usd: SUM(cost_usd) WHERE billing_model != 'subscription'
+  // - subscription_quota: MAX(subscription_fraction_used) WHERE billing_model='subscription'
+  // - credits: SUM(credits_consumed) WHERE billing_model='credit'
   const uniqueKeys = [...new Set(
-    alerts.map((a) => `${a.period}:${a.agent_type ?? 'null'}`)
+    alerts.map((a) => `${a.alert_type ?? 'cost_usd'}:${a.period}:${a.agent_type ?? 'null'}`)
   )];
 
-  const spendByKey: Record<string, number> = {};
+  const metricByKey: Record<string, number> = {};
 
   await Promise.all(
     uniqueKeys.map(async (key) => {
-      const [period, agentTypeRaw] = key.split(':') as [string, string];
+      const [alertType, period, agentTypeRaw] = key.split(':') as [string, string, string];
       const agentType = agentTypeRaw === 'null' ? null : agentTypeRaw;
       const periodStart = getPeriodStartDate(period as 'daily' | 'weekly' | 'monthly');
 
-      let query = supabase
-        .from('cost_records')
-        .select('cost_usd')
-        .eq('user_id', user.id)
-        .gte('recorded_at', periodStart);
+      if (alertType === 'subscription_quota') {
+        let query = supabase
+          .from('cost_records')
+          .select('subscription_fraction_used')
+          .eq('user_id', user.id)
+          .eq('billing_model', 'subscription')
+          .gte('recorded_at', periodStart);
 
-      if (agentType) {
-        query = query.eq('agent_type', agentType);
+        if (agentType) {
+          query = query.eq('agent_type', agentType);
+        }
+
+        const { data: quotaData } = await query;
+        const fractions = (quotaData || [])
+          .map((r) => Number((r as Record<string, unknown>).subscription_fraction_used) || 0);
+        metricByKey[key] = fractions.length > 0 ? Math.max(...fractions) : 0;
+      } else if (alertType === 'credits') {
+        let query = supabase
+          .from('cost_records')
+          .select('credits_consumed')
+          .eq('user_id', user.id)
+          .eq('billing_model', 'credit')
+          .gte('recorded_at', periodStart);
+
+        if (agentType) {
+          query = query.eq('agent_type', agentType);
+        }
+
+        const { data: creditData } = await query;
+        metricByKey[key] = (creditData || []).reduce(
+          (sum, record) => sum + (Number((record as Record<string, unknown>).credits_consumed) || 0),
+          0
+        );
+      } else {
+        // cost_usd (legacy and default): SUM(cost_usd) — subscription rows have cost_usd=0
+        // per migration 022 constraint so they don't inflate the total.
+        let query = supabase
+          .from('cost_records')
+          .select('cost_usd')
+          .eq('user_id', user.id)
+          .gte('recorded_at', periodStart);
+
+        if (agentType) {
+          query = query.eq('agent_type', agentType);
+        }
+
+        const { data: costData } = await query;
+        metricByKey[key] = (costData || []).reduce(
+          (sum, record) => sum + (Number(record.cost_usd) || 0),
+          0
+        );
       }
-
-      const { data: costData } = await query;
-      spendByKey[key] = (costData || []).reduce(
-        (sum, record) => sum + (Number(record.cost_usd) || 0),
-        0
-      );
     })
   );
 
   const alertsWithSpend = alerts.map((alert) => {
-    const key = `${alert.period}:${alert.agent_type ?? 'null'}`;
-    const currentSpend = spendByKey[key] ?? 0;
+    const resolvedType = alert.alert_type ?? 'cost_usd';
+    const key = `${resolvedType}:${alert.period}:${alert.agent_type ?? 'null'}`;
+    const metricValue = metricByKey[key] ?? 0;
+
+    // WHY: percentage_used is always expressed as 0-100+ regardless of alert type.
+    // For cost_usd: (spend / threshold_usd) * 100
+    // For subscription_quota: (fraction / threshold_fraction) * 100
+    // For credits: (consumed / threshold_credits) * 100
+    let percentageUsed = 0;
+    if (resolvedType === 'subscription_quota') {
+      const frac = Number(alert.threshold_quota_fraction);
+      percentageUsed = frac > 0 ? (metricValue / frac) * 100 : 0;
+    } else if (resolvedType === 'credits') {
+      const credits = Number(alert.threshold_credits);
+      percentageUsed = credits > 0 ? (metricValue / credits) * 100 : 0;
+    } else {
+      const thresholdUsd = Number(alert.threshold_usd);
+      percentageUsed = thresholdUsd > 0 ? (metricValue / thresholdUsd) * 100 : 0;
+    }
 
     return {
       ...alert,
@@ -150,11 +216,12 @@ export default async function BudgetAlertsPage() {
       // client component expects the narrower NotificationChannel[] type.
       // The CHECK constraint on the DB ensures only valid values exist.
       notification_channels: alert.notification_channels as ('push' | 'in_app' | 'email')[],
-      current_spend_usd: currentSpend,
-      percentage_used:
-        Number(alert.threshold_usd) > 0
-          ? (currentSpend / Number(alert.threshold_usd)) * 100
-          : 0,
+      // Normalise migration 023 fields so BudgetAlertWithSpend is fully satisfied.
+      alert_type: resolvedType as 'cost_usd' | 'subscription_quota' | 'credits',
+      threshold_quota_fraction: alert.threshold_quota_fraction ?? null,
+      threshold_credits: alert.threshold_credits ?? null,
+      current_spend_usd: metricValue,
+      percentage_used: percentageUsed,
     };
   });
 

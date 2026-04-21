@@ -3,9 +3,9 @@
  *
  * Covers:
  *  - BudgetMonitor: UUID validation, alert loading (cache + refresh),
- *    checkAlert (all AlertLevels), checkAllAlerts, getMostSevereAlert,
- *    hasExceededBudget, getExceededAlerts, getActionableAlerts,
- *    markAlertTriggered, clearCache
+ *    checkAlert (all AlertLevels for all three alert types), checkAllAlerts,
+ *    getMostSevereAlert, hasExceededBudget, getExceededAlerts,
+ *    getActionableAlerts, markAlertTriggered, clearCache
  *  - Utility functions: formatBudgetMessage, getAlertLevelEmoji
  *  - createBudgetMonitor factory
  *
@@ -23,7 +23,14 @@
  * 2. Sort order is: exceeded (0) > critical (1) > warning (2) > ok (3).
  *
  * 3. currentCosts bypass: when a CostSummary is passed directly to checkAlert(),
- *    getCostsForDateRange is never called at all.
+ *    getCostsForDateRange is never called at all (cost_usd type only).
+ *
+ * 4. subscription_quota and credits alert types query Supabase directly via the
+ *    injected SupabaseClient. Their results are NOT controlled by getCostsForDateRange.
+ *
+ * 5. Mixed billing models in one period: when a user has api-key, subscription,
+ *    and credit rows for the same period, each alert type correctly filters to
+ *    its own billing_model column and ignores the others.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -78,6 +85,9 @@ function makeAlert(overrides: Partial<BudgetAlert> = {}): BudgetAlert {
     last_triggered_at: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
+    alert_type: 'cost_usd',
+    threshold_quota_fraction: null,
+    threshold_credits: null,
     ...overrides,
   };
 }
@@ -86,42 +96,63 @@ function makeAlert(overrides: Partial<BudgetAlert> = {}): BudgetAlert {
  * Build a mock Supabase client.
  *
  * The select chain mirrors what loadBudgetAlerts() calls:
- *   .from('budget_alerts').select('*').eq(...).eq(...).order(...)
+ *   .from('budget_alerts').select(...).eq(...).eq(...).order(...)
  *
- * The update chain mirrors markAlertTriggered():
- *   .from('budget_alerts').update({...}).eq('id', alertId).eq('user_id', userId)
- * The source awaits the second .eq() result to get { error }. Since there are
- * two chained .eq() calls we must return `this` on the first and resolve on the
- * second — but the simplest correct approach is to make .eq() always return an
- * object that is BOTH thenable (resolves to { error }) AND has its own .eq().
- * We achieve this by returning a proxy that has .eq() returning itself and
- * is itself a Promise resolving to { error }.
+ * The select chain also handles the new Supabase queries for subscription_quota
+ * and credits alert types:
+ *   .from('cost_records').select(...).eq(...).eq(...).gte(...).not(...).limit(...)
+ *
+ * @param alerts - Budget alerts to return from the budget_alerts query
+ * @param updateError - Optional error message to return from update()
+ * @param costRecordsRows - Optional rows to return from cost_records queries
+ *   (used for subscription_quota and credits alert type tests).
  */
 function makeSupabase(
   alerts: BudgetAlert[] = [],
-  updateError: string | null = null
+  updateError: string | null = null,
+  costRecordsRows: Array<Record<string, unknown>> = []
 ) {
-  const selectChain = {
+  // select chain for budget_alerts: eq/eq/order path (loadBudgetAlerts)
+  const alertsSelectChain = {
     eq: vi.fn().mockReturnThis(),
     order: vi.fn().mockResolvedValue({ data: alerts, error: null }),
   };
 
+  // select chain for cost_records: eq/eq/gte/not/limit path (new helpers)
+  // WHY: The new getSubscriptionFractionForPeriod and getCreditsConsumedForPeriod
+  // methods chain: select → eq → eq → gte → not → limit → (thenable resolve)
+  // We build a fully chainable mock that resolves at the terminal .limit() call.
+  const costRecordsSelectChain: Record<string, unknown> = {};
+  const costTerminal = Promise.resolve({ data: costRecordsRows, error: null });
+  for (const method of ['eq', 'gte', 'not']) {
+    costRecordsSelectChain[method] = vi.fn().mockReturnValue(costRecordsSelectChain);
+  }
+  costRecordsSelectChain['limit'] = vi.fn().mockReturnValue(costTerminal);
+  // Make it thenable too for safety
+  (costRecordsSelectChain as Record<string, unknown>)['then'] = (resolve: (v: unknown) => void) =>
+    costTerminal.then(resolve);
+
   // markAlertTriggered() calls: .update({}).eq('id', alertId).eq('user_id', userId)
   // and then awaits the result for { error }.
-  // We need: update() → obj with .eq() → obj with .eq() → Promise({ error })
   const updateErrorObj = updateError ? { message: updateError } : null;
-  // The final awaitable (second .eq() result)
   const finalEqResult = Promise.resolve({ error: updateErrorObj });
-  // First .eq() returns an object with another .eq()
   const secondEqChain = { eq: vi.fn().mockReturnValue(finalEqResult) };
   const updateChain = {
     eq: vi.fn().mockReturnValue(secondEqChain),
   };
 
-  const fromFn = vi.fn((_table: string) => ({
-    select: vi.fn(() => selectChain),
-    update: vi.fn(() => updateChain),
-  }));
+  const fromFn = vi.fn((table: string) => {
+    if (table === 'cost_records') {
+      return {
+        select: vi.fn(() => costRecordsSelectChain),
+      };
+    }
+    // budget_alerts table
+    return {
+      select: vi.fn(() => alertsSelectChain),
+      update: vi.fn(() => updateChain),
+    };
+  });
 
   return { from: fromFn } as unknown as import('@supabase/supabase-js').SupabaseClient;
 }
@@ -349,6 +380,269 @@ describe('BudgetMonitor.checkAlert', () => {
 });
 
 // ============================================================================
+// BudgetMonitor: checkAlert — subscription_quota alert type
+// ============================================================================
+
+describe('BudgetMonitor.checkAlert (subscription_quota)', () => {
+  it('returns level=ok when subscription fraction is below warning threshold', async () => {
+    // 0.40 fraction, threshold 0.80 → 50% of threshold → ok
+    const supabase = makeSupabase([], null, [{ subscription_fraction_used: '0.4000' }]);
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const alert = makeAlert({
+      alert_type: 'subscription_quota',
+      threshold_quota_fraction: 0.80,
+      threshold_usd: 0,
+    });
+    const result = await monitor.checkAlert(alert);
+    expect(result.level).toBe('ok');
+    expect(getCostsForDateRange).not.toHaveBeenCalled();
+  });
+
+  it('returns level=warning when fraction is at the warning threshold (80%)', async () => {
+    // fraction = 0.64 (80% of threshold 0.80) → percentUsed = 80% → warning
+    const supabase = makeSupabase([], null, [{ subscription_fraction_used: '0.6400' }]);
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const alert = makeAlert({
+      alert_type: 'subscription_quota',
+      threshold_quota_fraction: 0.80,
+      threshold_usd: 0,
+    });
+    const result = await monitor.checkAlert(alert);
+    expect(result.level).toBe('warning');
+  });
+
+  it('returns level=exceeded when fraction meets or exceeds threshold', async () => {
+    // fraction = 0.90 >= threshold 0.80 → exceeded
+    const supabase = makeSupabase([], null, [{ subscription_fraction_used: '0.9000' }]);
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const alert = makeAlert({
+      alert_type: 'subscription_quota',
+      threshold_quota_fraction: 0.80,
+      threshold_usd: 0,
+    });
+    const result = await monitor.checkAlert(alert);
+    expect(result.level).toBe('exceeded');
+    expect(result.exceeded).toBe(true);
+  });
+
+  it('returns level=ok with no subscription rows (user has not used quota)', async () => {
+    // Empty cost_records → fraction = 0 → ok
+    const supabase = makeSupabase([], null, []);
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const alert = makeAlert({
+      alert_type: 'subscription_quota',
+      threshold_quota_fraction: 0.80,
+      threshold_usd: 0,
+    });
+    const result = await monitor.checkAlert(alert);
+    expect(result.level).toBe('ok');
+    expect(result.currentSpendUsd).toBe(0);
+  });
+
+  it('takes MAX of multiple subscription_fraction_used values', async () => {
+    // Two rows: 0.50 and 0.85 → MAX = 0.85 → exceeded against 0.80 threshold
+    const supabase = makeSupabase([], null, [
+      { subscription_fraction_used: '0.5000' },
+      { subscription_fraction_used: '0.8500' },
+    ]);
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const alert = makeAlert({
+      alert_type: 'subscription_quota',
+      threshold_quota_fraction: 0.80,
+      threshold_usd: 0,
+    });
+    const result = await monitor.checkAlert(alert);
+    expect(result.level).toBe('exceeded');
+    expect(result.currentSpendUsd).toBeCloseTo(0.85, 5);
+  });
+
+  it('does NOT call getCostsForDateRange for subscription_quota alerts', async () => {
+    const supabase = makeSupabase([], null, [{ subscription_fraction_used: '0.5000' }]);
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const alert = makeAlert({
+      alert_type: 'subscription_quota',
+      threshold_quota_fraction: 0.80,
+      threshold_usd: 0,
+    });
+    await monitor.checkAlert(alert);
+    // WHY: getCostsForDateRange reads local JSONL files — subscription_quota
+    // should never touch JSONL; it only queries Supabase for fraction data.
+    expect(getCostsForDateRange).not.toHaveBeenCalled();
+  });
+
+  it('ignores api-key and credit rows (billing_model filter enforced by query)', async () => {
+    // The Supabase mock returns 0.9 for cost_records, but in a real scenario
+    // the DB query filters billing_model = 'subscription'. We verify the monitor
+    // does NOT fall through to getCostsForDateRange which would read JSONL.
+    const supabase = makeSupabase([], null, [{ subscription_fraction_used: '0.9000' }]);
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const alert = makeAlert({
+      alert_type: 'subscription_quota',
+      threshold_quota_fraction: 0.80,
+      threshold_usd: 0,
+    });
+    await monitor.checkAlert(alert);
+    expect(getCostsForDateRange).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
+// BudgetMonitor: checkAlert — credits alert type
+// ============================================================================
+
+describe('BudgetMonitor.checkAlert (credits)', () => {
+  it('returns level=ok when credits consumed is below warning threshold', async () => {
+    // 200 credits, threshold 500 → 40% → ok
+    const supabase = makeSupabase([], null, [
+      { credits_consumed: 100 },
+      { credits_consumed: 100 },
+    ]);
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const alert = makeAlert({
+      alert_type: 'credits',
+      threshold_credits: 500,
+      threshold_usd: 0,
+    });
+    const result = await monitor.checkAlert(alert);
+    expect(result.level).toBe('ok');
+    expect(result.currentSpendUsd).toBe(200);
+    expect(getCostsForDateRange).not.toHaveBeenCalled();
+  });
+
+  it('returns level=warning at 80% of credits threshold', async () => {
+    // 400 credits, threshold 500 → 80% → warning
+    const supabase = makeSupabase([], null, [{ credits_consumed: 400 }]);
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const alert = makeAlert({
+      alert_type: 'credits',
+      threshold_credits: 500,
+      threshold_usd: 0,
+    });
+    const result = await monitor.checkAlert(alert);
+    expect(result.level).toBe('warning');
+  });
+
+  it('returns level=exceeded when credits consumed >= threshold', async () => {
+    // 600 credits >= threshold 500 → exceeded
+    const supabase = makeSupabase([], null, [{ credits_consumed: 600 }]);
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const alert = makeAlert({
+      alert_type: 'credits',
+      threshold_credits: 500,
+      threshold_usd: 0,
+    });
+    const result = await monitor.checkAlert(alert);
+    expect(result.level).toBe('exceeded');
+    expect(result.exceeded).toBe(true);
+    expect(result.currentSpendUsd).toBe(600);
+  });
+
+  it('returns level=ok with no credit rows (user has not used credits)', async () => {
+    const supabase = makeSupabase([], null, []);
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const alert = makeAlert({
+      alert_type: 'credits',
+      threshold_credits: 500,
+      threshold_usd: 0,
+    });
+    const result = await monitor.checkAlert(alert);
+    expect(result.level).toBe('ok');
+    expect(result.currentSpendUsd).toBe(0);
+  });
+
+  it('sums credits_consumed across multiple rows', async () => {
+    // Three sessions: 100 + 250 + 75 = 425 credits, threshold 500 → 85% → warning
+    // (85% >= warning threshold of 80%)
+    const supabase = makeSupabase([], null, [
+      { credits_consumed: 100 },
+      { credits_consumed: 250 },
+      { credits_consumed: 75 },
+    ]);
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const alert = makeAlert({
+      alert_type: 'credits',
+      threshold_credits: 500,
+      threshold_usd: 0,
+    });
+    const result = await monitor.checkAlert(alert);
+    expect(result.currentSpendUsd).toBe(425);
+    expect(result.level).toBe('warning'); // 85% >= 80% warning threshold
+  });
+
+  it('does NOT call getCostsForDateRange for credits alerts', async () => {
+    const supabase = makeSupabase([], null, [{ credits_consumed: 300 }]);
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const alert = makeAlert({
+      alert_type: 'credits',
+      threshold_credits: 500,
+      threshold_usd: 0,
+    });
+    await monitor.checkAlert(alert);
+    // WHY: getCostsForDateRange reads local JSONL — credits never touch it.
+    expect(getCostsForDateRange).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
+// BudgetMonitor: mixed billing models in a single period
+// ============================================================================
+
+describe('BudgetMonitor.checkAlert — mixed billing models', () => {
+  it('cost_usd alert ignores subscription ($0) and credit rows', async () => {
+    // WHY: The DB has subscription rows (cost_usd = $0) and credit rows in the
+    // same period. The cost_usd alert sums JSONL data (api-key only). The
+    // subscription and credit rows are invisible to getCostsForDateRange.
+    vi.mocked(getCostsForDateRange).mockResolvedValue(costsOf(5)); // api-key only
+    const supabase = makeSupabase(); // cost_records mock not used for cost_usd type
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const alert = makeAlert({ alert_type: 'cost_usd', threshold_usd: 10 });
+    const result = await monitor.checkAlert(alert);
+    expect(result.currentSpendUsd).toBe(5);
+    expect(result.level).toBe('ok');
+  });
+
+  it('subscription_quota alert ignores api-key ($5) and credit rows', async () => {
+    // API-key spend is $5 in JSONL, but the subscription_quota alert
+    // must read subscription_fraction_used from Supabase, not JSONL.
+    vi.mocked(getCostsForDateRange).mockResolvedValue(costsOf(5));
+    const supabase = makeSupabase([], null, [{ subscription_fraction_used: '0.7000' }]);
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const alert = makeAlert({
+      alert_type: 'subscription_quota',
+      threshold_quota_fraction: 0.80,
+      threshold_usd: 0,
+    });
+    const result = await monitor.checkAlert(alert);
+    // Must use the Supabase fraction (0.70), not the JSONL cost ($5).
+    expect(result.currentSpendUsd).toBeCloseTo(0.70, 5);
+    // WHY warning not ok: 0.70 / 0.80 = 87.5% of the quota threshold → above 80% warning boundary.
+    expect(result.level).toBe('warning');
+    // getCostsForDateRange should NOT have been called for subscription_quota.
+    expect(getCostsForDateRange).not.toHaveBeenCalled();
+  });
+
+  it('credits alert ignores api-key and subscription rows', async () => {
+    // JSONL has api-key spend, Supabase has both subscription fraction and
+    // credit rows. Only credits_consumed matters for a credits alert.
+    vi.mocked(getCostsForDateRange).mockResolvedValue(costsOf(8));
+    const supabase = makeSupabase([], null, [
+      { credits_consumed: 400 },
+    ]);
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const alert = makeAlert({
+      alert_type: 'credits',
+      threshold_credits: 500,
+      threshold_usd: 0,
+    });
+    const result = await monitor.checkAlert(alert);
+    expect(result.currentSpendUsd).toBe(400);
+    // WHY warning: 400 / 500 = 80% → exactly at the warning threshold (>= 80%).
+    expect(result.level).toBe('warning');
+    expect(getCostsForDateRange).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
 // BudgetMonitor: checkAllAlerts
 // ============================================================================
 
@@ -554,7 +848,7 @@ describe('formatBudgetMessage', () => {
   function makeResult(level: AlertLevel, spend: number, threshold: number): BudgetCheckResult {
     return {
       level,
-      alert: makeAlert({ threshold_usd: threshold }),
+      alert: makeAlert({ threshold_usd: threshold, alert_type: 'cost_usd' }),
       currentSpendUsd: spend,
       percentUsed: (spend / threshold) * 100,
       remainingUsd: Math.max(0, threshold - spend),
@@ -588,6 +882,55 @@ describe('formatBudgetMessage', () => {
     const msg = formatBudgetMessage(makeResult('exceeded', 11, 10));
     expect(msg).toContain('11.00');
     expect(msg).toContain('10.00');
+  });
+
+  it('formats subscription_quota alert with percentage-of-quota detail', () => {
+    // fraction = 0.85, threshold = 0.80 → exceeded
+    const result: BudgetCheckResult = {
+      level: 'exceeded',
+      alert: makeAlert({
+        name: 'Quota Alert',
+        alert_type: 'subscription_quota',
+        threshold_quota_fraction: 0.80,
+        threshold_usd: 0,
+      }),
+      currentSpendUsd: 0.85,
+      percentUsed: (0.85 / 0.80) * 100,
+      remainingUsd: 0,
+      exceeded: true,
+      isNewTrigger: false,
+    };
+    const msg = formatBudgetMessage(result);
+    expect(msg).toContain('exceeded');
+    expect(msg).toContain('quota');
+    expect(msg).toContain('80%');  // threshold percentage
+    expect(msg).toContain('Quota Alert');
+    // Must NOT contain dollar signs (subscription_quota is not a USD metric)
+    expect(msg).not.toMatch(/\$\d/);
+  });
+
+  it('formats credits alert with credit-count detail', () => {
+    // 600 credits, threshold 500 → exceeded
+    const result: BudgetCheckResult = {
+      level: 'exceeded',
+      alert: makeAlert({
+        name: 'Credits Alert',
+        alert_type: 'credits',
+        threshold_credits: 500,
+        threshold_usd: 0,
+      }),
+      currentSpendUsd: 600,
+      percentUsed: (600 / 500) * 100,
+      remainingUsd: 0,
+      exceeded: true,
+      isNewTrigger: false,
+    };
+    const msg = formatBudgetMessage(result);
+    expect(msg).toContain('exceeded');
+    expect(msg).toContain('credits');
+    expect(msg).toContain('600');
+    expect(msg).toContain('500');
+    expect(msg).toContain('Credits Alert');
   });
 });
 

@@ -18,9 +18,11 @@ import {
   AGENT_TYPES,
   ALERT_ACTIONS,
   ALERT_PERIODS,
+  ALERT_TYPES,
+  ALERT_TYPE_INFO,
 } from './helpers';
 import { OptionPill } from './OptionPill';
-import type { AlertFormData, AgentType, BudgetAlertWithSpend } from './types';
+import type { AlertFormData, AgentType, BudgetAlertType, BudgetAlertWithSpend } from './types';
 
 interface AlertModalProps {
   /**
@@ -116,34 +118,154 @@ export function AlertModal({
             />
           </div>
 
-          {/* Threshold */}
-          <div>
-            <label
-              htmlFor="alert-threshold"
-              className="block text-sm font-medium text-zinc-300 mb-1.5"
-            >
-              Threshold Amount
-            </label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-500">
-                $
-              </span>
+          {/* Alert Type picker (migration 023) */}
+          <fieldset className="border-0 p-0 m-0">
+            <legend className="block text-sm font-medium text-zinc-300 mb-1.5">
+              Alert Type
+            </legend>
+            <div className="space-y-2">
+              {ALERT_TYPES.map((type: BudgetAlertType) => {
+                const info = ALERT_TYPE_INFO[type];
+                const isSelected = formData.alert_type === type;
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() =>
+                      onFormChange({
+                        ...formData,
+                        alert_type: type,
+                        // WHY: Reset the type-specific threshold fields when
+                        // switching alert type to avoid invalid cross-field state
+                        // (e.g., a threshold_quota_fraction on a cost_usd alert).
+                        threshold_quota_fraction: null,
+                        threshold_credits: null,
+                      })
+                    }
+                    className={`w-full rounded-lg px-3 py-2.5 text-left transition-colors ${
+                      isSelected
+                        ? 'bg-orange-500/10 border-orange-500/50 border'
+                        : 'bg-zinc-800 border border-zinc-700 hover:bg-zinc-700'
+                    }`}
+                    aria-pressed={isSelected}
+                  >
+                    <p
+                      className={`text-sm font-medium ${
+                        isSelected ? 'text-orange-300' : 'text-zinc-300'
+                      }`}
+                    >
+                      {info.label}
+                    </p>
+                    <p className="text-xs text-zinc-500 mt-0.5">{info.description}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          {/* Threshold — conditional on alert_type */}
+          {formData.alert_type === 'cost_usd' && (
+            <div>
+              <label
+                htmlFor="alert-threshold"
+                className="block text-sm font-medium text-zinc-300 mb-1.5"
+              >
+                {ALERT_TYPE_INFO.cost_usd.thresholdLabel}
+                <span className="text-xs text-zinc-500 font-normal ml-2">
+                  {ALERT_TYPE_INFO.cost_usd.thresholdHint}
+                </span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-500">
+                  $
+                </span>
+                <input
+                  id="alert-threshold"
+                  type="number"
+                  value={formData.threshold_usd}
+                  onChange={(e) =>
+                    onFormChange({
+                      ...formData,
+                      threshold_usd: parseFloat(e.target.value) || 0,
+                    })
+                  }
+                  min={0.01}
+                  step={0.01}
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 pl-7 pr-3 py-2 text-sm text-zinc-100 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                />
+              </div>
+            </div>
+          )}
+
+          {formData.alert_type === 'subscription_quota' && (
+            <div>
+              <label
+                htmlFor="alert-quota-fraction"
+                className="block text-sm font-medium text-zinc-300 mb-1.5"
+              >
+                {ALERT_TYPE_INFO.subscription_quota.thresholdLabel}
+                <span className="text-xs text-zinc-500 font-normal ml-2">
+                  {ALERT_TYPE_INFO.subscription_quota.thresholdHint}
+                </span>
+              </label>
+              <div className="relative">
+                <input
+                  id="alert-quota-fraction"
+                  type="number"
+                  value={
+                    formData.threshold_quota_fraction !== null
+                      ? (formData.threshold_quota_fraction * 100).toFixed(0)
+                      : ''
+                  }
+                  onChange={(e) => {
+                    const pct = parseFloat(e.target.value);
+                    onFormChange({
+                      ...formData,
+                      threshold_quota_fraction: isNaN(pct) ? null : Math.min(100, Math.max(0, pct)) / 100,
+                    });
+                  }}
+                  min={1}
+                  max={100}
+                  step={1}
+                  placeholder="80"
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 pr-7 pl-3 py-2 text-sm text-zinc-100 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-zinc-500">
+                  %
+                </span>
+              </div>
+            </div>
+          )}
+
+          {formData.alert_type === 'credits' && (
+            <div>
+              <label
+                htmlFor="alert-credits"
+                className="block text-sm font-medium text-zinc-300 mb-1.5"
+              >
+                {ALERT_TYPE_INFO.credits.thresholdLabel}
+                <span className="text-xs text-zinc-500 font-normal ml-2">
+                  {ALERT_TYPE_INFO.credits.thresholdHint}
+                </span>
+              </label>
               <input
-                id="alert-threshold"
+                id="alert-credits"
                 type="number"
-                value={formData.threshold_usd}
-                onChange={(e) =>
+                value={formData.threshold_credits ?? ''}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
                   onFormChange({
                     ...formData,
-                    threshold_usd: parseFloat(e.target.value) || 0,
-                  })
-                }
-                min={0.01}
-                step={0.01}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 pl-7 pr-3 py-2 text-sm text-zinc-100 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                    threshold_credits: isNaN(val) ? null : Math.max(1, val),
+                  });
+                }}
+                min={1}
+                step={1}
+                placeholder="500"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
               />
             </div>
-          </div>
+          )}
 
           {/* Period selector */}
           <fieldset className="border-0 p-0 m-0">
@@ -263,7 +385,11 @@ export function AlertModal({
             disabled={
               isSubmitting ||
               !formData.name.trim() ||
-              formData.threshold_usd <= 0
+              // WHY per-type validation: each alert type has a different required
+              // threshold field. Disabling submit prevents sending invalid data.
+              (formData.alert_type === 'cost_usd' && formData.threshold_usd <= 0) ||
+              (formData.alert_type === 'subscription_quota' && !formData.threshold_quota_fraction) ||
+              (formData.alert_type === 'credits' && !formData.threshold_credits)
             }
             className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
