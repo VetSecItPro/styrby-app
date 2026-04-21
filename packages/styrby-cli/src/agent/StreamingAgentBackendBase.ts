@@ -73,9 +73,13 @@ const INSTALL_HINTS: Readonly<Record<string, string>> = Object.freeze({
   aider: 'Install via: pip install aider-chat',
   amp: 'Install via: npm install -g @sourcegraph/amp',
   crush: 'Install via: brew install crush (or follow https://github.com/charmbracelet/crush)',
-  droid: 'Install via: see https://github.com/factory-ai/droid for installation',
-  goose: 'Install via: see https://github.com/block/goose for installation',
-  kilo: 'Install via: see https://kilocode.ai for installation',
+  // Factory AI's Droid CLI ships as the npm package `droid`; the
+  // Factory-AI/factory monorepo is the source of truth.
+  droid: 'Install via: npm install -g droid (or see https://docs.factory.ai/cli)',
+  // Goose was transferred from block/goose to aaif-goose/goose (LF, 2026-04-07).
+  goose: 'Install via: see https://github.com/aaif-goose/goose for installation',
+  // Kilo CLI ships as @kilocode/cli (provides `kilo` + `kilocode` binaries).
+  kilo: 'Install via: npm install -g @kilocode/cli (or see https://kilo.ai)',
   kiro: 'Install via: see https://kiro.dev for installation',
   opencode: 'Install via: npm install -g opencode-ai',
 });

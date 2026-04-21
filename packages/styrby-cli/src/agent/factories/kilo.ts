@@ -24,7 +24,7 @@
  * (Ollama, LM Studio) or use specialized providers. This segment is underserved
  * by Claude/Codex-specific tools.
  *
- * @see https://github.com/kilocode-ai/kilo
+ * @see https://github.com/Kilo-Org/kilocode
  * @module factories/kilo
  */
 
@@ -751,7 +751,8 @@ class KiloBackend extends StreamingAgentBackendBase {
  * project context) and support for 500+ models via OpenAI-compatible APIs.
  *
  * The kilo binary must be installed and available in PATH.
- * Install via: `npm install -g @kilocode/kilo`
+ * Install via: `npm install -g @kilocode/cli` (provides both `kilo` and
+ * `kilocode` binaries; we invoke `kilo`).
  *
  * Memory Bank is enabled by default. Kilo stores memory files in
  * <cwd>/.kilo/memory/ (tracked in git, shared with the team).
