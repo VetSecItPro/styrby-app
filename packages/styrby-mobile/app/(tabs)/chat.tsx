@@ -1,146 +1,51 @@
 /**
- * Chat Screen
+ * Chat Screen (Orchestrator)
  *
- * Main chat interface for communicating with AI agents.
- * Provides session persistence (Supabase), E2E encrypted messaging,
- * typing indicators, stop/cancel controls, and permission approval feedback.
+ * Main chat interface for communicating with AI agents. Owns state and
+ * top-level layout only. Presentation lives in `src/components/chat/*`,
+ * data-layer helpers live in `src/components/chat/chat-session.ts`, and
+ * the heavier hooks live in `src/components/chat/hooks/*`.
  *
- * Session lifecycle:
- * 1. On mount, checks for an existing sessionId in route params or resumes the most recent active session
- * 2. On first user message (if no active session), creates a new session in Supabase
- * 3. Every sent/received message is E2E encrypted and persisted to session_messages
- * 4. When the user navigates away, the session stays active for later resumption
+ * Session lifecycle: on mount we check for a sessionId in route params or
+ * resume the most recent active session; on the first user message we
+ * lazily create a session in Supabase; every sent/received message is E2E
+ * encrypted and persisted to `session_messages`. The session stays active
+ * for resumption when the user navigates away.
  *
- * E2E Encryption:
- * - Messages are encrypted with NaCl box before being stored in Supabase
- * - Relay messages are also encrypted in transit via Supabase Realtime
- * - Falls back to plaintext if encryption keys are unavailable
- * - Decryption failures show "[Unable to decrypt]" placeholder
+ * E2E Encryption: messages are NaCl-box encrypted before being stored in
+ * Supabase and re-encrypted in transit via Supabase Realtime. Falls back
+ * to plaintext if keys are unavailable; decryption failures show
+ * "[Unable to decrypt]".
  */
 
-import { View, Text, FlatList, TextInput, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
+import { FlatList, KeyboardAvoidingView, Platform, View, Text } from 'react-native';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
 import { useRelay } from '../../src/hooks/useRelay';
-import { ChatMessage, type ChatMessageData } from '../../src/components/ChatMessage';
-import { PermissionCard, type PermissionRequest } from '../../src/components/PermissionCard';
-import { TypingIndicatorInline, type AgentState } from '../../src/components/TypingIndicator';
-import { StopButtonIcon } from '../../src/components/StopButton';
-import { VoiceInput } from '../../src/components/VoiceInput';
-import { supabase } from '../../src/lib/supabase';
-import { encryptMessage, decryptMessage } from '../../src/services/encryption';
+import type { ChatMessageData } from '../../src/components/ChatMessage';
+import type { PermissionRequest } from '../../src/components/PermissionCard';
+import type { AgentState } from '../../src/components/TypingIndicator';
 import type { AgentType, VoiceInputConfig } from 'styrby-shared';
-
-// ============================================================================
-// Types
-// ============================================================================
-
-/**
- * Supabase session_messages row shape matching the `session_messages` table.
- * Used for persisting and loading chat messages.
- *
- * Encryption strategy:
- * - When E2E encryption is active: content=null, encrypted_content + nonce are populated
- * - Backward compatibility: if encrypted_content is null, fall back to plaintext content
- */
-/**
- * Maps to the actual session_messages table schema.
- * WHY: Column names must match exactly — Supabase returns actual DB column
- * names, not aliases. Previous bugs were caused by using `role`, `content`,
- * `encrypted_content`, `nonce` instead of the real column names.
- */
-interface SessionMessageRow {
-  /** UUID primary key */
-  id: string;
-  /** Foreign key to sessions.id */
-  session_id: string;
-  /** Message type enum: user_prompt, agent_response, tool_use, etc. */
-  message_type: string;
-  /** Base64-encoded NaCl box ciphertext (or plaintext for unencrypted messages) */
-  content_encrypted: string | null;
-  /** Base64-encoded NaCl nonce used for encryption (null for plaintext) */
-  encryption_nonce: string | null;
-  /** Input tokens consumed by this message */
-  input_tokens: number | null;
-  /** Output tokens produced by this message */
-  output_tokens: number | null;
-  /** Duration in milliseconds */
-  duration_ms: number | null;
-  /** When the message was created */
-  created_at: string;
-}
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-/**
- * Visual configuration for each supported agent type.
- */
-const AGENT_CONFIG: Record<AgentType, { name: string; color: string; bgColor: string }> = {
-  claude: { name: 'Claude', color: '#f97316', bgColor: 'rgba(249, 115, 22, 0.1)' },
-  codex: { name: 'Codex', color: '#22c55e', bgColor: 'rgba(34, 197, 94, 0.1)' },
-  gemini: { name: 'Gemini', color: '#3b82f6', bgColor: 'rgba(59, 130, 246, 0.1)' },
-  opencode: { name: 'OpenCode', color: '#8b5cf6', bgColor: 'rgba(139, 92, 246, 0.1)' },
-  aider: { name: 'Aider', color: '#ec4899', bgColor: 'rgba(236, 72, 153, 0.1)' },
-  // WHY goose/amp/crush/kilo/kiro/droid: AgentType was extended in styrby-shared to include these agents.
-  // Color aligned with AgentSelector.tsx (#14b8a6 teal-500 — previously #06b6d4 was an inconsistency).
-  goose: { name: 'Goose', color: '#14b8a6', bgColor: 'rgba(20, 184, 166, 0.1)' },
-  amp: { name: 'Amp', color: '#f59e0b', bgColor: 'rgba(245, 158, 11, 0.1)' },
-  crush: { name: 'Crush', color: '#f43f5e', bgColor: 'rgba(244, 63, 94, 0.1)' },
-  kilo: { name: 'Kilo', color: '#0ea5e9', bgColor: 'rgba(14, 165, 233, 0.1)' },
-  kiro: { name: 'Kiro', color: '#f97316', bgColor: 'rgba(249, 115, 22, 0.1)' },
-  droid: { name: 'Droid', color: '#64748b', bgColor: 'rgba(100, 116, 139, 0.1)' },
-};
-
-/**
- * All agents available for selection in the chat header picker.
- * WHY: All 11 AgentType values are now fully supported by the CLI relay.
- * The list matches AgentSelector.tsx's ALL_AGENTS constant so both
- * picker surfaces stay in sync.
- */
-const SELECTABLE_AGENTS: AgentType[] = [
-  'claude', 'codex', 'gemini', 'opencode', 'aider',
-  'goose', 'amp', 'crush', 'kilo', 'kiro', 'droid',
-];
-
-/**
- * Placeholder shown when a message cannot be decrypted.
- * WHY: Graceful degradation -- the user sees that a message exists but
- * cannot be read, rather than a crash or empty bubble. This can happen
- * if keys were rotated, the keypair was regenerated, or the message was
- * encrypted with a different device's key.
- */
-const DECRYPTION_FAILED_PLACEHOLDER = '[Unable to decrypt]';
-
-// ============================================================================
-// Dev Logger
-// ============================================================================
-
-/**
- * Development-only logger that suppresses output in production.
- * WHY: Prevents session and message data from appearing in production logs.
- */
-const logger = {
-  log: (...args: unknown[]) => { if (__DEV__) console.log('[Chat]', ...args); },
-  error: (...args: unknown[]) => { if (__DEV__) console.error('[Chat]', ...args); },
-};
-
-// ============================================================================
-// Component
-// ============================================================================
+import type { ChatItem } from '../../src/types/chat';
+import {
+  ChatAgentPicker,
+  ChatEmptyState,
+  ChatInputBar,
+  ChatMessageList,
+  chatLogger as logger,
+  loadActiveSession,
+  useChatSend,
+  useRelayMessageHandler,
+} from '../../src/components/chat';
 
 /**
  * Main chat screen component.
  *
- * Manages the full lifecycle of a chat session:
- * - Loads existing messages from Supabase on mount
- * - Creates a new session on first message if none exists
- * - Persists every message to session_messages
- * - Integrates the typing indicator and stop button
- * - Handles permission request approve/deny with visual feedback
+ * Manages the full lifecycle of a chat session: history loading, session
+ * creation, message persistence, typing indicators, stop/cancel control,
+ * and permission approve/deny.
  *
  * @returns React element for the chat screen
  */
@@ -157,38 +62,38 @@ export default function ChatScreen() {
   const [pendingPermissions, setPendingPermissions] = useState<PermissionRequest[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedAgent, setSelectedAgent] = useState<AgentType | null>(
-    (params.agent as AgentType) || null
+    (params.agent as AgentType) || null,
   );
 
   /**
    * Voice input configuration loaded from SecureStore.
-   * WHY: Chat screen needs to read the config to show/hide the mic button
-   * and pass it to VoiceInput. Config is device-local (SecureStore), not DB.
+   * WHY: Chat screen needs the config to show/hide the mic button and pass
+   * it to VoiceInput. Config is device-local (SecureStore), not DB.
    */
   const [voiceConfig, setVoiceConfig] = useState<VoiceInputConfig | null>(null);
 
   /**
-   * WHY: Track the current session ID so we can persist messages to the
-   * correct session. Null means no session has been created yet -- the first
-   * message will trigger session creation.
+   * WHY: Track current session ID to persist messages to the right session.
+   * Null means no session has been created yet — the first message triggers
+   * lazy session creation.
    */
   const [sessionId, setSessionId] = useState<string | null>(params.sessionId ?? null);
 
   /**
-   * WHY: Track the agent state so we can show the correct typing indicator
-   * variant and control the stop button visibility.
+   * WHY: Track agent state to show the correct typing-indicator variant
+   * and control the stop-button visibility.
    */
   const [agentState, setAgentState] = useState<AgentState>('idle');
 
   /**
-   * WHY: Track whether the agent is actively generating a response.
-   * This drives the stop button visibility in the input area.
+   * WHY: Track whether the agent is actively generating. Drives the
+   * stop-button visibility in the input area.
    */
   const [isAgentThinking, setIsAgentThinking] = useState<boolean>(false);
 
   /**
-   * WHY: Track whether we are currently loading messages from Supabase
-   * to show a loading state and prevent duplicate loads.
+   * WHY: Track whether we're loading messages from Supabase to show a
+   * loading state and prevent duplicate loads.
    */
   const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
 
@@ -204,13 +109,36 @@ export default function ChatScreen() {
   // Session Persistence: Load on Mount
   // --------------------------------------------------------------------------
 
-  /**
-   * On mount, loads the session and its messages from Supabase.
-   * If a sessionId is provided via route params, loads that specific session.
-   * Otherwise, attempts to resume the most recent active session.
-   */
   useEffect(() => {
-    loadSessionHistory();
+    /**
+     * Loads the session and its messages from Supabase. If a sessionId is
+     * provided via route params, loads that session; otherwise resumes the
+     * most recent active session.
+     */
+    async function bootstrap(): Promise<void> {
+      try {
+        setIsLoadingHistory(true);
+        const machineId = pairingInfo?.machineId ?? null;
+        const result = await loadActiveSession(sessionId, machineId);
+
+        if (result.sessionId && result.sessionId !== sessionId) {
+          setSessionId(result.sessionId);
+        }
+        if (result.agentType) {
+          setSelectedAgent(result.agentType);
+        }
+        if (result.messages.length > 0) {
+          setMessages(result.messages);
+        }
+      } catch (error) {
+        logger.error('Failed to load session history:', error);
+      } finally {
+        setIsLoadingHistory(false);
+      }
+    }
+
+    void bootstrap();
+
     // Load voice input config from SecureStore alongside session history.
     // WHY: Config is device-local — loading here avoids a separate hook and
     // keeps the chat screen self-contained for voice support.
@@ -227,462 +155,30 @@ export default function ChatScreen() {
       .catch(() => {
         // SecureStore unavailable — silently disable voice
       });
-    // WHY: loadSessionHistory is a plain async function defined in this component.
-    // This effect is intentionally mount-only — we load history once when the
-    // screen opens, not on every re-render. Adding loadSessionHistory would cause
-    // redundant reloads if any of its internal deps change.
+    // WHY mount-only: We load history once when the screen opens, not on
+    // every re-render. Adding `bootstrap` deps would cause redundant reloads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /**
-   * Loads the session history from Supabase.
-   * If sessionId is set (from params), loads messages for that session.
-   * If no sessionId, tries to find and resume the most recent active session.
-   *
-   * @returns void
-   */
-  async function loadSessionHistory(): Promise<void> {
-    try {
-      setIsLoadingHistory(true);
-
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        logger.log('No authenticated user, skipping session load');
-        return;
-      }
-
-      let targetSessionId = sessionId;
-
-      // If no session ID from route params, find the most recent active session
-      if (!targetSessionId) {
-        const { data: recentSession, error: sessionError } = await supabase
-          .from('sessions')
-          .select('id, agent_type, status')
-          .eq('user_id', user.id)
-          .in('status', ['starting', 'running', 'idle', 'paused'])
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (sessionError) {
-          logger.error('Failed to find recent session:', sessionError.message);
-          return;
-        }
-
-        if (recentSession) {
-          targetSessionId = recentSession.id;
-          setSessionId(recentSession.id);
-
-          // WHY: Restore the agent selection to match the resumed session
-          // so the UI is consistent with what the user last used.
-          if (recentSession.agent_type && recentSession.agent_type in AGENT_CONFIG) {
-            setSelectedAgent(recentSession.agent_type as AgentType);
-          }
-
-          logger.log('Resuming active session:', recentSession.id);
-        }
-      }
-
-      // Load messages for the session
-      if (targetSessionId) {
-        await loadMessagesForSession(targetSessionId);
-      }
-    } catch (error) {
-      logger.error('Failed to load session history:', error);
-    } finally {
-      setIsLoadingHistory(false);
-    }
-  }
-
-  /**
-   * Fetches all messages for a given session from the session_messages table,
-   * decrypts encrypted messages, and populates the local messages state.
-   *
-   * Handles three content scenarios per message:
-   * 1. Encrypted (encrypted_content + nonce populated): decrypt using E2E keys
-   * 2. Plaintext fallback (content populated, encrypted_content null): use as-is
-   * 3. Decryption failure: show placeholder "[Unable to decrypt]"
-   *
-   * @param targetSessionId - The session ID to load messages for
-   * @returns void
-   */
-  async function loadMessagesForSession(targetSessionId: string): Promise<void> {
-    const { data: messageRows, error } = await supabase
-      .from('session_messages')
-      .select('*')
-      .eq('session_id', targetSessionId)
-      .order('created_at', { ascending: true });
-
-    if (error) {
-      logger.error('Failed to load messages:', error.message);
-      return;
-    }
-
-    if (messageRows && messageRows.length > 0) {
-      const machineId = pairingInfo?.machineId;
-
-      const loadedMessages: ChatMessageData[] = await Promise.all(
-        (messageRows as SessionMessageRow[]).map(async (row) => {
-          let messageContent: string;
-
-          if (row.content_encrypted && row.encryption_nonce && machineId) {
-            // WHY: Message is E2E encrypted. Attempt decryption using the
-            // paired CLI machine's public key and our secret key.
-            try {
-              messageContent = await decryptMessage(row.content_encrypted, row.encryption_nonce, machineId);
-            } catch (decryptError) {
-              logger.error(`Failed to decrypt message ${row.id}:`, decryptError);
-              messageContent = DECRYPTION_FAILED_PLACEHOLDER;
-            }
-          } else if (row.content_encrypted !== null) {
-            // WHY: content_encrypted may contain plaintext if encryption
-            // was unavailable at send time.
-            messageContent = row.content_encrypted;
-          } else {
-            // WHY: Neither encrypted nor plaintext content available.
-            // This should not happen in normal operation but we handle it
-            // gracefully rather than crashing.
-            messageContent = DECRYPTION_FAILED_PLACEHOLDER;
-          }
-
-          // Map message_type to role for the chat UI
-          const uiRole = (['user_prompt'].includes(row.message_type))
-            ? 'user' as const
-            : (['tool_use', 'tool_result', 'system', 'permission_request', 'permission_response'].includes(row.message_type))
-              ? 'system' as const
-              : 'assistant' as const;
-
-          return {
-            id: row.id,
-            role: uiRole,
-            content: [{ type: 'text' as const, content: messageContent }],
-            timestamp: row.created_at,
-          };
-        })
-      );
-
-      setMessages(loadedMessages);
-      logger.log(`Loaded ${loadedMessages.length} messages for session ${targetSessionId}`);
-    }
-  }
-
   // --------------------------------------------------------------------------
-  // Session Persistence: Create Session
+  // Incoming Relay Messages
   // --------------------------------------------------------------------------
 
-  /**
-   * Creates a new session row in the Supabase `sessions` table.
-   * Called lazily on the first message if no session exists yet.
-   *
-   * WHY: We create sessions lazily (not on screen mount) because opening
-   * the chat screen without sending a message should not litter the database
-   * with empty sessions.
-   *
-   * @param agent - The agent type for this session
-   * @param firstMessageContent - The content of the first message (used for session title)
-   * @returns The new session ID, or null if creation failed
-   */
-  async function createSession(agent: AgentType | null, firstMessageContent: string): Promise<string | null> {
-    // WHY: Prevent race condition if user taps send rapidly
-    if (sessionCreationLockRef.current) {
-      logger.log('Session creation already in progress, waiting...');
-      // Wait for existing creation to complete
-      await new Promise<void>((resolve) => {
-        const interval = setInterval(() => {
-          if (!sessionCreationLockRef.current) {
-            clearInterval(interval);
-            resolve();
-          }
-        }, 50);
-      });
-      return sessionId;
-    }
-
-    // Double-check: session may have been created while we waited
-    if (sessionId) return sessionId;
-
-    sessionCreationLockRef.current = true;
-
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        logger.error('Cannot create session: no authenticated user');
-        return null;
-      }
-
-      // WHY: Generate a short title from the first message so the session
-      // is identifiable in the session list/history screen.
-      const title = firstMessageContent.length > 80
-        ? firstMessageContent.substring(0, 77) + '...'
-        : firstMessageContent;
-
-      const { data: newSession, error } = await supabase
-        .from('sessions')
-        .insert({
-          user_id: user.id,
-          machine_id: pairingInfo?.machineId ?? null,
-          agent_type: agent ?? 'claude',
-          status: 'running',
-          title,
-          total_input_tokens: 0,
-          total_output_tokens: 0,
-          total_cost_usd: 0,
-          started_at: new Date().toISOString(),
-        })
-        .select('id')
-        .single();
-
-      if (error) {
-        logger.error('Failed to create session:', error.message);
-        return null;
-      }
-
-      const newId = newSession.id;
-      setSessionId(newId);
-      logger.log('Created new session:', newId);
-      return newId;
-    } finally {
-      sessionCreationLockRef.current = false;
-    }
-  }
-
-  // --------------------------------------------------------------------------
-  // Session Persistence: Save Message
-  // --------------------------------------------------------------------------
-
-  /**
-   * Persists a message to the Supabase `session_messages` table.
-   * When a paired machine ID is available, the content is E2E encrypted
-   * before storage. Falls back to plaintext if encryption is unavailable.
-   *
-   * @param targetSessionId - The session this message belongs to
-   * @param messageId - Unique message ID (used as the PK)
-   * @param role - The message role (user, assistant, system, tool)
-   * @param content - Plaintext message content (will be encrypted if possible)
-   * @param tokenData - Optional token usage and cost data
-   * @returns void
-   */
-  async function saveMessageToDb(
-    targetSessionId: string,
-    messageId: string,
-    role: 'user' | 'assistant' | 'system' | 'tool',
-    content: string,
-    tokenData?: {
-      inputTokens?: number;
-      outputTokens?: number;
-      costUsd?: number;
-      model?: string;
-    }
-  ): Promise<void> {
-    let encryptedContent: string | null = null;
-    let encryptionNonce: string | null = null;
-    let plaintextContent: string | null = content;
-
-    // WHY: Attempt E2E encryption when a paired machine is available.
-    // If encryption fails (key not found, key rotation in progress, etc.),
-    // fall back to plaintext storage. This ensures messages are always
-    // saved even if the encryption infrastructure is temporarily unavailable.
-    const machineId = pairingInfo?.machineId;
-    if (machineId) {
-      try {
-        const encrypted = await encryptMessage(content, machineId);
-        encryptedContent = encrypted.encrypted;
-        encryptionNonce = encrypted.nonce;
-        // WHY: When encryption succeeds, set plaintext to null so the
-        // server never stores the readable content. This is the core
-        // privacy guarantee of E2E encryption.
-        plaintextContent = null;
-      } catch (encryptError) {
-        // WHY: Encryption failure is not fatal. We fall back to plaintext
-        // storage so the user's message is not lost. This can happen if:
-        // - The CLI has not yet registered its public key
-        // - Key rotation is in progress
-        // - SecureStore is temporarily unavailable
-        logger.error('Encryption failed, falling back to plaintext:', encryptError);
-      }
-    }
-
-    // WHY: session_messages uses message_type (not role), content_encrypted
-    // (not content/encrypted_content), and encryption_nonce (not nonce).
-    // cost_usd and model belong on cost_records and sessions respectively.
-    const { error } = await supabase
-      .from('session_messages')
-      .insert({
-        id: messageId,
-        session_id: targetSessionId,
-        message_type: role === 'user' ? 'user_prompt' : 'agent_response',
-        content_encrypted: encryptedContent || plaintextContent,
-        encryption_nonce: encryptionNonce,
-        input_tokens: tokenData?.inputTokens ?? null,
-        output_tokens: tokenData?.outputTokens ?? null,
-      });
-
-    if (error) {
-      logger.error('Failed to save message:', error.message);
-    }
-  }
-
-  // --------------------------------------------------------------------------
-  // Incoming Message Handling
-  // --------------------------------------------------------------------------
-
-  /**
-   * Processes incoming relay messages and updates local state.
-   * Handles agent responses, permission requests, permission responses,
-   * and session state updates.
-   *
-   * WHY async IIFE: The effect handler itself cannot be async (React rules),
-   * but we need `await` for decrypting incoming encrypted messages. The IIFE
-   * pattern is the standard way to handle this in React effects.
-   */
-  useEffect(() => {
-    if (!lastMessage) return;
-
-    void (async () => {
-    switch (lastMessage.type) {
-      case 'agent_response': {
-        const responseData = lastMessage.payload as {
-          content: string;
-          agent_type?: AgentType;
-          agent?: AgentType;
-          cost_usd?: number;
-          duration_ms?: number;
-          is_complete?: boolean;
-          tokens?: {
-            input: number;
-            output: number;
-          };
-          /** Base64-encoded encrypted content (set by CLI when E2E is active) */
-          encrypted_content?: string;
-          /** Base64-encoded nonce for decryption */
-          nonce?: string;
-        };
-
-        const agentType = responseData.agent_type ?? responseData.agent;
-
-        // WHY: The CLI may send relay messages with E2E encrypted content.
-        // If encrypted_content and nonce are present, decrypt the payload.
-        // Otherwise, use the plaintext content field (backward compatibility).
-        let displayContent: string;
-        if (responseData.encrypted_content && responseData.nonce && pairingInfo?.machineId) {
-          try {
-            displayContent = await decryptMessage(
-              responseData.encrypted_content,
-              responseData.nonce,
-              pairingInfo.machineId
-            );
-          } catch (decryptError) {
-            logger.error('Failed to decrypt relay message:', decryptError);
-            displayContent = DECRYPTION_FAILED_PLACEHOLDER;
-          }
-        } else {
-          displayContent = responseData.content;
-        }
-
-        const responseMessage: ChatMessageData = {
-          id: lastMessage.id,
-          role: 'assistant',
-          agentType,
-          content: [{ type: 'text', content: displayContent }],
-          timestamp: lastMessage.timestamp,
-          costUsd: responseData.cost_usd,
-          durationMs: responseData.duration_ms,
-        };
-
-        setMessages((prev) => [...prev, responseMessage]);
-
-        // WHY: Reset the agent state when the response is complete so the
-        // typing indicator hides and the stop button disappears.
-        if (responseData.is_complete !== false) {
-          setAgentState('idle');
-          setIsAgentThinking(false);
-          setIsLoading(false);
-        }
-
-        // Persist the assistant message to Supabase (uses the decrypted content
-        // which will be re-encrypted by saveMessageToDb for storage)
-        if (sessionId) {
-          saveMessageToDb(
-            sessionId,
-            lastMessage.id,
-            'assistant',
-            displayContent,
-            {
-              inputTokens: responseData.tokens?.input,
-              outputTokens: responseData.tokens?.output,
-              costUsd: responseData.cost_usd,
-            }
-          );
-        }
-        break;
-      }
-
-      case 'permission_request': {
-        // WHY: The relay payload uses snake_case (request_id, session_id, etc.)
-        // but the PermissionRequest interface uses camelCase. Map between them.
-        const p = lastMessage.payload;
-        const permData: PermissionRequest = {
-          id: p.request_id,
-          sessionId: p.session_id,
-          agentType: p.agent,
-          type: p.tool_name,
-          description: p.description,
-          riskLevel: p.risk_level,
-          timestamp: p.expires_at,
-          filePath: p.affected_files?.[0],
-          nonce: p.nonce,
-        };
-        setPendingPermissions((prev) => [...prev, permData]);
-
-        // WHY: When a permission is requested, the agent is waiting --
-        // update the state to reflect this in the typing indicator.
-        setAgentState('waiting_permission');
-        break;
-      }
-
-      case 'permission_response': {
-        const requestId = lastMessage.payload.request_id;
-        // WHY: Keep the card in the list briefly so the user sees the
-        // approved/denied feedback animation (handled by PermissionCard internally).
-        // The card is removed after a short delay.
-        setTimeout(() => {
-          setPendingPermissions((prev) => prev.filter((p) => p.id !== requestId));
-        }, 1500);
-        break;
-      }
-
-      case 'session_state': {
-        const stateData = lastMessage.payload as {
-          state: 'idle' | 'thinking' | 'executing' | 'waiting_permission' | 'error';
-        };
-
-        setAgentState(stateData.state as AgentState);
-        setIsAgentThinking(stateData.state === 'thinking' || stateData.state === 'executing');
-
-        // WHY: Clear loading state when the agent returns to idle.
-        if (stateData.state === 'idle') {
-          setIsLoading(false);
-        }
-        break;
-      }
-    }
-    })();
-    // WHY: saveMessageToDb is a plain async function defined in this component.
-    // It is called imperatively inside this effect (fire-and-forget persistence).
-    // Adding it as a dep would require useCallback wrapping, which depends on
-    // sessionId and pairingInfo — both already in this array. The current setup
-    // ensures the effect re-fires on new messages, which is the correct behavior.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastMessage, sessionId, pairingInfo]);
+  useRelayMessageHandler({
+    lastMessage,
+    sessionId,
+    pairingInfo,
+    setMessages,
+    setPendingPermissions,
+    setAgentState,
+    setIsAgentThinking,
+    setIsLoading,
+  });
 
   // --------------------------------------------------------------------------
   // Scroll to Bottom
   // --------------------------------------------------------------------------
 
-  /**
-   * Scrolls to the bottom of the message list when new messages arrive
-   * or when the typing indicator appears.
-   */
   useEffect(() => {
     if (messages.length > 0 || isAgentThinking) {
       setTimeout(() => {
@@ -695,124 +191,30 @@ export default function ChatScreen() {
   // Send Message
   // --------------------------------------------------------------------------
 
-  /**
-   * Handles sending a user message through the relay.
-   * Creates a session on first message, persists the message to Supabase,
-   * and sends it through the relay channel.
-   *
-   * @returns void
-   */
-  const handleSend = useCallback(async () => {
-    if (!inputText.trim() || !isConnected) return;
-
-    const content = inputText.trim();
-    // WHY: crypto.randomUUID() is available in Hermes (React Native) and
-    // provides cryptographic uniqueness — Math.random() is not CSPRNG.
-    const messageId = `msg_${crypto.randomUUID()}`;
-
-    const userMessage: ChatMessageData = {
-      id: messageId,
-      role: 'user',
-      content: [{ type: 'text', content }],
-      timestamp: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInputText('');
-    setIsLoading(true);
-    setAgentState('thinking');
-    setIsAgentThinking(true);
-
-    // Ensure we have a session
-    let currentSessionId = sessionId;
-    if (!currentSessionId) {
-      currentSessionId = await createSession(selectedAgent, content);
-    }
-
-    // Persist the user message
-    if (currentSessionId) {
-      saveMessageToDb(currentSessionId, messageId, 'user', content);
-    }
-
-    try {
-      // WHY: When a paired machine is available, encrypt the relay payload
-      // so the message content is protected in transit via Supabase Realtime.
-      // The CLI will decrypt using its secret key + mobile's public key.
-      // If encryption fails, fall back to plaintext relay (the CLI handles both).
-      // WHY: The relay ChatMessage payload expects { content, agent, session_id? }.
-      // When encryption is available, we add encrypted_content and nonce fields
-      // and set content to empty string (the CLI checks encrypted_content first).
-      let relayPayload: {
-        content: string;
-        agent: AgentType;
-        session_id?: string;
-        encrypted_content?: string;
-        nonce?: string;
-      } = {
-        content,
-        agent: selectedAgent ?? 'claude',
-        session_id: currentSessionId ?? undefined,
-      };
-
-      if (pairingInfo?.machineId) {
-        try {
-          const encrypted = await encryptMessage(content, pairingInfo.machineId);
-          relayPayload = {
-            ...relayPayload,
-            encrypted_content: encrypted.encrypted,
-            nonce: encrypted.nonce,
-            // WHY: Set content to empty to signal to the CLI that this
-            // message is encrypted. The CLI checks for encrypted_content first.
-            content: '',
-          };
-        } catch (encryptError) {
-          // WHY: Encryption failure for relay is non-fatal. Send plaintext
-          // so the user's message still reaches the CLI. This can happen
-          // during initial pairing before keys are fully exchanged.
-          logger.error('Relay encryption failed, sending plaintext:', encryptError);
-        }
-      }
-
-      await sendMessage({
-        type: 'chat',
-        payload: relayPayload,
-      });
-    } catch {
-      const errorId = `error_${Date.now()}`;
-      const errorContent = 'Failed to send message. Please try again.';
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: errorId,
-          role: 'error',
-          content: [{ type: 'text', content: errorContent }],
-          timestamp: new Date().toISOString(),
-        },
-      ]);
-
-      // WHY: Reset agent state on send failure so the typing indicator
-      // and stop button return to their default states.
-      setAgentState('idle');
-      setIsAgentThinking(false);
-      setIsLoading(false);
-    }
-  // WHY: createSession and saveMessageToDb are plain async functions in this
-  // component. Their key deps (sessionId, selectedAgent, pairingInfo) are all
-  // already in this array. Wrapping both in useCallback would cascade deps
-  // across the hook — deferred to a follow-up refactor.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inputText, isConnected, selectedAgent, sendMessage, sessionId, pairingInfo]);
+  const handleSend = useChatSend({
+    inputText,
+    isConnected,
+    selectedAgent,
+    sessionId,
+    pairingInfo,
+    sendMessage,
+    sessionCreationLockRef,
+    setMessages,
+    setInputText,
+    setIsLoading,
+    setAgentState,
+    setIsAgentThinking,
+    setSessionId,
+  });
 
   // --------------------------------------------------------------------------
   // Permission Handling
   // --------------------------------------------------------------------------
 
   /**
-   * Approves a pending permission request by sending the approval through the relay.
+   * Approves a pending permission request through the relay.
    *
    * @param id - The permission request ID to approve
-   * @returns void
    */
   const handleApprovePermission = useCallback(
     async (id: string) => {
@@ -834,7 +236,7 @@ export default function ChatScreen() {
         setAgentState('executing');
         setIsAgentThinking(true);
 
-        // WHY: Delay removal so the PermissionCard can show the "Approved" feedback.
+        // WHY: Delay removal so the PermissionCard can show "Approved" feedback.
         setTimeout(() => {
           setPendingPermissions((prev) => prev.filter((p) => p.id !== id));
         }, 1500);
@@ -842,14 +244,13 @@ export default function ChatScreen() {
         logger.error('Failed to approve permission:', error);
       }
     },
-    [pendingPermissions, sendMessage]
+    [pendingPermissions, sendMessage],
   );
 
   /**
-   * Denies a pending permission request by sending the denial through the relay.
+   * Denies a pending permission request through the relay.
    *
    * @param id - The permission request ID to deny
-   * @returns void
    */
   const handleDenyPermission = useCallback(
     async (id: string) => {
@@ -870,7 +271,7 @@ export default function ChatScreen() {
         setAgentState('idle');
         setIsAgentThinking(false);
 
-        // WHY: Delay removal so the PermissionCard can show the "Denied" feedback.
+        // WHY: Delay removal so the PermissionCard can show "Denied" feedback.
         setTimeout(() => {
           setPendingPermissions((prev) => prev.filter((p) => p.id !== id));
         }, 1500);
@@ -878,7 +279,7 @@ export default function ChatScreen() {
         logger.error('Failed to deny permission:', error);
       }
     },
-    [pendingPermissions, sendMessage]
+    [pendingPermissions, sendMessage],
   );
 
   // --------------------------------------------------------------------------
@@ -887,17 +288,12 @@ export default function ChatScreen() {
 
   /**
    * Sends an interrupt command to the CLI agent to cancel the current operation.
-   * Called by the StopButton when the user wants to stop generation.
-   *
-   * @returns void
    */
   const handleStop = useCallback(async () => {
     try {
       await sendMessage({
         type: 'command',
-        payload: {
-          action: 'interrupt',
-        },
+        payload: { action: 'interrupt' },
       });
 
       setAgentState('idle');
@@ -912,9 +308,7 @@ export default function ChatScreen() {
   // Navigation
   // --------------------------------------------------------------------------
 
-  /**
-   * Navigates to the QR code scanning screen for pairing.
-   */
+  /** Navigates to the QR code scanning screen for pairing. */
   const handlePairPress = () => {
     router.push('/(auth)/scan');
   };
@@ -929,103 +323,14 @@ export default function ChatScreen() {
   /** The currently resolved agent (for typing indicator) */
   const activeAgent: AgentType = selectedAgent ?? 'claude';
 
-  // --------------------------------------------------------------------------
-  // Empty State
-  // --------------------------------------------------------------------------
-
-  /**
-   * Renders the appropriate empty state based on connection status.
-   * Shows different UI for: not paired, not connected, and ready to chat.
-   *
-   * @returns React element for the empty state
-   */
-  const renderEmptyState = () => {
-    if (!pairingInfo) {
-      return (
-        <View className="flex-1 items-center justify-center px-8">
-          <View className="w-16 h-16 rounded-2xl bg-brand/20 items-center justify-center mb-4">
-            <Ionicons name="link" size={32} color="#f97316" />
-          </View>
-          <Text className="text-white text-xl font-semibold text-center mb-2">
-            Connect Your CLI
-          </Text>
-          <Text className="text-zinc-500 text-center mb-6">
-            Pair your CLI to start chatting with your AI coding agents
-          </Text>
-          <Pressable
-            onPress={handlePairPress}
-            className="bg-brand px-6 py-3 rounded-xl flex-row items-center"
-            accessibilityRole="button"
-            accessibilityLabel="Scan QR code to pair CLI"
-          >
-            <Ionicons name="qr-code" size={20} color="white" />
-            <Text className="text-white font-semibold ml-2">Scan QR Code</Text>
-          </Pressable>
-        </View>
-      );
-    }
-
-    if (!isConnected) {
-      return (
-        <View className="flex-1 items-center justify-center px-8">
-          <View className="w-16 h-16 rounded-2xl bg-yellow-500/20 items-center justify-center mb-4">
-            <Ionicons name="cloud-offline" size={32} color="#eab308" />
-          </View>
-          <Text className="text-white text-xl font-semibold text-center mb-2">
-            {isOnline ? 'Connecting...' : 'Offline'}
-          </Text>
-          <Text className="text-zinc-500 text-center">
-            {isOnline
-              ? 'Establishing connection to your CLI'
-              : 'Check your internet connection'}
-          </Text>
-        </View>
-      );
-    }
-
-    if (isLoadingHistory) {
-      return (
-        <View className="flex-1 items-center justify-center px-8">
-          <View className="w-16 h-16 rounded-2xl bg-brand/20 items-center justify-center mb-4">
-            <Ionicons name="chatbubbles" size={32} color="#f97316" />
-          </View>
-          <Text className="text-white text-xl font-semibold text-center mb-2">
-            Loading Messages...
-          </Text>
-          <Text className="text-zinc-500 text-center">
-            Restoring your conversation
-          </Text>
-        </View>
-      );
-    }
-
-    return (
-      <View className="flex-1 items-center justify-center px-8">
-        <View className="w-16 h-16 rounded-2xl bg-brand/20 items-center justify-center mb-4">
-          <Ionicons name="chatbubbles" size={32} color="#f97316" />
-        </View>
-        <Text className="text-white text-xl font-semibold text-center mb-2">
-          Start a Conversation
-        </Text>
-        <Text className="text-zinc-500 text-center">
-          Send a message to begin chatting with your AI agent
-        </Text>
-      </View>
-    );
-  };
-
-  // --------------------------------------------------------------------------
-  // Chat Items (messages + permissions merged and sorted)
-  // --------------------------------------------------------------------------
-
   /**
    * WHY: Combine messages and permissions into a single sorted list so they
-   * appear in chronological order in the FlatList. The type discriminator
+   * appear in chronological order in the FlatList. The discriminated union
    * is used in renderItem to render the correct component.
    */
-  const chatItems = [
-    ...messages.map((m) => ({ type: 'message' as const, data: m })),
-    ...pendingPermissions.map((p) => ({ type: 'permission' as const, data: p })),
+  const chatItems: ChatItem[] = [
+    ...messages.map((m): ChatItem => ({ type: 'message', data: m })),
+    ...pendingPermissions.map((p): ChatItem => ({ type: 'permission', data: p })),
   ].sort((a, b) => {
     const aTime = a.data.timestamp;
     const bTime = b.data.timestamp;
@@ -1052,134 +357,42 @@ export default function ChatScreen() {
 
       {/* Agent Selector */}
       {isConnected && (
-        <View className="flex-row px-4 py-2 border-b border-zinc-800">
-          {SELECTABLE_AGENTS.map((agent) => {
-            const config = AGENT_CONFIG[agent];
-            const isSelected = selectedAgent === agent;
-            return (
-              <Pressable
-                key={agent}
-                onPress={() => setSelectedAgent(agent)}
-                className={`flex-row items-center px-3 py-1.5 rounded-full mr-2 ${
-                  isSelected ? '' : 'opacity-50'
-                }`}
-                style={{ backgroundColor: isSelected ? config.bgColor : 'transparent' }}
-                accessibilityRole="button"
-                accessibilityLabel={`Select ${config.name} agent`}
-                accessibilityState={{ selected: isSelected }}
-              >
-                <View
-                  style={{ backgroundColor: config.color }}
-                  className="w-4 h-4 rounded-md items-center justify-center"
-                >
-                  <Text className="text-white text-xs font-bold">{config.name[0]}</Text>
-                </View>
-                <Text
-                  style={{ color: isSelected ? config.color : '#71717a' }}
-                  className="text-sm font-medium ml-2"
-                >
-                  {config.name}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <ChatAgentPicker selectedAgent={selectedAgent} onSelect={setSelectedAgent} />
       )}
 
       {/* Chat Messages */}
       {chatItems.length === 0 && !isAgentThinking ? (
-        renderEmptyState()
+        <ChatEmptyState
+          isPaired={!!pairingInfo}
+          isConnected={isConnected}
+          isOnline={isOnline}
+          isLoadingHistory={isLoadingHistory}
+          onPairPress={handlePairPress}
+        />
       ) : (
-        <FlatList
+        <ChatMessageList
           ref={flatListRef}
-          data={chatItems}
-          keyExtractor={(item) => item.data.id}
-          renderItem={({ item }) => {
-            if (item.type === 'message') {
-              return <ChatMessage message={item.data} />;
-            }
-            return (
-              <PermissionCard
-                permission={item.data}
-                onApprove={handleApprovePermission}
-                onDeny={handleDenyPermission}
-              />
-            );
-          }}
-          contentContainerStyle={{ paddingVertical: 8 }}
-          showsVerticalScrollIndicator={false}
-          ListFooterComponent={
-            /* WHY: The typing indicator is rendered as a FlatList footer so it
-             * always appears below all messages and scrolls naturally with the list. */
-            isAgentThinking ? (
-              <View className="px-4 pb-2">
-                <TypingIndicatorInline
-                  agentType={activeAgent}
-                  state={agentState}
-                />
-              </View>
-            ) : null
-          }
+          items={chatItems}
+          isAgentThinking={isAgentThinking}
+          activeAgent={activeAgent}
+          agentState={agentState}
+          onApprovePermission={handleApprovePermission}
+          onDenyPermission={handleDenyPermission}
         />
       )}
 
       {/* Input Area */}
-      <View className="border-t border-zinc-800 p-4 pb-6">
-        <View className="flex-row items-end bg-background-secondary rounded-2xl px-4 py-2">
-          <TextInput
-            className="flex-1 text-white text-base py-2 max-h-32"
-            placeholder={
-              isConnected ? 'Message your agent...' : 'Connect to start chatting'
-            }
-            placeholderTextColor="#71717a"
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
-            editable={isConnected}
-            accessibilityLabel="Message input"
-            accessibilityHint="Type a message to send to your AI agent"
-          />
-          {/* WHY: Show the stop button instead of the send button when the agent
-           * is actively generating, so the user can cancel without needing a
-           * separate UI element. The StopButtonIcon variant fits cleanly in the
-           * same circular button space as the send button. */}
-          {isAgentThinking ? (
-            <StopButtonIcon
-              isRunning={isAgentThinking}
-              onStop={handleStop}
-              accessibilityLabel="Stop agent generation"
-            />
-          ) : (
-            <>
-              {/* WHY: Voice input button only shown when config is loaded and enabled.
-               * The VoiceInput component handles its own state (recording, transcribing,
-               * confirm modal). On transcript, we populate the input field so the user
-               * can review and edit before the normal handleSend flow kicks in. */}
-              <VoiceInput
-                config={voiceConfig}
-                onTranscript={(text) => setInputText(text)}
-                disabled={!isConnected}
-              />
-              <Pressable
-                onPress={handleSend}
-                disabled={!canSend}
-                className={`ml-2 w-10 h-10 rounded-full items-center justify-center ${
-                  canSend ? 'bg-brand' : 'bg-zinc-800'
-                }`}
-                accessibilityRole="button"
-                accessibilityLabel="Send message"
-                accessibilityState={{ disabled: !canSend }}
-              >
-                <Ionicons
-                  name="send"
-                  size={20}
-                  color={canSend ? 'white' : '#71717a'}
-                />
-              </Pressable>
-            </>
-          )}
-        </View>
-      </View>
+      <ChatInputBar
+        inputText={inputText}
+        onChangeText={setInputText}
+        onSend={handleSend}
+        onStop={handleStop}
+        onVoiceTranscript={(text) => setInputText(text)}
+        isConnected={isConnected}
+        isAgentThinking={isAgentThinking}
+        canSend={canSend}
+        voiceConfig={voiceConfig}
+      />
     </KeyboardAvoidingView>
   );
 }

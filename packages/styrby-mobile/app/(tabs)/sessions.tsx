@@ -1,434 +1,48 @@
 /**
- * Sessions Screen
+ * Sessions Screen — orchestrator.
  *
  * Displays the user's past coding sessions from Supabase with search,
- * status/agent filtering, infinite-scroll pagination, and pull-to-refresh.
- * Tapping a session card navigates to the chat screen with the session ID.
+ * status/agent/scope/date/tag filtering, infinite-scroll pagination,
+ * and pull-to-refresh. Tapping a session card navigates to the chat
+ * screen (active sessions) or the session detail page (completed).
+ *
+ * WHY (orchestrator pattern): This file owns state + data fetching +
+ * top-level layout only. Presentation lives in
+ * `src/components/sessions/*` and `src/hooks/useTeamMembership.ts` so
+ * no single file exceeds 400 LOC.
  */
 
 import {
   View,
   Text,
   SectionList,
-  ScrollView,
-  Pressable,
-  TextInput,
   RefreshControl,
   ActivityIndicator,
 } from 'react-native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { formatCost } from '../../src/hooks/useCosts';
 import {
   useSessions,
-  formatRelativeTime,
-  getFirstLine,
   type SessionRow,
   type SessionFilters,
   type DateRangeFilter,
 } from '../../src/hooks/useSessions';
 import { useBookmarks } from '../../src/hooks/useBookmarks';
-import { supabase } from '../../src/lib/supabase';
+import { useTeamMembership } from '../../src/hooks/useTeamMembership';
+import { useSessionTags } from '../../src/hooks/useSessionTags';
+import {
+  SessionCard,
+  SessionsSearchBar,
+  SessionsFilterBar,
+  SessionsLoadingState,
+  SessionsErrorState,
+  SessionsEmptyState,
+  groupSessionsByDate,
+} from '../../src/components/sessions';
 import type { AgentType } from 'styrby-shared';
 
-// ============================================================================
-// Agent Config
-// ============================================================================
-
 /**
- * Visual configuration for each supported AI agent.
- * Used for icon badges, background tints, and labels.
- */
-const AGENT_CONFIG: Record<
-  string,
-  { label: string; color: string; icon: string }
-> = {
-  claude: { label: 'Claude', color: '#a855f7', icon: 'C' },
-  codex: { label: 'Codex', color: '#22c55e', icon: 'X' },
-  gemini: { label: 'Gemini', color: '#3b82f6', icon: 'G' },
-};
-
-/**
- * Look up agent display config, falling back to a neutral grey for
- * unknown agent types.
- *
- * @param agent - The agent_type string from the session row
- * @returns Config object with label, hex colour, and short icon letter
- */
-function getAgentConfig(agent: string) {
-  return AGENT_CONFIG[agent] ?? { label: agent, color: '#71717a', icon: '?' };
-}
-
-// ============================================================================
-// Status Config
-// ============================================================================
-
-/**
- * Map of session status to display colour.
- * Active statuses are green, terminal errors are red, and everything
- * else (completed/expired/paused) is a neutral grey.
- */
-const STATUS_COLORS: Record<string, string> = {
-  starting: '#22c55e',
-  running: '#22c55e',
-  idle: '#22c55e',
-  paused: '#eab308',
-  stopped: '#71717a',
-  error: '#ef4444',
-  expired: '#71717a',
-};
-
-/**
- * Human-readable label for session statuses shown in the badge.
- */
-const STATUS_LABELS: Record<string, string> = {
-  starting: 'Starting',
-  running: 'Active',
-  idle: 'Idle',
-  paused: 'Paused',
-  stopped: 'Completed',
-  error: 'Error',
-  expired: 'Expired',
-};
-
-// ============================================================================
-// Filter Chip Definitions
-// ============================================================================
-
-/** Status filter options displayed as chips. */
-const STATUS_CHIPS: Array<{ label: string; value: SessionFilters['status'] }> = [
-  { label: 'All', value: null },
-  { label: 'Active', value: 'active' },
-  { label: 'Completed', value: 'completed' },
-];
-
-/** Agent filter options displayed as chips. */
-const AGENT_CHIPS: Array<{ label: string; value: AgentType | null }> = [
-  { label: 'All', value: null },
-  { label: 'Claude', value: 'claude' },
-  { label: 'Codex', value: 'codex' },
-  { label: 'Gemini', value: 'gemini' },
-];
-
-/** Scope filter options for personal vs team sessions. */
-const SCOPE_CHIPS: Array<{ label: string; value: 'mine' | 'team' | null }> = [
-  { label: 'My Sessions', value: 'mine' },
-  { label: 'Team Sessions', value: 'team' },
-];
-
-/** Date range filter options displayed as chips. */
-const DATE_RANGE_CHIPS: Array<{ label: string; value: DateRangeFilter }> = [
-  { label: 'All Time', value: 'all' },
-  { label: 'Today', value: 'today' },
-  { label: 'This Week', value: 'week' },
-  { label: 'This Month', value: 'month' },
-];
-
-// ============================================================================
-// Date Grouping Helpers
-// ============================================================================
-
-/**
- * Short day-of-week names for section headers.
- *
- * WHY: Hoisted to module level so this array is allocated once at import time.
- */
-const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
-
-/**
- * Short month names for section headers.
- */
-const MONTH_ABBREVS = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-] as const;
-
-/**
- * Format a date into a human-friendly section header label.
- *
- * Returns "Today", "Yesterday", or a short date like "Mon Mar 25" for
- * older dates. This matches the web app's date grouping behavior.
- *
- * @param date - The date to format
- * @returns A section header string
- *
- * @example
- * formatSectionDate(new Date()); // "Today"
- * formatSectionDate(yesterday);  // "Yesterday"
- * formatSectionDate(lastWeek);   // "Mon Mar 25"
- */
-function formatSectionDate(date: Date): string {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const diffDays = Math.floor(
-    (today.getTime() - target.getTime()) / 86_400_000,
-  );
-
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-
-  return `${DAY_NAMES[date.getDay()]} ${MONTH_ABBREVS[date.getMonth()]} ${date.getDate()}`;
-}
-
-/**
- * Derive a date-only key string (YYYY-MM-DD) from an ISO timestamp.
- *
- * WHY: We group sessions by the date portion of `started_at`. Using a
- * consistent key format ensures sessions that started on the same calendar
- * day (in the user's local timezone) are grouped together.
- *
- * @param isoTimestamp - An ISO 8601 timestamp string
- * @returns A date key string in YYYY-MM-DD format (local timezone)
- */
-function getDateKey(isoTimestamp: string): string {
-  const d = new Date(isoTimestamp);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-/**
- * Section shape for the SectionList. Each section contains a date label,
- * session count, and the sessions that started on that date.
- */
-interface SessionSection {
-  /** Human-friendly date label (e.g. "Today", "Yesterday", "Mon Mar 25") */
-  title: string;
-  /** Number of sessions in this section */
-  count: number;
-  /** Sessions in this section */
-  data: SessionRow[];
-}
-
-/**
- * Group an array of sessions by their `started_at` date into sections
- * suitable for React Native's SectionList.
- *
- * Preserves the input order within each group (sessions are already sorted
- * by `updated_at DESC` from the hook).
- *
- * @param sessions - Array of session rows to group
- * @returns Array of sections, each with a title, count, and data
- *
- * @example
- * const sections = groupSessionsByDate(filteredSessions);
- * // [{ title: "Today", count: 3, data: [...] }, { title: "Yesterday", count: 1, data: [...] }]
- */
-function groupSessionsByDate(sessions: SessionRow[]): SessionSection[] {
-  const groupMap = new Map<string, SessionRow[]>();
-
-  for (const session of sessions) {
-    const key = getDateKey(session.started_at);
-    const existing = groupMap.get(key);
-    if (existing) {
-      existing.push(session);
-    } else {
-      groupMap.set(key, [session]);
-    }
-  }
-
-  const sections: SessionSection[] = [];
-
-  for (const [key, data] of groupMap) {
-    // WHY: `new Date("YYYY-MM-DD")` parses as UTC midnight, not local midnight.
-    // In negative UTC offsets (e.g., UTC-5) this causes "Mon Mar 25" to render
-    // as "Sun Mar 24" because UTC midnight is still the previous day locally.
-    // Splitting the key and constructing via (year, month-1, day) uses the
-    // local timezone, matching how getDateKey() derived the key in the first place.
-    const [year, month, day] = key.split('-').map(Number);
-    sections.push({
-      title: formatSectionDate(new Date(year, month - 1, day)),
-      count: data.length,
-      data,
-    });
-  }
-
-  return sections;
-}
-
-// ============================================================================
-// Session Card Component
-// ============================================================================
-
-/**
- * Props for the SessionCard component.
- */
-interface SessionCardProps {
-  /** The session data to render */
-  session: SessionRow;
-  /** Callback fired when the card is tapped */
-  onPress: (session: SessionRow) => void;
-  /** Whether this session is currently bookmarked */
-  isBookmarked: boolean;
-  /** Whether the bookmark API call is in flight (shows subtle opacity) */
-  isTogglingBookmark: boolean;
-  /** Optional error message for the last failed bookmark toggle */
-  bookmarkError: string | undefined;
-  /** Callback fired when the bookmark star is tapped */
-  onBookmarkPress: (sessionId: string) => void;
-}
-
-/**
- * A single session list item.
- *
- * Displays the agent icon, session title, status badge, cost, relative
- * timestamp, the first line of the AI-generated summary, and a bookmark
- * star icon. Tapping the card triggers navigation; tapping the star
- * toggles the bookmark state without navigating.
- *
- * @param session - Session row from Supabase
- * @param onPress - Navigation handler
- * @param isBookmarked - Whether the session is currently bookmarked
- * @param isTogglingBookmark - True while the bookmark API call is in flight
- * @param bookmarkError - Error message from last failed bookmark toggle
- * @param onBookmarkPress - Bookmark toggle handler
- */
-function SessionCard({
-  session,
-  onPress,
-  isBookmarked,
-  isTogglingBookmark,
-  bookmarkError,
-  onBookmarkPress,
-}: SessionCardProps) {
-  const agentConfig = getAgentConfig(session.agent_type);
-  const statusColor = STATUS_COLORS[session.status] ?? '#71717a';
-  const statusLabel = STATUS_LABELS[session.status] ?? session.status;
-  const summaryPreview = getFirstLine(session.summary);
-
-  return (
-    <Pressable
-      onPress={() => onPress(session)}
-      className="px-4 py-3 border-b border-zinc-800/50 active:bg-zinc-900"
-      accessibilityRole="button"
-      accessibilityLabel={`Session: ${session.title || 'Untitled'}. ${statusLabel}. Cost ${formatCost(Number(session.total_cost_usd))}.${isBookmarked ? ' Bookmarked.' : ''}`}
-    >
-      <View className="flex-row items-start">
-        {/* Agent Icon Badge */}
-        <View
-          className="w-10 h-10 rounded-full items-center justify-center mr-3"
-          style={{ backgroundColor: `${agentConfig.color}20` }}
-        >
-          <Text
-            className="text-base font-bold"
-            style={{ color: agentConfig.color }}
-          >
-            {agentConfig.icon}
-          </Text>
-        </View>
-
-        {/* Session Info */}
-        <View className="flex-1">
-          {/* Title + Timestamp + Bookmark Row */}
-          <View className="flex-row items-center justify-between mb-1">
-            <Text
-              className="text-white font-semibold flex-1 mr-2"
-              numberOfLines={1}
-            >
-              {session.title || 'Untitled Session'}
-            </Text>
-
-            <View className="flex-row items-center gap-1">
-              <Text className="text-zinc-500 text-xs">
-                {formatRelativeTime(session.updated_at)}
-              </Text>
-
-              {/* Bookmark star button
-                  WHY: Wrapped in its own Pressable so tapping the star doesn't
-                  propagate to the card's onPress and navigate away. */}
-              <Pressable
-                onPress={() => onBookmarkPress(session.id)}
-                disabled={isTogglingBookmark}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  isBookmarked ? 'Remove bookmark' : 'Bookmark session'
-                }
-                accessibilityState={{ checked: isBookmarked }}
-                style={{ opacity: isTogglingBookmark ? 0.4 : 1 }}
-              >
-                <Ionicons
-                  name={isBookmarked ? 'star' : 'star-outline'}
-                  size={16}
-                  color={isBookmarked ? '#f97316' : '#52525b'}
-                />
-              </Pressable>
-            </View>
-          </View>
-
-          {/* Bookmark error hint (auto-clears after 4 s via hook) */}
-          {bookmarkError && (
-            <Text className="text-red-400 text-xs mb-1" numberOfLines={1}>
-              {bookmarkError}
-            </Text>
-          )}
-
-          {/* Summary Preview */}
-          {summaryPreview && (
-            <Text className="text-zinc-400 text-sm mb-1" numberOfLines={1}>
-              {summaryPreview}
-            </Text>
-          )}
-
-          {/* Badges Row: agent, status, cost, messages */}
-          <View className="flex-row items-center flex-wrap mt-1">
-            {/* Agent Badge */}
-            <View
-              className="px-2 py-0.5 rounded mr-2"
-              style={{ backgroundColor: `${agentConfig.color}20` }}
-            >
-              <Text
-                className="text-xs font-medium"
-                style={{ color: agentConfig.color }}
-              >
-                {agentConfig.label}
-              </Text>
-            </View>
-
-            {/* Status Badge */}
-            <View
-              className="px-2 py-0.5 rounded mr-2"
-              style={{ backgroundColor: `${statusColor}20` }}
-            >
-              <Text
-                className="text-xs font-medium"
-                style={{ color: statusColor }}
-              >
-                {statusLabel}
-              </Text>
-            </View>
-
-            {/* Cost */}
-            <Text className="text-zinc-500 text-xs mr-2">
-              {formatCost(Number(session.total_cost_usd))}
-            </Text>
-
-            {/* Message Count */}
-            <Text className="text-zinc-500 text-xs">
-              {session.message_count} msg{session.message_count !== 1 ? 's' : ''}
-            </Text>
-          </View>
-        </View>
-      </View>
-    </Pressable>
-  );
-}
-
-// ============================================================================
-// Main Screen
-// ============================================================================
-
-/**
- * Sessions list screen.
- *
- * Fetches the authenticated user's sessions from Supabase and renders
- * them in a FlatList with:
- * - A functional search bar (debounced, searches title and summary)
- * - Filter chips for status (All / Active / Completed) and agent
- * - Infinite scroll pagination (20 per page)
- * - Pull-to-refresh
- * - Tap-to-navigate to the chat screen with the session ID
- * - Loading, error, empty, and "no results" states
+ * Sessions list screen — see module doc.
  */
 export default function SessionsScreen() {
   const {
@@ -447,67 +61,13 @@ export default function SessionsScreen() {
     loadMore,
   } = useSessions();
 
-  const {
-    bookmarkedIds,
-    togglingIds,
-    toggleErrors,
-    toggleBookmark,
-  } = useBookmarks();
+  const { bookmarkedIds, togglingIds, toggleErrors, toggleBookmark } =
+    useBookmarks();
 
   // ---- Team membership gate (P10) ----
-
-  /**
-   * Whether the current user is a member of any team.
-   * WHY: The "Team Sessions" scope toggle is only relevant for team members.
-   * We hide it for users who are not in a team to reduce UI noise.
-   */
-  const [isTeamMember, setIsTeamMember] = useState(false);
-
-  /**
-   * The user's team ID, used when switching to Team Sessions scope.
-   * null means the user has no team.
-   */
-  const [userTeamId, setUserTeamId] = useState<string | null>(null);
-
-  useEffect(() => {
-    /**
-     * Check if the authenticated user belongs to a team by querying the
-     * team_members table. We only need to know if any row exists.
-     *
-     * WHY: We query team_members directly rather than using the useTeamManagement
-     * hook to avoid loading all team management data just for a visibility check.
-     */
-    const checkTeamMembership = async () => {
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) return;
-
-        const { data } = await supabase
-          .from('team_members')
-          .select('team_id')
-          .eq('user_id', user.id)
-          .limit(1)
-          .single();
-
-        if (data?.team_id) {
-          setIsTeamMember(true);
-          setUserTeamId(data.team_id as string);
-        }
-      } catch (error) {
-        // WHY: Gracefully handle auth or network errors during team membership check.
-        // Non-critical — the user just won't see the "Team Sessions" scope filter.
-        console.warn('[sessions] Team membership check failed:', error);
-      }
-    };
-
-    void checkTeamMembership();
-  }, []);
+  const { isTeamMember, userTeamId } = useTeamMembership();
 
   // ---- Bookmark filter ----
-
   /**
    * When true, only bookmarked sessions are shown in the list.
    * Applied client-side against the already-loaded `sessions` array.
@@ -515,7 +75,6 @@ export default function SessionsScreen() {
   const [showBookmarkedOnly, setShowBookmarkedOnly] = useState(false);
 
   // ---- Tag filtering ----
-
   /**
    * Currently selected tag for client-side filtering.
    * null means "show all tags" (no tag filter active).
@@ -526,52 +85,21 @@ export default function SessionsScreen() {
    * Reset the tag filter whenever the status/agent/scope filters change.
    *
    * WHY: Tag filtering is client-side on the already-loaded session set.
-   * If the user changes a scope filter (e.g., switches from "My Sessions" to
-   * "Team Sessions"), the new session set may not contain the currently selected
-   * tag at all, leaving the list empty with no clear explanation. Resetting to
-   * "All Tags" on any filter change prevents this confusing empty state.
+   * If the user changes a scope filter (e.g., switches from "My Sessions"
+   * to "Team Sessions"), the new session set may not contain the currently
+   * selected tag at all, leaving the list empty with no clear explanation.
+   * Resetting to "All Tags" on any filter change prevents this confusing
+   * empty state.
    */
   useEffect(() => {
     setTagFilter(null);
   }, [filters]);
 
   /**
-   * Extract unique tags from all loaded sessions, sorted alphabetically.
-   *
-   * WHY: Tags are user-defined and stored as arrays on each session. We
-   * flatten and deduplicate them to build the filter chip bar. Using useMemo
-   * avoids recomputing on every render when sessions haven't changed.
+   * Derived alphabetical tag list + per-tag counts for the tag chip bar.
+   * See useSessionTags for the reasoning behind extracting this.
    */
-  const allTags = useMemo(() => {
-    const tagSet = new Set<string>();
-    for (const session of sessions) {
-      if (session.tags) {
-        for (const tag of session.tags) {
-          tagSet.add(tag);
-        }
-      }
-    }
-    return [...tagSet].sort();
-  }, [sessions]);
-
-  /**
-   * Tag counts for each unique tag, used to display counts on filter chips.
-   *
-   * @example
-   * // If 3 sessions have "frontend" tag and 2 have "backend":
-   * // tagCounts = { frontend: 3, backend: 2 }
-   */
-  const tagCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const session of sessions) {
-      if (session.tags) {
-        for (const tag of session.tags) {
-          counts[tag] = (counts[tag] || 0) + 1;
-        }
-      }
-    }
-    return counts;
-  }, [sessions]);
+  const { allTags, tagCounts } = useSessionTags(sessions);
 
   /**
    * Sessions filtered by bookmark state and selected tag (both client-side).
@@ -590,9 +118,7 @@ export default function SessionsScreen() {
 
     // Tag filter
     if (tagFilter) {
-      result = result.filter(
-        (s) => s.tags && s.tags.includes(tagFilter),
-      );
+      result = result.filter((s) => s.tags && s.tags.includes(tagFilter));
     }
 
     return result;
@@ -607,7 +133,6 @@ export default function SessionsScreen() {
   );
 
   // ---- Navigation ----
-
   /**
    * Navigate to the appropriate screen based on session status.
    * - Active sessions: Go to chat for real-time interaction
@@ -616,7 +141,9 @@ export default function SessionsScreen() {
    * @param session - The session row that was tapped
    */
   const handleSessionPress = useCallback((session: SessionRow) => {
-    const isActive = ['starting', 'running', 'idle', 'paused'].includes(session.status);
+    const isActive = ['starting', 'running', 'idle', 'paused'].includes(
+      session.status,
+    );
 
     if (isActive) {
       // Active sessions go directly to chat for real-time interaction
@@ -639,7 +166,6 @@ export default function SessionsScreen() {
   }, []);
 
   // ---- Filter handlers ----
-
   /**
    * Update the status filter while preserving the current agent filter.
    *
@@ -666,8 +192,10 @@ export default function SessionsScreen() {
 
   /**
    * Update the scope filter (mine vs team sessions).
-   * When switching to team scope, injects the user's team ID so the hook
-   * can filter sessions by team_id.
+   *
+   * WHY: Supply userTeamId when switching to team scope so fetchSessions
+   * applies `team_id=eq.<teamId>`. Without this the query falls through
+   * to the default user_id filter and returns no team sessions.
    *
    * @param scope - The new scope filter value
    */
@@ -676,9 +204,6 @@ export default function SessionsScreen() {
       setFilters({
         ...filters,
         scope,
-        // WHY: Supply userTeamId when switching to team scope so fetchSessions
-        // applies `team_id=eq.<teamId>`. Without this the query falls through to
-        // the default user_id filter and returns no team sessions.
         teamId: scope === 'team' ? userTeamId : null,
       });
     },
@@ -700,59 +225,58 @@ export default function SessionsScreen() {
     [filters, setFilters],
   );
 
-  // ---- Infinite scroll ----
+  /**
+   * Toggle the bookmark-only filter.
+   */
+  const handleBookmarkedToggle = useCallback(() => {
+    setShowBookmarkedOnly((prev) => !prev);
+  }, []);
 
+  // ---- Infinite scroll ----
   /**
    * SectionList onEndReached callback. Triggers the next page load
    * when the user scrolls close to the bottom.
    *
    * KNOWN LIMITATION: loadMore fetches the next page of unfiltered sessions
-   * from Supabase (filtered only by status/agent/scope, not by tag). If a tag
-   * filter is active, the newly loaded sessions may not include any sessions
-   * with that tag, causing the list to appear unchanged. A "No more matching
-   * sessions" message is shown via ListFooterComponent when this happens.
-   * Full server-side tag filtering would require additional query changes that
-   * conflict with cursor-based pagination — deferred to a future sprint.
+   * from Supabase (filtered only by status/agent/scope, not by tag). If a
+   * tag filter is active, the newly loaded sessions may not include any
+   * sessions with that tag, causing the list to appear unchanged. A "No
+   * more matching sessions" message is shown via ListFooterComponent when
+   * this happens. Full server-side tag filtering would require additional
+   * query changes that conflict with cursor-based pagination — deferred
+   * to a future sprint.
    */
   const handleEndReached = useCallback(() => {
     loadMore();
   }, [loadMore]);
 
-  // ---- Render: Loading state ----
+  /**
+   * Clear all active filters and the search query.
+   */
+  const handleClearFilters = useCallback(() => {
+    setSearchQuery('');
+    setTagFilter(null);
+    setShowBookmarkedOnly(false);
+    setFilters({
+      status: null,
+      agent: null,
+      scope: null,
+      teamId: null,
+      dateRange: null,
+    });
+  }, [setSearchQuery, setFilters]);
 
+  // ---- Render: Loading state ----
   if (isLoading) {
-    return (
-      <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator size="large" color="#f97316" />
-        <Text className="text-zinc-500 mt-4">Loading sessions...</Text>
-      </View>
-    );
+    return <SessionsLoadingState />;
   }
 
   // ---- Render: Error state ----
-
   if (error && sessions.length === 0) {
-    return (
-      <View className="flex-1 bg-background items-center justify-center px-6">
-        <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
-        <Text className="text-white text-lg font-semibold mt-4">
-          Failed to Load Sessions
-        </Text>
-        <Text className="text-zinc-500 text-center mt-2">{error}</Text>
-        <Pressable
-          onPress={refresh}
-          className="bg-brand px-6 py-3 rounded-xl mt-6 active:opacity-80"
-          accessibilityRole="button"
-          accessibilityLabel="Retry loading sessions"
-        >
-          <Text className="text-white font-semibold">Try Again</Text>
-        </Pressable>
-      </View>
-    );
+    return <SessionsErrorState error={error} onRetry={refresh} />;
   }
 
   // ---- Determine empty / no-results state ----
-
   const hasActiveFilters =
     filters.status !== null ||
     filters.agent !== null ||
@@ -763,310 +287,26 @@ export default function SessionsScreen() {
 
   return (
     <View className="flex-1 bg-background">
-      {/* Search Bar with Real-time Indicator */}
-      <View className="px-4 py-3">
-        <View className="flex-row items-center bg-background-secondary rounded-xl px-4 py-3">
-          <Ionicons name="search" size={20} color="#71717a" />
-          <TextInput
-            className="flex-1 text-white text-base ml-2"
-            placeholder="Search sessions..."
-            placeholderTextColor="#71717a"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            returnKeyType="search"
-            autoCorrect={false}
-            autoCapitalize="none"
-            accessibilityRole="search"
-            accessibilityLabel="Search sessions by title or summary"
-          />
-          {/* Clear button - only visible when there is text */}
-          {searchQuery.length > 0 && (
-            <Pressable
-              onPress={() => setSearchQuery('')}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="Clear search"
-            >
-              <Ionicons name="close-circle" size={20} color="#71717a" />
-            </Pressable>
-          )}
-          {/* Real-time connection indicator */}
-          {/* WHY: Users need to know whether the list updates automatically or
-              requires manual pull-to-refresh. A green dot means live updates;
-              orange means the Realtime channel is disconnected. */}
-          <View
-            className="w-2.5 h-2.5 rounded-full ml-2"
-            style={{
-              backgroundColor: isRealtimeConnected ? '#22c55e' : '#f97316',
-            }}
-            accessibilityLabel={
-              isRealtimeConnected
-                ? 'Real-time updates active'
-                : 'Manual refresh mode — pull down to refresh'
-            }
-            accessibilityRole="text"
-          />
-        </View>
-      </View>
+      <SessionsSearchBar
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        isRealtimeConnected={isRealtimeConnected}
+      />
 
-      {/* Filter Chips */}
-      <View className="px-4 pb-2">
-        {/* Scope Filters (My Sessions / Team Sessions) + Bookmarked toggle */}
-        {/* WHY: Team Sessions toggle is only shown when the user is a team member.
-            Non-team users have no team sessions to filter by, so showing the
-            toggle would only create confusion. */}
-        <View className="flex-row mb-2 flex-wrap">
-          {SCOPE_CHIPS.filter((chip) =>
-            // Hide "Team Sessions" chip for non-team members (P10 gate)
-            chip.value !== 'team' || isTeamMember,
-          ).map((chip) => {
-            const isSelected = filters.scope === chip.value ||
-              (chip.value === 'mine' && !filters.scope);
-            return (
-              <Pressable
-                key={chip.label}
-                onPress={() => handleScopeFilterChange(chip.value)}
-                className={`px-3 py-1.5 rounded-full mr-2 mb-1 ${
-                  isSelected
-                    ? 'bg-brand'
-                    : 'bg-zinc-800'
-                }`}
-                accessibilityRole="button"
-                accessibilityLabel={`Filter by ${chip.label}`}
-                accessibilityState={{ selected: isSelected }}
-              >
-                <Text
-                  className={`text-sm font-medium ${
-                    isSelected ? 'text-white' : 'text-zinc-400'
-                  }`}
-                >
-                  {chip.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-
-          {/* Bookmarked filter chip
-              WHY: Placed alongside scope chips so all "session source" filters
-              are grouped together at the top. A star icon provides instant
-              visual affordance for what the filter does. */}
-          <Pressable
-            onPress={() => setShowBookmarkedOnly((prev) => !prev)}
-            className="flex-row items-center px-3 py-1.5 rounded-full mr-2 mb-1"
-            style={{
-              backgroundColor: showBookmarkedOnly ? undefined : '#27272a',
-              borderWidth: showBookmarkedOnly ? 1 : 0,
-              borderColor: '#f97316',
-            }}
-            accessibilityRole="button"
-            accessibilityLabel={
-              showBookmarkedOnly
-                ? 'Showing bookmarked sessions — tap to show all'
-                : 'Show only bookmarked sessions'
-            }
-            accessibilityState={{ selected: showBookmarkedOnly }}
-          >
-            <Ionicons
-              name={showBookmarkedOnly ? 'star' : 'star-outline'}
-              size={14}
-              color={showBookmarkedOnly ? '#f97316' : '#a1a1aa'}
-              style={{ marginRight: 4 }}
-            />
-            <Text
-              className="text-sm font-medium"
-              style={{ color: showBookmarkedOnly ? '#f97316' : '#a1a1aa' }}
-            >
-              Bookmarked
-            </Text>
-          </Pressable>
-        </View>
-
-        {/* Status Filters */}
-        <View className="flex-row mb-2">
-          {STATUS_CHIPS.map((chip) => {
-            const isSelected = filters.status === chip.value;
-            return (
-              <Pressable
-                key={chip.label}
-                onPress={() => handleStatusFilterChange(chip.value)}
-                className={`px-3 py-1.5 rounded-full mr-2 ${
-                  isSelected
-                    ? 'bg-brand'
-                    : 'bg-zinc-800'
-                }`}
-                accessibilityRole="button"
-                accessibilityLabel={`Filter by ${chip.label} status`}
-                accessibilityState={{ selected: isSelected }}
-              >
-                <Text
-                  className={`text-sm font-medium ${
-                    isSelected ? 'text-white' : 'text-zinc-400'
-                  }`}
-                >
-                  {chip.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {/* Agent Filters */}
-        <View className="flex-row">
-          {AGENT_CHIPS.map((chip) => {
-            const isSelected = filters.agent === chip.value;
-            const agentConfig = chip.value
-              ? getAgentConfig(chip.value)
-              : null;
-
-            return (
-              <Pressable
-                key={chip.label}
-                onPress={() => handleAgentFilterChange(chip.value)}
-                className={`flex-row items-center px-3 py-1.5 rounded-full mr-2 ${
-                  isSelected
-                    ? ''
-                    : 'bg-zinc-800'
-                }`}
-                style={
-                  isSelected && agentConfig
-                    ? { backgroundColor: `${agentConfig.color}20` }
-                    : isSelected && !agentConfig
-                      ? { backgroundColor: '#f9731620' }
-                      : undefined
-                }
-                accessibilityRole="button"
-                accessibilityLabel={`Filter by ${chip.label} agent`}
-                accessibilityState={{ selected: isSelected }}
-              >
-                {/* Show a coloured dot for agent chips */}
-                {agentConfig && (
-                  <View
-                    className="w-2 h-2 rounded-full mr-1.5"
-                    style={{ backgroundColor: agentConfig.color }}
-                  />
-                )}
-                <Text
-                  className="text-sm font-medium"
-                  style={{
-                    color: isSelected
-                      ? agentConfig?.color ?? '#f97316'
-                      : '#a1a1aa',
-                  }}
-                >
-                  {chip.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {/* Date Range Filter Chips (P13) */}
-        {/* WHY: Date range filtering is a common "where did that session go?"
-            pattern — users often remember roughly when they worked on something
-            but not the exact title. Server-side filtering via .gte() on
-            started_at keeps results accurate even when pagination is active. */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          className="mt-2"
-          contentContainerStyle={{ paddingRight: 16 }}
-        >
-          {DATE_RANGE_CHIPS.map((chip) => {
-            const isSelected =
-              chip.value === 'all'
-                ? !filters.dateRange || filters.dateRange === 'all'
-                : filters.dateRange === chip.value;
-            return (
-              <Pressable
-                key={chip.value}
-                onPress={() => handleDateRangeFilterChange(chip.value)}
-                className="px-3 py-1.5 rounded-full mr-2"
-                style={{
-                  backgroundColor: isSelected ? undefined : '#27272a',
-                  borderWidth: isSelected ? 1 : 0,
-                  borderColor: '#f97316',
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={`Filter by date: ${chip.label}`}
-                accessibilityState={{ selected: isSelected }}
-              >
-                <Text
-                  className="text-sm font-medium"
-                  style={{ color: isSelected ? '#f97316' : '#a1a1aa' }}
-                >
-                  {chip.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-
-        {/* Tag Filter Bar */}
-        {/* WHY: Tags are user-defined labels on sessions. Showing them as a
-            horizontally scrollable chip bar lets users quickly narrow the list
-            to a specific project or topic without typing a search query. */}
-        {allTags.length > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            className="mt-2"
-            contentContainerStyle={{ paddingRight: 16 }}
-          >
-            {/* "All Tags" chip to clear the tag filter */}
-            <Pressable
-              onPress={() => setTagFilter(null)}
-              className="px-3 py-1.5 rounded-full mr-2"
-              style={{
-                backgroundColor: tagFilter === null ? undefined : '#27272a',
-                borderWidth: tagFilter === null ? 1 : 0,
-                borderColor: '#f97316',
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Show all tags"
-              accessibilityState={{ selected: tagFilter === null }}
-            >
-              <Text
-                className="text-sm font-medium"
-                style={{
-                  color: tagFilter === null ? '#f97316' : '#a1a1aa',
-                }}
-              >
-                All Tags
-              </Text>
-            </Pressable>
-
-            {allTags.map((tag) => {
-              const isSelected = tagFilter === tag;
-              const count = tagCounts[tag] || 0;
-
-              return (
-                <Pressable
-                  key={tag}
-                  onPress={() => setTagFilter(isSelected ? null : tag)}
-                  className="px-3 py-1.5 rounded-full mr-2"
-                  style={{
-                    backgroundColor: isSelected ? undefined : '#27272a',
-                    borderWidth: isSelected ? 1 : 0,
-                    borderColor: '#f97316',
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Filter by tag: ${tag} (${count} sessions)`}
-                  accessibilityState={{ selected: isSelected }}
-                >
-                  <Text
-                    className="text-sm font-medium"
-                    style={{
-                      color: isSelected ? '#f97316' : '#a1a1aa',
-                    }}
-                  >
-                    {tag} ({count})
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        )}
-      </View>
+      <SessionsFilterBar
+        filters={filters}
+        showBookmarkedOnly={showBookmarkedOnly}
+        tagFilter={tagFilter}
+        allTags={allTags}
+        tagCounts={tagCounts}
+        isTeamMember={isTeamMember}
+        onStatusChange={handleStatusFilterChange}
+        onAgentChange={handleAgentFilterChange}
+        onScopeChange={handleScopeFilterChange}
+        onDateRangeChange={handleDateRangeFilterChange}
+        onBookmarkedToggle={handleBookmarkedToggle}
+        onTagChange={setTagFilter}
+      />
 
       {/* Sessions List (grouped by date) */}
       <SectionList
@@ -1109,9 +349,9 @@ export default function SessionsScreen() {
               <ActivityIndicator size="small" color="#f97316" />
             </View>
           ) : tagFilter && !hasMore && filteredSessions.length > 0 ? (
-            // WHY: When a tag filter is active and there are no more pages to
-            // load, inform the user they have seen all matching sessions so they
-            // know the list is complete, not stalled.
+            // WHY: When a tag filter is active and there are no more pages
+            // to load, inform the user they have seen all matching sessions
+            // so they know the list is complete, not stalled.
             <View className="py-4 items-center">
               <Text className="text-zinc-600 text-xs">
                 No more sessions with tag &ldquo;{tagFilter}&rdquo;
@@ -1120,36 +360,10 @@ export default function SessionsScreen() {
           ) : null
         }
         ListEmptyComponent={
-          <View className="flex-1 items-center justify-center py-20 px-6">
-            <Ionicons
-              name={hasActiveFilters ? 'search-outline' : 'chatbubbles-outline'}
-              size={48}
-              color="#3f3f46"
-            />
-            <Text className="text-zinc-400 font-semibold text-lg mt-4">
-              {hasActiveFilters ? 'No results' : 'No sessions yet'}
-            </Text>
-            <Text className="text-zinc-500 text-center mt-2">
-              {hasActiveFilters
-                ? 'Try adjusting your search or filters.'
-                : 'Your coding sessions will appear here once you start using Styrby.'}
-            </Text>
-            {hasActiveFilters && (
-              <Pressable
-                onPress={() => {
-                  setSearchQuery('');
-                  setTagFilter(null);
-                  setShowBookmarkedOnly(false);
-                  setFilters({ status: null, agent: null, scope: null, teamId: null, dateRange: null });
-                }}
-                className="bg-zinc-800 px-5 py-2.5 rounded-xl mt-4 active:opacity-80"
-                accessibilityRole="button"
-                accessibilityLabel="Clear all filters and search"
-              >
-                <Text className="text-zinc-300 font-medium">Clear Filters</Text>
-              </Pressable>
-            )}
-          </View>
+          <SessionsEmptyState
+            hasActiveFilters={hasActiveFilters}
+            onClearFilters={handleClearFilters}
+          />
         }
         contentContainerStyle={
           filteredSessions.length === 0 ? { flexGrow: 1 } : undefined
