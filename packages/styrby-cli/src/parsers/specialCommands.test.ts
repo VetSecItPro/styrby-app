@@ -72,10 +72,76 @@ describe('parseSpecialCommand', () => {
         // Test with extra whitespace
         expect(parseSpecialCommand('  /compact test  ').type).toBe('compact');
         expect(parseSpecialCommand('  /clear  ').type).toBe('clear');
-        
+
         // Test partial matches should not trigger
         expect(parseSpecialCommand('some /compact text').type).toBeNull();
         expect(parseSpecialCommand('/compactor').type).toBeNull();
         expect(parseSpecialCommand('/clearing').type).toBeNull();
+    });
+});
+
+// ============================================================================
+// Additional edge-case coverage
+// ============================================================================
+
+describe('parseCompact — additional edge cases', () => {
+    it('preserves multi-word arguments verbatim', () => {
+        const result = parseCompact('/compact summarize and keep all tool calls');
+        expect(result.isCompact).toBe(true);
+        expect(result.originalMessage).toBe('/compact summarize and keep all tool calls');
+    });
+
+    it('handles empty string as non-compact', () => {
+        const result = parseCompact('');
+        expect(result.isCompact).toBe(false);
+        expect(result.originalMessage).toBe('');
+    });
+
+    it('handles string with only whitespace as non-compact', () => {
+        // WHY: trim() collapses whitespace-only strings to '', which won't
+        // match '/compact', so isCompact must be false.
+        const result = parseCompact('   ');
+        expect(result.isCompact).toBe(false);
+    });
+
+    it('does not match /compactor (no space after /compact)', () => {
+        // Must start with "/compact " (trailing space) or be exactly "/compact"
+        expect(parseCompact('/compactor').isCompact).toBe(false);
+    });
+
+    it('returns trimmed originalMessage for bare /compact', () => {
+        const result = parseCompact('  /compact  ');
+        expect(result.isCompact).toBe(true);
+        // originalMessage is set to trimmed value
+        expect(result.originalMessage).toBe('/compact');
+    });
+});
+
+describe('parseClear — additional edge cases', () => {
+    it('handles empty string', () => {
+        expect(parseClear('').isClear).toBe(false);
+    });
+
+    it('does not match /clear followed by slash (e.g., /clear/context)', () => {
+        expect(parseClear('/clear/context').isClear).toBe(false);
+    });
+
+    it('does not match prefix substring (e.g., /clea)', () => {
+        expect(parseClear('/clea').isClear).toBe(false);
+    });
+});
+
+describe('parseSpecialCommand — priority ordering', () => {
+    it('compact takes priority and is checked before clear', () => {
+        // Sanity check: the /compact branch runs before the /clear branch,
+        // so a message like "/compact /clear test" resolves as compact.
+        const result = parseSpecialCommand('/compact /clear test');
+        expect(result.type).toBe('compact');
+    });
+
+    it('returns null type and no originalMessage for truly unrecognised input', () => {
+        const result = parseSpecialCommand('/unknown-command');
+        expect(result.type).toBeNull();
+        expect(result.originalMessage).toBeUndefined();
     });
 });
