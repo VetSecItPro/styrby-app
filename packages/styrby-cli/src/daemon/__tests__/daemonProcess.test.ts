@@ -64,9 +64,26 @@ vi.mock('node:os', () => ({
   default: {
     homedir: vi.fn(() => '/tmp/styrby-test'),
     hostname: vi.fn(() => 'test-machine'),
+    // WHY: WakeDetector (imported by daemonProcess) calls os.networkInterfaces()
+    // at start(). Without this entry the ESM mock throws "No networkInterfaces
+    // export defined on the node:os mock", crashing the daemon module load.
+    networkInterfaces: vi.fn(() => ({})),
   },
   homedir: vi.fn(() => '/tmp/styrby-test'),
   hostname: vi.fn(() => 'test-machine'),
+  networkInterfaces: vi.fn(() => ({})),
+}));
+
+// WHY mock wakeDetector: WakeDetector.start() sets a real setInterval that
+// fires during test teardown if not stopped. Mocking it replaces the class
+// with a no-op stub so the daemon test focuses purely on signal-handler
+// behaviour and doesn't leak live timers between test cases.
+vi.mock('../wakeDetector.js', () => ({
+  WakeDetector: vi.fn().mockImplementation(() => ({
+    on: vi.fn(),
+    start: vi.fn(),
+    stop: vi.fn(),
+  })),
 }));
 
 const mockRelayDisconnect = vi.fn<[], Promise<void>>().mockResolvedValue(undefined);

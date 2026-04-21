@@ -487,8 +487,19 @@ export class RelayClient extends EventEmitter<RelayChannelEvents> {
    *
    * @param isAuthError - When true, the error is unrecoverable (401/403) and
    *   retrying will never succeed. Emits `error` with code AUTH_ERROR and stops.
+   * @param delayMsOverride - When provided, bypasses the exponential backoff
+   *   calculation and uses this value directly. Pass `0` for an immediate retry
+   *   triggered by a proactive OS event (sleep/wake, network change). The
+   *   `reconnectAttempts` counter is NOT incremented for proactive reconnects
+   *   so the backoff sequence is not perturbed — the next passive retry will
+   *   continue from where it left off.
+   * @param reason - Optional human-readable reason for logging (e.g., 'sleep-wake',
+   *   'network-change'). Defaults to 'backoff' for standard reconnect cycles.
    */
-  private scheduleReconnect(isAuthError = false): void {
+  scheduleReconnect(isAuthError?: boolean, delayMsOverride?: number, reason?: string): void;
+  /** @internal Overload used by internal callers that pass only isAuthError. */
+  scheduleReconnect(isAuthError?: boolean): void;
+  scheduleReconnect(isAuthError = false, delayMsOverride?: number, reason = 'backoff'): void {
     // WHY: 401/403 means the token is revoked or invalid. Retrying will always
     // fail and would spam Supabase auth logs. Surface it as a fatal error so
     // the daemon can notify the user to re-authenticate.
@@ -502,16 +513,29 @@ export class RelayClient extends EventEmitter<RelayChannelEvents> {
       return;
     }
 
-    this.setState('reconnecting');
-    this.reconnectAttempts++;
+    // WHY proactive reconnects skip the attempt counter: a sleep/wake or
+    // network-change event should trigger an immediate reconnect without
+    // "using up" a backoff slot. If the proactive attempt also fails, the
+    // subsequent passive retry picks up the exponential series from its
+    // current position, preventing the two-path reconnect logic from
+    // accidentally resetting or accelerating the backoff.
+    const isProactive = delayMsOverride !== undefined;
+    if (!isProactive) {
+      this.reconnectAttempts++;
+    }
 
     // Exponential backoff: 1s, 2s, 4s, 8s... capped at 60s.
     // WHY 60s ceiling (up from 30s): With unbounded retries the backoff stays
     // at its ceiling indefinitely. 60s is less aggressive on infra during long
     // outages while still recovering promptly from short drops.
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 60_000);
-    this.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    const delay = isProactive
+      ? delayMsOverride!
+      : Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 60_000);
 
+    const attemptLabel = isProactive ? `proactive (${reason})` : `attempt ${this.reconnectAttempts}`;
+    this.log(`Reconnecting in ${delay}ms [${attemptLabel}]`);
+
+    this.setState('reconnecting');
     this.emit('reconnecting', { attempt: this.reconnectAttempts, delayMs: delay });
 
     setTimeout(() => {
