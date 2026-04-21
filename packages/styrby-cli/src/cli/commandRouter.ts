@@ -22,6 +22,7 @@ import { buildStartArgs, isAgentShorthand, isBareCommand } from '@/cli/agentShor
 import { printHelp } from '@/cli/helpScreen';
 import { handleStart } from '@/cli/handlers/start';
 import { handlePair } from '@/cli/handlers/pair';
+import { handleResume } from '@/cli/handlers/resume';
 import { handleStatus } from '@/cli/handlers/status';
 import { handleCosts } from '@/cli/handlers/costs';
 import {
@@ -93,6 +94,10 @@ export async function runCommand(argv: string[]): Promise<void> {
 
     case 'stop':
       await handleStop(rest);
+      break;
+
+    case 'resume':
+      await handleResume(rest);
       break;
 
     case 'status':

@@ -28,7 +28,13 @@ export type DaemonCommand =
   | { type: 'start-session'; agentType: string; projectPath: string }
   | { type: 'stop-session'; sessionId: string }
   | { type: 'send-message'; sessionId: string; message: string }
-  | { type: 'shutdown' };
+  | { type: 'shutdown' }
+  /**
+   * Re-attach the daemon's RelayClient to an existing session's Realtime channel.
+   * The daemon updates `sessions.status = 'running'` and `last_seen_at = now()`.
+   * Does NOT spawn a new agent process — relay-reconnect only.
+   */
+  | { type: 'attach-relay'; sessionId: string };
 
 /**
  * Response received from the daemon via IPC.
@@ -168,7 +174,31 @@ export async function listConnectedDevices(): Promise<unknown[]> {
   return [];
 }
 
+/**
+ * Request the daemon to re-attach its RelayClient to an existing session channel.
+ *
+ * This is the client-side half of `styrby resume`. The daemon handler updates
+ * `sessions.status = 'running'` and `last_seen_at = now()`, then re-subscribes
+ * the RelayClient to the session's Supabase Realtime channel keyed on machine_id.
+ *
+ * WHY NOT re-spawn agent: attach-relay is a relay-reconnect, not a process
+ * re-launch. The agent process may still be alive; creating a new one would
+ * produce duplicate relay messages and corrupt the session state.
+ *
+ * @param sessionId - UUID of the session to re-attach to
+ * @returns True if the daemon acknowledged and is re-attaching
+ */
+export async function attachRelaySession(sessionId: string): Promise<boolean> {
+  try {
+    const response = await sendDaemonCommand({ type: 'attach-relay', sessionId });
+    return response.success;
+  } catch {
+    logger.debug('Could not attach relay session via IPC', { sessionId });
+    return false;
+  }
+}
+
 export default {
   sendDaemonCommand, canConnectToDaemon, getDaemonStatusViaIpc,
-  requestDaemonStop, listConnectedDevices,
+  requestDaemonStop, listConnectedDevices, attachRelaySession,
 };
