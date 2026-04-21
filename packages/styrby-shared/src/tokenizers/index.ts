@@ -23,6 +23,19 @@
  * dependency does NOT break the build for environments that ship without
  * the native add-ons (e.g., the mobile bundle).
  *
+ * ## DO NOT IMPORT FROM MOBILE
+ *
+ * `@anthropic-ai/tokenizer` transitively pulls in `tiktoken` (Rust/WASM)
+ * which catastrophically breaks the Metro bundler. The string-toString
+ * trick (`'@anthropic-ai/tokenizer'.toString()`) hides the import from
+ * Metro static analysis, but only as long as no consumer file in
+ * `packages/styrby-mobile/` reaches this module. Mobile must stick to
+ * `heuristicTokens()` (sync, no deps) for any token estimation.
+ *
+ * If a future feature requires exact counts on mobile, add a server-side
+ * proxy endpoint (`/api/tokenize`) that mobile calls instead of importing
+ * this module directly.
+ *
  * @module tokenizers
  */
 
@@ -61,7 +74,14 @@ export function detectModelFamily(model: string | undefined | null): ModelFamily
   if (!model) return 'unknown';
   const m = model.toLowerCase();
   if (m.includes('claude') || m.startsWith('anthropic/')) return 'anthropic';
-  if (m.startsWith('gpt-') || m.startsWith('o1') || m.startsWith('openai/')) return 'openai';
+  // WHY the o-family regex: OpenAI's reasoning models follow `o<digit>` then
+  // either end-of-string or a `-suffix` (o1, o1-mini, o1-preview, o3, o3-mini,
+  // o4-mini, …). The boundary requirement (`(-|$)`) prevents false positives
+  // for any future non-OpenAI model whose name happens to start with `o<digit>`
+  // followed by other characters (e.g., a hypothetical `o2x` or `o9z`).
+  // The previous `startsWith('o1')` check missed o3+ silently; this version
+  // covers them while staying conservative against unrelated names.
+  if (m.startsWith('gpt-') || /^o\d+(-|$)/.test(m) || m.startsWith('openai/')) return 'openai';
   return 'unknown';
 }
 
@@ -99,6 +119,9 @@ let gptTokenizerLoaded = false;
 /**
  * Load `@anthropic-ai/tokenizer` if installed. Returns null when the
  * package is absent so callers can fall back gracefully.
+ *
+ * @returns The loaded tokenizer module, or `null` if the optional dep
+ *          is not installed in the current runtime (cached after first call).
  */
 async function loadAnthropicTokenizer(): Promise<AnthropicTokenizerModule | null> {
   if (anthropicTokenizerLoaded) return anthropicTokenizer;
@@ -119,6 +142,9 @@ async function loadAnthropicTokenizer(): Promise<AnthropicTokenizerModule | null
 
 /**
  * Load `gpt-tokenizer` if installed. Returns null when the package is absent.
+ *
+ * @returns The loaded tokenizer module, or `null` if the optional dep
+ *          is not installed in the current runtime (cached after first call).
  */
 async function loadGptTokenizer(): Promise<GptTokenizerModule | null> {
   if (gptTokenizerLoaded) return gptTokenizer;

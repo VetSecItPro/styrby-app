@@ -31,4 +31,25 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, 'node_modules/.pnpm/node_modules'),
 ];
 
+// WHY blockList for tokenizer packages:
+// `@anthropic-ai/tokenizer` and `gpt-tokenizer` are installed as
+// optionalDependencies of `@styrby/shared` for the CLI's exact-token-count
+// path. They transitively pull `tiktoken` (Rust/WASM) which catastrophically
+// breaks Metro. The shared module hides the import via dynamic
+// `import('@anthropic-ai/tokenizer'.toString())`, but `@anthropic-ai/tokenizer`
+// internally uses CommonJS `require('tiktoken/lite')` which Metro's static
+// resolver still finds.
+//
+// Blocking these packages at the Metro layer guarantees the mobile bundle
+// never tries to compile them, regardless of how they get pulled in. The
+// shared module's heuristic fallback path runs on mobile.
+//
+// If a future feature needs exact counts on mobile, route through a server
+// proxy (`/api/tokenize`) — do NOT lift this block.
+config.resolver.blockList = [
+  /node_modules\/@anthropic-ai\/tokenizer\/.*/,
+  /node_modules\/gpt-tokenizer\/.*/,
+  /node_modules\/tiktoken\/.*/,
+];
+
 module.exports = withNativeWind(config, { input: './global.css' });
