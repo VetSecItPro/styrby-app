@@ -8,6 +8,11 @@
  *      SessionStorage.updateState() with the correct state and a fresh
  *      lastSeenAt timestamp.
  *
+ * PR-7 additions:
+ *   4. AgentSession emits `reconnected-after-offline` only when offline >5 min.
+ *   5. The event is suppressed for short offline periods (<= threshold).
+ *   6. lastOfflineAt resets after each emission so the next cycle is independent.
+ *
  * WHY: The `session_id = machineId` bug caused mobile to misroute session
  * history, resume, and scoped notifications. These tests pin the correct
  * behaviour so the bug cannot silently regress.
@@ -370,5 +375,143 @@ describe('AgentSession — relay events trigger SessionStorage.updateState', () 
     // by confirming updateState was never called when sessionId is empty.
     expect(session.getSessionId()).toBe('');
     expect(storage.updateState).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
+// PR-7: reconnected-after-offline event
+// ============================================================================
+
+describe('AgentSession — reconnected-after-offline event (PR-7)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Restore real timers in case a prior test used fake ones
+    vi.useRealTimers();
+  });
+
+  /**
+   * Helper: start a session and capture relay event listeners.
+   */
+  async function startAndCaptureListeners() {
+    const mockRelay = await getMockRelay();
+
+    const relayListeners: Record<string, Array<(...args: unknown[]) => void>> = {};
+    (mockRelay.on as Mock).mockImplementation(
+      (event: string, cb: (...args: unknown[]) => void) => {
+        relayListeners[event] = relayListeners[event] ?? [];
+        relayListeners[event].push(cb);
+      }
+    );
+
+    const { AgentSession } = await import('../agent-session');
+    const session = new AgentSession(makeConfig());
+    await session.start();
+
+    return { session, relayListeners };
+  }
+
+  it('emits reconnected-after-offline when offline duration > OFFLINE_THRESHOLD_MS', async () => {
+    const { OFFLINE_THRESHOLD_MS } = await import('../agent-session');
+    const { session, relayListeners } = await startAndCaptureListeners();
+
+    // Collect emitted events
+    const emitted: Array<{ offlineDurationMs: number }> = [];
+    session.on('reconnected-after-offline', (payload) => {
+      emitted.push(payload);
+    });
+
+    vi.useFakeTimers();
+    const disconnectedAt = Date.now();
+
+    // Fire disconnected to record lastOfflineAt
+    relayListeners['disconnected']?.forEach((cb) => cb(undefined));
+
+    // Advance time beyond the threshold
+    vi.setSystemTime(disconnectedAt + OFFLINE_THRESHOLD_MS + 1000);
+
+    // Fire subscribed to trigger the check
+    relayListeners['subscribed']?.forEach((cb) => cb(undefined));
+    await Promise.resolve();
+
+    vi.useRealTimers();
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].offlineDurationMs).toBeGreaterThan(OFFLINE_THRESHOLD_MS);
+  });
+
+  it('does NOT emit reconnected-after-offline when offline duration <= OFFLINE_THRESHOLD_MS', async () => {
+    const { OFFLINE_THRESHOLD_MS } = await import('../agent-session');
+    const { session, relayListeners } = await startAndCaptureListeners();
+
+    const emitted: Array<unknown> = [];
+    session.on('reconnected-after-offline', (payload) => {
+      emitted.push(payload);
+    });
+
+    vi.useFakeTimers();
+    const disconnectedAt = Date.now();
+
+    relayListeners['disconnected']?.forEach((cb) => cb(undefined));
+
+    // Advance time to just below the threshold (4 min 59 sec)
+    vi.setSystemTime(disconnectedAt + OFFLINE_THRESHOLD_MS - 1000);
+
+    relayListeners['subscribed']?.forEach((cb) => cb(undefined));
+    await Promise.resolve();
+
+    vi.useRealTimers();
+
+    // No notification should fire for a short blip
+    expect(emitted).toHaveLength(0);
+  });
+
+  it('does NOT emit reconnected-after-offline on subscribed when disconnected was never fired', async () => {
+    // This covers the initial connect path — relay fires 'subscribed' on first
+    // connection when lastOfflineAt is null.
+    const { session, relayListeners } = await startAndCaptureListeners();
+
+    const emitted: Array<unknown> = [];
+    session.on('reconnected-after-offline', (payload) => {
+      emitted.push(payload);
+    });
+
+    // Fire subscribed without a prior disconnected event
+    relayListeners['subscribed']?.forEach((cb) => cb(undefined));
+    await Promise.resolve();
+
+    expect(emitted).toHaveLength(0);
+  });
+
+  it('resets lastOfflineAt after emitting so the next offline cycle is independent', async () => {
+    const { OFFLINE_THRESHOLD_MS } = await import('../agent-session');
+    const { session, relayListeners } = await startAndCaptureListeners();
+
+    const emitted: Array<{ offlineDurationMs: number }> = [];
+    session.on('reconnected-after-offline', (payload) => {
+      emitted.push(payload);
+    });
+
+    vi.useFakeTimers();
+
+    // --- First offline cycle (> threshold) ---
+    const t0 = Date.now();
+    relayListeners['disconnected']?.forEach((cb) => cb(undefined));
+    vi.setSystemTime(t0 + OFFLINE_THRESHOLD_MS + 5000);
+    relayListeners['subscribed']?.forEach((cb) => cb(undefined));
+    await Promise.resolve();
+
+    expect(emitted).toHaveLength(1);
+
+    // --- Second cycle: short blip, should NOT emit again ---
+    const t1 = Date.now();
+    relayListeners['disconnected']?.forEach((cb) => cb(undefined));
+    vi.setSystemTime(t1 + OFFLINE_THRESHOLD_MS - 1000); // below threshold
+    relayListeners['subscribed']?.forEach((cb) => cb(undefined));
+    await Promise.resolve();
+
+    vi.useRealTimers();
+
+    // Only the first cycle should have emitted
+    expect(emitted).toHaveLength(1);
   });
 });
