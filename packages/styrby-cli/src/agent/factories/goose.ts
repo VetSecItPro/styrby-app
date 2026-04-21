@@ -18,7 +18,11 @@
  * backend without license compatibility concerns. We must retain the Goose
  * copyright notice per the license terms.
  *
- * @see https://github.com/block/goose
+ * Repo transferred 2026-04-07 from Block to the AI Alliance / Linux Foundation
+ * (`block/goose` → `aaif-goose/goose`). GitHub redirects the old URL but new
+ * docs and releases land at the new home.
+ *
+ * @see https://github.com/aaif-goose/goose
  * @module factories/goose
  */
 
@@ -78,7 +82,7 @@ export interface GooseBackendOptions extends AgentFactoryOptions {
 
   /**
    * Additional Goose CLI arguments.
-   * See: https://github.com/block/goose#cli-options
+   * See: https://github.com/aaif-goose/goose#cli-options
    */
   extraArgs?: string[];
 }
@@ -633,12 +637,14 @@ class GooseBackend extends StreamingAgentBackendBase {
 /**
  * Create a Goose backend.
  *
- * Goose is an open-source AI coding agent by Block (Square), licensed Apache 2.0.
- * It uses the Model Context Protocol (MCP) for tool integrations and outputs
- * structured JSONL events.
+ * Goose is an open-source AI coding agent originally from Block (Square),
+ * donated to the AI Alliance / Linux Foundation as `aaif-goose/goose` on
+ * 2026-04-07. Apache 2.0. Uses Model Context Protocol (MCP) for tool
+ * integrations and outputs structured JSONL events.
  *
  * The goose binary must be installed and available in PATH.
- * Install via: `pip install goose-ai` or `brew install block/goose/goose`
+ * Install via: `pip install goose-ai` or `brew install pivotal/tap/goose-ai`
+ * (See https://github.com/aaif-goose/goose for current install instructions.)
  *
  * @param options - Configuration options for the backend
  * @returns GooseBackendResult with backend instance and resolved model

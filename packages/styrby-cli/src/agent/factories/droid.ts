@@ -7,7 +7,8 @@
  * keys for any supported provider.
  *
  * Key characteristics:
- * - Binary name: `droid` (installed via `npm install -g @droid-ai/cli` or download)
+ * - Binary name: `droid` (installed via `npm install -g droid` or
+ *   `curl -fsSL https://app.factory.ai/cli | sh`, or `brew install --cask droid`)
  * - Config: `~/.config/droid/config.yaml`
  * - Output: structured JSON lines via stdout
  * - Cost tracking: varies by backend model, uses LiteLLM pricing tables for estimates
@@ -19,7 +20,8 @@
  * into any single provider pricing. LiteLLM pricing is used as the fallback
  * estimator when the backend does not report token costs directly.
  *
- * @see https://droid-ai.dev
+ * @see https://docs.factory.ai/cli/getting-started/quickstart
+ * @see https://github.com/Factory-AI/factory
  * @module factories/droid
  */
 
@@ -183,7 +185,7 @@ export interface DroidBackendOptions extends AgentFactoryOptions {
 
   /**
    * Additional Droid CLI arguments.
-   * See: https://droid-ai.dev/docs/cli
+   * See: https://docs.factory.ai/cli
    */
   extraArgs?: string[];
 }
@@ -784,7 +786,7 @@ class DroidBackend extends StreamingAgentBackendBase {
  * flexibility. Cost tracking uses LiteLLM pricing tables as fallback estimates.
  *
  * The droid binary must be installed and available in PATH.
- * Install via: `npm install -g @droid-ai/cli`
+ * Install via: `npm install -g droid` (other methods at https://docs.factory.ai/cli)
  *
  * @param options - Configuration options for the backend
  * @returns DroidBackendResult with backend instance and resolved model
