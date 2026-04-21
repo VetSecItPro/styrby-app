@@ -2,8 +2,14 @@
  * Cost Table Component
  *
  * Displays a detailed breakdown table of costs by model.
- * Shows model name, agent type, request count, token usage, and total cost.
+ * Shows model name, agent type, billing model, source, request count,
+ * token usage, and total cost.
  * Includes a footer row with totals.
+ *
+ * WHY billing_model + source columns: Migration 022 added these fields so
+ * users can distinguish API costs (variable USD) from subscription quota
+ * consumption (flat-rate) and credit consumption (per-prompt). Without surfacing
+ * them here, the cost table would be misleading for subscription/credit users.
  *
  * @module components/costs/CostTable
  */
@@ -14,6 +20,9 @@ import {
   type ModelCostBreakdown,
   type AgentType,
 } from '@/lib/costs';
+import type { BillingModel, CostSource } from '@styrby/shared';
+import { BillingModelChip, SourceBadge } from './BillingModelChip';
+import { CostDisplay } from './CostDisplay';
 
 /**
  * Props for CostTable component.
@@ -25,6 +34,33 @@ interface CostTableProps {
   title?: string;
   /** Whether to show the agent column (default: true) */
   showAgent?: boolean;
+  /**
+   * Whether to show the billing model + source columns.
+   * Default: false (preserves the original compact layout for callers that do
+   * not yet have billing metadata).
+   */
+  showBillingMeta?: boolean;
+}
+
+/**
+ * Extended model cost breakdown row with optional billing metadata.
+ *
+ * WHY optional: The billing fields are added by migration 022 and exposed
+ * via the v_my_daily_costs view update. Pages that haven't migrated their
+ * data-fetching to include these columns can still use CostTable without
+ * breaking — the columns simply won't render if showBillingMeta is false.
+ */
+export interface ModelCostBreakdownWithMeta extends ModelCostBreakdown {
+  /** Billing model for this record (from cost_records.billing_model). */
+  billingModel?: BillingModel;
+  /** Source of the cost data (from cost_records.source). */
+  source?: CostSource;
+  /** Subscription quota fraction [0, 1] (present when billingModel === 'subscription'). */
+  subscriptionFractionUsed?: number | null;
+  /** Credits consumed (present when billingModel === 'credit'). */
+  creditsConsumed?: number | null;
+  /** USD rate per credit (present when billingModel === 'credit'). */
+  creditRateUsd?: number | null;
 }
 
 /**
@@ -56,9 +92,11 @@ function getAgentBadgeClass(agent: AgentType): string {
  * Table columns:
  * - Model: The LLM model identifier
  * - Agent: Which AI coding agent used this model (optional)
+ * - Billing: Compact billing model chip — "API", "SUB", "CR", "FREE" (when showBillingMeta)
+ * - Src: Source badge — "R" (agent-reported) or "E" (estimate) (when showBillingMeta)
  * - Requests: Number of API calls
  * - Tokens: Total input + output tokens
- * - Cost: Total cost in USD
+ * - Cost: USD amount, quota %, or credit count — branched on billing model
  *
  * Includes a footer row showing totals across all models.
  *
@@ -66,22 +104,24 @@ function getAgentBadgeClass(agent: AgentType): string {
  * @returns Cost table element
  *
  * @example
- * // Basic usage
+ * // Basic usage (no billing meta)
  * <CostTable data={modelCosts} />
  *
  * @example
- * // Without agent column
- * <CostTable
- *   data={modelCosts}
- *   title="Model Usage"
- *   showAgent={false}
- * />
+ * // With billing metadata columns
+ * <CostTable data={modelCostsWithMeta} showBillingMeta />
  */
 export function CostTable({
   data,
   title = 'Cost Breakdown',
   showAgent = true,
+  showBillingMeta = false,
 }: CostTableProps) {
+  // WHY type cast: ModelCostBreakdownWithMeta extends ModelCostBreakdown so
+  // all existing callers continue to work. The extra fields are optional and
+  // only accessed when showBillingMeta is true.
+  const rows = data as ModelCostBreakdownWithMeta[];
+
   // Empty state
   if (data.length === 0) {
     return (
@@ -124,6 +164,17 @@ export function CostTable({
                   Agent
                 </th>
               )}
+              {/* Billing model + source columns — shown only when caller has metadata */}
+              {showBillingMeta && (
+                <>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                    Billing
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                    Src
+                  </th>
+                </>
+              )}
               <th className="px-4 py-3 text-right text-xs font-medium text-zinc-400 uppercase tracking-wider">
                 Requests
               </th>
@@ -136,7 +187,7 @@ export function CostTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800">
-            {data.map((row) => (
+            {rows.map((row) => (
               <tr key={row.model} className="hover:bg-zinc-800/30 transition-colors">
                 {/* Model name */}
                 <td className="px-4 py-3">
@@ -152,6 +203,25 @@ export function CostTable({
                     </span>
                   </td>
                 )}
+                {/* Billing model chip + source badge */}
+                {showBillingMeta && (
+                  <>
+                    <td className="px-4 py-3">
+                      {row.billingModel ? (
+                        <BillingModelChip billingModel={row.billingModel} />
+                      ) : (
+                        <span className="text-zinc-400 text-xs">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {row.source ? (
+                        <SourceBadge source={row.source} />
+                      ) : (
+                        <span className="text-zinc-400 text-xs">—</span>
+                      )}
+                    </td>
+                  </>
+                )}
                 {/* Request count */}
                 <td className="px-4 py-3 text-right">
                   <span className="text-sm text-zinc-400">
@@ -164,11 +234,23 @@ export function CostTable({
                     {formatTokens(row.inputTokens + row.outputTokens)}
                   </span>
                 </td>
-                {/* Cost */}
+                {/* Cost — branches on billing model when metadata is present */}
                 <td className="px-4 py-3 text-right">
-                  <span className="text-sm font-semibold text-zinc-100">
-                    {formatCost(row.cost, 4)}
-                  </span>
+                  {showBillingMeta && row.billingModel ? (
+                    <CostDisplay
+                      billingModel={row.billingModel}
+                      costUsd={row.cost}
+                      subscriptionFractionUsed={row.subscriptionFractionUsed}
+                      creditsConsumed={row.creditsConsumed}
+                      creditRateUsd={row.creditRateUsd}
+                      decimals={4}
+                      className="text-sm font-semibold text-zinc-100"
+                    />
+                  ) : (
+                    <span className="text-sm font-semibold text-zinc-100">
+                      {formatCost(row.cost, 4)}
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}
@@ -180,6 +262,13 @@ export function CostTable({
                 <span className="text-sm font-semibold text-zinc-100">Total</span>
               </td>
               {showAgent && <td className="px-4 py-3" />}
+              {/* Empty cells for billing meta columns */}
+              {showBillingMeta && (
+                <>
+                  <td className="px-4 py-3" />
+                  <td className="px-4 py-3" />
+                </>
+              )}
               <td className="px-4 py-3 text-right">
                 <span className="text-sm font-semibold text-zinc-100">
                   {totals.requests.toLocaleString()}

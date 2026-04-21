@@ -19,6 +19,7 @@ import { TeamCosts } from './team-costs';
 import { TIERS, type TierId } from '@/lib/polar';
 import { MODEL_PRICING, LAST_VERIFIED } from '@/lib/model-pricing';
 import { ExportButton } from './export-button';
+import { BillingModelSummaryStrip } from './billing-model-summary-strip';
 
 export const metadata: Metadata = {
   title: 'Cost Analytics | Styrby',
@@ -108,6 +109,18 @@ export default async function CostsPage({
   const rangeStart = new Date();
   rangeStart.setDate(rangeStart.getDate() - days);
   const rangeStartDate = rangeStart.toISOString().split('T')[0];
+
+  // Fetch billing model breakdown for the selected period.
+  // WHY separate query: v_my_daily_costs is a pre-aggregated materialized view
+  // that does not include billing_model or source — those are raw cost_records
+  // columns added in migration 022. Rather than break the MV contract, we query
+  // cost_records directly and aggregate the four billing buckets in JS.
+  // .limit(5000) guards serverless memory for users with many sessions.
+  const billingBreakdownPromise = supabase
+    .from('cost_records')
+    .select('billing_model, source, cost_usd, subscription_fraction_used, credits_consumed, credit_rate_usd')
+    .gte('record_date', rangeStartDate)
+    .limit(5000);
 
   const { data: mvRows } = await supabase
     .from('v_my_daily_costs')
@@ -207,6 +220,58 @@ export default async function CostsPage({
       tagTotals[tag].sessionCount += 1;
     }
   }
+
+  // Resolve billing breakdown query and aggregate into four buckets.
+  const { data: billingRows } = await billingBreakdownPromise;
+
+  // WHY separate bucket for each billing model: The header summary strip shows
+  // "API: $X | Subscription: Y% | Credits: Z cr ($W)" so we need per-model totals.
+  type BillingBuckets = {
+    apiKeyCostUsd: number;
+    subscriptionFractionSum: number;
+    subscriptionRowCount: number;
+    creditsConsumed: number;
+    creditCostUsd: number;
+    freeCostUsd: number;
+  };
+  const billingBuckets: BillingBuckets = {
+    apiKeyCostUsd: 0,
+    subscriptionFractionSum: 0,
+    subscriptionRowCount: 0,
+    creditsConsumed: 0,
+    creditCostUsd: 0,
+    freeCostUsd: 0,
+  };
+
+  for (const row of billingRows ?? []) {
+    const cost = Number(row.cost_usd) || 0;
+    switch (row.billing_model) {
+      case 'api-key':
+        billingBuckets.apiKeyCostUsd += cost;
+        break;
+      case 'subscription':
+        billingBuckets.subscriptionRowCount += 1;
+        if (row.subscription_fraction_used != null) {
+          billingBuckets.subscriptionFractionSum += Number(row.subscription_fraction_used) || 0;
+        }
+        break;
+      case 'credit':
+        billingBuckets.creditsConsumed += Number(row.credits_consumed) || 0;
+        billingBuckets.creditCostUsd += cost;
+        break;
+      case 'free':
+        billingBuckets.freeCostUsd += cost;
+        break;
+      // WHY no default: unknown billing_model values are silently ignored so
+      // dashboard rendering is never blocked by unexpected DB values.
+    }
+  }
+
+  // Derive average subscription fraction used for display.
+  const avgSubscriptionFraction =
+    billingBuckets.subscriptionRowCount > 0
+      ? billingBuckets.subscriptionFractionSum / billingBuckets.subscriptionRowCount
+      : null;
 
   // Fetch budget alerts, subscription tier, and (if Power) team membership in parallel.
   // WHY parallel: These are independent queries. Running them concurrently cuts
@@ -338,6 +403,19 @@ export default async function CostsPage({
         {/* Time range selector - client component for onChange interactivity */}
         <TimeRangeSelect currentDays={days} />
       </div>
+
+      {/* Billing model summary strip — shows variable / subscription / credit totals */}
+      {/* WHY here: Users glancing at the cost page need an immediate answer to
+          "how much of my spend is API vs subscription vs credits?" before they
+          scroll into charts. One line at the top delivers that. */}
+      <BillingModelSummaryStrip
+        apiKeyCostUsd={billingBuckets.apiKeyCostUsd}
+        subscriptionFractionUsed={avgSubscriptionFraction}
+        subscriptionRowCount={billingBuckets.subscriptionRowCount}
+        creditsConsumed={billingBuckets.creditsConsumed}
+        creditCostUsd={billingBuckets.creditCostUsd}
+        days={days}
+      />
 
       {/* Real-time summary cards with connection status */}
       <CostsRealtime

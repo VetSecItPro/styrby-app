@@ -45,6 +45,8 @@ import {
   TeamCostSection,
   TimeRangeSelector,
 } from '../../src/components/costs';
+import { BillingModelSummaryStrip } from '../../src/components/costs/BillingModelSummaryStrip';
+import { useBillingBreakdown } from '../../src/components/costs/useBillingBreakdown';
 
 /**
  * Cost Dashboard Screen.
@@ -120,6 +122,11 @@ export default function CostsScreen() {
 
   const { isExporting, showExportPicker } = useCostExport(timeRange);
 
+  // WHY: Separate hook for billing breakdown — useCosts reads from the
+  // materialized view which lacks billing_model/source. useBillingBreakdown
+  // queries cost_records directly for those columns only.
+  const { breakdown: billingBreakdown } = useBillingBreakdown(timeRange);
+
   if (isLoading) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
@@ -182,6 +189,14 @@ export default function CostsScreen() {
         </View>
         <TimeRangeSelector selected={timeRange} onSelect={setTimeRange} />
       </View>
+
+      {/* Billing Model Summary Strip — shows API / SUB / CR totals for the period */}
+      {/* WHY: Users who mix billing models (e.g. API for Claude Code + credits
+          for Kiro + subscription for Claude Max) need an at-a-glance view of
+          where their spend comes from before scrolling to the detail charts. */}
+      {billingBreakdown && (
+        <BillingModelSummaryStrip breakdown={billingBreakdown} days={timeRange} />
+      )}
 
       {/* Cost Summary Cards */}
       <View className="px-4">
