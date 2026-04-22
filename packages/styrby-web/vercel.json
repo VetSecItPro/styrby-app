@@ -20,6 +20,10 @@
     {
       "path": "/api/cron/agent-finished",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/nps-prompt-dispatch",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

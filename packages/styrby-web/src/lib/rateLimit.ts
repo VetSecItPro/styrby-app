@@ -333,6 +333,15 @@ export const RATE_LIMITS = {
    * Per-key rate limiting is handled separately in the api-auth middleware.
    */
   apiV1: { windowMs: 60000, maxRequests: 100 },
+
+  /**
+   * Feedback submission: 10 requests per 15 minutes.
+   * WHY: Feedback is a low-frequency action. 10 per 15 min is generous
+   * for legitimate users while preventing inbox flooding for the founder
+   * email alerts triggered by each general feedback submission.
+   * Phase 1.6.11
+   */
+  FEEDBACK_SUBMIT: { windowMs: 900000, maxRequests: 10 },
 } as const;
 
 /**
