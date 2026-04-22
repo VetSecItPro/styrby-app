@@ -8,7 +8,16 @@
  * 1. Node.js version compatibility
  * 2. Configuration file existence and validity
  * 3. Authentication status
- * 4. Installed agent detection (Claude, Codex, Gemini)
+ * 4. Installed agent detection (Claude, Codex, Gemini — legacy 4-agent check)
+ * 5. Per-agent deep probe: all 11 agents, binary detection + version, with
+ *    format contract reference for each (PASS / FAIL / NOT_INSTALLED)
+ *
+ * WHY two agent checks:
+ *   checkAgents() is the legacy quick check using getAllAgentStatus(), which
+ *   covers only the original 4 agents and is fast. checkAgentProbes() is the
+ *   new comprehensive check that covers all 11 agents via probeAllAgents().
+ *   Both are kept so existing integration tests for checkAgents() continue to
+ *   pass while the new probe adds coverage for the full agent roster.
  *
  * @module commands/doctor
  */
@@ -16,12 +25,18 @@
 import { logger } from '@/ui/logger';
 import { isAuthenticated, loadConfig } from '@/configuration';
 import { getAllAgentStatus } from '@/auth/agent-credentials';
+import {
+  probeAllAgents,
+  formatAgentProbeReport,
+  getFailedProbes,
+  type AgentProbeResult,
+} from './agentProbe';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-/** Result of a single health check */
+/** Result of a single high-level health check */
 interface CheckResult {
   /** Human-readable name of the check */
   name: string;
@@ -102,6 +117,13 @@ function checkAuth(): CheckResult {
  * getAllAgentStatus() returns Record<AgentType, AgentStatus>.
  * We convert to an array and filter for installed agents.
  *
+ * WHY kept alongside checkAgentProbes():
+ *   This check uses the legacy auth/agent-credentials path and covers only
+ *   claude, codex, gemini, opencode. It is retained for backward compatibility
+ *   with existing integrations that consume the doctor summary line
+ *   "N agent(s) found: ...". The new checkAgentProbes() adds the full 11-agent
+ *   per-binary probe section below.
+ *
  * @returns A CheckResult summarizing agent availability
  */
 async function checkAgents(): Promise<CheckResult> {
@@ -127,6 +149,66 @@ async function checkAgents(): Promise<CheckResult> {
   }
 }
 
+/**
+ * Deep-probes all 11 Styrby agents and logs per-agent PASS/FAIL/NOT_INSTALLED.
+ *
+ * Each probe:
+ *   1. Checks if the binary is on PATH
+ *   2. Runs `<binary> --version` and extracts the semver string
+ *   3. Records the expected stream format contract for this agent, so
+ *      developers can cross-reference parser files when format drift is
+ *      suspected
+ *
+ * WHY parallel: All 11 agents are probed concurrently via Promise.all.
+ * On a clean machine with most agents absent, this finishes in < 1 second
+ * (just PATH + which lookups). On a machine with agents installed, it
+ * takes at most the slowest single `--version` call (typically < 500 ms).
+ *
+ * @returns A CheckResult that passes when no agent is in FAIL state.
+ *          NOT_INSTALLED is informational — it does not cause a failure.
+ *
+ * @example
+ *   PASS: 0 agents failed; 3 installed, 8 not installed
+ *   FAIL: 1 agent failed (binary found but --version timed out)
+ */
+export async function checkAgentProbes(): Promise<{
+  checkResult: CheckResult;
+  probeResults: AgentProbeResult[];
+}> {
+  try {
+    const probeResults = await probeAllAgents();
+    const failed = getFailedProbes(probeResults);
+    const installed = probeResults.filter((r) => r.status !== 'NOT_INSTALLED');
+    const passed = failed.length === 0;
+
+    const summary =
+      installed.length === 0
+        ? 'No agents installed — run `styrby install-agent`'
+        : failed.length === 0
+          ? `${installed.length} of 11 agents installed and healthy`
+          : `${failed.length} agent(s) failed probe — see details below`;
+
+    return {
+      checkResult: {
+        name: 'Agent Probes (all 11)',
+        passed,
+        message: summary,
+      },
+      probeResults,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      checkResult: {
+        name: 'Agent Probes (all 11)',
+        passed: false,
+        message: `Probe run failed: ${message}`,
+      },
+      probeResults: [],
+    };
+  }
+}
+
 // ============================================================================
 // Main
 // ============================================================================
@@ -136,6 +218,11 @@ async function checkAgents(): Promise<CheckResult> {
  *
  * Called from the interactive menu or directly via `styrby doctor`.
  * Each check runs independently; a single failure does not block others.
+ *
+ * Output sections:
+ *   1. High-level checks (Node, Config, Auth, AI Agents legacy, Agent Probes)
+ *   2. Per-agent probe detail table (all 11 agents)
+ *   3. Final verdict: all-pass or some-checks-failed
  *
  * @returns A promise that resolves when all checks are complete
  */
@@ -149,10 +236,14 @@ export async function runDoctor(): Promise<void> {
   results.push(checkConfig());
   results.push(checkAuth());
 
-  // Async checks
+  // Legacy async check (original 4 agents)
   results.push(await checkAgents());
 
-  // Print results
+  // Deep per-agent probe (all 11 agents)
+  const { checkResult: probeCheck, probeResults } = await checkAgentProbes();
+  results.push(probeCheck);
+
+  // Print high-level results
   let allPassed = true;
   for (const result of results) {
     const icon = result.passed ? '✓' : '✗';
@@ -161,6 +252,15 @@ export async function runDoctor(): Promise<void> {
     logger.info(`  ${icon} [${status}] ${result.name}${detail}`);
     if (!result.passed) {
       allPassed = false;
+    }
+  }
+
+  // Print per-agent probe detail
+  if (probeResults.length > 0) {
+    logger.info('');
+    logger.info('  Agent installation detail:');
+    for (const line of formatAgentProbeReport(probeResults)) {
+      logger.info(line);
     }
   }
 
