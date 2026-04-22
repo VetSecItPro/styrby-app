@@ -86,3 +86,8 @@ export * from './privacy/index.js';
 // The static-pricing subset IS safe for all environments and is re-exported here.
 export type { ModelProvider, ModelPricingEntry } from './pricing/static-pricing.js';
 export { MODEL_PRICING_TABLE, PROVIDER_DISPLAY_NAMES, STATIC_PRICING_LAST_VERIFIED } from './pricing/static-pricing.js';
+
+// Phase 1.6.11 — Feedback loop.
+// NPS calculation utilities (calcNPS, groupNpsByWeek, formatNpsScore) and types.
+// Pure TypeScript, zero Node.js builtins — safe for web, mobile, and CLI.
+export * from './feedback/index.js';
