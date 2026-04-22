@@ -21,11 +21,12 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "@sentry/react-native": "~6.6.0",
     "@expo/metro-runtime": "~4.0.0",
     "@expo/vector-icons": "~14.0.4",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "11.4.1",
     "@react-navigation/native": "^7.0.0",
+    "@sentry/react-native": "~6.6.0",
     "@styrby/shared": "workspace:*",
     "@supabase/supabase-js": "^2.47.10",
     "clsx": "^2.1.1",

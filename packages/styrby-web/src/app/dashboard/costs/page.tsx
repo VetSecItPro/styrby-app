@@ -20,6 +20,10 @@ import { TIERS, type TierId } from '@/lib/polar';
 import { MODEL_PRICING, LAST_VERIFIED } from '@/lib/model-pricing';
 import { ExportButton } from './export-button';
 import { BillingModelSummaryStrip } from './billing-model-summary-strip';
+import { RunRateProjection } from '@/components/costs/RunRateProjection';
+import { TierCapWarning } from '@/components/costs/TierCapWarning';
+import { SessionCostTable } from '@/components/costs/SessionCostTable';
+import type { AgentType } from '@/lib/costs';
 
 export const metadata: Metadata = {
   title: 'Cost Analytics | Styrby',
@@ -379,6 +383,64 @@ export default async function CostsPage({
     mostCriticalAlert = alertsWithSpend[0];
   }
 
+  // ── Run-rate projection data ────────────────────────────────────────────────
+  // Compute last-7d spend and distinct-day count for the RunRateProjection banner.
+  // WHY separate query: the MV only covers the selected `days` window which may
+  // be 30 or 90 days. For the run-rate we always need exactly the last 7 days.
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const sevenDaysAgoDate = sevenDaysAgo.toISOString().split('T')[0];
+
+  const { data: runRateRows } = await supabase
+    .from('v_my_daily_costs')
+    .select('record_date, total_cost_usd')
+    .gte('record_date', sevenDaysAgoDate);
+
+  let last7dSpendUsd = 0;
+  const distinctDays = new Set<string>();
+  for (const row of runRateRows ?? []) {
+    last7dSpendUsd += Number(row.total_cost_usd) || 0;
+    if (row.record_date) distinctDays.add(row.record_date as string);
+  }
+  const historyDays = distinctDays.size;
+
+  // Month-to-date spend from the full MV result (rangeStart is already month start when days=30).
+  // WHY: We compute MTD from the existing chartData to avoid an extra DB query.
+  const now = new Date();
+  const monthStartDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+    .toISOString().split('T')[0];
+  const monthToDateSpendUsd = (runRateRows ?? [])
+    .filter((r) => (r.record_date as string) >= monthStartDate)
+    .reduce((sum, r) => sum + (Number(r.total_cost_usd) || 0), 0);
+
+  // Determine monthly cap from lowest-threshold enabled monthly budget alert.
+  const monthlyCapAlert = budgetAlerts
+    .filter((a) => a.period === 'monthly' && !a.agent_type)
+    .sort((a, b) => Number(a.threshold_usd) - Number(b.threshold_usd))[0];
+  const monthlyCap = monthlyCapAlert ? Number(monthlyCapAlert.threshold_usd) : null;
+
+  // Fetch top sessions by cost for the SessionCostTable drill-in.
+  // WHY: Users want to see which specific sessions drove their costs.
+  // Limiting to 10 keeps the table scannable and the query fast.
+  const { data: topSessions } = await supabase
+    .from('sessions')
+    .select('id, title, summary, agent_type, total_cost_usd, message_count, started_at')
+    .gte('started_at', rangeStart.toISOString())
+    .gt('total_cost_usd', 0)
+    .order('total_cost_usd', { ascending: false })
+    .limit(10);
+
+  // Dominant billing model for run-rate copy variant.
+  const dominantBillingModel = ((): 'api-key' | 'subscription' | 'credit' | 'free' => {
+    const counts = {
+      'api-key': billingBuckets.apiKeyCostUsd > 0 ? 1 : 0,
+      subscription: billingBuckets.subscriptionRowCount,
+      credit: billingBuckets.creditsConsumed > 0 ? 1 : 0,
+      free: 0,
+    };
+    return (Object.entries(counts).sort(([, a], [, b]) => b - a)[0]?.[0] ?? 'api-key') as 'api-key' | 'subscription' | 'credit' | 'free';
+  })();
+
   return (
     <div>
       <div className="flex flex-col gap-4 mb-8 md:flex-row md:items-center md:justify-between">
@@ -416,6 +478,28 @@ export default async function CostsPage({
         creditCostUsd={billingBuckets.creditCostUsd}
         days={days}
       />
+
+      {/* Run-rate projection banner — shows when ≥3 days of history and cap configured.
+          WHY at top: forward-looking spend awareness should be the first thing
+          a user sees on the cost page, not buried below charts. */}
+      <RunRateProjection
+        last7dSpendUsd={historyDays >= 3 ? last7dSpendUsd : null}
+        historyDays={historyDays}
+        monthToDateSpendUsd={monthToDateSpendUsd}
+        monthlyCap={monthlyCap}
+        billingModel={dominantBillingModel}
+        avgDailySubscriptionFraction={
+          dominantBillingModel === 'subscription' && billingBuckets.subscriptionRowCount > 0
+            ? (billingBuckets.subscriptionFractionSum / billingBuckets.subscriptionRowCount) / 7
+            : null
+        }
+        subscriptionQuota={1.0}
+      />
+
+      {/* Tier cap warning — client component (snooze via localStorage).
+          WHY here: immediately visible before charts, gives the user context
+          about why they might be seeing elevated spend. */}
+      <TierCapWarning tier={userTier} monthToDateSpendUsd={monthToDateSpendUsd} />
 
       {/* Real-time summary cards with connection status */}
       <CostsRealtime
@@ -553,6 +637,28 @@ export default async function CostsPage({
           )}
         </div>
       </section>
+
+      {/* Top Sessions by Cost — drill-in table with per-session cost breakdown.
+          WHY: Users want to see WHICH sessions drove their costs, not just
+          which agents. The drill-in modal gives them per-message detail
+          without navigating away from the cost dashboard. */}
+      {(topSessions ?? []).length > 0 && (
+        <section className="mt-8">
+          <h2 className="text-lg font-semibold text-foreground mb-4">
+            Top Sessions by Cost
+          </h2>
+          <SessionCostTable
+            sessions={(topSessions ?? []).map((s) => ({
+              id: s.id as string,
+              label: (s.title as string | null) ?? (s.summary as string | null) ?? `Session ${(s.id as string).slice(0, 8)}`,
+              agentType: (s.agent_type as string) as AgentType,
+              totalCostUsd: Number(s.total_cost_usd) || 0,
+              messageCount: Number(s.message_count) || 0,
+              startedAt: s.started_at as string,
+            }))}
+          />
+        </section>
+      )}
 
       {/* Team Cost Dashboard - Power tier + team membership only.
           WHY: Agencies and collaborative teams need to attribute AI spend to

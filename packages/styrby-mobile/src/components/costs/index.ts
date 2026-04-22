@@ -25,3 +25,9 @@ export type { CostPillProps } from './CostPill';
 export { BillingModelSummaryStrip } from './BillingModelSummaryStrip';
 export { useBillingBreakdown } from './useBillingBreakdown';
 export type { BillingBreakdown } from './useBillingBreakdown';
+
+// Phase 1.6.7 — cost dashboard additions
+export { RunRateProjection } from './RunRateProjection';
+export type { RunRateProjectionProps } from './RunRateProjection';
+export { TierCapWarning } from './TierCapWarning';
+export type { TierCapWarningProps } from './TierCapWarning';

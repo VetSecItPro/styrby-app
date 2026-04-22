@@ -47,6 +47,9 @@ import {
 } from '../../src/components/costs';
 import { BillingModelSummaryStrip } from '../../src/components/costs/BillingModelSummaryStrip';
 import { useBillingBreakdown } from '../../src/components/costs/useBillingBreakdown';
+import { RunRateProjection } from '../../src/components/costs/RunRateProjection';
+import { TierCapWarning } from '../../src/components/costs/TierCapWarning';
+import { useRunRate } from '../../src/hooks/useRunRate';
 
 /**
  * Cost Dashboard Screen.
@@ -127,6 +130,10 @@ export default function CostsScreen() {
   // queries cost_records directly for those columns only.
   const { breakdown: billingBreakdown } = useBillingBreakdown(timeRange);
 
+  // WHY: Separate hook for run-rate projection — always uses last-7d data
+  // regardless of the selected time range so the projection is consistent.
+  const runRate = useRunRate();
+
   if (isLoading) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
@@ -197,6 +204,32 @@ export default function CostsScreen() {
       {billingBreakdown && (
         <BillingModelSummaryStrip breakdown={billingBreakdown} days={timeRange} />
       )}
+
+      {/* Run-rate projection — shows when ≥3 days of history and cap configured */}
+      {/* WHY here: forward-looking awareness before scrolling into historical charts */}
+      {!runRate.isLoading && (
+        <RunRateProjection
+          last7dSpendUsd={runRate.historyDays >= 3 ? runRate.last7dSpendUsd : null}
+          historyDays={runRate.historyDays}
+          monthToDateSpendUsd={runRate.monthToDateSpendUsd}
+          monthlyCap={runRate.monthlyCap}
+          billingModel={
+            (billingBreakdown?.subscriptionRowCount ?? 0) > 0
+              ? 'subscription'
+              : 'api-key'
+          }
+          avgDailySubscriptionFraction={
+            (billingBreakdown?.subscriptionRowCount ?? 0) > 0 &&
+            billingBreakdown?.subscriptionFractionUsed != null
+              ? billingBreakdown.subscriptionFractionUsed / 7
+              : null
+          }
+          subscriptionQuota={1.0}
+        />
+      )}
+
+      {/* Tier cap warning — dismissable, snooze 24h */}
+      <TierCapWarning tier={tier} monthToDateSpendUsd={runRate.monthToDateSpendUsd} />
 
       {/* Cost Summary Cards */}
       <View className="px-4">

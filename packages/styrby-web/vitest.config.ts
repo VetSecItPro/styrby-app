@@ -14,7 +14,12 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
-    include: ['src/**/*.test.{ts,tsx}', '__tests__/**/*.test.{ts,tsx}'],
+    include: [
+      'src/**/*.test.{ts,tsx}',
+      '__tests__/**/*.test.{ts,tsx}',
+      // Edge function pure-helper tests (no Deno APIs — only helpers.ts)
+      '../../supabase/functions/*/__tests__/**/*.test.ts',
+    ],
     exclude: ['node_modules', '.next', 'tests/e2e'],
     coverage: {
       provider: 'v8',
