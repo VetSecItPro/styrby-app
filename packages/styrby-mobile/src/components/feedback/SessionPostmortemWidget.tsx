@@ -76,13 +76,13 @@ export function SessionPostmortemWidget({
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  // WHY: Only show the widget for sessions longer than 10 minutes.
-  // Short sessions (< 10 min) are often exploratory - the feedback signal
-  // from them is noisy. 10 min is the threshold where users have enough
-  // context to give meaningful post-mortem feedback.
-  if (durationSeconds < 600) {
-    return null;
-  }
+  // WHY this comes BEFORE the early-return guard (rules-of-hooks):
+  // React Hooks must be called in the same order on every render. If we
+  // early-returned on `durationSeconds < 600` before the useCallback block,
+  // a durationSeconds prop change that crossed the 600-threshold would
+  // re-render with a different hook-call count, crashing React. The guard
+  // is moved to AFTER all hook invocations and placed before the first
+  // JSX branch instead.
 
   /**
    * Submit the post-mortem to the API.
@@ -163,6 +163,15 @@ export function SessionPostmortemWidget({
   const handleSubmitWithReason = useCallback(() => {
     void submit(rating ?? 'not_useful', reason);
   }, [submit, rating, reason]);
+
+  // WHY: Only show the widget for sessions longer than 10 minutes.
+  // Short sessions (< 10 min) are often exploratory - the feedback signal
+  // from them is noisy. 10 min is the threshold where users have enough
+  // context to give meaningful post-mortem feedback. Placed AFTER all hook
+  // calls so hook-call order stays stable across renders (rules-of-hooks).
+  if (durationSeconds < 600) {
+    return null;
+  }
 
   if (state === 'submitted') {
     return (
