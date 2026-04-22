@@ -275,16 +275,34 @@ export async function POST(request: Request) {
     // WHY tables_exported = 28: 20 original tables + 8 tables added in SEC-LOGIC-003/004 fix:
     //   context_templates, notification_logs, support_tickets, support_ticket_replies,
     //   session_checkpoints, machine_keys, webhook_deliveries, session_shared_links.
+    // WHY export_completed (not export_requested): the Phase 1.6.9 migration
+    // adds 'export_completed' to the audit_action enum specifically for the
+    // moment a user successfully downloads their data. This is distinct from
+    // 'export_requested' (which was a workaround before the enum was extended).
+    // GDPR Art. 15 compliance evidence requires a record of successful delivery.
     await supabase.from('audit_log').insert({
       user_id: user.id,
-      action: 'export_requested',
+      action: 'export_completed',
       // SEC-INJ-002: Split x-forwarded-for on comma and take the first value to
       // prevent log injection via crafted headers containing multiple IPs.
       ip_address: (request.headers.get('x-forwarded-for') || 'unknown').split(',')[0].trim(),
       metadata: {
-        tables_exported: 28,
+        tables_exported: 29,  // 28 + data_export_requests (added in migration 025)
         total_records: totalRecords,
       },
+    });
+
+    // WHY: Also insert a data_export_requests row for the user-facing export history UI.
+    // This lets us show "Your last export was on DATE" in the privacy settings panel.
+    // The row is marked 'ready' immediately because this endpoint streams the JSON
+    // directly (no async ZIP generation step at this tier).
+    await supabase.from('data_export_requests').insert({
+      user_id: user.id,
+      status: 'ready',
+      requested_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+      ip_address: (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || null,
+      user_agent: request.headers.get('user-agent') ?? null,
     });
 
     // Generate filename with date for user reference
