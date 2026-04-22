@@ -72,6 +72,12 @@ export * from './tiers/index.js';
 // evaluator) + the engine-flavored TeamPolicy/ApprovalStatus used by the
 // policy engine in CLI, web admin, and mobile push-approval.
 export * from './team/index.js';
+// Phase 1.6.9 — Data Privacy Control Center.
+// Pure TypeScript mirrors of the PL/pgSQL retention functions from migration 025.
+// Safe to barrel: zero WASM/Node.js builtins, consumed by web, mobile, and CLI.
+// Audit: GDPR Art. 5(1)(e) storage limitation; SOC2 CC7.2
+export * from './privacy/index.js';
+
 // WHY: The full pricing module is NOT re-exported from the barrel.
 // litellm-pricing.ts uses Node.js builtins (node:path, node:os, node:fs, node:crypto)
 // which break webpack/Next.js client bundles. Import directly from

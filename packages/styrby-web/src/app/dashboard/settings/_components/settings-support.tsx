@@ -1,9 +1,36 @@
 'use client';
 
 import { useState } from 'react';
-import { SupportModal } from '@/components/dashboard/support-modal';
-import { FeedbackDialog } from '@/components/dashboard/feedback-dialog';
+import dynamic from 'next/dynamic';
 import { SettingsLinkRow } from './settings-link-row';
+
+/**
+ * WHY SupportModal is dynamic: The support modal (350 LOC) is only shown when
+ * the user clicks "New Ticket". Eager-loading it adds ~15 kB gzipped to the
+ * settings page chunk without benefit for users who never open a ticket.
+ * Dynamic import fetches the modal bundle on first open, invisible to the user
+ * because modal dialogs have inherent open/close latency that masks chunk load time.
+ */
+const SupportModal = dynamic(
+  () =>
+    import('@/components/dashboard/support-modal').then((mod) => ({
+      default: mod.SupportModal,
+    })),
+  { ssr: false }
+);
+
+/**
+ * WHY FeedbackDialog is dynamic: Same reasoning as SupportModal — the feedback
+ * dialog (342 LOC) is shown only on user action. Dynamic import keeps it out
+ * of the initial settings bundle.
+ */
+const FeedbackDialog = dynamic(
+  () =>
+    import('@/components/dashboard/feedback-dialog').then((mod) => ({
+      default: mod.FeedbackDialog,
+    })),
+  { ssr: false }
+);
 
 /**
  * Support section: view tickets (links to /dashboard/support), new ticket
