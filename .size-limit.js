@@ -1,5 +1,5 @@
 /**
- * Size-limit configuration for Styrby monorepo (Phase 1.6.12)
+ * Size-limit configuration for Styrby monorepo (Phase 1.6.13)
  *
  * WHY size-limit instead of custom shell scripts:
  * - size-limit is the de-facto standard in the JS ecosystem (Next.js, React,
@@ -8,15 +8,15 @@
  * - It produces clear, actionable output: "X exceeded budget by Y KB (Z% over)"
  *   rather than silent failures or ambiguous numbers.
  *
- * BASELINES (captured 2026-04-22, no existing dist builds):
- *   All baselines are projected from source size analysis:
- *   - styrby-web TS source: ~3.6 MB → projected ~500 KB first-load JS (gzip)
+ * BASELINES:
+ *   - styrby-web TS source: ~3.6 MB → measured ~725 KB first-load JS (gzip) on Phase 1.6.7
+ *   - Phase 1.6.13 ratchet target: ~600-620 KB projected after dynamic imports
  *   - styrby-cli TS source: ~2.9 MB → projected ~3 MB unminified bundle
  *   - styrby-shared TS source: ~550 KB → projected ~500 KB dist output
  *   - styrby-mobile Metro bundle: measured from /tmp/expo-export in CI
  *
- * HEADROOM: All thresholds are set at projected_baseline * 1.20 (20% headroom).
- * Ratchet these down in Phase 1.6.13 once actual build outputs are profiled.
+ * HEADROOM: web first-load budget = projected_baseline * 1.10 (10% headroom),
+ * rounded to nearest 50 KB. Other thresholds at 20% headroom (unchanged).
  *
  * HOW TO MEASURE ACTUAL BASELINES:
  *   1. pnpm --filter @styrby/shared build
@@ -24,6 +24,10 @@
  *   3. pnpm --filter styrby-web build
  *   4. npx size-limit --json 2>&1 | jq '.'
  *   Update the baseline comments below with the real numbers.
+ *
+ * TO PROFILE BUNDLE CONTENTS (requires @next/bundle-analyzer):
+ *   pnpm --filter styrby-web analyze
+ *   Opens a Webpack bundle treemap in the browser.
  *
  * @see https://github.com/ai/size-limit
  */
@@ -35,18 +39,32 @@ module.exports = [
   // WHY we measure gzip: The browser downloads gzip-compressed assets over the
   // wire. Raw bundle size is less relevant than what the user actually waits for.
   //
-  // WHY 800 KB (raised from initial 600 KB projection on 2026-04-22):
-  // Next.js framework alone contributes ~100-150 KB gzip. With the app
-  // layout, shared utilities, Radix UI primitives, Supabase client, and
-  // Phase 1.6.7 dashboard (sparklines, founder ops page, tier-warning
-  // cards — Recharts lazy-loaded via dynamic import in cost-charts-dynamic.tsx),
-  // the measured real baseline on Phase 1.6.7 merge is ~725 KB gzipped.
-  // 800 KB = ~10% headroom on the measured baseline.
+  // MEASURED BASELINE (Phase 1.6.7 merge, 2026-04-22): 725 KB gzipped
+  // Budget was raised to 800 KB on Phase 1.6.7 merge to unblock CI.
   //
-  // RATCHET PLAN (Phase 1.6.13): profile the first-load chunks with
-  // `next build --profile` + size-limit --why, identify any remaining
-  // non-critical imports that can be dynamic()-ed, ratchet back toward
-  // 650-700 KB. Tracked in styrby-backlog.md as Phase 1.6.13.
+  // PHASE 1.6.13 RATCHET (2026-04-22):
+  // The following components were moved to async chunks via next/dynamic:
+  //   - cmdk (CommandPalette)        ~45 kB gzipped — Cmd+K only
+  //   - ActivityGraph                ~25 kB gzipped — below fold, Pro+ only
+  //   - CloudTasksPanel              ~20 kB gzipped — Power only
+  //   - OnboardingModal + Banner     ~15 kB gzipped — new users only
+  //   - OtelSettings (506 LOC)       ~30 kB gzipped — Power only, settings page
+  //   - SupportModal (350 LOC)       ~15 kB gzipped — modal, on-demand
+  //   - FeedbackDialog (342 LOC)     ~15 kB gzipped — modal, on-demand
+  //   ─────────────────────────────────────────────────────────────────
+  //   Total deferred (estimated):  ~165 kB gzipped
+  //
+  // PROJECTED NEW BASELINE: ~725 - 165 = ~560 KB (some savings overlap in
+  // shared deps; conservative estimate is 600-620 KB).
+  //
+  // BUDGET = projected ~620 KB + 10% headroom = 682 KB → rounded to 700 KB.
+  //
+  // IRREDUCIBLE FLOOR: Next.js App Router framework runtime, React, Radix UI
+  // primitives, Supabase browser client, and @sentry/nextjs browser layer
+  // account for ~350-400 KB gzipped and cannot be deferred (they are required
+  // for the dashboard shell to hydrate at all).
+  //
+  // TO PROFILE FURTHER: pnpm --filter styrby-web analyze (opens Webpack treemap)
   //
   // This checks ALL .js files matching the initial-chunk pattern (dash separator
   // before hash, per the existing bundle-size CI job convention).
@@ -57,11 +75,10 @@ module.exports = [
     // build-web job produces .next/static/chunks/**/*.js. We use a broad
     // glob and rely on the limit to catch regressions.
     path: 'packages/styrby-web/.next/static/chunks/!(*.*.js)',
-    limit: '800 KB',
+    limit: '700 KB',
     gzip: true,
-    // WHY import: We cannot import directly from Next.js output — these are
-    // already-built assets. The `import` field is omitted; size-limit will
-    // stat the files and sum their sizes.
+    // WHY import is omitted: We cannot import directly from Next.js output —
+    // these are already-built assets. size-limit stats the files and sums sizes.
   },
 
   // ─── styrby-cli: dist/index.js (raw, no gzip) ─────────────────────────────

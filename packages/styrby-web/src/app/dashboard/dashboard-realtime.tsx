@@ -1,11 +1,58 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 import { ConnectionStatus } from '@/components/connection-status';
 import { CostTicker } from '@/components/cost-ticker';
-import { ActivityGraph } from '@/components/activity-graph';
-import { CloudTasksPanel } from '@/components/cloud-tasks';
+import { Skeleton } from '@/components/ui/skeleton';
+
+/**
+ * WHY ActivityGraph is dynamic: ActivityGraph is a complex 52-week calendar
+ * heatmap with its own Supabase query. It sits below the fold on the dashboard
+ * and is only shown to Pro+ users. Deferring it keeps its code out of the
+ * first-load chunk, improving TTI for all users (including Free tier who never
+ * see it). The skeleton prevents layout shift while the chunk loads.
+ * WHY ssr: false: ActivityGraph uses client-only APIs (Supabase browser client,
+ * ResizeObserver, DOM measurement). SSR would produce a broken partial render.
+ */
+const ActivityGraph = dynamic(
+  () =>
+    import('@/components/activity-graph').then((mod) => ({
+      default: mod.ActivityGraph,
+    })),
+  {
+    loading: () => (
+      <div className="space-y-3" aria-busy="true" aria-label="Loading activity graph">
+        <Skeleton className="h-5 w-36" />
+        <Skeleton className="h-[120px] w-full rounded-xl" />
+      </div>
+    ),
+    ssr: false,
+  }
+);
+
+/**
+ * WHY CloudTasksPanel is dynamic: CloudTasksPanel is Power-tier only and is
+ * never rendered for Free or Pro users. Dynamic import ensures its code is
+ * never fetched for users who don't have access, which is the majority.
+ * WHY ssr: false: CloudTasksPanel uses client-only hooks and browser APIs.
+ */
+const CloudTasksPanel = dynamic(
+  () =>
+    import('@/components/cloud-tasks').then((mod) => ({
+      default: mod.CloudTasksPanel,
+    })),
+  {
+    loading: () => (
+      <div className="space-y-3" aria-busy="true" aria-label="Loading cloud tasks">
+        <Skeleton className="h-5 w-32" />
+        <Skeleton className="h-[180px] w-full rounded-xl" />
+      </div>
+    ),
+    ssr: false,
+  }
+);
 
 /* ──────────────────────────── Types ──────────────────────────── */
 

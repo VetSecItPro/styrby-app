@@ -156,3 +156,77 @@ describe('rate-limiter — test environment safety', () => {
     expect(content).toContain("process.env.NODE_ENV !== 'test'");
   });
 });
+
+// ============================================================================
+// Phase 1.6.13 bundle ratchet — dynamic import guards
+//
+// WHY these tests exist: Dynamic imports are the mechanism that keeps heavy
+// libraries (cmdk, ActivityGraph, CloudTasksPanel, OnboardingModal, OtelSettings,
+// SupportModal, FeedbackDialog) out of the first-load JS bundle. If someone
+// reverts these to static imports, the bundle grows by ~165 kB gzipped and
+// CI's size-limit check at 700 KB will fail. But size-limit only runs in CI,
+// not locally. These source-level regression tests provide instant local
+// feedback that the dynamic import pattern is still in place.
+// ============================================================================
+
+describe('Phase 1.6.13 — dynamic imports in dashboard-shell.tsx', () => {
+  it('CommandPalette is dynamic (cmdk library deferred)', () => {
+    const content = readWeb('app/dashboard/dashboard-shell.tsx');
+    expect(content).toContain('dynamic(');
+    expect(content).toContain("'@/components/dashboard/command-palette'");
+    // Must NOT be a static import
+    expect(content).not.toMatch(/^import\s+\{[^}]*CommandPalette[^}]*\}\s+from/m);
+  });
+
+  it('OnboardingModal is dynamic (first-time only UX deferred)', () => {
+    const content = readWeb('app/dashboard/dashboard-shell.tsx');
+    expect(content).toContain("'@/components/dashboard/onboarding-modal'");
+    expect(content).not.toMatch(/^import\s+\{[^}]*OnboardingModal[^}]*\}\s+from/m);
+  });
+
+  it('OnboardingBanner is dynamic (first-time only UX deferred)', () => {
+    const content = readWeb('app/dashboard/dashboard-shell.tsx');
+    expect(content).toContain("'@/components/dashboard/onboarding-banner'");
+    expect(content).not.toMatch(/^import\s+\{[^}]*OnboardingBanner[^}]*\}\s+from/m);
+  });
+});
+
+describe('Phase 1.6.13 — dynamic imports in dashboard-realtime.tsx', () => {
+  it('ActivityGraph is dynamic (below-fold Pro+ component deferred)', () => {
+    const content = readWeb('app/dashboard/dashboard-realtime.tsx');
+    expect(content).toContain('dynamic(');
+    expect(content).toContain("'@/components/activity-graph'");
+    expect(content).not.toMatch(/^import\s+\{[^}]*ActivityGraph[^}]*\}\s+from/m);
+  });
+
+  it('CloudTasksPanel is dynamic (Power-only component deferred)', () => {
+    const content = readWeb('app/dashboard/dashboard-realtime.tsx');
+    expect(content).toContain("'@/components/cloud-tasks'");
+    expect(content).not.toMatch(/^import\s+\{[^}]*CloudTasksPanel[^}]*\}\s+from/m);
+  });
+});
+
+describe('Phase 1.6.13 — dynamic imports in settings-client.tsx', () => {
+  it('OtelSettings is dynamic (Power-only 506-line component deferred)', () => {
+    const content = readWeb('app/dashboard/settings/settings-client.tsx');
+    // dynamic() or dynamic<Props>() are both valid forms
+    expect(content).toMatch(/dynamic[<(]/);
+    expect(content).toContain("'@/components/dashboard/otel-settings'");
+    expect(content).not.toMatch(/^import\s+\{[^}]*OtelSettings[^}]*\}\s+from/m);
+  });
+});
+
+describe('Phase 1.6.13 — dynamic imports in settings-support.tsx', () => {
+  it('SupportModal is dynamic (on-demand modal deferred)', () => {
+    const content = readWeb('app/dashboard/settings/_components/settings-support.tsx');
+    expect(content).toContain('dynamic(');
+    expect(content).toContain("'@/components/dashboard/support-modal'");
+    expect(content).not.toMatch(/^import\s+\{[^}]*SupportModal[^}]*\}\s+from/m);
+  });
+
+  it('FeedbackDialog is dynamic (on-demand modal deferred)', () => {
+    const content = readWeb('app/dashboard/settings/_components/settings-support.tsx');
+    expect(content).toContain("'@/components/dashboard/feedback-dialog'");
+    expect(content).not.toMatch(/^import\s+\{[^}]*FeedbackDialog[^}]*\}\s+from/m);
+  });
+});

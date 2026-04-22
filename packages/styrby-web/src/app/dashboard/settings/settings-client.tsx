@@ -18,8 +18,38 @@
  *     level (currently: OTEL section which depends on raw profile JSON).
  */
 
-import { OtelSettings } from '@/components/dashboard/otel-settings';
+import dynamic from 'next/dynamic';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { OtelUserConfig } from '@/lib/otel-config';
+import type { OtelSettingsProps } from '@/components/dashboard/otel-settings';
+
+/**
+ * WHY OtelSettings is dynamic: OtelSettings is a 506-line form component
+ * (~30 kB parsed JS) that is gated behind the Power tier. Only ~10-15% of
+ * users are on Power; the other 85-90% pay this parse cost needlessly if it
+ * is in the eager bundle. Dynamic import moves it to an async chunk that is
+ * only fetched when the settings page renders AND the user is on Power.
+ *
+ * WHY a skeleton loading state: The settings page scrolls. OtelSettings lives
+ * below the fold. A brief skeleton during async chunk fetch prevents layout
+ * shift and signals to the user that content is loading.
+ */
+const OtelSettings = dynamic<OtelSettingsProps>(
+  () =>
+    import('@/components/dashboard/otel-settings').then((mod) => ({
+      default: mod.OtelSettings,
+    })),
+  {
+    loading: () => (
+      <div className="space-y-4 mb-8" aria-busy="true" aria-label="Loading OTEL settings">
+        <Skeleton className="h-6 w-40" />
+        <Skeleton className="h-32 w-full rounded-xl" />
+        <Skeleton className="h-10 w-24 rounded-lg" />
+      </div>
+    ),
+    ssr: false,
+  }
+);
 import {
   SettingsAccount,
   SettingsSubscription,

@@ -11,8 +11,21 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { HelpCircle, Plus } from 'lucide-react';
-import { SupportModal } from '@/components/dashboard/support-modal';
+
+/**
+ * WHY SupportModal is dynamic: The support modal is only shown when the user
+ * clicks "New Ticket". Defer loading the 350-line form component until needed.
+ * See settings-support.tsx for the same pattern.
+ */
+const SupportModal = dynamic(
+  () =>
+    import('@/components/dashboard/support-modal').then((mod) => ({
+      default: mod.SupportModal,
+    })),
+  { ssr: false }
+);
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
