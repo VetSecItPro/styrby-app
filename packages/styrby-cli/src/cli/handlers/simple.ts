@@ -164,3 +164,43 @@ export async function handleMcpCommand(args: string[]): Promise<void> {
   const { handleMcpCommand: mcp } = await import('@/commands/mcpServe');
   await mcp(args);
 }
+
+/**
+ * Handle the `styrby privacy` command family.
+ *
+ * Provides GDPR self-service controls from the terminal:
+ *   - `styrby privacy export`  — GDPR Art. 15/20 data export
+ *   - `styrby privacy delete`  — GDPR Art. 17 account deletion
+ *
+ * @param args - Command arguments (subcommand + options).
+ */
+export async function handlePrivacyCommand(args: string[]): Promise<void> {
+  const { handlePrivacy } = await import('@/commands/privacy');
+  await handlePrivacy(args);
+}
+
+/**
+ * Handle the `styrby export-data` top-level alias (GDPR Art. 15/20).
+ *
+ * WHY a top-level alias: `styrby export-data` is more discoverable than
+ * `styrby privacy export` for users who found the command from the docs.
+ *
+ * @param args - Command arguments.
+ */
+export async function handleExportDataCommand(args: string[]): Promise<void> {
+  const { handleExportData } = await import('@/commands/privacy');
+  await handleExportData(args);
+}
+
+/**
+ * Handle the `styrby delete-account` top-level alias (GDPR Art. 17).
+ *
+ * WHY a top-level alias: a user who wants to delete their account should
+ * be able to find the command by intuition, not by exploring `styrby privacy`.
+ *
+ * @param args - Command arguments (none — interactive flow).
+ */
+export async function handleDeleteAccountCommand(args: string[]): Promise<void> {
+  const { handleDeleteAccount } = await import('@/commands/privacy');
+  await handleDeleteAccount(args);
+}

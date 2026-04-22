@@ -17,6 +17,7 @@
  *   router.push('/settings/voice')          → Voice Input sub-screen
  *   router.push('/settings/agents')         → Agents sub-screen
  *   router.push('/settings/metrics')        → Metrics Export sub-screen
+ *   router.push('/settings/privacy')        → Privacy Control Center (Phase 1.6.9)
  *   router.push('/settings/support')        → Support sub-screen
  *
  * @see docs/planning/settings-refactor-plan-2026-04-19.md Section 3 row 0
@@ -248,6 +249,18 @@ export default function SettingsHubScreen() {
           title="Paired Devices"
           subtitle="Manage paired CLI machines"
           onPress={() => router.push('/devices')}
+        />
+      </View>
+
+      {/* Privacy */}
+      <SectionHeader title="Privacy" />
+      <View className="bg-background-secondary">
+        <SettingRow
+          icon="shield-checkmark"
+          iconColor="#3b82f6"
+          title="Privacy Control Center"
+          subtitle="Retention, export, and deletion controls"
+          onPress={() => router.push('/settings/privacy')}
         />
       </View>
 

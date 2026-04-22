@@ -59,6 +59,12 @@ Commands:
     export --all            Export all sessions (use --output <dir> for files)
     import <file>           Import a session from a JSON export file
 
+  Privacy / GDPR
+    privacy export          Export ALL your data (GDPR Art. 15/20 SAR)
+    privacy delete          Delete your account (GDPR Art. 17, 2-step confirm)
+    export-data             Alias for "privacy export"
+    delete-account          Alias for "privacy delete"
+
   Checkpoints
     checkpoint save <name>  Save current session position as a named checkpoint
     checkpoint list         List all checkpoints for the current session

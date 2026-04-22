@@ -29,13 +29,16 @@ import {
   handleAuth,
   handleCheckpointCommand,
   handleDaemonCommand,
+  handleDeleteAccountCommand,
   handleDoctor,
   handleExportCommand,
+  handleExportDataCommand,
   handleImportCommand,
   handleInstall,
   handleLogs,
   handleMcpCommand,
   handleOnboard,
+  handlePrivacyCommand,
   handleStop,
   handleTemplateCommand,
   handleUpgrade,
@@ -141,6 +144,18 @@ export async function runCommand(argv: string[]): Promise<void> {
     case 'checkpoint':
     case 'cp':
       await handleCheckpointCommand(rest);
+      break;
+
+    case 'privacy':
+      await handlePrivacyCommand(rest);
+      break;
+
+    case 'export-data':
+      await handleExportDataCommand(rest);
+      break;
+
+    case 'delete-account':
+      await handleDeleteAccountCommand(rest);
       break;
 
     case 'mcp':
