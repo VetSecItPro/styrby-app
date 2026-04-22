@@ -31,3 +31,5 @@ export {
   DATE_RANGE_CHIPS,
   getAgentConfig,
 } from './constants';
+export { ConnectionStateBadge } from './ConnectionStateBadge';
+export type { ConnectionStateBadgeProps } from './ConnectionStateBadge';

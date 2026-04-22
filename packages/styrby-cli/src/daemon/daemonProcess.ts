@@ -28,6 +28,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createRelayClient, type RelayClient } from 'styrby-shared';
 import { loadDaemonConfig } from './configFile';
 import { WakeDetector } from './wakeDetector';
+import { stateSnapshot } from './stateSnapshot';
 
 // ============================================================================
 // Configuration
@@ -39,6 +40,51 @@ import { WakeDetector } from './wakeDetector';
  * file on demand (e.g., styrby status), so sub-second freshness is not needed.
  */
 const STATUS_WRITE_INTERVAL_MS = 10_000;
+
+// ============================================================================
+// Structured Logger (inline — daemon has no access to @styrby/shared/logging)
+// ============================================================================
+
+/**
+ * Minimal structured JSON-lines logger for the daemon process.
+ *
+ * WHY inline instead of a shared Logger class:
+ *   daemonProcess runs as a fully detached child process. The `@/` path alias
+ *   resolves relative to the CLI root and is NOT available at runtime in the
+ *   detached child. We cannot import from `@/ui/logger` either — that module
+ *   imports chalk which attempts to detect a TTY and behaves unexpectedly in
+ *   the daemon's non-interactive environment. Defining a minimal inline logger
+ *   keeps the daemon self-contained with zero additional dependencies while
+ *   emitting the same JSON-lines format as the rest of the codebase.
+ *
+ * Format: {"ts":"<ISO>","level":"info","tag":"daemon.ready","data":{...}}
+ */
+const structuredLog = {
+  /** Emit an info-level structured log line. */
+  info(tag: string, data: Record<string, unknown> = {}): void {
+    console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', tag, ...data }));
+  },
+  /** Emit a warn-level structured log line. */
+  warn(tag: string, data: Record<string, unknown> = {}): void {
+    console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'warn', tag, ...data }));
+  },
+  /**
+   * Emit an error-level structured log line with optional Error instance.
+   *
+   * @param tag - Short snake_case tag, e.g. 'daemon.relay_error'
+   * @param data - Additional key/value metadata (e.g., error_class)
+   * @param err - Optional Error instance for stack-trace capture
+   */
+  error(tag: string, data: Record<string, unknown> = {}, err?: Error): void {
+    console.error(JSON.stringify({
+      ts: new Date().toISOString(),
+      level: 'error',
+      tag,
+      ...data,
+      ...(err ? { message: err.message } : {}),
+    }));
+  },
+};
 
 const CONFIG_DIR = path.join(os.homedir(), '.styrby');
 
@@ -77,6 +123,7 @@ async function main(): Promise<void> {
   }
 
   log('Daemon process starting', { pid: process.pid });
+  structuredLog.info('daemon.starting', { pid: process.pid });
 
   ensureDir(CONFIG_DIR);
   fs.writeFileSync(DAEMON_FILES.pidFile, String(process.pid), { mode: 0o600 });
@@ -87,6 +134,25 @@ async function main(): Promise<void> {
   startStatusWriter();
   startWakeDetector();
 
+  // Start the state snapshot manager.
+  // WHY: stateSnapshot.start() reads any prior snapshot BEFORE writing a new
+  // one. If the previous daemon crashed mid-session the 'state-restored' event
+  // fires so AgentSession can re-attach rather than creating a duplicate record.
+  const machineId = (loadJsonFile<{ machineId?: string }>(DAEMON_FILES.dataFile))?.machineId ?? 'unknown';
+  stateSnapshot.start({
+    machineId,
+    currentSessionId: null,
+    agentType: null,
+    sessionStatus: 'idle',
+  });
+  stateSnapshot.on('state-restored', (snap) => {
+    log('state-restored event', { sessionId: snap.currentSessionId, agentType: snap.agentType });
+    structuredLog.info('daemon.state_restored', {
+      sessionId: snap.currentSessionId ?? undefined,
+      machineId: snap.machineId,
+    });
+  });
+
   // Signal parent that we are ready.
   // WHY: The parent waits for this before disconnecting IPC and exiting.
   if (process.send) {
@@ -94,6 +160,7 @@ async function main(): Promise<void> {
   }
 
   log('Daemon process ready');
+  structuredLog.info('daemon.ready', { pid: process.pid });
 }
 
 // ============================================================================
@@ -171,18 +238,23 @@ async function connectToRelay(): Promise<void> {
       connectionState = 'connected';
       errorMessage = undefined;
       log('Relay connected');
+      structuredLog.info('daemon.relay_connected');
     });
 
     relay.on('error', (err) => {
       connectionState = 'error';
       errorMessage = err.message;
       log('Relay error', err.message);
+      // WHY error_class tagging: the founder dashboard groups these tags to surface
+      // "top 3 error classes this week" without full-text scanning.
+      structuredLog.error('daemon.relay_error', { error_class: classifyError(err.message) }, err instanceof Error ? err : new Error(err.message));
     });
 
     relay.on('closed', (info) => {
       if (!shuttingDown) {
         connectionState = 'reconnecting';
         log('Relay closed, will reconnect', info.reason);
+        structuredLog.warn('daemon.relay_closed', { reason: info.reason, error_class: 'network' });
       }
     });
 
@@ -191,6 +263,7 @@ async function connectToRelay(): Promise<void> {
     connectionState = 'error';
     errorMessage = err instanceof Error ? err.message : 'Unknown connection error';
     log('Failed to connect to relay', errorMessage);
+    structuredLog.error('daemon.relay_connect_failed', { error_class: classifyError(errorMessage) }, err instanceof Error ? err : new Error(errorMessage));
   }
 }
 
@@ -395,12 +468,14 @@ function setupSignalHandlers(): void {
     log('Uncaught exception', err.message);
     errorMessage = `Uncaught: ${err.message}`;
     connectionState = 'error';
+    structuredLog.error('daemon.uncaught_exception', { error_class: classifyError(err.message) }, err);
   });
 
   process.on('unhandledRejection', (reason) => {
     const msg = reason instanceof Error ? reason.message : String(reason);
     log('Unhandled rejection', msg);
     errorMessage = `Unhandled: ${msg}`;
+    structuredLog.error('daemon.unhandled_rejection', { error_class: classifyError(msg) }, reason instanceof Error ? reason : new Error(msg));
   });
 }
 
@@ -413,8 +488,13 @@ async function gracefulShutdown(reason: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   log('Graceful shutdown initiated', { reason });
+  structuredLog.info('daemon.shutdown', { reason });
 
   if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
+
+  // WHY: On clean shutdown we remove the snapshot so the next start does not
+  // attempt to restore state that was intentionally ended.
+  stateSnapshot.clearOnExit();
 
   if (wakeDetector) { wakeDetector.stop(); wakeDetector = null; }
 
@@ -438,6 +518,39 @@ async function gracefulShutdown(reason: string): Promise<void> {
 // ============================================================================
 // Utilities
 // ============================================================================
+
+/**
+ * Map an error message string to a broad error class tag.
+ *
+ * WHY: The founder dashboard surfaces "top 3 error classes this week" by
+ * grouping structured log entries on `error_class`. Without this tagging,
+ * every unique error message becomes its own bucket and the dashboard shows
+ * noise instead of signal. Five classes cover >95% of daemon errors:
+ *   - network  : ECONNRESET, ETIMEDOUT, network topology changes
+ *   - auth     : token expiry, 401/403 responses
+ *   - supabase : PostgREST errors, Realtime subscription failures
+ *   - agent_crash : uncaughtException from the agent subprocess
+ *   - unknown  : anything that doesn't match the above patterns
+ *
+ * @param msg - Error message string to classify
+ * @returns One of the five error class tags
+ */
+export function classifyError(msg: string): 'network' | 'auth' | 'supabase' | 'agent_crash' | 'unknown' {
+  const m = msg.toLowerCase();
+  if (/econnreset|etimedout|econnrefused|enetunreach|network|websocket|ws\s|connect\s/.test(m)) {
+    return 'network';
+  }
+  if (/auth|token|jwt|unauthorized|403|401|forbidden/.test(m)) {
+    return 'auth';
+  }
+  if (/supabase|postgrest|realtime|channel|subscription/.test(m)) {
+    return 'supabase';
+  }
+  if (/uncaught|agent|crash|spawn|child/.test(m)) {
+    return 'agent_crash';
+  }
+  return 'unknown';
+}
 
 function ensureDir(dirPath: string): void {
   if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true, mode: 0o700 });

@@ -7,9 +7,98 @@
  *   - Authentication status (user ID if authenticated)
  *   - Mobile pairing status
  *   - Active sessions count
+ *   - Reconnect history (last 5 reconnect events with timestamp + outcome)
  *
  * @module cli/handlers/status
  */
+
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+
+// ============================================================================
+// Reconnect History Types
+// ============================================================================
+
+/**
+ * A single reconnect event entry parsed from the daemon log.
+ * Written by the daemon whenever the relay transitions through a reconnect cycle.
+ */
+interface ReconnectEvent {
+  /** ISO 8601 timestamp of the event. */
+  timestamp: string;
+  /** Human-readable reason for the reconnect attempt. */
+  reason: string;
+  /** Whether the reconnect ultimately succeeded. */
+  success: boolean;
+}
+
+// ============================================================================
+// Reconnect History Reader
+// ============================================================================
+
+/**
+ * Read the last N reconnect events from the daemon log file.
+ *
+ * WHY parse the log for reconnect events rather than a separate file:
+ *   Maintaining a separate reconnect-history JSON would require additional
+ *   IPC round-trips and file writes inside the daemon hot path. The daemon
+ *   log already contains structured entries for relay_closed, relay_connected,
+ *   and relay_error events — we can derive reconnect history from those
+ *   without touching daemon internals. Worst case: log is rotated or missing,
+ *   in which case we return an empty array gracefully.
+ *
+ * @param logFile - Path to the daemon log file
+ * @param limit - Maximum number of events to return (default 5)
+ * @returns Array of reconnect events, most-recent first
+ */
+function readReconnectHistory(logFile: string, limit = 5): ReconnectEvent[] {
+  try {
+    if (!fs.existsSync(logFile)) return [];
+    const content = fs.readFileSync(logFile, 'utf-8');
+    const lines = content.split('\n').filter((l) => l.trim().length > 0);
+
+    const events: ReconnectEvent[] = [];
+
+    // WHY scan in reverse: we want the most-recent events first and we can
+    // stop early once we have `limit` matching entries.
+    for (let i = lines.length - 1; i >= 0 && events.length < limit; i--) {
+      const line = lines[i];
+      // Match lines like: [2026-04-21T12:34:56.789Z] [daemon] Relay closed, will reconnect ...
+      //              or:  [2026-04-21T12:34:56.789Z] [daemon] Relay connected
+      const tsMatch = line.match(/^\[(\d{4}-\d{2}-\d{2}T[\d:.]+Z)\]/);
+      if (!tsMatch) continue;
+      const timestamp = tsMatch[1];
+
+      if (line.includes('Relay closed, will reconnect')) {
+        // Extract reason if present: "Relay closed, will reconnect <reason>"
+        const reasonMatch = line.match(/Relay closed, will reconnect\s+(.*)/);
+        events.push({
+          timestamp,
+          reason: reasonMatch?.[1]?.trim() || 'unknown',
+          success: false, // will be updated when we see the matching 'connected'
+        });
+      } else if (line.includes('Relay connected')) {
+        // Mark the most recent pending (success=false) event as succeeded
+        const pending = events.find((e) => !e.success);
+        if (pending) {
+          pending.success = true;
+        } else {
+          // Standalone connect (initial connect, not a reconnect)
+          events.push({ timestamp, reason: 'initial', success: true });
+        }
+      }
+    }
+
+    return events.slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+
+// ============================================================================
+// Handler
+// ============================================================================
 
 /**
  * Handle the `styrby status` command.
@@ -20,6 +109,7 @@
  *   3. Persisted credentials for auth state
  *   4. Persisted data for pairing state
  *   5. Local session storage for active sessions
+ *   6. Daemon log file for reconnect history
  */
 export async function handleStatus(): Promise<void> {
   const chalk = (await import('chalk')).default;
@@ -190,6 +280,25 @@ export async function handleStatus(): Promise<void> {
   }
 
   console.log(`  ${SEPARATOR}`);
+
+  // ── Reconnect History ─────────────────────────────────────────────────
+  // WHY: Showing the last 5 reconnect events lets founders see patterns
+  // (e.g., repeated network drops) without tailing the raw daemon.log.
+  const logFile = path.join(os.homedir(), '.styrby', 'daemon.log');
+  const reconnectEvents = readReconnectHistory(logFile, 5);
+  if (reconnectEvents.length > 0) {
+    console.log('');
+    console.log(chalk.bold.gray('  Reconnect history (last 5)'));
+    for (const evt of reconnectEvents) {
+      const ts = new Date(evt.timestamp);
+      const timeAgoMs = Date.now() - ts.getTime();
+      const timeAgoStr = formatTimeAgo(timeAgoMs);
+      const outcomeColor = evt.success ? chalk.green : chalk.red;
+      const outcome = evt.success ? 'success' : 'failed';
+      const reasonStr = evt.reason !== 'initial' ? chalk.gray(` (${evt.reason})`) : '';
+      console.log(`    ${chalk.gray(timeAgoStr + ' ago')}  ${outcomeColor(outcome)}${reasonStr}`);
+    }
+  }
 
   // ── Hints ─────────────────────────────────────────────────────────────
   if (!daemonStatus.running) {
