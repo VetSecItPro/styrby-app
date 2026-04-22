@@ -59,7 +59,7 @@ export default function NegativePostmortemEmail({
       <Heading>Negative session feedback</Heading>
 
       <Paragraph>
-        A user rated a session as "not useful" and left a reason. This
+        A user rated a session as &quot;not useful&quot; and left a reason. This
         is a quality regression signal worth investigating.
       </Paragraph>
 
