@@ -10,6 +10,19 @@
  */
 
 import { logger } from '@/ui/logger';
+import { Logger } from '@styrby/shared/logging';
+import { getSentryAdapter } from '@/observability/sentry';
+
+/**
+ * Structured logger for pair command events.
+ * WHY: pair events are critical — a failed pairing means the user is locked
+ * out until they re-run the command. Structured logs let the founder see
+ * pairing success/failure rates without waiting for support tickets.
+ */
+const pairLog = new Logger({
+  minLevel: process.env.STYRBY_LOG_LEVEL === 'debug' ? 'debug' : 'info',
+  sentry: getSentryAdapter(),
+});
 
 /**
  * Handle the `styrby pair` command.
@@ -134,6 +147,7 @@ export async function handlePair(): Promise<void> {
     if (paired) {
       // Send test ping
       await relay.sendCommand('ping');
+      pairLog.info('pair.success', { userId: data.userId, machineId });
       console.log(chalk.green('\nSUCCESS! Mobile paired successfully.\n'));
 
       // Save pairing timestamp
@@ -141,10 +155,16 @@ export async function handlePair(): Promise<void> {
         pairedAt: new Date().toISOString(),
       });
     } else {
+      pairLog.warn('pair.timeout_or_cancelled', { userId: data.userId, machineId });
       console.log(chalk.yellow('\nPairing timed out or cancelled.\n'));
       console.log('You can try again with: styrby pair\n');
     }
   } catch (error) {
+    pairLog.error(
+      'pair.failed',
+      { userId: data.userId, machineId },
+      error instanceof Error ? error : new Error(String(error)),
+    );
     logger.debug('Pairing error', { error });
     console.log(chalk.red('\nPairing failed. Please try again.\n'));
   } finally {

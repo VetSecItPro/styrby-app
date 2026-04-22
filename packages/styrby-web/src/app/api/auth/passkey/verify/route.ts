@@ -31,6 +31,22 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { rateLimit, rateLimitResponse } from '@/lib/rateLimit';
+import { Logger } from '@styrby/shared/logging';
+import * as Sentry from '@sentry/nextjs';
+
+/**
+ * Structured logger for passkey auth flow events.
+ * WHY: Passkey verification failures are security-relevant events (SOC2 CC6.6).
+ * Structured logs let the founder detect brute-force patterns or edge function
+ * regressions without waiting for user-reported breakage.
+ */
+const authLog = new Logger({
+  minLevel: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+  sentry: {
+    addBreadcrumb: (b) => Sentry.addBreadcrumb(b),
+    captureException: (e, ctx) => Sentry.captureException(e, ctx) ?? '',
+  },
+});
 
 /**
  * Tight rate-limit for passkey verification.
@@ -107,6 +123,11 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(body),
     });
   } catch (err) {
+    authLog.error(
+      'auth.passkey_edge_unreachable',
+      { action: String(action) },
+      err instanceof Error ? err : new Error(String(err)),
+    );
     console.error('[passkey/verify] Edge function unreachable:', err);
     return NextResponse.json(
       { error: 'EDGE_FUNCTION_ERROR', message: 'Passkey service temporarily unavailable' },
@@ -115,6 +136,16 @@ export async function POST(request: NextRequest) {
   }
 
   const responseBody = await edgeResponse.text();
+
+  if (edgeResponse.status >= 400) {
+    authLog.warn('auth.passkey_verify_failed', {
+      action: String(action),
+      status: edgeResponse.status,
+    });
+  } else {
+    authLog.info('auth.passkey_verify_success', { action: String(action) });
+  }
+
   return new NextResponse(responseBody, {
     status: edgeResponse.status,
     headers: { 'Content-Type': 'application/json' },

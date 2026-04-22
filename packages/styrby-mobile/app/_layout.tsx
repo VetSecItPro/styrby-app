@@ -4,6 +4,14 @@
  * Sets up the navigation stack, auth state, and global providers.
  */
 
+// WHY Sentry must be initialised before any other imports in _layout.tsx:
+// @sentry/react-native wraps React Native's global error handler and the
+// React error boundary machinery at init time. If any navigation or component
+// code runs first, JS crashes that occur before this point escape Sentry
+// capture. The import side-effect is intentional — do not move this block.
+import { initMobileSentry } from '../src/observability/sentry';
+initMobileSentry();
+
 import { useEffect, useState, useCallback } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
