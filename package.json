@@ -14,7 +14,13 @@
     "typecheck": "pnpm -r --if-present run typecheck",
     "build": "pnpm -r --if-present run build",
     "test": "pnpm -r --if-present run test",
-    "clean": "rm -rf node_modules packages/*/node_modules packages/*/dist"
+    "clean": "rm -rf node_modules packages/*/node_modules packages/*/dist",
+    "size": "size-limit",
+    "size:json": "size-limit --json"
+  },
+  "devDependencies": {
+    "@size-limit/file": "^11.1.6",
+    "size-limit": "^11.1.6"
   },
   "engines": {
     "node": ">=20.0.0"
