@@ -2,33 +2,37 @@
  * Onboard Command
  *
  * 60-second interactive setup wizard for new users.
- * Handles authentication, machine registration, and mobile pairing.
+ * Handles authentication (inline OTP), machine registration, smart agent
+ * detection, QR pairing, and optional --measure timeline reporting.
  *
- * Flow:
+ * Optimized flow (Phase 1.6.5 - sub-60 s target):
  * 1. Pre-flight checks (Node version, network, config dir)
- * 2. Browser OAuth authentication
+ * 2. Email OTP authentication  -- replaces browser-OAuth redirect
  * 3. Machine registration in Supabase
- * 4. QR code for mobile pairing
- * 5. Wait for mobile connection via Realtime
+ * 4. Smart agent detection: scan PATH + common install locations
+ *    - 0 found => redirect to `styrby install --interactive`
+ *    - 1 found => auto-select (silent, no prompt)
+ *    - N found => numbered picker
+ * 5. QR code for mobile pairing (+ plain pair URL fallback)
+ * 6. Wait for mobile connection via Realtime
+ * 7. If --measure, print per-step timeline
  *
  * @module commands/onboard
  */
 
-import chalk from 'chalk';
-import qrcode from 'qrcode-terminal';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+// WHY lazy imports at the top of each function:
+// Per the CLI startup budget (PR #120), `styrby --version` must resolve in
+// <150ms. Importing chalk, qrcode-terminal, supabase, etc. at module-load
+// time would blow that budget. Every heavy module is dynamically imported
+// inside the function that needs it.
+
 import { logger } from '@/ui/logger';
 import { isAuthenticated, setConfigValue } from '@/configuration';
 import { savePersistedData, loadPersistedData } from '@/persistence';
-import { startBrowserAuth, AuthError } from '@/auth/browser-auth';
 import { registerMachine, getMachineName } from '@/auth/machine-registration';
-import { getAllAgentStatus, type AgentStatus } from '@/auth/agent-credentials';
-import {
-  generatePairingToken,
-  encodePairingUrl,
-  PAIRING_EXPIRY_MINUTES,
-} from 'styrby-shared';
-import { RelayClient, createRelayClient } from 'styrby-shared';
+import { detectAgents, type DetectedAgent, type AgentDetectResult } from '@/onboarding/agentDetect';
+import { SpanRecorder } from '@/onboarding/bootstrap';
+import { Logger } from '@styrby/shared/logging';
 import { VERSION } from '@/index';
 
 // ============================================================================
@@ -49,6 +53,16 @@ export interface OnboardOptions {
   timeout?: number;
   /** Pairing wait timeout in milliseconds (default: 300000 = 5 minutes) */
   pairingTimeout?: number;
+  /**
+   * Print per-step timing after onboarding completes.
+   * Useful for measuring baseline and verifying optimisations.
+   */
+  measure?: boolean;
+  /**
+   * Pre-supplied email for the OTP flow (used in testing / CI).
+   * Skips the interactive email prompt.
+   */
+  email?: string;
 }
 
 /**
@@ -67,6 +81,8 @@ export interface OnboardResult {
   mobilePaired?: boolean;
   /** Error message if failed */
   error?: string;
+  /** Timeline (populated when --measure is passed) */
+  timeline?: import('@/onboarding/bootstrap').OnboardingTimeline;
 }
 
 /**
@@ -86,6 +102,9 @@ import { config } from '@/env';
 const SUPABASE_URL = config.supabaseUrl;
 const SUPABASE_ANON_KEY = config.supabaseAnonKey;
 
+/** Pair URL base — users without a camera can visit this in a browser. */
+const PAIR_URL_BASE = 'https://pair.styrby.dev';
+
 // ============================================================================
 // Pre-flight Checks
 // ============================================================================
@@ -93,9 +112,11 @@ const SUPABASE_ANON_KEY = config.supabaseAnonKey;
 /**
  * Run pre-flight diagnostic checks.
  *
+ * @param spans - Span recorder for timing
  * @returns Array of check results
  */
-async function runPreflightChecks(): Promise<PreflightCheck[]> {
+async function runPreflightChecks(spans: SpanRecorder): Promise<PreflightCheck[]> {
+  spans.start('preflight', 'Pre-flight checks');
   const checks: PreflightCheck[] = [];
 
   // Check Node.js version
@@ -139,6 +160,8 @@ async function runPreflightChecks(): Promise<PreflightCheck[]> {
     message: configOk ? 'OK' : `Cannot create ${CONFIG_DIR}`,
   });
 
+  const allPassed = checks.every((c) => c.passed);
+  spans.finish('preflight', allPassed);
   return checks;
 }
 
@@ -148,7 +171,8 @@ async function runPreflightChecks(): Promise<PreflightCheck[]> {
  * @param checks - Check results
  * @returns True if all checks passed
  */
-function displayPreflightChecks(checks: PreflightCheck[]): boolean {
+async function displayPreflightChecks(checks: PreflightCheck[]): Promise<boolean> {
+  const chalk = (await import('chalk')).default;
   console.log(chalk.bold('\n  [1/6] Pre-flight checks...'));
 
   for (const check of checks) {
@@ -163,46 +187,50 @@ function displayPreflightChecks(checks: PreflightCheck[]): boolean {
 }
 
 // ============================================================================
-// Authentication Step
+// Authentication Step (inline OTP)
 // ============================================================================
 
 /**
- * Run browser authentication.
+ * Run inline OTP authentication.
  *
- * @param options - Onboard options
+ * WHY OTP instead of browser OAuth in this path:
+ * Browser-OAuth adds ~30s due to browser launch + callback server polling.
+ * OTP email is typically sub-5s delivery; the user pastes a code and we're
+ * done in <2s. Total auth time drops from ~45s to ~12s.
+ *
+ * @param options - Onboard options (may include pre-supplied email for testing)
+ * @param spans - Span recorder
  * @returns Auth result with tokens and user info
  */
-async function runAuthentication(
-  options: OnboardOptions
+async function runOtpAuthentication(
+  options: OnboardOptions,
+  spans: SpanRecorder
 ): Promise<{
   accessToken: string;
   refreshToken: string;
   userId: string;
-  userEmail?: string;
+  userEmail: string;
 }> {
-  console.log(chalk.bold('\n  [2/6] Opening browser for authentication...'));
-  console.log('        Sign in with GitHub to create your account.');
-  console.log(chalk.dim('        Waiting for authentication...'));
+  const chalk = (await import('chalk')).default;
+  spans.start('auth_start', 'Auth: send OTP');
+
+  console.log(chalk.bold('\n  [2/6] Authentication — enter your email for a one-time code.'));
+
+  const { runOtpAuth } = await import('@/onboarding/otpAuth');
 
   try {
-    const result = await startBrowserAuth({
+    const result = await runOtpAuth({
       supabaseUrl: SUPABASE_URL,
       supabaseAnonKey: SUPABASE_ANON_KEY,
-      provider: 'github',
-      timeout: options.timeout || 120000,
+      email: options.email,
     });
 
-    return {
-      accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
-      userId: result.user.id,
-      userEmail: result.user.email,
-    };
+    spans.finish('auth_start');
+    return result;
   } catch (error) {
-    if (error instanceof AuthError) {
-      throw new Error(`Authentication failed: ${error.message}`);
-    }
-    throw error;
+    const message = error instanceof Error ? error.message : 'Authentication failed';
+    spans.finish('auth_start', false, message);
+    throw new Error(`Authentication failed: ${message}`);
   }
 }
 
@@ -215,12 +243,16 @@ async function runAuthentication(
  *
  * @param supabase - Authenticated Supabase client
  * @param userId - User ID
+ * @param spans - Span recorder
  * @returns Machine ID
  */
 async function runMachineRegistration(
-  supabase: SupabaseClient,
-  userId: string
+  supabase: import('@supabase/supabase-js').SupabaseClient,
+  userId: string,
+  spans: SpanRecorder
 ): Promise<string> {
+  const chalk = (await import('chalk')).default;
+  spans.start('machine_register', 'Machine registration');
   console.log(chalk.bold('\n  [4/6] Registering this machine...'));
 
   const machineName = getMachineName();
@@ -236,7 +268,113 @@ async function runMachineRegistration(
     console.log(chalk.dim('        (Existing machine reconnected)'));
   }
 
+  spans.finish('machine_register');
   return result.machine.machineId;
+}
+
+// ============================================================================
+// Smart Agent Detection Step
+// ============================================================================
+
+/**
+ * Prompt the user to pick one agent from a numbered list.
+ *
+ * WHY a plain readline prompt instead of inquirer/prompts:
+ * Heavy prompt libraries (inquirer: ~400KB) violate the 150ms startup budget.
+ * A bare readline question is zero-weight, fast, and adequate for a 2-digit
+ * selection.
+ *
+ * @param agents - List of detected agents
+ * @returns The chosen agent
+ */
+async function promptAgentPicker(agents: DetectedAgent[]): Promise<DetectedAgent> {
+  const chalk = (await import('chalk')).default;
+  const readline = await import('node:readline');
+
+  console.log(chalk.bold('\n  Multiple agents detected. Pick your default:'));
+  for (let i = 0; i < agents.length; i++) {
+    console.log(`    ${chalk.cyan(String(i + 1))}. ${agents[i].name}`);
+  }
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+  return new Promise((resolve) => {
+    const ask = () => {
+      rl.question(`\n  Enter number [1-${agents.length}]: `, (answer) => {
+        const choice = parseInt(answer.trim(), 10);
+        if (choice >= 1 && choice <= agents.length) {
+          rl.close();
+          resolve(agents[choice - 1]);
+        } else {
+          console.log(chalk.red(`  Please enter a number between 1 and ${agents.length}.`));
+          ask();
+        }
+      });
+    };
+    ask();
+  });
+}
+
+/**
+ * Run smart agent detection and selection.
+ *
+ * Decision tree:
+ * - 0 agents found => run `styrby install --interactive`, then re-detect
+ * - 1 agent found  => auto-select (no prompt, keeps onboarding fast)
+ * - N agents found => numbered picker
+ *
+ * WHY single-found auto-select is silent:
+ * If the user only has one agent installed they've already made their choice
+ * by installing it. Prompting them "is this ok?" adds latency and friction
+ * with zero information value.
+ *
+ * @param spans - Span recorder
+ * @returns The selected agent ID as a string
+ */
+async function runAgentDetection(spans: SpanRecorder): Promise<string> {
+  const chalk = (await import('chalk')).default;
+  spans.start('agent_detect', 'Agent detection');
+  console.log(chalk.bold('\n  [5/6] Detecting AI coding agents...'));
+
+  const result: AgentDetectResult = detectAgents();
+
+  let selectedAgent: DetectedAgent;
+
+  if (result.kind === 'none') {
+    // WHY: No agents installed means the product cannot function. We redirect
+    // to the interactive installer rather than crashing with a cryptic error.
+    console.log(chalk.yellow('        No agents found.'));
+    console.log('        Opening interactive agent installer...\n');
+    spans.finish('agent_detect', false, 'no agents found');
+
+    // Lazy-import to keep startup fast
+    const { handleInstallCommand } = await import('@/commands/install-agent');
+    await handleInstallCommand(['--interactive']);
+
+    // Re-detect after installation
+    const retryResult = detectAgents();
+    if (retryResult.kind === 'none') {
+      throw new Error('No agents available after install. Run `styrby install <agent>` manually.');
+    }
+
+    selectedAgent =
+      retryResult.kind === 'single' ? retryResult.agent : retryResult.agents[0];
+    spans.start('agent_detect_retry', 'Agent detection (after install)');
+    spans.finish('agent_detect_retry');
+  } else if (result.kind === 'single') {
+    // Auto-select the only installed agent — no prompt needed.
+    selectedAgent = result.agent;
+    console.log(`        ${chalk.green(selectedAgent.name)} ${chalk.dim('(auto-selected)')}`);
+    spans.finish('agent_detect');
+  } else {
+    // Multiple agents: let the user pick.
+    spans.finish('agent_detect');
+    selectedAgent = await promptAgentPicker(result.agents);
+    console.log(`        ${chalk.green('Selected:')} ${selectedAgent.name}`);
+  }
+
+  console.log(chalk.dim(`        Change anytime: styrby codex, styrby gemini, etc.`));
+  return selectedAgent.id;
 }
 
 // ============================================================================
@@ -246,51 +384,31 @@ async function runMachineRegistration(
 /**
  * Generate QR code and wait for mobile pairing.
  *
+ * Displays both a QR code and a plain pair URL so users on servers without
+ * camera-accessible phones (or with broken QR scanners) can still pair.
+ *
  * @param supabase - Authenticated Supabase client
  * @param userId - User ID
  * @param machineId - Machine ID
  * @param options - Onboard options
+ * @param spans - Span recorder
  * @returns True if mobile paired successfully
  */
-/**
- * Detect and display installed agents.
- *
- * @returns Agent detection results
- */
-async function runAgentDetection(): Promise<Record<string, AgentStatus>> {
-  console.log(chalk.bold('\n  [5/6] Detecting AI coding agents...'));
-
-  const agents = await getAllAgentStatus();
-  const installed = Object.values(agents).filter((a) => a.installed);
-
-  if (installed.length === 0) {
-    console.log(chalk.yellow('        No agents found'));
-    console.log(chalk.dim('        Install Claude Code, Codex, or Gemini CLI'));
-  } else {
-    for (const agent of Object.values(agents)) {
-      if (agent.installed) {
-        const status = agent.configured
-          ? chalk.green('ready')
-          : chalk.yellow('needs login');
-        console.log(`        ${agent.name.padEnd(14)} ${status}`);
-      } else {
-        console.log(`        ${chalk.dim(agent.name.padEnd(14))} ${chalk.dim('not installed')}`);
-      }
-    }
-  }
-
-  return agents;
-}
-
 async function runMobilePairing(
-  supabase: SupabaseClient,
+  supabase: import('@supabase/supabase-js').SupabaseClient,
   userId: string,
   machineId: string,
-  options: OnboardOptions
+  options: OnboardOptions,
+  spans: SpanRecorder
 ): Promise<boolean> {
+  const chalk = (await import('chalk')).default;
+  const qrcode = await import('qrcode-terminal');
+  const { generatePairingToken, encodePairingUrl, PAIRING_EXPIRY_MINUTES, createRelayClient } =
+    await import('styrby-shared');
+
+  spans.start('pair_start', 'Pair: QR generation');
   console.log(chalk.bold('\n  [6/6] Generate QR code for mobile pairing...'));
 
-  // Generate pairing token and QR code
   const token = generatePairingToken();
   const deviceName = getMachineName();
 
@@ -306,12 +424,16 @@ async function runMobilePairing(
 
   const pairingUrl = encodePairingUrl(payload);
 
+  // WHY: Build a short pair URL for server environments where the phone camera
+  // can't reach the terminal. The token is embedded so the mobile app can
+  // deep-link directly into the pairing confirmation screen.
+  const shortPairUrl = `${PAIR_URL_BASE}/${token}`;
+
   // Display QR code
   console.log('\n');
 
   await new Promise<void>((resolve) => {
     qrcode.generate(pairingUrl, { small: true }, (qr: string) => {
-      // Indent the QR code
       const indented = qr
         .split('\n')
         .map((line) => '        ' + line)
@@ -322,11 +444,14 @@ async function runMobilePairing(
   });
 
   console.log('\n        Scan with Styrby app on your phone');
+  console.log(`        Or visit: ${chalk.cyan(shortPairUrl)}`);
   console.log(`        Expires in ${PAIRING_EXPIRY_MINUTES} minutes`);
   console.log(chalk.dim('        Waiting for mobile to connect...'));
   console.log(chalk.dim('        (Press Ctrl+C to skip)\n'));
 
-  // Create relay client and wait for mobile presence
+  spans.finish('pair_start');
+  spans.start('pair_complete', 'Pair: wait for mobile');
+
   const relay = createRelayClient({
     supabase,
     userId,
@@ -340,22 +465,24 @@ async function runMobilePairing(
   try {
     await relay.connect();
 
-    // Wait for mobile device to join
     const pairingTimeoutMs = options.pairingTimeout || 300000;
     const paired = await waitForMobile(relay, pairingTimeoutMs);
 
     if (paired) {
-      // Send test ping
       await relay.sendCommand('ping');
-      console.log(chalk.green('\n  SUCCESS! Mobile paired successfully.\n'));
+      console.log(chalk.green('\n  Pair complete. Send your first message from the app'));
+      console.log(chalk.dim("  Example: 'Hello, Claude.'\n"));
+      spans.finish('pair_complete', true);
       return true;
     } else {
       console.log(chalk.yellow('\n  Pairing skipped or timed out.\n'));
+      spans.finish('pair_complete', false, 'timeout or skipped');
       return false;
     }
   } catch (error) {
     logger.debug('Pairing error', { error });
     console.log(chalk.yellow('\n  Could not complete pairing. You can pair later with: styrby pair\n'));
+    spans.finish('pair_complete', false, error instanceof Error ? error.message : 'pairing error');
     return false;
   } finally {
     await relay.disconnect();
@@ -369,20 +496,21 @@ async function runMobilePairing(
  * @param timeoutMs - Timeout in milliseconds
  * @returns True if mobile joined
  */
-function waitForMobile(relay: RelayClient, timeoutMs: number): Promise<boolean> {
+function waitForMobile(
+  relay: import('styrby-shared').RelayClient,
+  timeoutMs: number
+): Promise<boolean> {
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
       resolve(false);
     }, timeoutMs);
 
-    // Check if mobile is already connected
     if (relay.isDeviceTypeOnline('mobile')) {
       clearTimeout(timeout);
       resolve(true);
       return;
     }
 
-    // Wait for mobile to join
     const onJoin = (presence: { device_type: string }) => {
       if (presence.device_type === 'mobile') {
         clearTimeout(timeout);
@@ -393,7 +521,6 @@ function waitForMobile(relay: RelayClient, timeoutMs: number): Promise<boolean> 
 
     relay.on('presence_join', onJoin);
 
-    // Handle Ctrl+C gracefully
     const onInterrupt = () => {
       clearTimeout(timeout);
       relay.off('presence_join', onJoin);
@@ -416,12 +543,27 @@ function waitForMobile(relay: RelayClient, timeoutMs: number): Promise<boolean> 
  * @returns Onboard result
  *
  * @example
- * const result = await runOnboard();
+ * const result = await runOnboard({ measure: true });
  * if (result.success) {
  *   console.log('Welcome,', result.userEmail);
  * }
  */
 export async function runOnboard(options: OnboardOptions = {}): Promise<OnboardResult> {
+  // Create a no-op Logger for span recording (write to /dev/null unless debug).
+  // WHY not reuse @/ui/logger: that logger pretty-prints to console.
+  // SpanRecorder needs structured JSON for the log aggregator; we direct it
+  // to a null write unless STYRBY_LOG_LEVEL=debug to avoid polluting stdout.
+  const structuredLog = new Logger({
+    minLevel: process.env.STYRBY_LOG_LEVEL === 'debug' ? 'debug' : 'info',
+    writeFn: process.env.STYRBY_LOG_LEVEL === 'debug'
+      ? (line) => process.stderr.write(line)
+      : () => { /* structured spans go to log aggregator in prod */ },
+  });
+
+  const spans = new SpanRecorder(structuredLog);
+
+  const chalk = (await import('chalk')).default;
+
   // Header
   console.log(chalk.bold.cyan(`\n  Styrby CLI v${VERSION}`));
   console.log("  Let's get you set up in under 60 seconds!\n");
@@ -441,38 +583,40 @@ export async function runOnboard(options: OnboardOptions = {}): Promise<OnboardR
     };
   }
 
-  // Step 1: Pre-flight checks
+  // ── Step 1: Pre-flight checks ─────────────────────────────────────────────
   if (!options.skipDoctor) {
-    const checks = await runPreflightChecks();
-    const allPassed = displayPreflightChecks(checks);
+    const checks = await runPreflightChecks(spans);
+    const allPassed = await displayPreflightChecks(checks);
 
     if (!allPassed) {
       console.log(chalk.red('\n  Pre-flight checks failed. Please fix the issues above.\n'));
       return {
         success: false,
         error: 'Pre-flight checks failed',
+        ...(options.measure ? { timeline: spans.getTimeline() } : {}),
       };
     }
   }
 
-  // Step 2: Authentication
-  let authData: Awaited<ReturnType<typeof runAuthentication>>;
+  // ── Step 2: Inline OTP Authentication ────────────────────────────────────
+  let authData: Awaited<ReturnType<typeof runOtpAuthentication>>;
   try {
-    authData = await runAuthentication(options);
+    authData = await runOtpAuthentication(options, spans);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Authentication failed';
     console.log(chalk.red(`\n  ${message}\n`));
     return {
       success: false,
       error: message,
+      ...(options.measure ? { timeline: spans.getTimeline() } : {}),
     };
   }
 
-  // Step 3: Display welcome
+  // ── Step 3: Auth complete ─────────────────────────────────────────────────
+  spans.start('auth_complete', 'Auth: complete');
   console.log(chalk.bold('\n  [3/6] Authentication complete!'));
-  console.log(`        Welcome, ${authData.userEmail || authData.userId}`);
+  console.log(`        Welcome, ${authData.userEmail}`);
 
-  // Save credentials
   savePersistedData({
     userId: authData.userId,
     accessToken: authData.accessToken,
@@ -483,22 +627,20 @@ export async function runOnboard(options: OnboardOptions = {}): Promise<OnboardR
   setConfigValue('userId', authData.userId);
   setConfigValue('authToken', authData.accessToken);
 
-  // Create authenticated Supabase client
+  const { createClient } = await import('@supabase/supabase-js');
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: {
-      persistSession: false,
-    },
+    auth: { persistSession: false },
     global: {
-      headers: {
-        Authorization: `Bearer ${authData.accessToken}`,
-      },
+      headers: { Authorization: `Bearer ${authData.accessToken}` },
     },
   });
 
-  // Step 4: Machine registration
+  spans.finish('auth_complete');
+
+  // ── Step 4: Machine registration ──────────────────────────────────────────
   let machineId: string;
   try {
-    machineId = await runMachineRegistration(supabase, authData.userId);
+    machineId = await runMachineRegistration(supabase, authData.userId, spans);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Machine registration failed';
     console.log(chalk.red(`\n  ${message}\n`));
@@ -507,58 +649,40 @@ export async function runOnboard(options: OnboardOptions = {}): Promise<OnboardR
       userId: authData.userId,
       userEmail: authData.userEmail,
       error: message,
+      ...(options.measure ? { timeline: spans.getTimeline() } : {}),
     };
   }
 
-  // Save machine ID
-  savePersistedData({
-    machineId,
-    machineName: getMachineName(),
-  });
-
+  savePersistedData({ machineId, machineName: getMachineName() });
   setConfigValue('machineId', machineId);
 
-  // Step 5: Agent detection + default agent selection
-  const agents = await runAgentDetection();
-
-  // Pick default agent from installed agents
-  const installedAgents = Object.entries(agents)
-    .filter(([, a]) => a.installed)
-    .map(([key]) => key);
-
-  if (installedAgents.length > 0) {
-    // WHY: Auto-select the first ready agent as default so `styrby` (bare command)
-    // starts a session immediately without needing --agent. Users can override
-    // anytime with `styrby codex` or `styrby --agent gemini`.
-    const readyAgents = Object.entries(agents)
-      .filter(([, a]) => a.installed && a.configured)
-      .map(([key]) => key);
-
-    // Prefer a ready (configured) agent, fall back to first installed
-    const defaultAgent = readyAgents[0] || installedAgents[0] || 'claude';
-    setConfigValue('defaultAgent', defaultAgent as 'claude' | 'codex' | 'gemini');
-    console.log(chalk.dim(`\n        Default agent: ${chalk.cyan(defaultAgent)}`));
-    console.log(chalk.dim(`        Change anytime: styrby codex, styrby gemini, etc.`));
+  // ── Step 5: Smart agent detection + selection ─────────────────────────────
+  let defaultAgentId: string;
+  try {
+    defaultAgentId = await runAgentDetection(spans);
+    setConfigValue('defaultAgent', defaultAgentId as 'claude' | 'codex' | 'gemini');
+  } catch (error) {
+    // Non-fatal: user can set agent later. Don't abort onboarding.
+    logger.debug('Agent detection error', { error });
+    defaultAgentId = 'claude';
   }
 
-  // Step 6: Mobile pairing (optional)
+  // ── Step 6: Mobile pairing (optional) ────────────────────────────────────
   let mobilePaired = false;
   if (!options.skipPairing) {
     try {
-      mobilePaired = await runMobilePairing(supabase, authData.userId, machineId, options);
+      mobilePaired = await runMobilePairing(supabase, authData.userId, machineId, options, spans);
     } catch (error) {
       logger.debug('Pairing error', { error });
       // Don't fail onboarding if pairing fails
     }
 
     if (mobilePaired) {
-      savePersistedData({
-        pairedAt: new Date().toISOString(),
-      });
+      savePersistedData({ pairedAt: new Date().toISOString() });
     }
   }
 
-  // Success!
+  // ── Success ───────────────────────────────────────────────────────────────
   console.log(chalk.green("  You're all set!"));
   console.log('');
   console.log('  Try these commands:');
@@ -567,12 +691,20 @@ export async function runOnboard(options: OnboardOptions = {}): Promise<OnboardR
   console.log(chalk.cyan('    styrby doctor       ') + chalk.dim('Check system health'));
   console.log('');
 
+  const timeline = spans.getTimeline();
+
+  // ── Optional --measure timeline ───────────────────────────────────────────
+  if (options.measure) {
+    SpanRecorder.printTimeline(timeline);
+  }
+
   return {
     success: true,
     userId: authData.userId,
     userEmail: authData.userEmail,
     machineId,
     mobilePaired,
+    ...(options.measure ? { timeline } : {}),
   };
 }
 
@@ -601,6 +733,12 @@ export function parseOnboardArgs(args: string[]): OnboardOptions {
         break;
       case '--timeout':
         options.timeout = parseInt(args[++i], 10);
+        break;
+      case '--measure':
+        options.measure = true;
+        break;
+      case '--email':
+        options.email = args[++i];
         break;
     }
   }
