@@ -26,6 +26,12 @@ export default defineConfig({
       // WHY: Mirror the tsconfig path for the cost module so vitest can
       // resolve `import ... from '@styrby/shared/cost'` during test runs.
       '@styrby/shared/cost': resolve(__dirname, '../styrby-shared/dist/cost/index.js'),
+      // WHY (Phase 1.6.6): Mirror the tsconfig path for the logging subpath
+      // so vitest can resolve `import ... from '@styrby/shared/logging'`
+      // during test runs. The subpath export in styrby-shared's package.json
+      // points to dist/logging/index.js, but vitest's Vite resolver needs an
+      // explicit alias to find it since it doesn't traverse package.json exports.
+      '@styrby/shared/logging': resolve(__dirname, '../styrby-shared/dist/logging/index.js'),
     },
   },
 });

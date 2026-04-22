@@ -26,7 +26,8 @@
       "@/*": ["./*"],
       "styrby-shared": ["../../styrby-shared/dist"],
       "@styrby/shared/pricing": ["../../styrby-shared/dist/pricing/index"],
-      "@styrby/shared/cost": ["../../styrby-shared/dist/cost/index"]
+      "@styrby/shared/cost": ["../../styrby-shared/dist/cost/index"],
+      "@styrby/shared/logging": ["../../styrby-shared/dist/logging/index"]
     }
   },
   "include": ["src/**/*"],

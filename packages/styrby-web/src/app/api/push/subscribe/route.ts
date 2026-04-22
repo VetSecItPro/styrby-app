@@ -31,6 +31,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { z } from 'zod';
 import { rateLimit, rateLimitResponse } from '@/lib/rateLimit';
+import { Logger } from '@styrby/shared/logging';
+import * as Sentry from '@sentry/nextjs';
+
+/**
+ * Structured logger for push subscription events.
+ * WHY: Push delivery failures are silent from the user's perspective.
+ * Structured logs let the founder correlate failures to specific users.
+ */
+const pushLog = new Logger({
+  minLevel: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+  sentry: {
+    addBreadcrumb: (b) => Sentry.addBreadcrumb(b),
+    captureException: (e, ctx) => Sentry.captureException(e, ctx) ?? '',
+  },
+});
 
 // ============================================================================
 // Push Service Allowlist
@@ -184,6 +199,7 @@ export async function POST(request: NextRequest) {
       );
 
     if (upsertError) {
+      pushLog.error('push.subscribe_upsert_failed', { userId: user.id }, new Error(upsertError.message));
       console.error(
         'Failed to save push subscription:',
         upsertError.message
@@ -194,8 +210,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    pushLog.info('push.subscribed', { userId: user.id, platform: 'web' });
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (error) {
+    pushLog.error(
+      'push.subscribe_unhandled_error',
+      {},
+      error instanceof Error ? error : new Error(String(error)),
+    );
     const isDev = process.env.NODE_ENV === 'development';
     console.error(
       'Push subscribe error:',

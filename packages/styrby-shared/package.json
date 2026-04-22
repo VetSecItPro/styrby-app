@@ -48,6 +48,10 @@
     "./team": {
       "types": "./dist/team/index.d.ts",
       "import": "./dist/team/index.js"
+    },
+    "./logging": {
+      "types": "./dist/logging/index.d.ts",
+      "import": "./dist/logging/index.js"
     }
   },
   "scripts": {

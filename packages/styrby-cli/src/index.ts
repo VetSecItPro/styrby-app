@@ -24,6 +24,14 @@
  * styrby status
  */
 
+// WHY Sentry must be initialised before all other imports:
+// @sentry/node patches Node.js's process.uncaughtException and
+// unhandledRejection hooks. If any module runs first and registers its own
+// hooks (or triggers an async operation that can reject), those events could
+// escape Sentry capture. The import order here is intentional — do not move.
+import { initSentry } from '@/observability/sentry';
+initSentry();
+
 import { logger } from '@/ui/logger';
 import { runCommand } from '@/cli/commandRouter';
 
