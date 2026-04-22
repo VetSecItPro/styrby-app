@@ -1,0 +1,8 @@
+{"type":"assistant","content":"Hello! I will help you with that. Let me read the source file first."}
+{"type":"tool_use","tool_name":"read_file","tool_input":{"path":"src/index.ts"},"call_id":"oc1"}
+{"type":"tool_result","tool_name":"read_file","tool_result":"export function main() { return 'hello'; }","call_id":"oc1"}
+{"type":"assistant","content":"I can see the content. Now updating the return value."}
+{"type":"tool_use","tool_name":"write_file","tool_input":{"path":"src/index.ts","content":"export function main() { return 'world'; }"},"call_id":"oc2"}
+{"type":"tool_result","tool_name":"write_file","tool_result":"success","call_id":"oc2"}
+{"type":"session","session":{"id":"oc-smoke-001","Cost":0.017,"PromptTokens":1000,"CompletionTokens":250,"TotalTokens":1250}}
+{"type":"assistant","content":"Done! The function has been updated successfully."}

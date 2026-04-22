@@ -1,0 +1,10 @@
+{"type":"status","state":"running"}
+{"type":"text_delta","delta":"Hello! I will help you with that task."}
+{"type":"text_delta","delta":" Let me read the relevant files first."}
+{"type":"tool_call","tool":"read_file","args":{"path":"src/index.ts"},"call_id":"crush-c1"}
+{"type":"tool_result","tool":"read_file","output":"export function main() { return 'hello'; }","call_id":"crush-c1"}
+{"type":"text_delta","delta":" I can see the file. Now I will update it."}
+{"type":"tool_call","tool":"write_file","args":{"path":"src/index.ts","content":"export function main() { return 'world'; }"},"call_id":"crush-c2"}
+{"type":"tool_result","tool":"write_file","output":"ok","call_id":"crush-c2"}
+{"type":"usage","usage":{"input_tokens":896,"output_tokens":192,"cache_read_input_tokens":256,"cache_creation_input_tokens":128,"cost_usd":0.014}}
+{"type":"done"}

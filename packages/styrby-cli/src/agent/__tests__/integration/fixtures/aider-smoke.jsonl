@@ -1,0 +1,14 @@
+Aider v0.52.0
+Model: gpt-4o with diff edit format
+Git repo: /tmp/smoke-repo/.git with 3 files
+Repo-map: using 1024 tokens
+Added src/index.ts to the chat.
+Hello! I will help you fix the bug in index.ts.
+I need to modify src/index.ts to export the correct value.
+src/index.ts
+```typescript
+export function main() { return 'world'; }
+```
+Wrote src/index.ts
+Applied edit to src/index.ts
+Tokens: 1,234 sent, 567 received, cost: $0.023

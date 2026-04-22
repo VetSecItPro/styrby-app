@@ -1,0 +1,6 @@
+{"type":"system","subtype":"init","session_id":"smoke-claude-001","tools":[{"name":"read_file"},{"name":"write_file"}]}
+{"type":"assistant","timestamp":"2026-04-21T00:00:01.000Z","message":{"model":"claude-sonnet-4-20250514","content":[{"type":"text","text":"Hello! I can help you with that."}],"usage":{"input_tokens":512,"output_tokens":128,"cache_read_input_tokens":0,"cache_creation_input_tokens":64}}}
+{"type":"assistant","timestamp":"2026-04-21T00:00:02.000Z","message":{"model":"claude-sonnet-4-20250514","content":[{"type":"tool_use","id":"call_001","name":"read_file","input":{"path":"src/index.ts"}}],"usage":{"input_tokens":640,"output_tokens":64,"cache_read_input_tokens":512,"cache_creation_input_tokens":0}}}
+{"type":"tool_result","tool_use_id":"call_001","content":"export function main() { return 'hello'; }"}
+{"type":"assistant","timestamp":"2026-04-21T00:00:03.000Z","message":{"model":"claude-sonnet-4-20250514","content":[{"type":"text","text":"I can see the file. Here is a summary of the main function."}],"usage":{"input_tokens":720,"output_tokens":96,"cache_read_input_tokens":640,"cache_creation_input_tokens":0}}}
+{"type":"result","subtype":"success","session_id":"smoke-claude-001","is_error":false,"result":"Task complete","usage":{"input_tokens":720,"output_tokens":288}}

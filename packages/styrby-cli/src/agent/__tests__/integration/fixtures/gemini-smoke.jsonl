@@ -1,0 +1,6 @@
+{"type":"model-output","textDelta":"Hello! I will help you with that task using Gemini."}
+{"type":"tool-call","toolName":"read_file","args":{"path":"src/index.ts"},"callId":"gem-c1"}
+{"type":"tool-result","toolName":"read_file","result":"export function main() { return 'hello'; }","callId":"gem-c1"}
+{"type":"model-output","textDelta":" I can see the file. Let me update it for you."}
+{"type":"cost-report","report":{"sessionId":"PLACEHOLDER","messageId":null,"agentType":"gemini","model":"gemini-2.5-pro","timestamp":"2026-04-21T00:00:03.000Z","source":"agent-reported","billingModel":"api-key","costUsd":0.012,"inputTokens":950,"outputTokens":200,"cacheReadTokens":0,"cacheWriteTokens":0,"rawAgentPayload":{}}}
+{"type":"status","status":"idle"}

@@ -1,0 +1,9 @@
+{"type":"message","content":"Hello! I will use my tools to help you with that task."}
+{"type":"tool_call","tool":"read_file","input":{"path":"src/index.ts"},"call_id":"g1"}
+{"type":"tool_result","tool":"read_file","result":"export function main() { return hello; }","call_id":"g1"}
+{"type":"message","content":"I see the file content. I will now update it."}
+{"type":"tool_call","tool":"write_file","input":{"path":"src/index.ts","content":"export function main() { return world; }"},"call_id":"g2"}
+{"type":"tool_result","tool":"write_file","result":"written","call_id":"g2"}
+{"type":"message","content":"The file has been updated successfully."}
+{"type":"cost","usage":{"input_tokens":980,"output_tokens":210,"cache_read_input_tokens":480,"cache_creation_input_tokens":0,"cost_usd":0.016}}
+{"type":"finish","stop_reason":"end_turn"}

@@ -1,0 +1,4 @@
+{"type":"model-output","textDelta":"Hello! I will assist you using the Codex agent."}
+{"type":"tool-call","toolName":"read_file","args":{"path":"src/index.ts"},"callId":"cdx-c1"}
+{"type":"cost-report","report":{"sessionId":"PLACEHOLDER","messageId":null,"agentType":"codex","model":"codex-latest","timestamp":"2026-04-21T00:00:03.000Z","source":"agent-reported","billingModel":"api-key","costUsd":0.009,"inputTokens":800,"outputTokens":175,"cacheReadTokens":0,"cacheWriteTokens":0,"rawAgentPayload":{}}}
+{"type":"status","status":"idle"}

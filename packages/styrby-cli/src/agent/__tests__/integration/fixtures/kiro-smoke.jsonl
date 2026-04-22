@@ -1,0 +1,9 @@
+{"type":"status","status":"starting"}
+{"type":"message","content":"Hello! I am Kiro, your AWS-native coding agent. Let me help you with that."}
+{"type":"tool_call","tool":"read_file","input":{"path":"src/index.ts"},"call_id":"kr1"}
+{"type":"tool_result","tool":"read_file","result":"export function main() { return 'hello'; }","call_id":"kr1"}
+{"type":"message","content":"I can see the file. I will make the requested change now."}
+{"type":"tool_call","tool":"write_file","input":{"path":"src/index.ts","content":"export function main() { return 'world'; }"},"call_id":"kr2"}
+{"type":"tool_result","tool":"write_file","result":"written","call_id":"kr2"}
+{"type":"usage","usage":{"credits_consumed":5,"input_tokens":920,"output_tokens":230,"cost_usd":0.05}}
+{"type":"finish","finish_reason":"stop"}

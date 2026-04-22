@@ -1,0 +1,9 @@
+{"type":"text","content":"Hello! I will analyze your codebase and help you with that.","session_id":"amp-smoke-001"}
+{"type":"tool_use","tool_name":"read_file","tool_input":{"path":"src/index.ts"},"call_id":"c1"}
+{"type":"tool_result","tool_name":"read_file","tool_result":"export function main() { return 'hello'; }","call_id":"c1"}
+{"type":"text","content":"I can see the file content. Let me update it for you.","session_id":"amp-smoke-001"}
+{"type":"tool_use","tool_name":"write_file","tool_input":{"path":"src/index.ts","content":"export function main() { return 'world'; }"},"call_id":"c2"}
+{"type":"tool_result","tool_name":"write_file","tool_result":"success","call_id":"c2"}
+{"type":"usage","usage":{"input_tokens":1024,"output_tokens":256,"cache_read_tokens":512,"cache_write_tokens":128,"cost_usd":0.018},"session_id":"amp-smoke-001"}
+{"type":"text","content":"Done! The file has been updated.","session_id":"amp-smoke-001"}
+{"type":"done","session_id":"amp-smoke-001"}
