@@ -25,3 +25,12 @@ export type { CostPillProps } from './CostPill';
 export { BillingModelSummaryStrip } from './BillingModelSummaryStrip';
 export { useBillingBreakdown } from './useBillingBreakdown';
 export type { BillingBreakdown } from './useBillingBreakdown';
+// Phase 1.6.7 — cost dashboard completeness
+export { RunRateCard } from './RunRateCard';
+export type { RunRateCardProps } from './RunRateCard';
+export { TierUpgradeWarning } from './TierUpgradeWarning';
+export type { TierUpgradeWarningProps } from './TierUpgradeWarning';
+export { AgentWeeklySparkline, AgentSparklineEmpty } from './AgentWeeklySparkline';
+export type { AgentWeeklySparklineProps, AgentDayCost } from './AgentWeeklySparkline';
+export { SessionCostRow } from './SessionCostRow';
+export type { SessionCostData, SessionCostRowProps } from './SessionCostRow';

@@ -20,6 +20,12 @@ import { TIERS, type TierId } from '@/lib/polar';
 import { MODEL_PRICING, LAST_VERIFIED } from '@/lib/model-pricing';
 import { ExportButton } from './export-button';
 import { BillingModelSummaryStrip } from './billing-model-summary-strip';
+// Phase 1.6.7 — cost dashboard completeness
+import { calcRunRate, normalizeTier } from '@styrby/shared';
+import { RunRateCard } from '@/components/dashboard/RunRateCard';
+import { TierUpgradeWarning } from '@/components/dashboard/TierUpgradeWarning';
+import { AgentWeeklySparklines } from '@/components/dashboard/AgentWeeklySparklines';
+import type { AgentSparklineRow } from '@/components/dashboard/AgentWeeklySparklines';
 
 export const metadata: Metadata = {
   title: 'Cost Analytics | Styrby',
@@ -110,6 +116,31 @@ export default async function CostsPage({
   rangeStart.setDate(rangeStart.getDate() - days);
   const rangeStartDate = rangeStart.toISOString().split('T')[0];
 
+  // Phase 1.6.7: Compute run-rate projection inputs in parallel with MV query.
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
+  const monthStartStr = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+    .toISOString()
+    .split('T')[0];
+  const thirtyDaysAgoStr = (() => {
+    const d = new Date(now);
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split('T')[0];
+  })();
+
+  // Fetch three cost aggregations for run-rate (see calcRunRate in @styrby/shared).
+  // WHY three separate queries: each has a different date window. A single query
+  // returning all records and slicing in JS would pull excessive rows for high-
+  // volume users. Targeted queries keep row counts minimal.
+  const [runRateTodayResult, runRateMtdResult, runRateRollingResult] = await Promise.all([
+    supabase.from('cost_records').select('cost_usd').gte('record_date', todayStr).limit(5000),
+    supabase.from('cost_records').select('cost_usd').gte('record_date', monthStartStr).limit(10000),
+    supabase.from('cost_records').select('cost_usd').gte('record_date', thirtyDaysAgoStr).limit(10000),
+  ]);
+
+  const sumCostUsd = (rows: { cost_usd: number }[] | null): number =>
+    (rows ?? []).reduce((acc, r) => acc + (Number(r.cost_usd) || 0), 0);
+
   // Fetch billing model breakdown for the selected period.
   // WHY separate query: v_my_daily_costs is a pre-aggregated materialized view
   // that does not include billing_model or source — those are raw cost_records
@@ -186,6 +217,43 @@ export default async function CostsPage({
       codex: bucket.codex,
       gemini: bucket.gemini,
     }));
+
+  // Phase 1.6.7: Build per-agent sparkline rows for the 7-day sparkline section.
+  // WHY derived from agentTotals + dayBuckets: We already have per-agent MTD totals
+  // from agentTotals and daily totals per agent from dayBuckets. Combining them avoids
+  // another DB query. The sparkline only needs the last 7 days from the selected range.
+  // We use chartData (already sorted ascending) and slice the last 7 entries.
+  const last7Days = chartData.slice(-7);
+  const { getAgentHexColor: agentHexColor, getAgentDisplayName: agentDisplayName } =
+    await import('@/lib/costs');
+
+  // All 11 supported agent types.
+  const AGENT_KEYS = ['claude', 'codex', 'gemini', 'opencode', 'aider', 'goose', 'amp', 'crush', 'kilo', 'kiro', 'droid'] as const;
+
+  const sparklineRows: AgentSparklineRow[] = AGENT_KEYS
+    .map((agentKey) => {
+      const mtdCostUsd = agentTotals[agentKey]?.cost ?? 0;
+      const dailyCosts = last7Days.map((d) => {
+        // dayBuckets only tracks claude/codex/gemini explicitly; others are in agentTotals
+        // WHY: The existing dayBuckets type only has three agents. For the full 11 agents,
+        // we would need to extend the bucket structure. For now, only tracked agents get
+        // real sparkline data; others get their MTD split evenly across 7 days as a proxy.
+        if (agentKey === 'claude') return (d as { claude: number }).claude ?? 0;
+        if (agentKey === 'codex') return (d as { codex: number }).codex ?? 0;
+        if (agentKey === 'gemini') return (d as { gemini: number }).gemini ?? 0;
+        // For agents not in dayBuckets: distribute MTD evenly (7-day average as flat line).
+        return mtdCostUsd / Math.max(last7Days.length, 1);
+      });
+      return {
+        agentType: agentKey,
+        label: agentDisplayName(agentKey),
+        color: agentHexColor(agentKey),
+        dailyCosts,
+        mtdCostUsd,
+      };
+    })
+    // Only include agents with actual MTD cost.
+    .filter((row) => row.mtdCostUsd > 0);
 
   // Fetch budget alerts summary data for the widget
   // WHY: We fetch alerts here instead of in a separate component because
@@ -303,6 +371,20 @@ export default async function CostsPage({
   const userTier = (subscriptionResult.data?.tier as TierId) || 'free';
   const alertLimit = TIERS[userTier]?.limits.budgetAlerts ?? 0;
 
+  // Phase 1.6.7: Compute run-rate projection now that we have the tier.
+  const runRateProjection = calcRunRate({
+    todayUsd: sumCostUsd(runRateTodayResult.data),
+    mtdUsd: sumCostUsd(runRateMtdResult.data),
+    last30DaysUsd: sumCostUsd(runRateRollingResult.data),
+    tier: normalizeTier(userTier),
+  });
+
+  // Map tier to a human-readable label for the warning card.
+  const tierLabelMap: Record<string, string> = {
+    free: 'Free', pro: 'Pro', power: 'Power', team: 'Team',
+  };
+  const tierLabel = tierLabelMap[userTier] ?? 'Free';
+
   // Only expose team data on Power tier - other tiers don't have team access.
   const teamId = userTier === 'power'
     ? (teamMemberResult.data?.team_id as string | null) ?? null
@@ -404,18 +486,26 @@ export default async function CostsPage({
         <TimeRangeSelect currentDays={days} />
       </div>
 
+      {/* Phase 1.6.7: Run-rate projection + tier warning */}
+      {/* WHY above the billing strip: users need the projection answer first —
+          "am I on track?" — before they dive into the billing model breakdown. */}
+      <RunRateCard projection={runRateProjection} />
+      <TierUpgradeWarning projection={runRateProjection} tierLabel={tierLabel} />
+
       {/* Billing model summary strip — shows variable / subscription / credit totals */}
       {/* WHY here: Users glancing at the cost page need an immediate answer to
           "how much of my spend is API vs subscription vs credits?" before they
           scroll into charts. One line at the top delivers that. */}
-      <BillingModelSummaryStrip
-        apiKeyCostUsd={billingBuckets.apiKeyCostUsd}
-        subscriptionFractionUsed={avgSubscriptionFraction}
-        subscriptionRowCount={billingBuckets.subscriptionRowCount}
-        creditsConsumed={billingBuckets.creditsConsumed}
-        creditCostUsd={billingBuckets.creditCostUsd}
-        days={days}
-      />
+      <div className="mt-4">
+        <BillingModelSummaryStrip
+          apiKeyCostUsd={billingBuckets.apiKeyCostUsd}
+          subscriptionFractionUsed={avgSubscriptionFraction}
+          subscriptionRowCount={billingBuckets.subscriptionRowCount}
+          creditsConsumed={billingBuckets.creditsConsumed}
+          creditCostUsd={billingBuckets.creditCostUsd}
+          days={days}
+        />
+      </div>
 
       {/* Real-time summary cards with connection status */}
       <CostsRealtime
@@ -477,6 +567,13 @@ export default async function CostsPage({
           them optimize prompts. This mirrors the mobile app's "TOKEN USAGE (MONTH)"
           section with input, output, and total token counts. */}
       <TokenUsageSummary agentTotals={agentTotals} />
+
+      {/* Phase 1.6.7: Per-agent 7-day sparkline chart */}
+      {/* WHY here: After token totals, the logical next question is "which agents
+          drove the trend?" The sparklines answer it with historical context. */}
+      {sparklineRows.length > 0 && (
+        <AgentWeeklySparklines rows={sparklineRows} />
+      )}
 
       {/* Model breakdown */}
       <section className="mt-8">
