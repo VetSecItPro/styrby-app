@@ -1,6 +1,23 @@
 import type { NextConfig } from 'next';
 import withSerwistInit from '@serwist/next';
 import { withSentryConfig } from '@sentry/nextjs';
+import BundleAnalyzer from '@next/bundle-analyzer';
+
+/**
+ * Bundle analyzer wrapper — only active when ANALYZE=true.
+ *
+ * WHY: @next/bundle-analyzer opens a Webpack bundle visualization in the
+ * browser after a build. Running it unconditionally would slow every build
+ * and open unwanted browser tabs in CI. Gating on the env var keeps the
+ * dev ergonomics clean: `pnpm analyze` sets ANALYZE=true, normal builds skip it.
+ *
+ * Usage: pnpm --filter styrby-web analyze
+ * (defined in package.json scripts as: ANALYZE=true next build --webpack)
+ */
+const withBundleAnalyzer = BundleAnalyzer({
+  enabled: process.env.ANALYZE === 'true',
+  openAnalyzer: process.env.ANALYZE === 'true',
+});
 
 /**
  * Content-Security-Policy header value.
@@ -336,7 +353,7 @@ const nextConfig: NextConfig = {
  * The Sentry plugin phones home with build telemetry by default. Disabling it
  * avoids leaking build metadata (timing, config shape) to Sentry's servers.
  */
-export default withSentryConfig(withSerwist(nextConfig), {
+const sentryWrapped = withSentryConfig(withSerwist(nextConfig), {
   /**
    * Sentry organization slug.
    * Can also be set via the SENTRY_ORG environment variable.
@@ -378,3 +395,12 @@ export default withSentryConfig(withSerwist(nextConfig), {
    */
   tunnelRoute: '/monitoring',
 });
+
+/**
+ * WHY withBundleAnalyzer is the outermost wrapper:
+ * Bundle analyzer must wrap the fully-composed config (including Sentry's
+ * webpack plugins) so it sees the real final webpack config that matches
+ * what the production build produces. Wrapping before Sentry would miss
+ * Sentry's injected plugins in the report.
+ */
+export default withBundleAnalyzer(sentryWrapped);
