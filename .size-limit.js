@@ -35,9 +35,18 @@ module.exports = [
   // WHY we measure gzip: The browser downloads gzip-compressed assets over the
   // wire. Raw bundle size is less relevant than what the user actually waits for.
   //
-  // WHY 600 KB: Next.js framework alone contributes ~100-150 KB gzip. With the
-  // app layout, shared utilities, Radix UI primitives, and Supabase client,
-  // a realistic first-load estimate is ~400-500 KB. 600 KB = 20% headroom.
+  // WHY 800 KB (raised from initial 600 KB projection on 2026-04-22):
+  // Next.js framework alone contributes ~100-150 KB gzip. With the app
+  // layout, shared utilities, Radix UI primitives, Supabase client, and
+  // Phase 1.6.7 dashboard (sparklines, founder ops page, tier-warning
+  // cards — Recharts lazy-loaded via dynamic import in cost-charts-dynamic.tsx),
+  // the measured real baseline on Phase 1.6.7 merge is ~725 KB gzipped.
+  // 800 KB = ~10% headroom on the measured baseline.
+  //
+  // RATCHET PLAN (Phase 1.6.13): profile the first-load chunks with
+  // `next build --profile` + size-limit --why, identify any remaining
+  // non-critical imports that can be dynamic()-ed, ratchet back toward
+  // 650-700 KB. Tracked in styrby-backlog.md as Phase 1.6.13.
   //
   // This checks ALL .js files matching the initial-chunk pattern (dash separator
   // before hash, per the existing bundle-size CI job convention).
@@ -48,12 +57,11 @@ module.exports = [
     // build-web job produces .next/static/chunks/**/*.js. We use a broad
     // glob and rely on the limit to catch regressions.
     path: 'packages/styrby-web/.next/static/chunks/!(*.*.js)',
-    limit: '600 KB',
+    limit: '800 KB',
     gzip: true,
     // WHY import: We cannot import directly from Next.js output — these are
     // already-built assets. The `import` field is omitted; size-limit will
     // stat the files and sum their sizes.
-    running: false,
   },
 
   // ─── styrby-cli: dist/index.js (raw, no gzip) ─────────────────────────────
@@ -73,7 +81,6 @@ module.exports = [
     path: 'packages/styrby-cli/dist/index.js',
     limit: '4 MB',
     gzip: false,
-    running: false,
   },
 
   // ─── styrby-cli: gzip proxy for V8 parse time ─────────────────────────────
@@ -91,7 +98,6 @@ module.exports = [
     path: 'packages/styrby-cli/dist/index.js',
     limit: '1.2 MB',
     gzip: true,
-    running: false,
   },
 
   // ─── styrby-shared: total dist output ─────────────────────────────────────
@@ -109,6 +115,5 @@ module.exports = [
     path: 'packages/styrby-shared/dist/**/*.js',
     limit: '600 KB',
     gzip: false,
-    running: false,
   },
 ];

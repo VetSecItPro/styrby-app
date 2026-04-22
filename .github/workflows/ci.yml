@@ -170,6 +170,12 @@ jobs:
           child.on('error', () => process.exit(1));
           SCRIPT
 
+      - name: Build shared (needed by CLI imports)
+        run: pnpm --filter @styrby/shared build
+
+      - name: Build CLI (needed by src/perf/__tests__/startup.test.ts)
+        run: pnpm --filter styrby-cli build
+
       - name: Run CLI tests
         run: pnpm --filter styrby-cli run test -- --coverage
 
