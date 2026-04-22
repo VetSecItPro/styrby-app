@@ -10,7 +10,17 @@ import { resolve } from 'path';
 export default defineConfig({
   test: {
     root: '.',
-    include: ['src/**/*.test.ts'],
+    include: [
+      'src/**/*.test.ts',
+      // WHY: The CLI startup benchmark test lives in scripts/perf/__tests__/
+      // (repo root, not inside this package) because the benchmark script
+      // itself is a repo-level tool rather than a CLI source file. We include
+      // it here because (a) it validates CLI binary behaviour, and (b) the
+      // `pnpm --filter styrby-cli test` invocation in CI is the right owner.
+      // The path is relative to repo root (vitest resolves from CWD = repo root
+      // when run via `pnpm --filter`).
+      '../../scripts/perf/__tests__/**/*.test.mjs',
+    ],
   },
   resolve: {
     alias: {

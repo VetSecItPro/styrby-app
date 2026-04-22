@@ -345,6 +345,68 @@ jobs:
           # Verify CLI can at least show help
           node packages/styrby-cli/bin/styrby.mjs help || echo "CLI help check completed"
 
+  # ─── CLI startup performance budget ───
+  cli-startup-budget:
+    name: CLI Startup Budget
+    runs-on: ubuntu-latest
+    # WHY needs build-cli: the benchmark runs `dist/index.js` — the compiled
+    # output. Without build-cli completing first, the binary does not exist
+    # and the benchmark exits immediately with a "not built" error.
+    needs: build-cli
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download shared build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: shared-build
+          path: packages/styrby-shared/dist/
+
+      - name: Install ripgrep and difftastic (required by CLI tests)
+        # WHY: The CLI binary imports ripgrep/difft paths at load time.
+        # Without these binaries the CLI exits non-zero, which the benchmark
+        # tolerates (it records timing even on non-zero exits), but we install
+        # them here for consistency with the test-cli job.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ripgrep
+          DIFFT_VERSION="0.63.0"
+          curl -fsSL "https://github.com/Wilfred/difftastic/releases/download/${DIFFT_VERSION}/difft-x86_64-unknown-linux-gnu.tar.gz" | sudo tar -xz -C /usr/local/bin
+          mkdir -p packages/styrby-cli/tools/unpacked
+          ln -sf "$(which difft)" packages/styrby-cli/tools/unpacked/difft
+          mkdir -p packages/styrby-cli/scripts
+          cat > packages/styrby-cli/scripts/ripgrep_launcher.cjs << 'SCRIPT'
+          const { spawn } = require('child_process');
+          const args = JSON.parse(process.argv[2] || '[]');
+          const child = spawn('rg', args, { stdio: 'inherit' });
+          child.on('close', (code) => process.exit(code || 0));
+          child.on('error', () => process.exit(1));
+          SCRIPT
+
+      - name: Build CLI
+        run: pnpm --filter styrby-cli run build
+
+      - name: Run CLI startup benchmark
+        # Thresholds (from docs/performance/performance-budgets.md):
+        #   styrby --version: median < 150 ms  (Nielsen "instant" threshold)
+        #   styrby status:    median < 500 ms  (matches git/gh status SLOs)
+        #
+        # WHY hard-fail (no continue-on-error): startup regressions on these
+        # two commands are detectable reliably — they don't depend on network
+        # or external services. A regression here always means a code change
+        # on the critical import path, which is worth blocking on.
+        run: node scripts/perf/cli-startup-benchmark.mjs
+
   # ─── Web package build ───
   build-web:
     name: Build Web
@@ -499,7 +561,10 @@ jobs:
     needs: build-web
     # WHY continue-on-error: Lighthouse scores can vary between runs due to
     # CI environment resource contention. We report the scores but do not
-    # block the pipeline on minor score fluctuations.
+    # block the pipeline on minor score fluctuations. The FCP threshold
+    # (1500 ms) is set as "warn" not "error" for the same reason — CI runner
+    # latency inflates measured FCP vs. production CDN delivery. Authoritative
+    # FCP numbers come from Vercel Analytics (real users, real CDN).
     continue-on-error: true
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -544,7 +609,7 @@ jobs:
             sleep 1
           done
 
-          # Run Lighthouse against the local server
+          # Run Lighthouse against the local server.
           # WHY custom assertions instead of lighthouse:no-pwa preset:
           # The preset fails on CI-specific artifacts: color-contrast=0 (dark mode
           # not rendered in headless Chrome), errors-in-console=0 (Supabase logs
@@ -553,6 +618,19 @@ jobs:
           # (Next.js always ships hydration fallbacks). These are false positives
           # in CI — real Lighthouse scores must be measured against the live
           # production deployment, not a local build with placeholder env vars.
+          #
+          # FCP BUDGET: first-contentful-paint warn threshold = 1500 ms.
+          # WHY "warn" not "error": CI runner timing variance (+-15-20%) means a
+          # hard fail here would produce flaky PR gates. The budget is still
+          # visible in the Step Summary so reviewers can track trends. Switch to
+          # "error" once we baseline 5+ consecutive runs below 1200 ms on
+          # ubuntu-latest and confirm the budget has sufficient headroom.
+          #
+          # LCP BUDGET: largest-contentful-paint warn threshold = 2500 ms.
+          # This is Google's Core Web Vitals "Good" boundary (P75 < 2.5 s).
+          #
+          # TBT BUDGET: total-blocking-time warn threshold = 200 ms.
+          # Correlated with INP; proxy for JS main-thread saturation.
           lhci autorun \
             --collect.url=http://localhost:3000 \
             --collect.numberOfRuns=1 \
@@ -563,10 +641,27 @@ jobs:
             --assert.assertions.modern-image-formats=off \
             --assert.assertions.offscreen-images=off \
             --assert.assertions.unused-css-rules=off \
-            --assert.assertions.unused-javascript=off
+            --assert.assertions.unused-javascript=off \
+            "--assert.assertions.first-contentful-paint=[\"warn\",{\"maxNumericValue\":1500}]" \
+            "--assert.assertions.largest-contentful-paint=[\"warn\",{\"maxNumericValue\":2500}]" \
+            "--assert.assertions.total-blocking-time=[\"warn\",{\"maxNumericValue\":200}]"
 
-          echo "## Lighthouse Results" >> $GITHUB_STEP_SUMMARY
-          echo "Lighthouse audit completed. Check annotations for details." >> $GITHUB_STEP_SUMMARY
+          # Write a structured perf budget summary to the Step Summary tab.
+          # WHY: Reviewers can see FCP/LCP/TBT results without opening the
+          # full Lighthouse report. Values appear in the PR Checks tab.
+          {
+            echo "## Lighthouse Performance Budget"
+            echo ""
+            echo "| Metric | Budget | Enforcement |"
+            echo "|--------|--------|-------------|"
+            echo "| First Contentful Paint (FCP) | < 1,500 ms | warn (CI variance; see Vercel Analytics for production P75) |"
+            echo "| Largest Contentful Paint (LCP) | < 2,500 ms | warn |"
+            echo "| Total Blocking Time (TBT) | < 200 ms | warn |"
+            echo ""
+            echo "> CI measurements include runner latency. Production FCP is lower"
+            echo "> due to Vercel CDN and edge caching. Vercel Analytics is the"
+            echo "> authoritative source for P75 FCP in production."
+          } >> "$GITHUB_STEP_SUMMARY"
 
           # Clean up
           kill $SERVER_PID 2>/dev/null || true
@@ -585,7 +680,7 @@ jobs:
           name: nextjs-build
           path: packages/styrby-web/.next
 
-      # Bundle size thresholds (reviewed 2026-04-20):
+      # Bundle size thresholds (reviewed 2026-04-21):
       #   Initial-load chunks: 500KB warn, 750KB fail
       #   Async-loaded chunks: tracked but never fail CI (loaded on demand,
       #   don't affect initial page weight). Next.js names async chunks
@@ -595,11 +690,27 @@ jobs:
       #   The libsodium WASM (~700KB) is intentionally async-loaded and only
       #   fetched when a user opens an encrypted session. Counting it against
       #   the initial budget would be misleading.
+      #
+      #   Per-PR delta: The table written to $GITHUB_STEP_SUMMARY includes a
+      #   "Budget" column showing the hard-fail threshold for each chunk so
+      #   reviewers can see at a glance how far a chunk is from its limit.
+      #   This table appears in the PR Checks tab without opening the job log.
       - name: Check bundle sizes
         run: |
-          echo "## Bundle Size Report" >> $GITHUB_STEP_SUMMARY
-          echo '| File | Size | Load |' >> $GITHUB_STEP_SUMMARY
-          echo '|------|------|------|' >> $GITHUB_STEP_SUMMARY
+          # WHY WARN_KB/FAIL_KB defined here: centralises the threshold so the
+          # table header and per-row logic both reference the same values.
+          WARN_KB=500
+          FAIL_KB=750
+
+          {
+            echo "## Bundle Size Report"
+            echo ""
+            echo "Thresholds: initial chunks warn > ${WARN_KB} KB, fail > ${FAIL_KB} KB."
+            echo "Async chunks are tracked but never block CI (loaded on demand)."
+            echo ""
+            echo "| File | Size | Load | Budget | Status |"
+            echo "|------|------|------|--------|--------|"
+          } >> "$GITHUB_STEP_SUMMARY"
 
           WARN=0
           FAIL=0
@@ -619,22 +730,30 @@ jobs:
               LOAD="initial"
             fi
 
-            if [ "$LOAD" = "initial" ] && [ "$SIZE_KB" -gt 750 ]; then
-              echo "| \`$NAME\` | **${SIZE_KB}KB** :x: | $LOAD |" >> $GITHUB_STEP_SUMMARY
+            if [ "$LOAD" = "initial" ] && [ "$SIZE_KB" -gt "$FAIL_KB" ]; then
+              echo "| \`$NAME\` | **${SIZE_KB} KB** | $LOAD | ${FAIL_KB} KB | :x: OVER BUDGET |" >> "$GITHUB_STEP_SUMMARY"
               FAIL=$((FAIL + 1))
-            elif [ "$LOAD" = "initial" ] && [ "$SIZE_KB" -gt 500 ]; then
-              echo "| \`$NAME\` | **${SIZE_KB}KB** :warning: | $LOAD |" >> $GITHUB_STEP_SUMMARY
+            elif [ "$LOAD" = "initial" ] && [ "$SIZE_KB" -gt "$WARN_KB" ]; then
+              echo "| \`$NAME\` | **${SIZE_KB} KB** | $LOAD | ${FAIL_KB} KB | :warning: approaching limit |" >> "$GITHUB_STEP_SUMMARY"
               WARN=$((WARN + 1))
             elif [ "$SIZE_KB" -gt 200 ]; then
-              echo "| \`$NAME\` | ${SIZE_KB}KB | $LOAD |" >> $GITHUB_STEP_SUMMARY
+              # Report all chunks > 200 KB so reviewers can track size growth
+              # across PRs even when no threshold is breached.
+              if [ "$LOAD" = "initial" ]; then
+                echo "| \`$NAME\` | ${SIZE_KB} KB | $LOAD | ${FAIL_KB} KB | :white_check_mark: |" >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "| \`$NAME\` | ${SIZE_KB} KB | $LOAD | n/a | :white_check_mark: |" >> "$GITHUB_STEP_SUMMARY"
+              fi
             fi
           done
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Chunks > 500KB: $WARN warnings, $FAIL failures" >> $GITHUB_STEP_SUMMARY
+          {
+            echo ""
+            echo "**Summary:** Initial chunks — ${WARN} warning(s), ${FAIL} failure(s)"
+          } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$FAIL" -gt 0 ]; then
-            echo "::error::$FAIL chunk(s) exceed 750KB limit"
+            echo "::error::$FAIL initial chunk(s) exceed the ${FAIL_KB} KB hard limit"
             exit 1
           fi
 
@@ -642,7 +761,7 @@ jobs:
   summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [quality, test-shared, test-cli, test-web, security, build-shared, build-cli, build-web, build-mobile, e2e, bundle-size, lighthouse]
+    needs: [quality, test-shared, test-cli, test-web, security, build-shared, build-cli, build-web, build-mobile, e2e, bundle-size, lighthouse, cli-startup-budget]
     if: always()
     steps:
       - name: Evaluate results
@@ -678,6 +797,7 @@ jobs:
           check_job "Build Mobile" "${{ needs.build-mobile.result }}"
           check_job "E2E Tests" "${{ needs.e2e.result }}"
           check_job "Bundle Size" "${{ needs.bundle-size.result }}"
+          check_job "CLI Startup Budget" "${{ needs.cli-startup-budget.result }}"
           # WHY: Lighthouse scores vary in CI. Report but don't block.
           if [ "${{ needs.lighthouse.result }}" = "success" ]; then
             echo "| Lighthouse PWA | :white_check_mark: passed |" >> $GITHUB_STEP_SUMMARY
