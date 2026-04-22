@@ -237,7 +237,7 @@ function PostmortemCard({ item }: { item: PostmortemItem }) {
         {dur != null && (
           <span className="text-xs text-zinc-500">{dur} min</span>
         )}
-        <span className="ml-auto text-xs text-zinc-600">{date}</span>
+        <span className="ml-auto text-xs text-zinc-400">{date}</span>
       </div>
 
       {item.reason && (

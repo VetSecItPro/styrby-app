@@ -163,7 +163,7 @@ export function NpsTab({ initialData, window }: NpsTabProps) {
                       {comment.window === '7d' ? '7-day survey' : '30-day survey'}
                     </span>
                   )}
-                  <span className="ml-auto text-xs text-zinc-600">
+                  <span className="ml-auto text-xs text-zinc-400">
                     {new Date(comment.created_at).toLocaleDateString()}
                   </span>
                 </div>
