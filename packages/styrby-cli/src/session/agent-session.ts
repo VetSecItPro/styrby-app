@@ -39,6 +39,23 @@ import { RelayClient, createRelayClient } from 'styrby-shared';
 import { SessionStorage, type SessionStatus } from './session-storage';
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/**
+ * Minimum offline duration (ms) before a reconnect triggers a push notification.
+ *
+ * WHY 5 minutes: Short blips (Wi-Fi handoff, sleep/wake, pocket-mode disconnects)
+ * resolve within seconds. Notifying for those would be noisy and meaningless.
+ * 5 minutes is the threshold where the user has likely switched context — moved
+ * away from their desk, gone to a meeting, put the phone down — and genuinely
+ * needs a "the daemon is back" signal to know they can resume the session.
+ * This matches the industry heuristic used by Slack, GitHub Actions, and
+ * other developer tools that suppress flap notifications below 5 minutes.
+ */
+export const OFFLINE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -127,6 +144,15 @@ export interface SessionEvents {
   mobileDisconnected: { deviceId: string };
   /** Message received from mobile */
   messageFromMobile: { content: string };
+  /**
+   * Daemon reconnected after being offline for longer than OFFLINE_THRESHOLD_MS.
+   *
+   * WHY: When the relay reconnects after a short blip we stay silent. Only
+   * when offline duration exceeds the threshold (5 min by default) do we emit
+   * this event, which triggers a push notification so the user knows they can
+   * resume their session. See reconnectNotifier.ts for the push logic.
+   */
+  'reconnected-after-offline': { offlineDurationMs: number };
 }
 
 // ============================================================================
@@ -147,6 +173,17 @@ export class AgentSession extends EventEmitter {
   private agentStatus: AgentStatus | null = null;
   private stats: SessionStats;
   private outputBuffer: string = '';
+
+  /**
+   * Timestamp set when the relay emits `disconnected`. Cleared (set to null)
+   * after a successful reconnect that triggers the push notification.
+   *
+   * WHY: We only want to notify when the daemon has been offline long enough
+   * that the user has likely left context. Recording `disconnected` time lets
+   * us measure exact offline duration on `subscribed` so we can suppress
+   * ephemeral blips (Wi-Fi handoff, sleep/wake) below OFFLINE_THRESHOLD_MS.
+   */
+  private lastOfflineAt: Date | null = null;
 
   /**
    * UUID for this specific agent session run.
@@ -379,6 +416,33 @@ export class AgentSession extends EventEmitter {
       this.persistRelayState('running').catch((err) =>
         this.log('Failed to persist relay connected state', { err })
       );
+
+      // Check if we were offline long enough to notify the user.
+      // WHY: Only notify when lastOfflineAt is set (i.e. we went through
+      // 'disconnected' before this 'subscribed') and the duration exceeds
+      // OFFLINE_THRESHOLD_MS. This suppresses ephemeral blips (sleep/wake,
+      // Wi-Fi handoff) that resolve in seconds and are meaningless to the user.
+      if (this.lastOfflineAt !== null) {
+        const offlineDurationMs = Date.now() - this.lastOfflineAt.getTime();
+        if (offlineDurationMs > OFFLINE_THRESHOLD_MS) {
+          this.emit('reconnected-after-offline', { offlineDurationMs });
+        }
+        // Reset regardless — each offline window is tracked independently.
+        this.lastOfflineAt = null;
+      }
+    });
+
+    this.relay.on('disconnected', () => {
+      // Record disconnect timestamp so we can measure offline duration on
+      // the next 'subscribed' event. We intentionally overwrite any previous
+      // value: if the relay bounces multiple times while still offline, the
+      // first disconnect timestamp is the one that matters for duration.
+      if (this.lastOfflineAt === null) {
+        this.lastOfflineAt = new Date();
+        this.log('Relay disconnected, tracking offline start', {
+          lastOfflineAt: this.lastOfflineAt.toISOString(),
+        });
+      }
     });
 
     this.relay.on('reconnecting', () => {

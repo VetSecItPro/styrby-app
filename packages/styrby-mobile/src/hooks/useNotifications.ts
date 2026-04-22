@@ -47,6 +47,11 @@ interface NotificationData {
   screen?: NotificationScreen;
   /** Session ID to pass to the destination screen as a query parameter */
   sessionId?: string;
+  /**
+   * Machine ID included in daemon_reconnected payloads for context.
+   * Not used for routing but available to the screen for display.
+   */
+  machineId?: string;
 }
 
 /**
@@ -56,6 +61,9 @@ interface NotificationData {
  * and cannot be trusted. Validating with Zod prevents crashes from malformed
  * payloads while still allowing the app to handle partially valid data via
  * optional fields.
+ *
+ * `daemon_reconnected` was added in Phase 1.6.2 PR-7 to support deep-linking
+ * to a session when the CLI daemon reconnects after being offline >5 minutes.
  */
 const NotificationDataSchema = z.object({
   type: z.enum([
@@ -65,6 +73,7 @@ const NotificationDataSchema = z.object({
     'error',
     'agent_message',
     'budget_alert',
+    'daemon_reconnected',
   ]).optional(),
   screen: z.enum(['chat', 'dashboard', 'sessions', 'costs', 'settings']).optional(),
   sessionId: z.string().optional(),
@@ -239,6 +248,22 @@ export function useNotifications(): UseNotificationsResult {
 
         case 'budget_alert':
           router.push('/(tabs)/costs');
+          break;
+
+        case 'daemon_reconnected':
+          // WHY: Route daemon reconnect notifications to the chat screen for
+          // the specific session so the user can immediately resume their
+          // conversation with the agent. Falls back to the sessions list if
+          // no sessionId is present (should not happen in practice but we must
+          // handle it gracefully so the notification tap is never a dead end).
+          if (data.sessionId) {
+            router.push({
+              pathname: '/(tabs)/chat',
+              params: { sessionId: data.sessionId },
+            });
+          } else {
+            router.push('/(tabs)/sessions');
+          }
           break;
 
         default:

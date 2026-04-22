@@ -11,6 +11,11 @@ import { supabase } from '@/lib/supabase';
 
 /**
  * Notification types we send from Styrby
+ *
+ * `daemon_reconnected` was added in Phase 1.6.2 PR-7. Emitted by the CLI
+ * daemon when it reconnects to the Supabase relay after being offline for
+ * longer than OFFLINE_THRESHOLD_MS (5 minutes). The mobile app deep-links
+ * to the session detail screen so the user can resume immediately.
  */
 export type NotificationType =
   | 'permission_request'
@@ -18,7 +23,8 @@ export type NotificationType =
   | 'session_ended'
   | 'error'
   | 'budget_alert'
-  | 'agent_message';
+  | 'agent_message'
+  | 'daemon_reconnected';
 
 /**
  * Notification payload structure
