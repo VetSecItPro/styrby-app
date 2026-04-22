@@ -12,9 +12,17 @@
  * and offline-storage as "persist to cloud when online."
  *
  * Uses expo-sqlite for persistent storage that survives app restarts.
+ *
+ * Storage quota hardening (Phase 1.6.3):
+ * - saveCommand() checks free disk space via expo-file-system before writing.
+ * - If < STORAGE_LOW_THRESHOLD_BYTES, emits 'storage-low' event and skips
+ *   non-essential writes (metadata-only payloads).
+ * - If the write fails with a quota/disk-full error, clearSynced() is called
+ *   automatically and the write is retried once.
  */
 
 import * as SQLite from 'expo-sqlite';
+import * as FileSystem from 'expo-file-system';
 
 // ============================================================================
 // Types
@@ -50,7 +58,32 @@ export interface SaveCommandInput {
   payload: Record<string, unknown>;
   /** Optional custom timestamp; defaults to now */
   created_at?: string;
+  /**
+   * Whether this is a metadata-only (non-essential) write.
+   *
+   * WHY: When storage is critically low we skip non-essential writes to
+   * preserve space for user-originated messages (chat, permission responses).
+   * Metadata-only writes (e.g., UI state snapshots, analytics) are marked
+   * `isMetadata: true` so they can be safely dropped under pressure.
+   */
+  isMetadata?: boolean;
 }
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/**
+ * Free-disk threshold below which non-essential writes are suppressed.
+ *
+ * WHY 50 MB: Consistent with offline-queue.ts. Both layers share the same
+ * threshold so the user receives a single coherent warning banner rather than
+ * two independent warnings at different levels.
+ */
+const STORAGE_LOW_THRESHOLD_BYTES = 50 * 1024 * 1024; // 50 MB
+
+/** Listeners notified when storage drops below threshold */
+const storageLowListeners = new Set<() => void>();
 
 // ============================================================================
 // Database Setup
@@ -96,23 +129,93 @@ async function initDatabase(): Promise<SQLite.SQLiteDatabase> {
 }
 
 // ============================================================================
+// Storage Quota Guard
+// ============================================================================
+
+/**
+ * Checks whether the device is critically low on disk storage.
+ *
+ * Uses expo-file-system's getFreeDiskStorageAsync() as React Native does not
+ * expose the WHATWG Storage API (navigator.storage.estimate()).
+ *
+ * WHY emit event instead of throw: Storage pressure is not a fatal error for
+ * the calling code — it is a signal for the UI to warn the user. Throwing
+ * would propagate through saveCommand() and abort message delivery unnecessarily.
+ * The caller decides whether to skip non-essential writes based on the return value.
+ *
+ * @returns `true` if free bytes < STORAGE_LOW_THRESHOLD_BYTES, `false` otherwise
+ */
+async function checkStorageQuota(): Promise<boolean> {
+  try {
+    const freeBytes = await FileSystem.getFreeDiskStorageAsync();
+    if (freeBytes < STORAGE_LOW_THRESHOLD_BYTES) {
+      for (const listener of storageLowListeners) {
+        try { listener(); } catch { /* never let a listener crash the queue */ }
+      }
+      return true;
+    }
+    return false;
+  } catch {
+    // API unavailable (e.g., test environment) — allow write to proceed
+    return false;
+  }
+}
+
+/**
+ * Subscribe to storage-low events from the offline storage layer.
+ *
+ * @param listener - Called whenever storage drops below the threshold
+ * @returns Unsubscribe function
+ *
+ * @example
+ * const unsub = onStorageLow(() => setShowStorageWarning(true));
+ * return () => unsub();
+ */
+export function onStorageLow(listener: () => void): () => void {
+  storageLowListeners.add(listener);
+  return () => storageLowListeners.delete(listener);
+}
+
+// ============================================================================
 // Storage Adapter
 // ============================================================================
 
 /**
  * Saves a command to local SQLite storage for later sync to Supabase.
  *
+ * Storage-quota behaviour:
+ * - If storage is low AND `isMetadata` is true, the write is skipped and
+ *   `null` is returned. This prevents analytics/metadata noise from consuming
+ *   the last available bytes before a user message is queued.
+ * - If storage is low AND `isMetadata` is false (default), the write proceeds.
+ * - If the write throws a QuotaExceededError, clearSynced() is called to free
+ *   space and the write is retried once.
+ *
  * @param command - The command data to persist locally
- * @returns The full StoredCommand record that was written
+ * @returns The full StoredCommand record that was written, or `null` if skipped
  *
  * @example
- * await saveCommand({
+ * const result = await saveCommand({
  *   command_type: 'chat',
  *   payload: { content: 'Hello', agent: 'claude' },
  * });
+ * if (!result) {
+ *   console.warn('Storage critically low — non-essential write skipped');
+ * }
  */
-export async function saveCommand(command: SaveCommandInput): Promise<StoredCommand> {
+export async function saveCommand(command: SaveCommandInput): Promise<StoredCommand | null> {
   const database = await initDatabase();
+
+  const isLow = await checkStorageQuota();
+
+  // WHY skip non-essential writes when storage is low:
+  // Metadata writes (UI state snapshots, analytics events) are safe to drop
+  // under storage pressure. User-originated messages (command_type 'chat',
+  // 'permission_response', 'cancel') are never marked isMetadata and always
+  // proceed — losing those would damage user trust.
+  if (isLow && command.isMetadata) {
+    return null;
+  }
 
   const stored: StoredCommand = {
     id: command.id ?? crypto.randomUUID(),
@@ -122,11 +225,33 @@ export async function saveCommand(command: SaveCommandInput): Promise<StoredComm
     synced: false,
   };
 
-  await database.runAsync(
-    `INSERT INTO offline_storage (id, command_type, payload, created_at, synced)
-     VALUES (?, ?, ?, ?, ?)`,
-    [stored.id, stored.command_type, stored.payload, stored.created_at, 0]
-  );
+  const doInsert = async () => {
+    await database.runAsync(
+      `INSERT INTO offline_storage (id, command_type, payload, created_at, synced)
+       VALUES (?, ?, ?, ?, ?)`,
+      [stored.id, stored.command_type, stored.payload, stored.created_at, 0]
+    );
+  };
+
+  try {
+    await doInsert();
+  } catch (err) {
+    const isQuota =
+      err instanceof Error &&
+      (err.message.includes('QuotaExceededError') ||
+        err.message.includes('disk full') ||
+        err.message.includes('SQLITE_FULL'));
+
+    if (isQuota) {
+      // WHY clearSynced before retry: synced rows are server-confirmed and safe
+      // to drop locally. This frees enough space for the current write without
+      // discarding any un-synced user messages.
+      await clearSynced();
+      await doInsert(); // retry once — if it fails again, let it propagate
+    } else {
+      throw err;
+    }
+  }
 
   return stored;
 }
@@ -176,6 +301,8 @@ export async function markSynced(id: string): Promise<void> {
  *
  * WHY: Once commands are confirmed in Supabase, the local copies are
  * unnecessary. Periodic cleanup prevents unbounded SQLite growth.
+ * Also called as the quota-recovery path in saveCommand() when a
+ * QuotaExceededError is caught.
  *
  * @returns The number of rows deleted
  *
@@ -211,4 +338,20 @@ function rowToStoredCommand(row: Record<string, unknown>): StoredCommand {
     created_at: row.created_at as string,
     synced: (row.synced as number) === 1,
   };
+}
+
+/**
+ * Test utility: resets the module-level SQLite db handle so each test
+ * starts from a clean state.
+ *
+ * WHY: The module-level `db` reference persists across Jest tests within
+ * the same file. Calling this in beforeEach ensures the test mock's db
+ * instance is used on every test, preventing stale handle bleed.
+ *
+ * ONLY call from test files — never in production code.
+ *
+ * @internal
+ */
+export function __resetDbForTests(): void {
+  db = null;
 }

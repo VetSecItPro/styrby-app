@@ -114,6 +114,8 @@ import {
   getPendingCommands,
   markSynced,
   clearSynced,
+  onStorageLow,
+  __resetDbForTests,
   type SaveCommandInput,
 } from '../offline-storage';
 
@@ -123,11 +125,19 @@ import {
 
 describe('Offline Storage Service', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    // WHY mockClear() instead of clearAllMocks(): clearAllMocks() wipes mock
+    // implementations (the async functions) back to undefined, causing subsequent
+    // tests to fail. mockClear() only resets call counts, preserving implementations.
+    mockRunAsync.mockClear();
+    mockGetAllAsync.mockClear();
+    mockExecAsync.mockClear();
     mockStorageRows.clear();
     sqlCalls = [];
     uuidCounter = 0;
+    // Reset module-level db handle so initDatabase() runs fresh each test
+    __resetDbForTests();
     // Re-apply mock db
+    (SQLite.openDatabaseAsync as jest.Mock).mockClear();
     (SQLite.openDatabaseAsync as jest.Mock).mockResolvedValue(mockDb);
   });
 
@@ -147,8 +157,10 @@ describe('Offline Storage Service', () => {
 
     it('does not re-initialize on subsequent operations (singleton db)', async () => {
       // WHY: The module-level `db` variable is set after the first init.
-      // Subsequent calls skip initDatabase() entirely.
-      mockExecAsync.mockClear();
+      // Subsequent calls skip initDatabase() entirely — execAsync is only
+      // called once across multiple saveCommand() calls.
+      await saveCommand({ command_type: 'chat', payload: { content: 'init-call' } });
+      mockExecAsync.mockClear(); // clear after first init
 
       await saveCommand({ command_type: 'chat', payload: { content: 'no-reinit' } });
 
@@ -170,11 +182,11 @@ describe('Offline Storage Service', () => {
 
       const result = await saveCommand(input);
 
-      expect(result.id).toBeDefined();
-      expect(result.command_type).toBe('chat');
-      expect(result.payload).toBe(JSON.stringify({ content: 'hello', agent: 'claude' }));
-      expect(result.created_at).toBeDefined();
-      expect(result.synced).toBe(false);
+      expect(result!.id).toBeDefined();
+      expect(result!.command_type).toBe('chat');
+      expect(result!.payload).toBe(JSON.stringify({ content: 'hello', agent: 'claude' }));
+      expect(result!.created_at).toBeDefined();
+      expect(result!.synced).toBe(false);
     });
 
     it('uses provided custom ID when supplied', async () => {
@@ -186,7 +198,7 @@ describe('Offline Storage Service', () => {
 
       const result = await saveCommand(input);
 
-      expect(result.id).toBe('custom-id-123');
+      expect(result!.id).toBe('custom-id-123');
     });
 
     it('uses provided custom timestamp when supplied', async () => {
@@ -199,7 +211,7 @@ describe('Offline Storage Service', () => {
 
       const result = await saveCommand(input);
 
-      expect(result.created_at).toBe(customTimestamp);
+      expect(result!.created_at).toBe(customTimestamp);
     });
 
     it('JSON-serializes the payload object', async () => {
@@ -214,7 +226,7 @@ describe('Offline Storage Service', () => {
         payload: complexPayload,
       });
 
-      expect(result.payload).toBe(JSON.stringify(complexPayload));
+      expect(result!.payload).toBe(JSON.stringify(complexPayload));
     });
 
     it('stores synced as false (0) in the database', async () => {
@@ -255,12 +267,14 @@ describe('Offline Storage Service', () => {
         payload: { content: 'typed' },
       });
 
+      // result is non-null because isMetadata was not set
+      expect(result).not.toBeNull();
       // Verify all StoredCommand properties exist
-      expect(result).toHaveProperty('id');
-      expect(result).toHaveProperty('command_type');
-      expect(result).toHaveProperty('payload');
-      expect(result).toHaveProperty('created_at');
-      expect(result).toHaveProperty('synced');
+      expect(result!).toHaveProperty('id');
+      expect(result!).toHaveProperty('command_type');
+      expect(result!).toHaveProperty('payload');
+      expect(result!).toHaveProperty('created_at');
+      expect(result!).toHaveProperty('synced');
     });
 
     it('saves an empty payload object', async () => {
@@ -269,7 +283,7 @@ describe('Offline Storage Service', () => {
         payload: {},
       });
 
-      expect(result.payload).toBe('{}');
+      expect(result!.payload).toBe('{}');
     });
   });
 
@@ -558,7 +572,7 @@ describe('Offline Storage Service', () => {
         payload: { content: 'Hello "world" & <test> \'quotes\'' },
       });
 
-      expect(result.payload).toBe(
+      expect(result!.payload).toBe(
         JSON.stringify({ content: 'Hello "world" & <test> \'quotes\'' })
       );
     });
@@ -570,7 +584,7 @@ describe('Offline Storage Service', () => {
         payload: { content: longContent },
       });
 
-      const parsed = JSON.parse(result.payload);
+      const parsed = JSON.parse(result!.payload);
       expect(parsed.content).toHaveLength(10000);
     });
 
@@ -595,12 +609,15 @@ describe('Offline Storage Service', () => {
   // ==========================================================================
 
   describe('saveCommand() — SQLite write failure', () => {
-    it('propagates error when runAsync throws (e.g. SQLITE_FULL)', async () => {
-      mockRunAsync.mockRejectedValueOnce(new Error('SQLITE_FULL'));
+    it('propagates non-quota errors immediately (e.g. SQLITE_CORRUPT)', async () => {
+      // WHY SQLITE_CORRUPT not SQLITE_FULL: SQLITE_FULL triggers the quota-recovery
+      // path (clearSynced + retry). SQLITE_CORRUPT is a structural error that is
+      // NOT retried and should propagate to the caller.
+      mockRunAsync.mockRejectedValueOnce(new Error('SQLITE_CORRUPT'));
 
       await expect(
         saveCommand({ command_type: 'chat', payload: { content: 'fail-write' } })
-      ).rejects.toThrow('SQLITE_FULL');
+      ).rejects.toThrow('SQLITE_CORRUPT');
     });
   });
 
@@ -609,6 +626,149 @@ describe('Offline Storage Service', () => {
       mockGetAllAsync.mockRejectedValueOnce(new Error('SQLITE_CORRUPT'));
 
       await expect(getPendingCommands()).rejects.toThrow('SQLITE_CORRUPT');
+    });
+  });
+
+  // ==========================================================================
+  // Storage-quota guard (Phase 1.6.3)
+  // ==========================================================================
+
+  describe('saveCommand() — storage quota guard', () => {
+    beforeEach(() => {
+      // Reset FileSystem mock to default (ample space) before each quota test
+      const FileSystem = require('expo-file-system');
+      (FileSystem.getFreeDiskStorageAsync as jest.Mock).mockResolvedValue(
+        10 * 1024 * 1024 * 1024 // 10 GB default
+      );
+    });
+
+    it('returns null for isMetadata writes when storage is critically low', async () => {
+      const FileSystem = require('expo-file-system');
+      (FileSystem.getFreeDiskStorageAsync as jest.Mock).mockResolvedValue(
+        10 * 1024 * 1024 // 10 MB — below 50 MB threshold
+      );
+
+      const result = await saveCommand({
+        command_type: 'analytics',
+        payload: { event: 'page_view' },
+        isMetadata: true,
+      });
+
+      expect(result).toBeNull();
+      // Should NOT have inserted anything
+      const insertCalls = mockRunAsync.mock.calls.filter(
+        (call) => typeof call[0] === 'string' && call[0].includes('INSERT')
+      );
+      expect(insertCalls).toHaveLength(0);
+    });
+
+    it('still writes non-metadata commands when storage is critically low', async () => {
+      const FileSystem = require('expo-file-system');
+      (FileSystem.getFreeDiskStorageAsync as jest.Mock).mockResolvedValue(
+        10 * 1024 * 1024 // 10 MB — below threshold
+      );
+
+      const result = await saveCommand({
+        command_type: 'chat',
+        payload: { content: 'user message' },
+        // isMetadata not set — defaults to false (essential write)
+      });
+
+      expect(result).not.toBeNull();
+      expect(result!.command_type).toBe('chat');
+    });
+
+    it('retries write after clearSynced() on QuotaExceededError', async () => {
+      // First INSERT throws quota error; clearSynced (DELETE) succeeds; retry INSERT succeeds
+      let insertCallCount = 0;
+      mockRunAsync.mockImplementation(async (sql: string, params: unknown[] = []) => {
+        if (sql.includes('INSERT INTO offline_storage')) {
+          insertCallCount++;
+          if (insertCallCount === 1) {
+            throw new Error('QuotaExceededError: storage quota exceeded');
+          }
+          // Second call succeeds
+          mockStorageRows.set(params[0] as string, {
+            id: params[0], command_type: params[1], payload: params[2],
+            created_at: params[3], synced: params[4],
+          });
+          return { changes: 1 };
+        }
+        if (sql.includes('DELETE FROM offline_storage WHERE synced = 1')) {
+          return { changes: 5 }; // simulated cleanup
+        }
+        return { changes: 0 };
+      });
+
+      const result = await saveCommand({
+        command_type: 'chat',
+        payload: { content: 'retry after quota' },
+      });
+
+      expect(result).not.toBeNull();
+      expect(insertCallCount).toBe(2); // attempted twice
+    });
+
+    it('propagates error if retry after clearSynced also fails', async () => {
+      // Use mockRejectedValue for INSERT calls specifically.
+      // WHY mockImplementationOnce twice: first INSERT throws (triggers quota retry
+      // path), clearSynced DELETE also needs to return, then second INSERT throws.
+      // We pair mockRejectedValueOnce calls so the next test's saveCommand() succeeds.
+      mockRunAsync
+        .mockImplementationOnce(async (sql: string) => {
+          // First call: INSERT throws disk-full
+          if (sql.includes('INSERT')) throw new Error('disk full');
+          return { changes: 0 };
+        })
+        .mockImplementationOnce(async () => {
+          // Second call: clearSynced DELETE succeeds (required before retry)
+          return { changes: 0 };
+        })
+        .mockImplementationOnce(async (sql: string) => {
+          // Third call: retry INSERT also throws
+          if (sql.includes('INSERT')) throw new Error('disk full');
+          return { changes: 0 };
+        });
+
+      await expect(
+        saveCommand({ command_type: 'chat', payload: { content: 'double-fail' } })
+      ).rejects.toThrow('disk full');
+    });
+
+    it('emits storage-low event to onStorageLow listeners', async () => {
+      const FileSystem = require('expo-file-system');
+      (FileSystem.getFreeDiskStorageAsync as jest.Mock).mockResolvedValue(
+        10 * 1024 * 1024 // 10 MB — below threshold
+      );
+
+      const listener = jest.fn();
+      const unsub = onStorageLow(listener);
+
+      await saveCommand({
+        command_type: 'chat',
+        payload: { content: 'trigger low' },
+      });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      unsub(); // clean up
+    });
+
+    it('onStorageLow unsubscribe stops future notifications', async () => {
+      const FileSystem = require('expo-file-system');
+      (FileSystem.getFreeDiskStorageAsync as jest.Mock).mockResolvedValue(
+        10 * 1024 * 1024
+      );
+
+      const listener = jest.fn();
+      const unsub = onStorageLow(listener);
+      unsub(); // unsubscribe immediately
+
+      await saveCommand({
+        command_type: 'chat',
+        payload: { content: 'after unsub' },
+      });
+
+      expect(listener).not.toHaveBeenCalled();
     });
   });
 });

@@ -35,10 +35,11 @@ module.exports = {
     // Subpath: encryption module is exported separately to keep libsodium
     // (~700KB WASM) out of bundles that don't need crypto.
     '^styrby-shared/encryption$': '<rootDir>/../styrby-shared/src/encryption.ts',
-    // WHY (Phase 1.6.6): Map @styrby/shared/logging subpath to source so
-    // babel-jest can transform it in CJS mode. The package.json exports field
-    // points at dist/logging/index.js (ESM) which Jest cannot consume directly.
-    '^@styrby/shared/logging$': '<rootDir>/../styrby-shared/src/logging/index.ts',
+    // Strip .js extensions from relative imports inside styrby-shared source files.
+    // WHY: TypeScript ESM source files use `./foo.js` extensions (Node16 module
+    // resolution), but Jest (CJS mode) resolves `./foo.ts` not `./foo.js`.
+    // This mapper drops the `.js` suffix so Jest can find the TypeScript source.
+    '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   transform: {
     // Use babel-jest with Expo's Babel config for TypeScript support
@@ -53,7 +54,7 @@ module.exports = {
     // Transform Expo/RN packages that ship untranspiled ESM
     // WHY @supabase: @supabase/supabase-js ships ESM. We need to transform it
     // so Jest can mock the createClient export in supabase.test.ts.
-    'node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|react-navigation|@react-navigation/.*|native-base|react-native-svg|styrby-shared|@styrby/shared|@supabase)/)',
+    'node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|react-navigation|@react-navigation/.*|native-base|react-native-svg|styrby-shared|@supabase)/)',
   ],
   setupFiles: ['./jest.setup.js'],
   collectCoverageFrom: [

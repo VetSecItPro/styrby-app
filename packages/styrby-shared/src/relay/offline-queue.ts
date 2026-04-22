@@ -85,6 +85,12 @@ export interface QueueStats {
   failed: number;
   /** Expired items */
   expired: number;
+  /**
+   * Quarantined items: failed MAX_RETRIES consecutive times and removed from
+   * the normal retry pipeline. Requires explicit user action to retry or
+   * discard via the offline-quarantine service.
+   */
+  quarantined?: number;
   /** Oldest pending item age in ms */
   oldestPendingAge?: number;
 }

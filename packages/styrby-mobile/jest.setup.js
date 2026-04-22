@@ -12,6 +12,25 @@
  */
 
 // ============================================================================
+// expo-file-system
+// ============================================================================
+
+/**
+ * Mock of expo-file-system for the node test environment.
+ *
+ * WHY: getFreeDiskStorageAsync() is a native API that does not exist in Node.
+ * The default 10 GB value keeps all storage-quota guards inactive (returning
+ * false for isStorageLow / checkStorageQuota) so tests behave normally unless
+ * they explicitly override getFreeDiskStorageAsync to simulate low storage.
+ */
+jest.mock('expo-file-system', () => ({
+  getFreeDiskStorageAsync: jest.fn(async () => 10 * 1024 * 1024 * 1024), // 10 GB
+  documentDirectory: 'file:///mock/documents/',
+  cacheDirectory: 'file:///mock/cache/',
+  bundleDirectory: 'file:///mock/bundle/',
+}));
+
+// ============================================================================
 // expo-secure-store
 // ============================================================================
 
