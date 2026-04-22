@@ -309,6 +309,200 @@ function waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
 }
 
 // ============================================================================
+// In-Process Restart Supervisor
+// ============================================================================
+
+/**
+ * Maximum number of automatic daemon restarts allowed within the rolling window.
+ *
+ * WHY 3 restarts in 60 s:
+ *   A daemon that crashes more than three times in one minute is almost
+ *   certainly in a boot-loop caused by a persistent error (e.g., corrupt
+ *   credentials, misconfigured Supabase URL, or a regressed code path).
+ *   Continuing to respawn without human intervention wastes CPU, fills the
+ *   log file, and could mask the root cause. Three attempts gives the daemon
+ *   a fair chance to recover from transient errors (network blip on start,
+ *   brief port conflict) while bailing quickly on pathological failures.
+ */
+const MAX_RESTARTS = 3;
+
+/**
+ * Rolling window in ms used for the restart-rate limiter.
+ * WHY 60 s: See MAX_RESTARTS comment above.
+ */
+const RESTART_WINDOW_MS = 60_000;
+
+/**
+ * A single entry in the crash log maintained by the restart supervisor.
+ */
+export interface CrashEntry {
+  /** ISO 8601 timestamp of the crash. */
+  timestamp: string;
+  /** Exit code of the crashed process (null if killed by signal). */
+  exitCode: number | null;
+  /** Signal that killed the process (null if normal exit). */
+  signal: string | null;
+  /** How many times the supervisor has restarted the daemon in this run. */
+  restartCount: number;
+  /**
+   * Short hash (8-char hex) of the last error message captured before the crash.
+   * Derived by djb2-hashing the error string and formatting as hex.
+   * Useful for grouping related crashes without logging full PII-bearing messages.
+   */
+  crashSignature: string;
+}
+
+/**
+ * Compute a short, reproducible crash signature from an error message.
+ *
+ * WHY djb2 instead of crypto.createHash:
+ *   This function runs in the parent process before the daemon has started.
+ *   We want a deterministic, fast, zero-dependency hash purely for grouping
+ *   identical-looking crashes in logs — not for security. djb2 is 5 lines
+ *   and produces a stable 8-char hex string for any input.
+ *
+ * @param msg - Raw error message string
+ * @returns 8-character hex digest string
+ */
+export function crashSignature(msg: string): string {
+  let h = 5381;
+  for (let i = 0; i < msg.length; i++) {
+    h = ((h << 5) + h + msg.charCodeAt(i)) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+/**
+ * Start a supervised daemon: forks the child process and auto-respawns it
+ * on unexpected exits, capped at MAX_RESTARTS within RESTART_WINDOW_MS.
+ *
+ * WHY in-process supervision in addition to systemd / launchd:
+ *   systemd `Restart=on-failure` and launchd `KeepAlive` restart the daemon
+ *   at the OS level when the process terminates. However, some daemon errors
+ *   are caught by Node.js's `uncaughtException` handler (e.g., a Supabase
+ *   SDK assertion mid-session) and do NOT cause the process to exit — they
+ *   just leave the relay in an error state. In-process supervision handles
+ *   the cases where Node.js itself crashes (SIGSEGV from native add-on,
+ *   OOM, assert() in libuv) so the daemon restores itself without needing
+ *   a new OS-level service start.
+ *
+ * After MAX_RESTARTS within RESTART_WINDOW_MS, the supervisor transitions
+ * the daemon to `error` state (via the status file) and stops retrying.
+ * This prevents infinite boot-loops and lets systemd / launchd take over
+ * with their own back-off policies.
+ *
+ * @returns Promise resolving to the initial daemon state after the first start
+ */
+export async function startDaemonSupervised(): Promise<DaemonState> {
+  const crashLog: CrashEntry[] = [];
+
+  const state = await startDaemon();
+  if (!state.running || !state.pid) return state;
+
+  watchAndRespawn(state.pid, crashLog);
+
+  return state;
+}
+
+/**
+ * Internal helper: poll the daemon PID after each start; if it dies unexpectedly,
+ * respawn up to MAX_RESTARTS times within RESTART_WINDOW_MS.
+ *
+ * @param pid - PID of the running daemon to watch
+ * @param crashLog - Mutable array to append CrashEntry records to
+ */
+function watchAndRespawn(
+  pid: number,
+  crashLog: CrashEntry[],
+): void {
+  // WHY 2s poll: fast enough to notice a crash quickly, slow enough to not
+  // burn CPU. The daemon typically responds to SIGTERM within ~1s so 2s
+  // gives a clean buffer between intentional stops and unexpected exits.
+  const POLL_INTERVAL_MS = 2_000;
+
+  const poll = setInterval(() => {
+    if (isProcessAlive(pid)) return;
+
+    // Daemon has exited unexpectedly.
+    clearInterval(poll);
+
+    // Prune entries older than the rolling window.
+    const now = Date.now();
+    const recent = crashLog.filter(
+      (e) => now - new Date(e.timestamp).getTime() < RESTART_WINDOW_MS
+    );
+
+    const lastErr = readLastLogLine();
+    const entry: CrashEntry = {
+      timestamp: new Date().toISOString(),
+      exitCode: null,
+      signal: null,
+      restartCount: recent.length + 1,
+      crashSignature: crashSignature(lastErr),
+    };
+    crashLog.push(entry);
+    recent.push(entry);
+
+    logger.debug('Daemon exited unexpectedly', {
+      pid,
+      restartCount: entry.restartCount,
+      crashSignature: entry.crashSignature,
+    });
+
+    if (recent.length > MAX_RESTARTS) {
+      // Transition to error state — too many restarts in the window.
+      logger.error('Daemon restart cap reached; will not respawn', {
+        restartsInWindow: recent.length,
+        windowSec: RESTART_WINDOW_MS / 1000,
+      });
+      writeDaemonStatusFile({
+        pid: -1,
+        startedAt: new Date().toISOString(),
+        connectionState: 'error',
+        activeSessions: 0,
+        lastHeartbeat: new Date().toISOString(),
+        errorMessage: `Daemon crashed ${recent.length} times in ${RESTART_WINDOW_MS / 1000}s — stopped auto-restarting`,
+      });
+      return;
+    }
+
+    // Respawn.
+    logger.debug('Respawning daemon', { attempt: entry.restartCount, crashSignature: entry.crashSignature });
+
+    startDaemon().then((newState) => {
+      if (newState.running && newState.pid) {
+        // Watch the new child too.
+        watchAndRespawn(newState.pid, crashLog);
+      }
+    }).catch((err) => {
+      logger.error('Failed to respawn daemon', { error: err.message });
+    });
+  }, POLL_INTERVAL_MS);
+
+  // WHY unref(): The poll interval must not keep the parent CLI process alive
+  // after the user's command completes. If the CLI invocation exits (e.g.,
+  // after `styrby start` returns), Node's event loop should be free to exit.
+  if (poll.unref) poll.unref();
+}
+
+/**
+ * Attempt to read the last non-empty line from the daemon log file.
+ * Used to derive the crash signature without storing full error messages.
+ *
+ * @returns Last log line text, or empty string if log is unavailable
+ */
+function readLastLogLine(): string {
+  try {
+    if (!fs.existsSync(LOG_FILE)) return '';
+    const content = fs.readFileSync(LOG_FILE, 'utf-8');
+    const lines = content.split('\n').filter((l) => l.trim().length > 0);
+    return lines[lines.length - 1] ?? '';
+  } catch {
+    return '';
+  }
+}
+
+// ============================================================================
 // Exports
 // ============================================================================
 
@@ -322,5 +516,5 @@ export const DAEMON_PATHS = {
 
 export default {
   startDaemon, stopDaemon, getDaemonStatus, isDaemonRunning,
-  writeDaemonStatusFile, DAEMON_PATHS,
+  writeDaemonStatusFile, startDaemonSupervised, crashSignature, DAEMON_PATHS,
 };
