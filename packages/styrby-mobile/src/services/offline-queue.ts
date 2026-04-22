@@ -276,6 +276,24 @@ class SQLiteOfflineQueue implements IOfflineQueue {
   }
 
   /**
+   * Get all commands that have failed (exhausted retries).
+   *
+   * WHY not on IOfflineQueue: This method is mobile-specific, surfaced by the
+   * QuarantinePanel UI. Adding it to IOfflineQueue would require a web
+   * IndexedDB implementation that is not yet needed. The hook accesses this
+   * via a type cast (`offlineQueue as { getFailedItems?(): ... }`).
+   *
+   * @returns Array of QueuedCommands with status 'failed'
+   */
+  async getFailedItems(): Promise<QueuedCommand[]> {
+    const database = await this.ensureInitialized();
+    const rows = await database.getAllAsync<Record<string, unknown>>(
+      `SELECT * FROM command_queue WHERE status = 'failed' ORDER BY priority DESC, created_at ASC`
+    );
+    return rows.map(rowToCommand);
+  }
+
+  /**
    * Clear all commands.
    */
   async clearAll(): Promise<void> {
