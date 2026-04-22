@@ -57,6 +57,8 @@ function SignUpPageInner() {
 
   const searchParams = useSearchParams();
   const plan = searchParams.get('plan');
+  const refCode = searchParams.get('ref');
+  const invitedBy = searchParams.get('invited_by');
   const redirectPath = plan ? `/dashboard?plan=${plan}` : '/dashboard';
   const router = useRouter();
   const supabase = createClient();
@@ -137,6 +139,21 @@ function SignUpPageInner() {
       setMessage({ type: 'error', text: 'Invalid or expired code. Please try again.' });
       setLoading(false);
     } else {
+      // Attribute the referral if a referral code was present in the URL.
+      // WHY fire-and-forget: Referral attribution is non-blocking. A failure
+      // here should never prevent the user from reaching their dashboard.
+      // The server reads the styrby_referral_code HttpOnly cookie for
+      // additional abuse protection even if the URL param is tampered with.
+      if (refCode) {
+        fetch('/api/referral', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ referralCode: refCode }),
+        }).catch(() => {
+          // Intentionally swallowed — attribution failure is non-fatal
+        });
+      }
+
       router.push(redirectPath);
     }
   }
@@ -232,6 +249,32 @@ function SignUpPageInner() {
                 </span>
               )}
             </div>
+
+            {/* Referral banner — shown when arriving via a referral link */}
+            {invitedBy && refCode && step === 'info' && (
+              <div className="mb-6 flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/8 p-4">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="mt-0.5 h-5 w-5 shrink-0 text-amber-500"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={1.8}
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-4-4m0 0l-4 4m4-4v12" />
+                </svg>
+                <div>
+                  <p className="text-sm font-medium text-amber-400">
+                    {decodeURIComponent(invitedBy)} invited you to Styrby
+                  </p>
+                  <p className="mt-0.5 text-xs text-amber-500/70">
+                    Create your free account and get started today.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Message */}
             {message && (
