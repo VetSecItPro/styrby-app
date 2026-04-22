@@ -7,15 +7,22 @@
  * hooks/useCostExport. This file is intentionally a thin assembler.
  *
  * Responsibilities (this file):
- *  - Compose data hooks (useCosts, useBudgetAlerts, useTeamCosts, useCostExport)
+ *  - Compose data hooks (useCosts, useBudgetAlerts, useTeamCosts, useCostExport,
+ *    useRunRate, useSessionCosts)
  *  - Own collapsible-section state
  *  - Render top-level layout, loading/error/empty states, and pull-to-refresh
  *  - Wire navigation (router.push) to budget alerts management
  *
  * Sub-components own everything else (rows, gates, formatters, share flow).
+ *
+ * Phase 1.6.7 additions:
+ *  - RunRateCard: today / MTD / projected + tier cap progress bar
+ *  - TierUpgradeWarning: amber/red card with upgrade CTA at >= 80% of cap
+ *  - AgentWeeklySparkline: per-agent 7-day bar chart + MTD total
+ *  - SessionCostRow: recent sessions list with per-session cost pill
  */
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -26,10 +33,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useCosts, formatTokens } from '../../src/hooks/useCosts';
+import { useCosts, formatTokens, getAgentHexColor, getAgentDisplayName } from '../../src/hooks/useCosts';
 import { useBudgetAlerts } from '../../src/hooks/useBudgetAlerts';
 import { useTeamCosts } from '../../src/hooks/useTeamCosts';
 import { useCostExport } from '../../src/hooks/useCostExport';
+import { useRunRate } from '../../src/hooks/useRunRate';
+import { useSessionCosts } from '../../src/hooks/useSessionCosts';
 import { MODEL_PRICING_TABLE, STATIC_PRICING_LAST_VERIFIED } from 'styrby-shared';
 import { CostCard } from '../../src/components/CostCard';
 import { AgentCostBar, AgentCostBarEmpty } from '../../src/components/AgentCostBar';
@@ -44,6 +53,11 @@ import {
   TagCostRow,
   TeamCostSection,
   TimeRangeSelector,
+  RunRateCard,
+  TierUpgradeWarning,
+  AgentWeeklySparkline,
+  AgentSparklineEmpty,
+  SessionCostRow,
 } from '../../src/components/costs';
 import { BillingModelSummaryStrip } from '../../src/components/costs/BillingModelSummaryStrip';
 import { useBillingBreakdown } from '../../src/components/costs/useBillingBreakdown';
@@ -53,16 +67,20 @@ import { useBillingBreakdown } from '../../src/components/costs/useBillingBreakd
  *
  * Renders (top-to-bottom):
  *  1. Header: SPENDING label, Export button (Power-only), live/offline pill
- *  2. Time-range selector (7D / 30D / 90D)
- *  3. Today / Week / Month / 90-Day cost cards
- *  4. Daily cost mini-chart
- *  5. Cost-by-agent breakdown
- *  6. Cost-by-model (collapsible)
- *  7. Cost-by-tag (collapsible)
- *  8. Token-usage summary for the month
- *  9. Budget-alerts summary card (deep-link to manage)
- * 10. Team-costs (collapsible, Power + team gate)
- * 11. Model-pricing reference (collapsible)
+ *  2. Run-rate projection card (today / MTD / projected + tier cap bar) — Phase 1.6.7
+ *  3. Tier upgrade warning card (amber/red at >= 80% cap) — Phase 1.6.7
+ *  4. Time-range selector (7D / 30D / 90D)
+ *  5. Today / Week / Month / 90-Day cost cards
+ *  6. Daily cost mini-chart
+ *  7. Per-agent 7-day sparklines — Phase 1.6.7
+ *  8. Cost-by-agent breakdown
+ *  9. Cost-by-model (collapsible)
+ * 10. Cost-by-tag (collapsible)
+ * 11. Token-usage summary for the month
+ * 12. Recent sessions with per-session cost — Phase 1.6.7
+ * 13. Budget-alerts summary card (deep-link to manage)
+ * 14. Team-costs (collapsible, Power + team gate)
+ * 15. Model-pricing reference (collapsible)
  *
  * @returns Rendered costs screen
  */
@@ -80,10 +98,15 @@ export default function CostsScreen() {
   const { alerts, tier, isLoading: alertsLoading } = useBudgetAlerts();
   const router = useRouter();
 
+  // Phase 1.6.7: run-rate projection + recent session costs
+  const { projection, isLoading: runRateLoading, refresh: refreshRunRate, tierLabel } = useRunRate();
+  const { sessions: recentSessions, isLoading: sessionsLoading, refresh: refreshSessions } = useSessionCosts();
+
   // WHY individual useState rather than a single object: each section toggles
   // independently, so colocated booleans keep re-renders narrow and code clear.
   const [modelExpanded, setModelExpanded] = useState(false);
   const [tagExpanded, setTagExpanded] = useState(false);
+  const [sessionsExpanded, setSessionsExpanded] = useState(false);
 
   /**
    * Whether the Model Pricing reference table is expanded.
@@ -127,6 +150,39 @@ export default function CostsScreen() {
   // queries cost_records directly for those columns only.
   const { breakdown: billingBreakdown } = useBillingBreakdown(timeRange);
 
+  /**
+   * Composite refresh: pull-to-refresh on the ScrollView triggers all hooks.
+   *
+   * WHY useCallback: passed as a prop reference; stable identity prevents
+   * unnecessary RefreshControl re-renders.
+   */
+  const handleRefreshAll = useCallback(() => {
+    refresh();
+    refreshRunRate();
+    refreshSessions();
+  }, [refresh, refreshRunRate, refreshSessions]);
+
+  // Derive per-agent 7-day sparkline data from the daily cost dataset.
+  // WHY derived here (not in a hook): useCosts already fetched the data;
+  // re-shaping it for sparklines is pure JS - no extra network call needed.
+  const agentSparklines = (() => {
+    if (!data?.dailyCosts) return [];
+    const last7 = data.dailyCosts.slice(-7);
+    const agentKeys: (keyof typeof last7[0])[] = ['claude', 'codex', 'gemini', 'opencode', 'aider', 'goose', 'amp', 'crush', 'kilo', 'kiro', 'droid'];
+    // Only include agents that had any cost in the last 7 days.
+    return agentKeys
+      .map((key) => {
+        const agentType = key as string;
+        const days = last7.map((d) => ({
+          date: d.date,
+          cost: (d[key] as number) || 0,
+        }));
+        const mtd = data.byAgent.find((a) => a.agent === agentType)?.cost ?? 0;
+        return { agentType, days, mtd };
+      })
+      .filter((a) => a.days.some((d) => d.cost > 0));
+  })();
+
   if (isLoading) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
@@ -168,7 +224,7 @@ export default function CostsScreen() {
       refreshControl={
         <RefreshControl
           refreshing={isRefreshing}
-          onRefresh={refresh}
+          onRefresh={handleRefreshAll}
           tintColor="#f97316"
           colors={['#f97316']}
         />
@@ -189,6 +245,23 @@ export default function CostsScreen() {
         </View>
         <TimeRangeSelector selected={timeRange} onSelect={setTimeRange} />
       </View>
+
+      {/* === Phase 1.6.7: Run-rate projection card === */}
+      {/* WHY at the top: Users' most common question is "am I on track this month?"
+          Surfacing the answer before the detailed charts means they get the answer
+          without scrolling. */}
+      {runRateLoading ? (
+        <View className="px-4 mb-4">
+          <View className="bg-background-secondary rounded-xl p-4 items-center justify-center h-20">
+            <ActivityIndicator size="small" color="#f97316" />
+          </View>
+        </View>
+      ) : projection !== null ? (
+        <View className="px-4 mb-4">
+          <RunRateCard projection={projection} />
+          <TierUpgradeWarning projection={projection} tierLabel={tierLabel} />
+        </View>
+      ) : null}
 
       {/* Billing Model Summary Strip — shows API / SUB / CR totals for the period */}
       {/* WHY: Users who mix billing models (e.g. API for Claude Code + credits
@@ -245,6 +318,30 @@ export default function CostsScreen() {
         ) : (
           <DailyMiniChartEmpty />
         )}
+      </View>
+
+      {/* === Phase 1.6.7: Per-agent 7-day sparklines === */}
+      {/* WHY sparklines: The existing AgentCostBar shows period totals but not
+          the trend over time. A 7-bar mini chart lets users see if an agent's
+          spend is accelerating or declining without opening the full chart. */}
+      <View className="px-4 mt-6">
+        <Text className="text-zinc-400 text-sm font-medium mb-3">AGENT TREND (7 DAYS)</Text>
+        <View className="bg-background-secondary rounded-xl px-4 py-2">
+          {agentSparklines.length > 0 ? (
+            agentSparklines.map(({ agentType, days, mtd }) => (
+              <AgentWeeklySparkline
+                key={agentType}
+                agent={agentType as import('styrby-shared').AgentType}
+                label={getAgentDisplayName(agentType as import('styrby-shared').AgentType)}
+                color={getAgentHexColor(agentType as import('styrby-shared').AgentType)}
+                days={days}
+                mtdCostUsd={mtd}
+              />
+            ))
+          ) : (
+            <AgentSparklineEmpty />
+          )}
+        </View>
       </View>
 
       {/* Agent Breakdown */}
@@ -341,6 +438,35 @@ export default function CostsScreen() {
             </View>
           </View>
         </View>
+      </View>
+
+      {/* === Phase 1.6.7: Recent sessions with per-session cost === */}
+      {/* WHY: Users want to identify which session drove an unexpected spike in
+          cost. Showing the last 20 sessions with cost and agent inline gives
+          them the answer without navigating away from the Costs tab. Tapping
+          a row drills into the session's full token breakdown. */}
+      <View className="px-4 mt-6">
+        <CollapsibleSection
+          title="RECENT SESSIONS"
+          isExpanded={sessionsExpanded}
+          onToggle={() => setSessionsExpanded((v) => !v)}
+        >
+          {sessionsLoading ? (
+            <View className="py-4 items-center">
+              <ActivityIndicator size="small" color="#f97316" />
+            </View>
+          ) : recentSessions.length > 0 ? (
+            <View className="-mx-4">
+              {recentSessions.map((session) => (
+                <SessionCostRow key={session.id} session={session} />
+              ))}
+            </View>
+          ) : (
+            <Text className="text-zinc-500 text-sm text-center py-4">
+              No sessions yet
+            </Text>
+          )}
+        </CollapsibleSection>
       </View>
 
       {/* Budget Alerts Section */}

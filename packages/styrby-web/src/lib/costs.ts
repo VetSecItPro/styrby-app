@@ -212,3 +212,59 @@ export function getAgentColor(agent: AgentType): string {
       return 'bg-zinc-500';
   }
 }
+
+/**
+ * Get hex color value for an agent (for use in SVG/canvas/inline styles).
+ *
+ * WHY separate from getAgentColor: getAgentColor returns Tailwind class names
+ * suitable for className props. Hex values are needed for inline styles,
+ * SVG fill attributes, and canvas drawing in chart components.
+ *
+ * @param agent - Agent type string
+ * @returns Hex color string like "#f97316"
+ *
+ * @example
+ * <div style={{ backgroundColor: getAgentHexColor('claude') }} />
+ */
+export function getAgentHexColor(agent: string): string {
+  switch (agent) {
+    case 'claude': return '#f97316';
+    case 'codex': return '#22c55e';
+    case 'gemini': return '#3b82f6';
+    case 'opencode': return '#8b5cf6';
+    case 'aider': return '#ec4899';
+    case 'goose': return '#14b8a6';
+    case 'amp': return '#f59e0b';
+    case 'crush': return '#f43f5e';
+    case 'kilo': return '#0ea5e9';
+    case 'kiro': return '#fb923c';
+    case 'droid': return '#64748b';
+    default: return '#71717a';
+  }
+}
+
+/**
+ * Get display name for an agent type.
+ *
+ * @param agent - Agent type string
+ * @returns Human-readable agent name like "Claude Code"
+ *
+ * @example
+ * getAgentDisplayName('claude') // "Claude Code"
+ */
+export function getAgentDisplayName(agent: string): string {
+  switch (agent) {
+    case 'claude': return 'Claude Code';
+    case 'codex': return 'Codex';
+    case 'gemini': return 'Gemini CLI';
+    case 'opencode': return 'OpenCode';
+    case 'aider': return 'Aider';
+    case 'goose': return 'Goose';
+    case 'amp': return 'Amp';
+    case 'crush': return 'Crush';
+    case 'kilo': return 'Kilo';
+    case 'kiro': return 'Kiro';
+    case 'droid': return 'Droid';
+    default: return agent;
+  }
+}
