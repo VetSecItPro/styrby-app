@@ -200,16 +200,19 @@ export function TeamAgentStackedBar({ dailyByAgent, days }: TeamAgentStackedBarP
             width={56}
           />
           <Tooltip
-            formatter={(value: number, name: string) => [
+            // WHY untyped params: Recharts Formatter<ValueType, NameType> doesn't
+            // narrow to (number, string) at the call site. We coerce explicitly to
+            // keep the rendered output correct while satisfying the compiler.
+            formatter={(value, name) => [
               `$${Number(value).toFixed(4)}`,
-              name.charAt(0).toUpperCase() + name.slice(1),
+              String(name).charAt(0).toUpperCase() + String(name).slice(1),
             ]}
-            labelFormatter={(label: string) => {
+            labelFormatter={(label) => {
               try {
-                return new Date(`${label}T00:00:00`).toLocaleDateString('en-US', {
+                return new Date(`${String(label)}T00:00:00`).toLocaleDateString('en-US', {
                   weekday: 'short', month: 'short', day: 'numeric',
                 });
-              } catch { return label; }
+              } catch { return String(label); }
             }}
             contentStyle={{
               backgroundColor: 'hsl(var(--card))',

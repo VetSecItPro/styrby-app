@@ -46,8 +46,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { isAdmin } from '@/lib/admin';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
-import { ERROR_CLASSES } from '@styrby/shared';
-import type { ErrorClass } from '@styrby/shared';
+import { ERROR_CLASSES, type ErrorClass } from '@styrby/shared/errors';
 
 // ---------------------------------------------------------------------------
 // Types

@@ -48,7 +48,7 @@ vi.mock('@/lib/supabase/server', () => ({
 
 vi.mock('@/lib/rateLimit', () => ({
   rateLimit: vi.fn(() => ({ allowed: true, remaining: 29 })),
-  RATE_LIMITS: { default: { windowMs: 60000, maxRequests: 30 } },
+  RATE_LIMITS: { standard: { windowMs: 60000, maxRequests: 100 }, default: { windowMs: 60000, maxRequests: 30 } },
   rateLimitResponse: vi.fn((retryAfter: number) =>
     new Response(JSON.stringify({ error: 'RATE_LIMITED' }), {
       status: 429,
@@ -158,7 +158,11 @@ describe('GET /api/teams/[id]/costs', () => {
       maybeSingle: vi.fn().mockResolvedValue({ data: { role: 'member' }, error: null }),
     });
 
-    // get_team_cost_summary_v2 returns privilege error
+    // get_team_cost_summary_v2 returns privilege error.
+    // WHY mockAdminRpc returns empty for other RPCs: Promise.all fires all three
+    // admin queries in parallel. The privilege check on membersResult is evaluated
+    // after all three resolve. The from() query (v_team_cost_projection) also
+    // needs a stub so Promise.all doesn't throw a TypeError on the undefined mock.
     mockAdminRpc.mockImplementation((fnName: string) => {
       if (fnName === 'get_team_cost_summary_v2') {
         return Promise.resolve({
@@ -167,6 +171,13 @@ describe('GET /api/teams/[id]/costs', () => {
         });
       }
       return Promise.resolve({ data: [], error: null });
+    });
+
+    // Stub the v_team_cost_projection from() chain so Promise.all resolves cleanly.
+    mockAdminFrom.mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
     });
 
     const res = await GET(makeRequest(), { params: Promise.resolve({ id: TEAM_ID }) });

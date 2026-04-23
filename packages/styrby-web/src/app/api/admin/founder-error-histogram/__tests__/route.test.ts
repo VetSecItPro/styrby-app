@@ -20,15 +20,22 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
-import { ERROR_CLASSES } from '@styrby/shared';
+import { ERROR_CLASSES } from '@styrby/shared/errors';
 
 // ============================================================================
 // Mocks
 // ============================================================================
 
-const mockGetUser = vi.fn();
-const mockIsAdmin = vi.fn();
-const mockAdminFrom = vi.fn();
+// WHY vi.hoisted: vi.mock() factory functions are hoisted to the top of the
+// module by Vitest's transform. Variables declared with `const` are NOT hoisted,
+// so referencing them inside a vi.mock() factory causes a TDZ ReferenceError.
+// vi.hoisted() lifts the declarations into the same hoisted scope so the mocks
+// are initialised before the factory functions run.
+const { mockGetUser, mockIsAdmin, mockAdminFrom } = vi.hoisted(() => ({
+  mockGetUser: vi.fn(),
+  mockIsAdmin: vi.fn(),
+  mockAdminFrom: vi.fn(),
+}));
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({

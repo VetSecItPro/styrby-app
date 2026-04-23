@@ -127,7 +127,7 @@ export async function GET(
   context: RouteContext
 ) {
   // Rate limit: 30 req/min per user (same bucket as team read operations)
-  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.default, 'team-costs');
+  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.standard, 'team-costs');
   if (!allowed) {
     return rateLimitResponse(retryAfter!);
   }

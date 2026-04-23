@@ -42,8 +42,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
-import { ERROR_CLASSES } from '@styrby/shared';
-import type { ErrorClass } from '@styrby/shared';
+import { ERROR_CLASSES, type ErrorClass } from '@styrby/shared/errors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -186,16 +185,24 @@ export function ErrorClassHistogram({ data }: ErrorClassHistogramProps) {
             width={36}
           />
           <Tooltip
-            formatter={(value: number, name: string) => [
-              value.toLocaleString(),
-              ERROR_CLASS_LABELS[name as ErrorClass] ?? name,
+            // WHY `as any` on value/name: Recharts' Formatter<ValueType, NameType>
+            // generic doesn't align with the concrete (number, string) types we
+            // receive at runtime. Casting here is safe — Recharts always passes
+            // numeric bar values and the dataKey string. The rendered output
+            // (toLocaleString) is still fully type-checked.
+            formatter={(value, name) => [
+              String(Number(value).toLocaleString()),
+              ERROR_CLASS_LABELS[name as ErrorClass] ?? String(name),
             ]}
-            labelFormatter={(label: string) => {
+            // WHY single-param labelFormatter: Recharts' overloaded signature
+            // expects (label: any, payload?: TooltipPayload[]) => ReactNode.
+            // We only need the label string here; ignoring payload is safe.
+            labelFormatter={(label) => {
               try {
-                return new Date(`${label}T00:00:00`).toLocaleDateString('en-US', {
+                return new Date(`${String(label)}T00:00:00`).toLocaleDateString('en-US', {
                   weekday: 'short', month: 'short', day: 'numeric',
                 });
-              } catch { return label; }
+              } catch { return String(label); }
             }}
             contentStyle={{
               backgroundColor: 'hsl(var(--card))',
