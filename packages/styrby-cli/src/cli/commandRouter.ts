@@ -23,6 +23,7 @@ import { printHelp } from '@/cli/helpScreen';
 import { handleStart } from '@/cli/handlers/start';
 import { handlePair } from '@/cli/handlers/pair';
 import { handleResume } from '@/cli/handlers/resume';
+import { handleMulti } from '@/cli/handlers/multi';
 import { handleStatus } from '@/cli/handlers/status';
 import { handleCosts } from '@/cli/handlers/costs';
 import {
@@ -101,6 +102,10 @@ export async function runCommand(argv: string[]): Promise<void> {
 
     case 'resume':
       await handleResume(rest);
+      break;
+
+    case 'multi':
+      await handleMulti(rest);
       break;
 
     case 'status':
