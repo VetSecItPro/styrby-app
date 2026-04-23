@@ -29,6 +29,35 @@ jest.mock('styrby-shared', () => ({
   shouldRetry: (...args: unknown[]) => mockShouldRetry(...(args as [])),
 }));
 
+// Phase 1.6.3b: mock expo-crypto (used by offline-queue.ts for idempotency key generation)
+let mockCryptoCounter = 0;
+jest.mock('expo-crypto', () => ({
+  randomUUID: jest.fn(() => `mock-idempotency-key-${++mockCryptoCounter}`),
+}));
+
+// Phase 1.6.3b: mock storage-quota guard (not under test here)
+jest.mock('../storage-quota', () => ({
+  isQuotaError: jest.fn().mockReturnValue(false),
+  storageQuotaGuard: {
+    recordQuotaError: jest.fn(),
+    clearQuotaError: jest.fn(),
+    isFull: false,
+    subscribe: jest.fn().mockReturnValue(() => {}),
+  },
+}));
+
+// Phase 1.6.3b: mock lamport clock (not under test here)
+let mockLamportVal = 0;
+jest.mock('../lamport-clock', () => ({
+  lamportClock: {
+    init: jest.fn().mockResolvedValue(undefined),
+    tick: jest.fn().mockImplementation(() => Promise.resolve(++mockLamportVal)),
+    receive: jest.fn().mockResolvedValue(1),
+    peek: jest.fn().mockResolvedValue(0),
+  },
+  compareLamportOrder: jest.fn(),
+}));
+
 // ============================================================================
 // SQLite Mock Helpers
 // ============================================================================
@@ -46,6 +75,7 @@ const mockRunAsync = jest.fn(async (sql: string, params: unknown[] = []) => {
   sqlCalls.push({ sql, params });
 
   if (sql.includes('INSERT INTO command_queue')) {
+    // Phase 1.6.3b: INSERT now has 10 params (added idempotency_key, lamport_clock)
     mockRows.set(params[0] as string, {
       id: params[0],
       message: params[1],
@@ -55,6 +85,8 @@ const mockRunAsync = jest.fn(async (sql: string, params: unknown[] = []) => {
       created_at: params[5],
       expires_at: params[6],
       priority: params[7],
+      idempotency_key: params[8],
+      lamport_clock: params[9],
       last_attempt_at: null,
       last_error: null,
     });
@@ -92,11 +124,12 @@ const mockRunAsync = jest.fn(async (sql: string, params: unknown[] = []) => {
         row.last_attempt_at = params[0];
       }
     } else {
-      // markSent
-      const id = params[1] as string;
+      // markSent: UPDATE command_queue SET status = 'sent' WHERE id = ?
+      // params[0] is the id (status is hardcoded in SQL)
+      const id = params[0] as string;
       const row = mockRows.get(id);
       if (row) {
-        row.status = params[0];
+        row.status = 'sent';
       }
     }
     return { changes: 1 };
