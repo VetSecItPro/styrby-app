@@ -9,7 +9,7 @@
  * @module api/cron/predictive-cost-alerts/__tests__/route
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 // ============================================================================
@@ -140,6 +140,18 @@ function seedSingleUser(opts: {
 
 describe('POST /api/cron/predictive-cost-alerts', () => {
   beforeEach(() => {
+    // WHY fake time pinned to 2026-04-03:
+    //   costRows are seeded as March 22 – April 20 (Date.UTC(2026, 2, 22+i)).
+    //   The route computes billingPeriodStart = 2026-04-01 and filters MTD rows
+    //   (p.date >= '2026-04-01'). With now = April 3, exactly 3 rows land in
+    //   the billing period (April 1, 2, 3) → mtdCents = 3 × 1000 = 3000.
+    //   Pro quota = 5000 cents, remaining = 2000, dailyRate = 1000 → exhaustion
+    //   in ceil(2) = 2 days = April 5. windowEnd = April 3 + 7 = April 10.
+    //   April 5 ≤ April 10 → alert fires. All 30 history rows fall within
+    //   historyStart (April 3 − 30d = March 4), so the series is fully populated.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-03T08:00:00.000Z'));
+
     vi.clearAllMocks();
     fromCallQueue.length = 0;
     // WHY re-apply implementations after clearAllMocks: vi.clearAllMocks()
@@ -147,6 +159,10 @@ describe('POST /api/cron/predictive-cost-alerts', () => {
     // returning undefined. Re-establish the chain-mock behavior per test.
     mockAdminFrom.mockImplementation(() => createChainMock());
     mockSendRetentionPush.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   // -------------------------------------------------------------------------
@@ -245,9 +261,15 @@ describe('POST /api/cron/predictive-cost-alerts', () => {
 
   it('sends alert when exhaustion is predicted within 7 days', async () => {
     // Pro quota = $50 = 5000 cents. Burn $10/day = 1000 cents/day.
-    // Elapsed = $30 = 3000 cents. Remaining = 2000 cents. Days = 2.
+    // Fake now = 2026-04-03. Billing period = 2026-04-01.
+    // Rows span March 5 – April 3 (30 days ending at fake now).
+    // MTD rows (>= 2026-04-01): April 1, 2, 3 → 3 × 1000 = 3000 cents elapsed.
+    // Remaining = 5000 − 3000 = 2000 cents. Daily rate = 1000. Days = ceil(2) = 2.
+    // Exhaustion = April 5 ≤ windowEnd April 10 → alert fires.
+    // WHY March 5 start: Date.UTC(2026, 2, 5 + 29) = April 3, capping rows at
+    // fake now so no future-dated rows inflate the MTD calculation.
     const costRows = Array.from({ length: 30 }, (_, i) => {
-      const d = new Date(Date.UTC(2026, 2, 22 + i));
+      const d = new Date(Date.UTC(2026, 2, 5 + i)); // March 5 – April 3
       return makeRow(d.toISOString().slice(0, 10), 10.0);
     });
 
@@ -299,9 +321,10 @@ describe('POST /api/cron/predictive-cost-alerts', () => {
   // -------------------------------------------------------------------------
 
   it('counts as skipped when push is suppressed (quiet hours)', async () => {
-    // High burn rate → exhaustion within 7 days
+    // High burn rate → exhaustion within 7 days (same date range as "sends alert" test).
+    // WHY March 5 start: see "sends alert" test for full math rationale.
     const costRows = Array.from({ length: 30 }, (_, i) => {
-      const d = new Date(Date.UTC(2026, 2, 22 + i));
+      const d = new Date(Date.UTC(2026, 2, 5 + i)); // March 5 – April 3
       return makeRow(d.toISOString().slice(0, 10), 10.0);
     });
 
