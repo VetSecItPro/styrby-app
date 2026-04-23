@@ -127,3 +127,4 @@ ARCHITECTURE.md
 .a11y-reports/
 .launch-reports/
 .claude/
+.subagent-dev-reports/

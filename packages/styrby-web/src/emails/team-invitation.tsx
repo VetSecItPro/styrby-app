@@ -1,6 +1,14 @@
 /**
- * Team Invitation Email
- * Sent when a user is invited to join a team.
+ * Team Invitation Email (Phase 2.2 — updated to support 'viewer' role)
+ *
+ * Sent when a team owner or admin invites someone to join a team.
+ * Supports all three invitation roles: admin, member, and viewer.
+ *
+ * WHY 'viewer' added in Phase 2.2:
+ *   The team invitation flow spec requires the role enum to include 'viewer'.
+ *   The DB migration 027 extended the team_invitations.role CHECK constraint.
+ *   The email must reflect the correct role label so recipients understand
+ *   their access level before accepting.
  */
 
 import { Section, Text } from '@react-email/components';
@@ -13,12 +21,25 @@ import {
   Divider,
 } from './base-layout';
 
+/**
+ * Props for the team invitation email template.
+ */
 interface TeamInvitationEmailProps {
+  /** The team's display name. */
   teamName: string;
+  /** Display name of the person who sent the invite. */
   inviterName: string;
+  /** Email address of the inviter (shown for transparency). */
   inviterEmail: string;
-  role: 'admin' | 'member';
+  /**
+   * Role the invitee will have upon acceptance.
+   * 'viewer' was added in Phase 2.2 — viewers can read sessions but not
+   * contribute or manage team settings.
+   */
+  role: 'admin' | 'member' | 'viewer';
+  /** Full accept URL including the raw invite token (query param). */
   inviteUrl: string;
+  /** ISO 8601 expiration timestamp (24h from invitation creation). */
   expiresAt: string;
 }
 
@@ -37,6 +58,47 @@ function formatExpirationDate(isoDate: string): string {
   });
 }
 
+/**
+ * Returns the display label for a role.
+ *
+ * @param role - Team role
+ * @returns Human-readable article + label string
+ */
+function roleLabel(role: 'admin' | 'member' | 'viewer'): string {
+  switch (role) {
+    case 'admin':
+      return 'an admin';
+    case 'viewer':
+      return 'a viewer';
+    default:
+      return 'a member';
+  }
+}
+
+/**
+ * Returns the capitalized display name for a role.
+ *
+ * @param role - Team role
+ * @returns Capitalized role name
+ */
+function roleDisplay(role: 'admin' | 'member' | 'viewer'): string {
+  switch (role) {
+    case 'admin':
+      return 'Admin';
+    case 'viewer':
+      return 'Viewer';
+    default:
+      return 'Member';
+  }
+}
+
+/**
+ * Team invitation React Email template.
+ *
+ * Rendered by the web server's Resend integration for Next.js API routes.
+ * The edge function (teams-invite) uses an inline HTML fallback that mirrors
+ * this template's structure but renders without React.
+ */
 export default function TeamInvitationEmail({
   teamName,
   inviterName,
@@ -45,7 +107,8 @@ export default function TeamInvitationEmail({
   inviteUrl,
   expiresAt,
 }: TeamInvitationEmailProps) {
-  const roleLabel = role === 'admin' ? 'an admin' : 'a member';
+  const label = roleLabel(role);
+  const display = roleDisplay(role);
   const expirationDate = formatExpirationDate(expiresAt);
 
   return (
@@ -55,7 +118,7 @@ export default function TeamInvitationEmail({
       <Paragraph>
         <strong className="text-zinc-100">{inviterName}</strong> ({inviterEmail})
         has invited you to join <strong className="text-zinc-100">{teamName}</strong> as{' '}
-        {roleLabel} on Styrby.
+        {label} on Styrby.
       </Paragraph>
 
       <Paragraph>
@@ -77,7 +140,7 @@ export default function TeamInvitationEmail({
         </Text>
         <Text className="m-0 mb-2 text-sm text-zinc-300">
           <strong className="text-zinc-100">Your role:</strong>{' '}
-          {role === 'admin' ? 'Admin' : 'Member'}
+          {display}
         </Text>
         <Text className="m-0 text-sm text-zinc-300">
           <strong className="text-zinc-100">Invited by:</strong> {inviterName}

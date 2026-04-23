@@ -17,6 +17,7 @@ import BudgetAlertEmail from '@/emails/budget-alert';
 import WeeklySummaryEmail from '@/emails/weekly-summary';
 import WeeklyDigestEmail from '@/emails/weekly-digest';
 import SupportReplyEmail from '@/emails/support-reply';
+import TeamInvitationEmail from '@/emails/team-invitation';
 
 // Lazy-initialize Resend client to avoid build-time errors
 let resendClient: Resend | null = null;
@@ -380,5 +381,60 @@ export async function sendSupportReplyEmail({
     subject: `Re: ${subject}`,
     react: React.createElement(SupportReplyEmail, { subject, message, ticketId }),
     replyTo: 'support@styrbyapp.com',
+  });
+}
+
+/**
+ * Send team invitation email via the web server's Resend integration.
+ *
+ * WHY this exists alongside the edge function's inline HTML sender:
+ *   The edge function (teams-invite) renders invitation emails as inline HTML
+ *   because it cannot import React Email templates. This function is for
+ *   web API routes (e.g., a future /api/teams/[id]/invite route) that run
+ *   in Next.js and have access to the full React Email template with the
+ *   Styrby design system.
+ *
+ * WHY 'viewer' is supported here:
+ *   Migration 027 extended team_invitations.role CHECK to include 'viewer'.
+ *   The email template (team-invitation.tsx) was updated in Phase 2.2 to
+ *   display the correct label for all three roles.
+ *
+ * @param email - Recipient email address
+ * @param teamName - Display name of the team
+ * @param inviterName - Display name of the inviter
+ * @param inviterEmail - Email address of the inviter
+ * @param role - Role the invitee will have: 'admin' | 'member' | 'viewer'
+ * @param inviteUrl - Full accept URL including the raw invite token
+ * @param expiresAt - ISO 8601 expiration timestamp
+ * @returns Result object with `success` boolean and optional `id` or `error`
+ */
+export async function sendTeamInvitationEmail({
+  email,
+  teamName,
+  inviterName,
+  inviterEmail,
+  role,
+  inviteUrl,
+  expiresAt,
+}: {
+  email: string;
+  teamName: string;
+  inviterName: string;
+  inviterEmail: string;
+  role: 'admin' | 'member' | 'viewer';
+  inviteUrl: string;
+  expiresAt: string;
+}) {
+  return sendEmail({
+    to: email,
+    subject: `You've been invited to join ${teamName} on Styrby`,
+    react: React.createElement(TeamInvitationEmail, {
+      teamName,
+      inviterName,
+      inviterEmail,
+      role,
+      inviteUrl,
+      expiresAt,
+    }),
   });
 }

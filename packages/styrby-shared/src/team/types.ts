@@ -289,6 +289,33 @@ export const billingEventSchema = z.object({
 export type BillingEvent = z.infer<typeof billingEventSchema>;
 
 // ============================================================================
+// Phase 2.2 — Invitation role mapping
+// ============================================================================
+
+/**
+ * Roles accepted at invitation time (team_invitations.role CHECK) vs roles
+ * allowed on team_members.role (CHECK). They differ: invitations allow
+ * 'viewer' but team_members does not until Phase 2.3 migrates the CHECK.
+ *
+ * WHY we keep them different today: Phase 2.3 (Admin UI) will add 'viewer'
+ * to team_members.role at the same time as it builds the UI surface that
+ * makes viewer meaningful. Until then, viewer invitations MUST be stored as
+ * 'member' at accept time.
+ *
+ * Unit B (/invite/[token] accept flow) MUST import this constant and apply
+ * it before INSERT INTO team_members. Doing otherwise will trigger the
+ * team_members.role CHECK constraint failure and surface as a cryptic 500.
+ */
+export const INVITE_ROLE_TO_MEMBER_ROLE = {
+  admin: 'admin',
+  member: 'member',
+  viewer: 'member',
+} as const satisfies Record<'admin' | 'member' | 'viewer', 'admin' | 'member'>;
+
+export type InvitationRole = keyof typeof INVITE_ROLE_TO_MEMBER_ROLE;
+export type MemberRole = typeof INVITE_ROLE_TO_MEMBER_ROLE[InvitationRole];
+
+// ============================================================================
 // Exit codes for the CLI policy engine
 // ============================================================================
 
