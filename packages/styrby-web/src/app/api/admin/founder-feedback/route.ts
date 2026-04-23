@@ -22,7 +22,7 @@
  * @rateLimit 10 requests per minute
  *
  * @query tab - 'nps' | 'general' | 'postmortems' (default: 'nps')
- * @query window - '7d' | '30d' | 'all' for NPS filtering (default: 'all')
+ * @query nps_window - '7d' | '30d' | 'all' for NPS filtering (default: 'all')
  * @query agent - agent_type filter for postmortems (optional)
  * @query rating - 'useful' | 'not_useful' filter for postmortems (optional)
  * @query weeks - number of weeks for NPS trend (default: 12)
@@ -46,7 +46,7 @@ import { calcNPS, groupNpsByWeek } from '@styrby/shared';
 // ============================================================================
 
 interface NpsTabData {
-  /** Current NPS across all time or selected window */
+  /** Current NPS across all time or selected nps_window */
   currentNps: {
     score: number;
     promoters: number;
@@ -71,7 +71,7 @@ interface NpsTabData {
     id: string;
     score: number;
     followup: string;
-    window: string | null;
+    nps_window: string | null;
     created_at: string;
   }>;
 }
@@ -133,7 +133,7 @@ export async function GET(request: NextRequest) {
   // ── Query params ──────────────────────────────────────────────────────────
   const { searchParams } = new URL(request.url);
   const tab = (searchParams.get('tab') ?? 'nps') as 'nps' | 'general' | 'postmortems';
-  const window = (searchParams.get('window') ?? 'all') as '7d' | '30d' | 'all';
+  const nps_window = (searchParams.get('nps_window') ?? 'all') as '7d' | '30d' | 'all';
   const agentFilter = searchParams.get('agent');
   const ratingFilter = searchParams.get('rating') as 'useful' | 'not_useful' | null;
   const weeksBack = Math.min(52, parseInt(searchParams.get('weeks') ?? '12', 10));
@@ -142,7 +142,7 @@ export async function GET(request: NextRequest) {
 
   try {
     if (tab === 'nps') {
-      const data = await fetchNpsData(adminSupabase, window, weeksBack);
+      const data = await fetchNpsData(adminSupabase, nps_window, weeksBack);
       return NextResponse.json({ tab, data });
     }
 
@@ -168,12 +168,12 @@ export async function GET(request: NextRequest) {
  * Fetch NPS tab data: current score, weekly trend, latest comments.
  *
  * @param supabase - Admin client
- * @param window - Filter to specific NPS window ('7d', '30d', or 'all')
+ * @param nps_window - Filter to specific NPS nps_window ('7d', '30d', or 'all')
  * @param weeksBack - Number of weeks of trend data to include
  */
 async function fetchNpsData(
   supabase: ReturnType<typeof createAdminClient>,
-  window: '7d' | '30d' | 'all',
+  nps_window: '7d' | '30d' | 'all',
   weeksBack: number
 ): Promise<NpsTabData> {
   // WHY: Fetch all NPS rows in the trend period to compute both the overall
@@ -183,15 +183,15 @@ async function fetchNpsData(
 
   let query = supabase
     .from('user_feedback')
-    .select('id, score, followup, window, created_at')
+    .select('id, score, followup, nps_window, created_at')
     .eq('kind', 'nps')
     .not('score', 'is', null)
     .gte('created_at', since.toISOString())
     .order('created_at', { ascending: false })
     .limit(5000); // Safety cap
 
-  if (window !== 'all') {
-    query = query.eq('window', window);
+  if (nps_window !== 'all') {
+    query = query.eq('nps_window', nps_window);
   }
 
   const { data: rows, error } = await query;
@@ -217,7 +217,7 @@ async function fetchNpsData(
       id: r.id as string,
       score: r.score as number,
       followup: r.followup as string,
-      window: r.window as string | null,
+      nps_window: r.nps_window as string | null,
       created_at: r.created_at as string,
     }));
 

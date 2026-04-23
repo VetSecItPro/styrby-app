@@ -29,7 +29,7 @@ interface NpsComment {
   id: string;
   score: number;
   followup: string;
-  window: string | null;
+  nps_window: string | null;
   created_at: string;
 }
 
@@ -54,7 +54,7 @@ interface NpsTabProps {
   /** Initial server-fetched data (avoids loading flash) */
   initialData: NpsTabData;
   /** Window filter for this view */
-  window: '7d' | '30d' | 'all';
+  nps_window: '7d' | '30d' | 'all';
 }
 
 // ============================================================================
@@ -66,7 +66,7 @@ interface NpsTabProps {
  *
  * @param props - NpsTabProps
  */
-export function NpsTab({ initialData, window }: NpsTabProps) {
+export function NpsTab({ initialData, nps_window }: NpsTabProps) {
   const [data, setData] = React.useState<NpsTabData>(initialData);
   const [loading, setLoading] = React.useState(false);
 
@@ -76,7 +76,7 @@ export function NpsTab({ initialData, window }: NpsTabProps) {
       try {
         setLoading(true);
         const res = await fetch(
-          `/api/admin/founder-feedback?tab=nps&window=${window}&weeks=12`,
+          `/api/admin/founder-feedback?tab=nps&nps_window=${nps_window}&weeks=12`,
           { credentials: 'include' }
         );
         if (res.ok) {
@@ -91,7 +91,7 @@ export function NpsTab({ initialData, window }: NpsTabProps) {
     }, 60_000);
 
     return () => clearInterval(interval);
-  }, [window]);
+  }, [nps_window]);
 
   const { currentNps, trend, latestComments } = data;
 
@@ -158,9 +158,9 @@ export function NpsTab({ initialData, window }: NpsTabProps) {
                   <span className="rounded bg-indigo-900/40 px-1.5 py-0.5 text-xs font-semibold text-indigo-300">
                     {formatNpsScore(comment.score)}
                   </span>
-                  {comment.window && (
+                  {comment.nps_window && (
                     <span className="text-xs text-zinc-500">
-                      {comment.window === '7d' ? '7-day survey' : '30-day survey'}
+                      {comment.nps_window === '7d' ? '7-day survey' : '30-day survey'}
                     </span>
                   )}
                   <span className="ml-auto text-xs text-zinc-400">

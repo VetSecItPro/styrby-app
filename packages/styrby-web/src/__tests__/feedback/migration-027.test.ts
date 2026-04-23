@@ -59,8 +59,8 @@ describe('Migration 027: feedback_loop', () => {
     expect(sql).toContain('score >= 0 AND score <= 10');
   });
 
-  it('adds window column to user_feedback', () => {
-    expect(sql).toContain("ADD COLUMN IF NOT EXISTS window TEXT");
+  it('adds nps_window column to user_feedback', () => {
+    expect(sql).toContain("ADD COLUMN IF NOT EXISTS nps_window TEXT");
     expect(sql).toContain("'7d', '30d'");
   });
 

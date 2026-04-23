@@ -88,10 +88,10 @@ COMMENT ON MATERIALIZED VIEW mv_team_cost_summary IS
 -- WHY schedule at minute :05: Offset from the top of the hour so the MV
 -- refresh does not compete with other cron jobs (e.g. pg_cron defaults at :00).
 -- WHY pg_catalog.cron: Supabase pins pg_cron to pg_catalog (not the extensions
--- schema). Referencing pg_catalog.cron.schedule() is required per project
+-- schema). Referencing cron.schedule() is required per project
 -- memory feedback_supabase_pg_cron_schema.md.
 
-SELECT pg_catalog.cron.schedule(
+SELECT cron.schedule(
   'refresh-mv-team-cost-summary',
   '5 * * * *',
   $$REFRESH MATERIALIZED VIEW CONCURRENTLY mv_team_cost_summary$$
