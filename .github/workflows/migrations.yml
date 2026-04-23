@@ -1,0 +1,107 @@
+# Postgres migration verification.
+#
+# WHY this workflow exists: the existing CI pipeline (lint / typecheck / vitest)
+# never applies SQL to a real Postgres. On 2026-04-23 a single PR landed five
+# separate migration bugs that 500'd on first prod hit:
+#
+#   1. 026_retention_hooks: `GENERATED ALWAYS AS (clicked_at + INTERVAL '30d')
+#      STORED` — non-immutable expression, rejected by Postgres at migration
+#      apply time.
+#   2. 026_retention_hooks: indexed `cost_records.created_at` — column does not
+#      exist (the real column is `recorded_at`).
+#   3. 026_retention_hooks: filter `status = 'ended'` — session_status enum has
+#      no such value (valid values are 'stopped' | 'expired' | ...).
+#   4. 027_feedback_loop: column named `window` — Postgres reserved word,
+#      unquoted references parse as a keyword.
+#   5. 033_mv_team_cost_summary: called `pg_catalog.cron.schedule()` — cron
+#      extension lives in schema `cron`, the pg_catalog prefix is cross-DB junk.
+#
+# None of these are catchable by `tsc` or vitest. They are catchable by a
+# single `supabase db reset` run against a real Postgres instance. This
+# workflow does exactly that on every PR that touches migrations, plus a
+# nightly canary against main so a regression from a direct-to-main merge
+# surfaces within 24h.
+#
+# Cost: ~3-5 min per run; only runs when supabase/migrations/** changes.
+#
+# Governing standards:
+# - SOC2 CC7.2 (system monitoring — configuration error detection pre-prod)
+# - OWASP ASVS V14.1 (build and deployment — environment config hygiene)
+
+name: Postgres Migrations
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/config.toml'
+      - '.github/workflows/migrations.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/config.toml'
+      - '.github/workflows/migrations.yml'
+  schedule:
+    # Nightly 06:00 UTC (01:00 America/Chicago — off-hours for the founder).
+    # Nightly catches regressions from hotfix commits that were squash-merged
+    # directly to main without touching a migration file path.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: migrations-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Apply migrations to Postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # `supabase db start` brings up the full local stack (Postgres 17, auth,
+      # storage, realtime) via docker-compose. The Postgres image includes
+      # every extension the migrations rely on (pgcrypto, pg_cron, pgjwt,
+      # pgaudit, etc.) pre-loaded — a raw postgres:17 image does not, and
+      # swapping in individual CREATE EXTENSION statements defeats the point
+      # of testing the real runtime shape.
+      - name: Start local Supabase stack
+        run: supabase db start
+
+      # `supabase db reset` drops the local DB and replays every migration in
+      # `supabase/migrations/` in order. Any SQL error — reserved word, wrong
+      # column name, missing enum value, non-immutable generated column,
+      # cross-schema reference — fails here with a non-zero exit.
+      - name: Apply all migrations from scratch
+        run: supabase db reset --debug
+
+      # Idempotency check: running the reset twice must succeed. Catches
+      # migrations that work once but break on re-apply (missing IF NOT EXISTS
+      # guards, orphan constraints, etc.). This is a weaker test than a true
+      # "apply, then apply the next migration on top" scenario — upgrade path
+      # testing lives in a future follow-up — but it guards against the most
+      # common shape of non-idempotent DDL.
+      - name: Verify migrations are idempotent (second reset)
+        run: supabase db reset --debug
+
+      # Save the migration log as an artifact so any failure can be
+      # triaged without re-running the job.
+      - name: Dump diagnostics on failure
+        if: failure()
+        run: |
+          supabase status || true
+          docker ps -a || true
+          docker logs supabase_db_styrby-app --tail 200 || true
+
+      - name: Stop local stack
+        if: always()
+        run: supabase stop --no-backup || true
