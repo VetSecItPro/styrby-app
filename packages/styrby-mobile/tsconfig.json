@@ -24,7 +24,11 @@
       // built dist file because the package's exports map uses that path.
       "styrby-shared/encryption": ["./node_modules/@styrby/shared/dist/encryption"],
       "styrby-shared/*": ["./node_modules/@styrby/shared/*"],
-      "@styrby/shared/logging": ["./node_modules/@styrby/shared/dist/logging/index"]
+      "@styrby/shared/logging": ["./node_modules/@styrby/shared/dist/logging/index"],
+      // WHY (Phase 3.2): Session handoff is exported as a dedicated subpath so
+      // the snapshot writer's pure helpers can be imported without pulling in
+      // unrelated modules. This path mapping mirrors the package.json exports.
+      "@styrby/shared/session-handoff": ["./node_modules/@styrby/shared/dist/session-handoff/index"]
     },
     "types": ["nativewind/types", "jest", "node"],
     // WHY typeRoots: The monorepo root node_modules may contain a hoisted

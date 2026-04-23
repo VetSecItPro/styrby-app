@@ -60,6 +60,10 @@
     "./errors": {
       "types": "./dist/errors/index.d.ts",
       "import": "./dist/errors/index.js"
+    },
+    "./session-handoff": {
+      "types": "./dist/session-handoff/index.d.ts",
+      "import": "./dist/session-handoff/index.js"
     }
   },
   "scripts": {

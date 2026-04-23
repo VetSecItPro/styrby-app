@@ -32,6 +32,12 @@ export default defineConfig({
       // points to dist/logging/index.js, but vitest's Vite resolver needs an
       // explicit alias to find it since it doesn't traverse package.json exports.
       '@styrby/shared/logging': resolve(__dirname, '../styrby-shared/dist/logging/index.js'),
+      // WHY (Phase 3.2): Mirror the tsconfig path for the session-handoff subpath
+      // so vitest can resolve `import ... from '@styrby/shared/session-handoff'`
+      // during test runs. The subpath export in styrby-shared's package.json
+      // points to dist/session-handoff/index.js, but vitest's Vite resolver
+      // needs an explicit alias since it doesn't traverse package.json exports.
+      '@styrby/shared/session-handoff': resolve(__dirname, '../styrby-shared/dist/session-handoff/index.js'),
     },
   },
 });
