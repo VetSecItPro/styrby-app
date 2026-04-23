@@ -34,6 +34,22 @@
       "env": {
         "APP_VARIANT": "production"
       }
+    },
+    "cold-start-test": {
+      "_comment": "WHY this profile: Detox cold-start measurement requires a release-mode binary with the JS bundle embedded. Debug builds include Metro bundler overhead (hot-reload socket, Flipper bridge) that inflates cold-start by 200-400 ms and would produce unrepresentative measurements. This profile matches what end-users experience.",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      },
+      "ios": {
+        "simulator": true,
+        "buildConfiguration": "Release"
+      },
+      "env": {
+        "APP_VARIANT": "production",
+        "DETOX_ENABLED": "true"
+      }
     }
   },
   "submit": {

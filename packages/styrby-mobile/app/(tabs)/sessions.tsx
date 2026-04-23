@@ -309,7 +309,16 @@ export default function SessionsScreen() {
       />
 
       {/* Sessions List (grouped by date) */}
+      {/*
+        WHY testID="session-list-root":
+        The Detox cold-start test (e2e/cold-start.test.ts) waits for this element
+        to become visible as the Time-to-Interactive (TTI) signal. It appears only
+        after auth hydration, initial Supabase fetch, and tab navigation complete —
+        the truest available proxy for "app is ready to use."
+        See: packages/styrby-mobile/e2e/cold-start.test.ts
+      */}
       <SectionList
+        testID="session-list-root"
         sections={sections}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
