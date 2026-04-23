@@ -26,3 +26,6 @@ export type { TeamsCardProps } from './TeamsCard';
 // Phase 2.5 (absorbs 1.6.7b) — Error class histogram for the founder dashboard
 export { ErrorClassHistogramDynamic } from './ErrorClassHistogramDynamic';
 export type { ErrorClassHistogramProps, ErrorHistogramDay } from './ErrorClassHistogram';
+
+// Phase 3.4 — Forecast quality panel (predictive alert coverage + lead-time)
+export { ForecastQualityCard } from './ForecastQualityCard';

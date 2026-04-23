@@ -60,7 +60,9 @@ import {
   SessionCostRow,
 } from '../../src/components/costs';
 import { BillingModelSummaryStrip } from '../../src/components/costs/BillingModelSummaryStrip';
+import { ForecastCard } from '../../src/components/costs/ForecastCard';
 import { useBillingBreakdown } from '../../src/components/costs/useBillingBreakdown';
+import { useForecast } from '../../src/hooks/useForecast';
 
 /**
  * Cost Dashboard Screen.
@@ -101,6 +103,9 @@ export default function CostsScreen() {
   // Phase 1.6.7: run-rate projection + recent session costs
   const { projection, isLoading: runRateLoading, refresh: refreshRunRate, tierLabel } = useRunRate();
   const { sessions: recentSessions, isLoading: sessionsLoading, refresh: refreshSessions } = useSessionCosts();
+
+  // Phase 3.4: EMA-blend cost forecast + predictive exhaustion date
+  const { forecast, isLoading: forecastLoading, error: forecastError } = useForecast();
 
   // WHY individual useState rather than a single object: each section toggles
   // independently, so colocated booleans keep re-renders narrow and code clear.
@@ -262,6 +267,18 @@ export default function CostsScreen() {
           <TierUpgradeWarning projection={projection} tierLabel={tierLabel} />
         </View>
       ) : null}
+
+      {/* === Phase 3.4: EMA-blend forecast card === */}
+      {/* WHY below RunRateCard: RunRateCard answers "how am I doing now?"
+          ForecastCard answers "what will happen next?" — sequential read
+          guides the user from current state to future prediction. */}
+      <View className="px-4 mb-4">
+        <ForecastCard
+          forecast={forecast}
+          loading={forecastLoading}
+          error={forecastError}
+        />
+      </View>
 
       {/* Billing Model Summary Strip — shows API / SUB / CR totals for the period */}
       {/* WHY: Users who mix billing models (e.g. API for Claude Code + credits

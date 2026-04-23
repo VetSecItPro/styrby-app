@@ -98,6 +98,12 @@ export * from './feedback/index.js';
 // package.json exports subpaths — can import them directly from the root.)
 export type * from './session-replay/types.js';
 
+// Phase 3.4 — Cost forecasting (EMA-blend predictions + exhaustion dates).
+// Pure integer-cents math, no Zod, no DB calls — safe for web, mobile, and
+// the nightly pg_cron predictive-alert job.
+// Audit: SOC2 CC7.2 (system monitoring / cost accounting accuracy).
+export * from './cost-forecast/index.js';
+
 // Phase 3.5 — Cross-agent context sync types (runtime summarizer stays at
 // subpath '@styrby/shared/context-sync' for tree-shaking — it imports the
 // scrub engine regex patterns which add bundle weight). Types re-exported here
