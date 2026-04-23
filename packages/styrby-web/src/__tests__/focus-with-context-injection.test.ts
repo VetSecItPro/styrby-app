@@ -102,8 +102,6 @@ function buildMockClient(state: MockState) {
     let _limit = false;
     const builder: Record<string, unknown> = {};
 
-    const chain = () => builder;
-
     // Fluent methods that return the chain
     ['select', 'eq', 'update', 'insert'].forEach((method) => {
       builder[method] = vi.fn().mockReturnValue(builder);
