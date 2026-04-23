@@ -67,7 +67,7 @@
     "build": "node scripts/build.mjs",
     "build:types": "tsc --emitDeclarationOnly",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "NODE_OPTIONS=--expose-gc vitest run",
     "audit": "pnpm audit --audit-level=high",
     "prepublishOnly": "echo 'Skipping prepublishOnly — CI handles audit+typecheck+build'"
   },

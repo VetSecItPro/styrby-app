@@ -30,6 +30,7 @@ import {
   formatAgentProbeReport,
   getFailedProbes,
   type AgentProbeResult,
+  type VersionCompatibilityResult,
 } from './agentProbe';
 
 // ============================================================================
@@ -261,6 +262,29 @@ export async function runDoctor(): Promise<void> {
     logger.info('  Agent installation detail:');
     for (const line of formatAgentProbeReport(probeResults)) {
       logger.info(line);
+    }
+  }
+
+  // Phase 1.6.4b: print version compatibility section for any drift detected.
+  const driftResults = probeResults.filter(
+    (r) => r.versionCompatibility && r.versionCompatibility.compatibility !== 'compatible',
+  );
+  if (driftResults.length > 0) {
+    logger.info('');
+    logger.info('  Version compatibility:');
+    for (const r of driftResults) {
+      const vc = r.versionCompatibility as VersionCompatibilityResult;
+      const issue =
+        vc.compatibility === 'below-min'
+          ? `v${vc.detectedVersion} is below minimum supported v${vc.minSupported}`
+          : `v${vc.detectedVersion} is above max tested v${vc.maxTested} (may have new stream format)`;
+      logger.info(
+        `  ! [VERSION] ${r.displayName}: ${issue}` +
+          ` — report at https://github.com/VetSecItPro/styrby-app/issues`,
+      );
+    }
+    if (!allPassed) {
+      // Don't downgrade allPassed — version drift is informational, not a hard failure.
     }
   }
 
