@@ -41,7 +41,14 @@ function createChainMock() {
   return chain;
 }
 
-const mockAdminFrom = vi.fn(() => createChainMock());
+// WHY vi.hoisted: vi.mock() factories are hoisted above the file's module-scope
+// const declarations, so `mockAdminFrom` would be in TDZ when the factory runs.
+// vi.hoisted() guarantees the variable is created at hoist time, alongside the
+// factory. Same pattern Phase 2.6 used for polar-env test hoisting.
+const { mockAdminFrom, mockSendRetentionPush } = vi.hoisted(() => ({
+  mockAdminFrom: vi.fn(),
+  mockSendRetentionPush: vi.fn().mockResolvedValue(true),
+}));
 
 vi.mock('@/lib/supabase/server', () => ({
   createAdminClient: vi.fn(() => ({
@@ -50,10 +57,12 @@ vi.mock('@/lib/supabase/server', () => ({
   })),
 }));
 
-const mockSendRetentionPush = vi.fn().mockResolvedValue(true);
 vi.mock('@/lib/pushNotifications', () => ({
   sendRetentionPush: mockSendRetentionPush,
 }));
+
+// Restore mockAdminFrom implementation after hoist (mocks start undefined).
+mockAdminFrom.mockImplementation(() => createChainMock());
 
 // ============================================================================
 // Import after mocks
@@ -133,6 +142,11 @@ describe('POST /api/cron/predictive-cost-alerts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fromCallQueue.length = 0;
+    // WHY re-apply implementations after clearAllMocks: vi.clearAllMocks()
+    // resets call history AND mock implementations, leaving hoisted fns
+    // returning undefined. Re-establish the chain-mock behavior per test.
+    mockAdminFrom.mockImplementation(() => createChainMock());
+    mockSendRetentionPush.mockResolvedValue(true);
   });
 
   // -------------------------------------------------------------------------
