@@ -18,7 +18,11 @@
     "lint": "eslint src/ app/",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "e2e:cold-start": "detox test --configuration android.emu.release",
+    "e2e:cold-start:ios": "detox test --configuration ios.sim.release",
+    "e2e:build:cold-start": "detox build --configuration android.emu.release",
+    "e2e:build:cold-start:ios": "detox build --configuration ios.sim.release"
   },
   "dependencies": {
     "@sentry/react-native": "~6.6.0",
@@ -76,7 +80,8 @@
     "react-test-renderer": "^18.3.1",
     "tailwindcss": "^3.4.0",
     "typescript": "~5.6.0",
-    "typescript-eslint": "^8.30.0"
+    "typescript-eslint": "^8.30.0",
+    "detox": "^20.27.2"
   },
   "expo": {
     "doctor": {

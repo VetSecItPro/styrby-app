@@ -1,0 +1,318 @@
+# EAS Cold-Start CI Lane — Phase 1.6.12b
+#
+# WHY this is a separate workflow (NOT part of ci.yml):
+#   Cold-start measurement requires:
+#     1. An EAS Build artifact (paid EAS tier or EAS_ROBOT_TOKEN secret)
+#     2. A running Android emulator (requires KVM on ubuntu-latest)
+#   These are not needed on every PR — they're expensive and slow (~8 min).
+#   Separating concerns keeps ci.yml fast (proxy tests run there) and this
+#   workflow focused on real device measurement.
+#
+# TRIGGER STRATEGY:
+#   Currently: `workflow_dispatch` only (manual trigger).
+#   ACTIVATION: Switch trigger to `pull_request` after EAS paid tier is enabled
+#   and EAS_ROBOT_TOKEN + associated secrets are set in GitHub Actions secrets.
+#   See docs/infrastructure/eas-cold-start.md for the full activation runbook.
+#
+# GRACEFUL NO-OP:
+#   If EAS_ROBOT_TOKEN secret is not set, the workflow detects this and exits
+#   cleanly with a log message rather than erroring. This prevents spurious CI
+#   failures before the paid tier is enabled.
+#
+# REQUIRED SECRETS (GitHub Actions > Settings > Secrets and variables > Actions):
+#   EAS_ROBOT_TOKEN       — EAS Robot account token. Generate at expo.dev/accounts/
+#                           [your-account]/settings/access-tokens with scope: builds:create
+#   EXPO_PUBLIC_SUPABASE_URL    — Supabase project URL (same as in .env.local)
+#   EXPO_PUBLIC_SUPABASE_ANON_KEY — Supabase anon key (public, safe for CI)
+#   DETOX_TEST_USER_EMAIL — Email for the pre-seeded Detox test account in Supabase
+#   DETOX_TEST_USER_PASSWORD — Password for the pre-seeded Detox test account
+#
+# SEE ALSO:
+#   packages/styrby-mobile/.detoxrc.js — Detox configuration
+#   packages/styrby-mobile/e2e/cold-start.test.ts — The test suite
+#   docs/infrastructure/eas-cold-start.md — Activation runbook + budget docs
+
+name: EAS Cold-Start CI
+
+# Switch from `workflow_dispatch` to `pull_request` after EAS paid tier is enabled.
+# When switching, add:
+#   pull_request:
+#     branches: [main]
+#     paths:
+#       - 'packages/styrby-mobile/**'
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to test'
+        required: false
+        default: 'android'
+        type: choice
+        options:
+          - android
+          - ios
+
+concurrency:
+  group: eas-cold-start-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+# SEC-008: Explicit least-privilege permissions (same pattern as ci.yml)
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  NODE_VERSION: '22'
+  JAVA_VERSION: '17'
+  # Android emulator API level. Must match .detoxrc.js `Pixel_6_API_31` avd config.
+  # WHY API 31: Android 12 is the lowest Styrby-supported API and the most common
+  # mid-tier device API level as of 2026. Represents Pixel 6 class hardware.
+  ANDROID_API_LEVEL: 31
+  # WHY AOSP target (default): We use AOSP system images without Google APIs.
+  # Detox strongly recommends AOSP for automation (no Google Play service overhead,
+  # no license prompt, faster boot). See packages/styrby-mobile/.detoxrc.js.
+  ANDROID_TARGET: default
+  ANDROID_ARCH: x86_64
+  # AVD name must match .detoxrc.js `devices.emulator.device.avdName`
+  AVD_NAME: Pixel_6_API_31
+  # EAS build profile — see packages/styrby-mobile/eas.json
+  EAS_PROFILE: cold-start-test
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # GUARD: Bail out gracefully if EAS_ROBOT_TOKEN is not configured.
+  # This prevents spurious CI failures before the EAS paid tier is enabled.
+  # ──────────────────────────────────────────────────────────────────────────
+  check-prerequisites:
+    name: Check EAS Prerequisites
+    runs-on: ubuntu-latest
+    outputs:
+      eas-ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - name: Check EAS_ROBOT_TOKEN secret
+        id: check
+        run: |
+          if [ -z "${{ secrets.EAS_ROBOT_TOKEN }}" ]; then
+            echo "::notice title=EAS Cold-Start Skipped::EAS_ROBOT_TOKEN secret is not set. This workflow requires a paid EAS tier. See docs/infrastructure/eas-cold-start.md for the activation runbook."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=EAS Prerequisites OK::EAS_ROBOT_TOKEN found. Proceeding with cold-start measurement."
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # BUILD: Trigger an EAS Build and download the artifact APK.
+  # ──────────────────────────────────────────────────────────────────────────
+  eas-build:
+    name: EAS Build (Android APK)
+    runs-on: ubuntu-latest
+    needs: check-prerequisites
+    if: needs.check-prerequisites.outputs.eas-ready == 'true'
+    outputs:
+      apk-url: ${{ steps.build.outputs.apk-url }}
+    steps:
+      # SEC-INFRA-001: Pin to full commit SHA (same policy as ci.yml)
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install EAS CLI
+        run: pnpm add -g eas-cli
+
+      - name: Authenticate with EAS
+        # WHY --non-interactive: CI runners cannot respond to interactive prompts.
+        # WHY token via env: Never pass secrets as command-line args (they appear
+        # in process lists). EXPO_TOKEN is the canonical env var EAS CLI reads.
+        env:
+          EXPO_TOKEN: ${{ secrets.EAS_ROBOT_TOKEN }}
+        run: eas whoami
+
+      - name: Build APK with EAS
+        id: build
+        env:
+          EXPO_TOKEN: ${{ secrets.EAS_ROBOT_TOKEN }}
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+        working-directory: packages/styrby-mobile
+        run: |
+          # Build the cold-start-test APK profile on EAS.
+          # `--non-interactive` ensures no prompts block CI.
+          # `--platform android` — iOS builds handled separately (see plan in .detoxrc.js).
+          # Output format: JSON so we can extract the artifact URL.
+          BUILD_OUTPUT=$(eas build \
+            --profile ${{ env.EAS_PROFILE }} \
+            --platform android \
+            --non-interactive \
+            --json \
+            --no-wait 2>&1 || true)
+
+          echo "Build output: $BUILD_OUTPUT"
+
+          # Extract the build ID for artifact download.
+          BUILD_ID=$(echo "$BUILD_OUTPUT" | jq -r '.id // empty' 2>/dev/null || true)
+          if [ -z "$BUILD_ID" ]; then
+            echo "::error::Failed to parse EAS build ID from output. Check EAS_ROBOT_TOKEN and eas.json."
+            exit 1
+          fi
+
+          echo "Build ID: $BUILD_ID"
+
+          # Wait for the build to complete and get artifact URL.
+          # WHY --wait: We need the artifact URL before Detox can run.
+          APK_URL=$(eas build:view "$BUILD_ID" --json | jq -r '.artifacts.buildUrl // empty')
+          if [ -z "$APK_URL" ]; then
+            echo "::error::EAS build artifact URL is empty. Build may have failed. Check https://expo.dev"
+            exit 1
+          fi
+
+          echo "apk-url=$APK_URL" >> "$GITHUB_OUTPUT"
+          echo "::notice title=EAS Build Complete::APK available at $APK_URL"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # TEST: Download APK + run Detox cold-start test on Android emulator.
+  # ──────────────────────────────────────────────────────────────────────────
+  detox-cold-start-android:
+    name: Detox Cold-Start — Android
+    runs-on: ubuntu-latest
+    needs: eas-build
+    if: needs.check-prerequisites.outputs.eas-ready == 'true'
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      # WHY Java 17: React Native 0.76+ requires Java 17+ for Android build tooling.
+      # Detox itself doesn't need Java, but the emulator runner and adb do.
+      - name: Setup Java
+        uses: actions/setup-java@7a6d8a8234af8eb26422e24e3006232cccaa061b # v4.6.0
+        with:
+          distribution: zulu
+          java-version: ${{ env.JAVA_VERSION }}
+
+      # WHY free disk space early: Android emulator images are ~1.5 GB.
+      # EAS APK is ~80 MB. GitHub-hosted runners start with ~14 GB free.
+      # Pre-installed tools (dotnet, swap) consume ~8 GB. Freeing them first
+      # prevents "No space left on device" errors mid-emulator-boot.
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          echo "Disk space after cleanup:"
+          df -h
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Enable KVM for Android emulator
+        # WHY KVM: Hardware virtualisation (KVM) makes emulator boot ~5x faster
+        # and is required for x86_64 AOSP images. ubuntu-latest runners support KVM.
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Download EAS APK artifact
+        run: |
+          mkdir -p packages/styrby-mobile/build
+          curl -L -o packages/styrby-mobile/build/styrby-release.apk \
+            "${{ needs.eas-build.outputs.apk-url }}"
+          echo "APK size: $(du -sh packages/styrby-mobile/build/styrby-release.apk | cut -f1)"
+
+      - name: Cache Android emulator AVD
+        # WHY cache the AVD: Creating a new AVD takes ~3 minutes. Caching the
+        # created AVD snapshot saves time on repeated CI runs.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-${{ env.ANDROID_API_LEVEL }}-${{ env.ANDROID_ARCH }}-${{ env.ANDROID_TARGET }}
+
+      - name: Create AVD (if not cached)
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@f0d1ed2dcad93c7479e8b2f2226c83af54494915 # v2.32.0
+        with:
+          api-level: ${{ env.ANDROID_API_LEVEL }}
+          target: ${{ env.ANDROID_TARGET }}
+          arch: ${{ env.ANDROID_ARCH }}
+          avd-name: ${{ env.AVD_NAME }}
+          # Just create the AVD, don't run tests yet. The next step runs tests.
+          script: echo "AVD created and cached."
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+
+      - name: Run Detox Cold-Start Tests
+        # WHY reactivecircus/android-emulator-runner for test execution:
+        # The action handles emulator lifecycle (boot, wait for ready, shutdown)
+        # so we don't need to manage adb wait-for-device ourselves.
+        uses: reactivecircus/android-emulator-runner@f0d1ed2dcad93c7479e8b2f2226c83af54494915 # v2.32.0
+        env:
+          # Detox test account credentials — pre-seeded in Supabase test schema.
+          # WHY env vars instead of hardcoded: secrets must never appear in source code.
+          DETOX_TEST_USER_EMAIL: ${{ secrets.DETOX_TEST_USER_EMAIL }}
+          DETOX_TEST_USER_PASSWORD: ${{ secrets.DETOX_TEST_USER_PASSWORD }}
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+        with:
+          api-level: ${{ env.ANDROID_API_LEVEL }}
+          target: ${{ env.ANDROID_TARGET }}
+          arch: ${{ env.ANDROID_ARCH }}
+          avd-name: ${{ env.AVD_NAME }}
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          # WHY --no-snapshot-save: We need true cold starts, not resumed snapshots.
+          # Quick-boot would defeat the measurement by loading a warm process snapshot.
+          disable-animations: true
+          script: |
+            cd packages/styrby-mobile
+            pnpm run e2e:cold-start 2>&1 | tee cold-start-results.txt
+            EXIT_CODE=${PIPESTATUS[0]}
+            exit $EXIT_CODE
+
+      - name: Upload cold-start report artifact
+        # Always upload — even on failure — so we have measurement data to debug regressions.
+        if: always()
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: cold-start-report-android-${{ github.run_number }}
+          path: |
+            packages/styrby-mobile/cold-start-results.txt
+            packages/styrby-mobile/artifacts/
+          retention-days: 30
+
+      - name: Annotate PR with cold-start results
+        # WHY parse results and annotate: Makes the budget pass/fail visible
+        # directly in the PR without digging into workflow logs.
+        if: always()
+        run: |
+          RESULTS_FILE="packages/styrby-mobile/cold-start-results.txt"
+          if [ -f "$RESULTS_FILE" ]; then
+            P95_LINE=$(grep "p95:" "$RESULTS_FILE" | tail -1 || true)
+            P50_LINE=$(grep "p50:" "$RESULTS_FILE" | tail -1 || true)
+            if [ -n "$P95_LINE" ]; then
+              echo "::notice title=Cold-Start p95::$P95_LINE"
+              echo "::notice title=Cold-Start p50::$P50_LINE"
+            fi
+          fi

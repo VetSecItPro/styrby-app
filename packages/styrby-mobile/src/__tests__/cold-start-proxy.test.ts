@@ -1,4 +1,26 @@
 /**
+ * ─── PROXY CANARY (keep this file) ──────────────────────────────────────────
+ *
+ * This is the FAST PROXY canary for cold-start performance. It runs on EVERY PR
+ * via ci.yml using static analysis (no emulator required, < 1 s).
+ *
+ * The REAL cold-start measurement (actual TTI on a running Android emulator)
+ * lives at:
+ *   packages/styrby-mobile/e2e/cold-start.test.ts
+ *
+ * That Detox test is triggered by:
+ *   .github/workflows/eas-cold-start.yml (manual dispatch until EAS paid tier enabled)
+ *
+ * WHY keep this file alongside the Detox test:
+ *   - The proxy runs in < 1 s (no emulator boot, no EAS build, no network)
+ *   - It catches regressions on every PR before the expensive Detox lane
+ *   - Leading indicators (import count, nesting depth) correlate with cold-start latency
+ *   - Deleting this file would leave a blind spot on PRs where EAS lane isn't triggered
+ *
+ * DO NOT DELETE — see docs/infrastructure/eas-cold-start.md for the full picture.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
  * Mobile Cold-Start Proxy Tests (Phase 1.6.12)
  *
  * WHY this file exists: Real device cold-start measurement requires EAS Build
