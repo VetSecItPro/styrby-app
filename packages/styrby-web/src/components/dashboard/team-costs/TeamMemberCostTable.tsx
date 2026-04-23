@@ -122,7 +122,12 @@ export function TeamMemberCostTable({
 
   const sorted = sortRows(members, sortKey, sortDir);
 
-  const SortIndicator = ({ col }: { col: SortKey }) => {
+  // WHY regular function instead of nested component: defining a component
+  // inside the parent body triggers react/no-unstable-nested-components
+  // (fresh component identity per render breaks reconciliation + state).
+  // A plain function returning JSX avoids the rule while still closing
+  // over sortKey/sortDir.
+  const sortIndicator = (col: SortKey) => {
     if (col !== sortKey) return <span className="ml-1 text-muted-foreground/40">-</span>;
     return (
       <span className="ml-1 text-muted-foreground">
@@ -165,28 +170,28 @@ export function TeamMemberCostTable({
                 onClick={() => handleSort('displayName')}
                 aria-sort={sortKey === 'displayName' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
               >
-                Member <SortIndicator col="displayName" />
+                Member {sortIndicator("displayName")}
               </th>
               <th
                 className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer select-none hover:text-foreground transition-colors"
                 onClick={() => handleSort('totalCostUsd')}
                 aria-sort={sortKey === 'totalCostUsd' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
               >
-                Spend <SortIndicator col="totalCostUsd" />
+                Spend {sortIndicator("totalCostUsd")}
               </th>
               <th
                 className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer select-none hover:text-foreground transition-colors"
                 onClick={() => handleSort('totalInputTokens')}
                 aria-sort={sortKey === 'totalInputTokens' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
               >
-                Input Tokens <SortIndicator col="totalInputTokens" />
+                Input Tokens {sortIndicator("totalInputTokens")}
               </th>
               <th
                 className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer select-none hover:text-foreground transition-colors"
                 onClick={() => handleSort('totalOutputTokens')}
                 aria-sort={sortKey === 'totalOutputTokens' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
               >
-                Output Tokens <SortIndicator col="totalOutputTokens" />
+                Output Tokens {sortIndicator("totalOutputTokens")}
               </th>
               <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Share
