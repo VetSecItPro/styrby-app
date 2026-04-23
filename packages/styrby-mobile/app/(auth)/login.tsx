@@ -139,6 +139,41 @@ export default function LoginScreen() {
   };
 
   /**
+   * Google OAuth sign-in for mobile.
+   *
+   * WHY prompt=select_account: Ensures users can switch Google accounts if they
+   * have multiple. Without this, Google silently reuses the last signed-in
+   * account, which may not be their Workspace account for SSO auto-enroll.
+   *
+   * WHY redirectTo styrby://auth/callback: The Expo deep link handler picks up
+   * the OAuth response and hydrates the Supabase session. The web auth callback
+   * logic (hd claim check + auto-enroll) runs when redirected through the web
+   * app. For mobile-only flow, Supabase Auth handles the token exchange and the
+   * hd claim is available in user_metadata after session is established.
+   *
+   * Note: Team SSO auto-enroll for mobile happens asynchronously via the
+   * /api/teams/sso/mobile-enroll route called after session establishment,
+   * since the mobile app does not route through the Next.js auth callback.
+   */
+  const handleGoogleAuth = async () => {
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: 'styrby://auth/callback',
+          queryParams: { access_type: 'offline', prompt: 'select_account' },
+        },
+      });
+      if (error) throw error;
+    } catch (error) {
+      Alert.alert('Error', error instanceof Error ? error.message : 'Google sign-in failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
    * Passkey authentication flow for mobile.
    *
    * Flow:
@@ -400,7 +435,24 @@ export default function LoginScreen() {
           )}
         </Pressable>
 
-        {/* OAuth */}
+        {/* Google OAuth */}
+        <Pressable
+          onPress={handleGoogleAuth}
+          disabled={loading || passkeyLoading}
+          className="flex-row items-center justify-center py-4 rounded-xl bg-zinc-800 mb-3"
+          accessibilityRole="button"
+          accessibilityLabel="Continue with Google"
+        >
+          {/* WHY inline SVG text via Ionicons logo-google: Ionicons includes
+            * the Google logo. We use it for consistency with the icon set
+            * already in use on this screen. */}
+          <Ionicons name="logo-google" size={20} color="#EA4335" />
+          <Text className="text-white font-semibold text-base ml-3">
+            Continue with Google
+          </Text>
+        </Pressable>
+
+        {/* GitHub OAuth */}
         <Pressable
           onPress={handleGitHubAuth}
           disabled={loading || passkeyLoading}
