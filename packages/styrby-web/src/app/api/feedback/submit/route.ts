@@ -27,7 +27,7 @@
  *   kind: 'nps' | 'general' | 'session_postmortem',
  *   score?: number,         // 0-10 (NPS)
  *   followup?: string,      // NPS follow-up free text (max 2000 chars)
- *   window?: '7d' | '30d', // NPS window
+ *   nps_window?: '7d' | '30d', // NPS window
  *   promptId?: string,      // UUID of user_feedback_prompts row (NPS)
  *   message?: string,       // General feedback text (max 2000 chars)
  *   replyEmail?: string,    // Optional reply-to for general feedback
@@ -86,7 +86,7 @@ const FeedbackSubmitSchema = z
       kind: z.literal('nps'),
       score: z.number().int().min(0).max(10),
       followup: z.string().max(2000).optional(),
-      window: z.enum(['7d', '30d']),
+      nps_window: z.enum(['7d', '30d']),
       promptId: z.string().uuid().optional(),
       contextJson: ContextJsonSchema,
     }),
@@ -193,7 +193,7 @@ export async function POST(request: NextRequest) {
       metadata: {
         feedback_id: feedbackId,
         kind: input.kind,
-        ...(input.kind === 'nps' && { window: input.window, score: input.score }),
+        ...(input.kind === 'nps' && { nps_window: input.nps_window, score: input.score }),
         ...(input.kind === 'session_postmortem' && {
           rating: input.rating,
           session_id: input.sessionId,
@@ -239,7 +239,7 @@ function buildFeedbackRow(
       feedback_type: 'nps',
       score: input.score,
       followup: input.followup ?? null,
-      window: input.window,
+      nps_window: input.nps_window,
       prompt_id: input.promptId ?? null,
       // Backwards compat: also set rating INT for old queries
       rating: input.score,

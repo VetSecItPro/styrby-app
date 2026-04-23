@@ -129,7 +129,7 @@ export default async function FounderFeedbackPage({
 
       {/* Tab content */}
       {activeTab === 'nps' && (
-        <NpsTab initialData={safeNps} window="all" />
+        <NpsTab initialData={safeNps} nps_window="all" />
       )}
       {activeTab === 'general' && (
         <GeneralTab initialItems={safeGeneral.items} initialTotal={safeGeneral.total} />

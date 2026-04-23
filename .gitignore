@@ -128,3 +128,4 @@ ARCHITECTURE.md
 .launch-reports/
 .claude/
 .subagent-dev-reports/
+.clone/

@@ -247,9 +247,12 @@ CREATE TABLE IF NOT EXISTS referral_events (
   is_disposable_email  BOOLEAN  DEFAULT FALSE,
   rejection_reason     TEXT,
 
-  -- Conversion window: 30 days from click
-  expires_at           TIMESTAMPTZ NOT NULL
-                       GENERATED ALWAYS AS (clicked_at + INTERVAL '30 days') STORED,
+  -- Conversion window: 30 days from click.
+  -- WHY not GENERATED ALWAYS: Postgres classifies `timestamptz + interval`
+  -- as STABLE (timezone-dependent), not IMMUTABLE, so it can't be used in
+  -- a stored generated column (fails 42P17). Populated via BEFORE INSERT
+  -- trigger fn_referral_events_set_expires_at defined after this table.
+  expires_at           TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '30 days'),
 
   -- Tier of the upgrade that triggered the reward
   upgraded_to_tier     TEXT CHECK (upgraded_to_tier IN ('pro', 'power', 'team', 'business', 'enterprise')),
@@ -257,6 +260,28 @@ CREATE TABLE IF NOT EXISTS referral_events (
   created_at           TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at           TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
+
+-- WHY trigger-maintained expires_at: the DEFAULT above handles the common
+-- case (expires_at computed at INSERT time as NOW()+30d). This trigger
+-- ensures that when clicked_at is explicitly supplied (e.g., backfill),
+-- expires_at is recomputed from it rather than from NOW(). Idempotent.
+CREATE OR REPLACE FUNCTION fn_referral_events_set_expires_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- If caller supplied expires_at explicitly, keep it.
+  -- Otherwise derive from clicked_at (or NOW if clicked_at is null).
+  IF NEW.expires_at IS NULL OR NEW.expires_at = (NOW() + INTERVAL '30 days') THEN
+    NEW.expires_at := COALESCE(NEW.clicked_at, NOW()) + INTERVAL '30 days';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_referral_events_set_expires_at ON referral_events;
+CREATE TRIGGER trg_referral_events_set_expires_at
+  BEFORE INSERT ON referral_events
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_referral_events_set_expires_at();
 
 CREATE INDEX IF NOT EXISTS idx_referral_events_referrer
   ON referral_events(referrer_user_id, status);
@@ -443,16 +468,25 @@ SELECT cron.schedule(
 
 -- WHY: The budget threshold route joins cost_records → sessions → profiles
 -- filtered on billing period. The sessions index already exists from 022.
--- Add a compound on cost_records(user_id, created_at) for MTD aggregation.
+-- Add a compound on cost_records(user_id, recorded_at) for MTD aggregation.
+-- WHY recorded_at (not created_at): cost_records uses `recorded_at` as its
+-- timestamp column (see migration 001). The partial-index predicate is
+-- redundant because recorded_at is NOT NULL in the base schema, but we
+-- keep the form for documentary intent.
 CREATE INDEX IF NOT EXISTS idx_cost_records_user_mtd
-  ON cost_records(user_id, created_at DESC)
-  WHERE created_at IS NOT NULL;
+  ON cost_records(user_id, recorded_at DESC);
 
 -- WHY: The agent-finished notification edge function queries sessions by
 -- user + status + ended_at to find recently-completed sessions.
+-- WHY status IN ('stopped','expired'): the session_status enum from
+-- migration 001 doesn't have 'ended'. Terminated sessions are either
+-- 'stopped' (clean user-initiated) or 'expired' (timed out). Both are
+-- "agent-finished" for the notification trigger.
+-- WHY no deleted_at predicate: sessions table doesn't have a deleted_at
+-- column (sessions are hard-deleted or retained per retention policy).
 CREATE INDEX IF NOT EXISTS idx_sessions_user_ended
   ON sessions(user_id, ended_at DESC)
-  WHERE status = 'ended' AND deleted_at IS NULL;
+  WHERE status IN ('stopped', 'expired');
 
 -- WHY: notifications feed is queried as "unread first, then all" — index
 -- already created above in Step 2. Index for read-mark queries:

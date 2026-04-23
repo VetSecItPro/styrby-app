@@ -7,14 +7,14 @@
 --        - kind TEXT ENUM('nps','general','session_postmortem','icp_soft')
 --        - score INT (0-10 NPS score, 1-2 session rating encoded)
 --        - followup TEXT (NPS follow-up free text)
---        - window ENUM('7d','30d') for NPS window tagging
+--        - nps_window ENUM('7d','30d') for NPS nps_window tagging
 --        - rating ENUM('useful','not_useful') for session post-mortems
 --        - reason TEXT for post-mortem negative reason
 --        - context_json JSONB for screen/route context (no PII)
 --        - prompt_id UUID FK to user_feedback_prompts (link prompt → response)
 --
 --   2. user_feedback_prompts table
---        Scheduled NPS prompt rows (one per user per window).
+--        Scheduled NPS prompt rows (one per user per nps_window).
 --        pg_cron polls every 15 min and enqueues push + in-app notification
 --        for each due prompt.
 --
@@ -67,9 +67,9 @@ ALTER TABLE user_feedback
   -- Optional NPS free-text follow-up ("What's the #1 thing we could improve?")
   ADD COLUMN IF NOT EXISTS followup TEXT,
 
-  -- NPS window: '7d' (day-7 survey) or '30d' (day-30 survey)
-  ADD COLUMN IF NOT EXISTS window TEXT
-    CHECK (window IN ('7d', '30d')),
+  -- NPS nps_window: '7d' (day-7 survey) or '30d' (day-30 survey)
+  ADD COLUMN IF NOT EXISTS nps_window TEXT
+    CHECK (nps_window IN ('7d', '30d')),
 
   -- Session post-mortem: 'useful' or 'not_useful'
   ADD COLUMN IF NOT EXISTS rating TEXT
@@ -85,9 +85,9 @@ ALTER TABLE user_feedback
   -- Set NULL for general and post-mortem feedback
   ADD COLUMN IF NOT EXISTS prompt_id UUID;
 
--- Index: NPS window queries for founder dashboard trend chart
+-- Index: NPS nps_window queries for founder dashboard trend chart
 CREATE INDEX IF NOT EXISTS idx_user_feedback_kind_window
-  ON user_feedback(kind, window, created_at DESC)
+  ON user_feedback(kind, nps_window, created_at DESC)
   WHERE kind = 'nps';
 
 -- Index: post-mortem listing for founder dashboard (filter by agent)
@@ -105,8 +105,8 @@ COMMENT ON COLUMN user_feedback.score IS
 COMMENT ON COLUMN user_feedback.followup IS
   'NPS follow-up free text: "What is the #1 thing we could do to raise that score?"';
 
-COMMENT ON COLUMN user_feedback.window IS
-  'NPS survey window: 7d (7-day post-signup) or 30d (30-day post-signup).';
+COMMENT ON COLUMN user_feedback.nps_window IS
+  'NPS survey nps_window: 7d (7-day post-signup) or 30d (30-day post-signup).';
 
 COMMENT ON COLUMN user_feedback.rating IS
   'Session post-mortem one-tap: useful | not_useful.';
@@ -126,8 +126,8 @@ COMMENT ON COLUMN user_feedback.prompt_id IS
 -- ============================================================================
 -- Step 2: user_feedback_prompts table
 -- ============================================================================
--- WHY: We need to track scheduled NPS prompts per user per window:
---   - Prevent duplicates (one prompt per window per user)
+-- WHY: We need to track scheduled NPS prompts per user per nps_window:
+--   - Prevent duplicates (one prompt per nps_window per user)
 --   - Know when to dispatch (due_at timestamp)
 --   - Know if already dispatched (dispatched_at, response_id)
 --   - Know if dismissed without answering (dismissed_at)
@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS user_feedback_prompts (
   id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id           UUID        NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
 
-  -- Which NPS window this prompt represents
+  -- Which NPS nps_window this prompt represents
   -- 'nps_7d' fires 7 days after signup; 'nps_30d' fires 30 days after signup
   kind              TEXT        NOT NULL CHECK (kind IN ('nps_7d', 'nps_30d')),
 
@@ -189,7 +189,7 @@ CREATE POLICY feedback_prompts_delete_service ON user_feedback_prompts
   FOR DELETE USING (true);
 
 COMMENT ON TABLE user_feedback_prompts IS
-  'Scheduled NPS prompt delivery queue. One row per user per NPS window (7d, 30d). '
+  'Scheduled NPS prompt delivery queue. One row per user per NPS nps_window (7d, 30d). '
   'The fn_dispatch_due_nps_prompts() cron function polls every 15 min, picks '
   'due rows, sends push + in-app notification, and stamps dispatched_at. '
   'Idempotency enforced by UNIQUE (user_id, kind).';
@@ -388,7 +388,7 @@ ON CONFLICT (user_id, kind) DO NOTHING;
 -- blocked for users (founder dashboard uses service role client which bypasses RLS).
 
 COMMENT ON TABLE user_feedback_prompts IS
-  'NPS prompt scheduler. One row per user per window (nps_7d, nps_30d). '
+  'NPS prompt scheduler. One row per user per nps_window (nps_7d, nps_30d). '
   'Trigger fn_schedule_nps_prompts() inserts on profile creation. '
   'fn_dispatch_due_nps_prompts() cron marks dispatched_at and queues in-app notification. '
   'Idempotency: UNIQUE(user_id, kind) prevents duplicate schedules.';
