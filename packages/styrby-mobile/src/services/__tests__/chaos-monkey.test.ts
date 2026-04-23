@@ -287,7 +287,7 @@ function makeChatMessage(overrides?: Partial<RelayMessage>): RelayMessage {
     content: 'test message',
     timestamp: NOW,
     ...overrides,
-  } as RelayMessage;
+  } as unknown as RelayMessage;
 }
 
 /**

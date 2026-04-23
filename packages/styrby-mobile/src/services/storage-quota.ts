@@ -143,7 +143,7 @@ export function isQuotaError(error: unknown): boolean {
  *      in the caller's in-memory state; the loss here is persistence only).
  *   3. Exposes `clearNonCriticalQueueItems()` so the user can free space.
  */
-class StorageQuotaGuard {
+export class StorageQuotaGuard {
   /** Whether the last write hit a quota error */
   private _isFull = false;
 
