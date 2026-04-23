@@ -9,3 +9,4 @@ export * from './types.js';
 export * from './classifier.js';
 export * from './patterns.js';
 export * from './suggestions.js';
+export * from './error-class.js';
