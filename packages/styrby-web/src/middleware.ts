@@ -408,6 +408,24 @@ export async function middleware(request: NextRequest) {
   //   - audit_log entries (correct IP attribution for forensics)
   response.headers.set('x-middleware-request-x-real-client-ip', clientIp);
 
+  // ── Replay token path redaction ────────────────────────────────────────────
+  // WHY: The raw replay token sits in /replay/<96-char-hex>. If Next.js logs
+  // request paths (e.g. in Vercel's function logs), the token appears in logs
+  // where it could be captured by log aggregation tools or monitoring services.
+  // We set an X-Replay-Redacted header to signal to logging infrastructure that
+  // this path contains a credential and should be masked before persisting.
+  //
+  // NOTE: Next.js does not expose a built-in path-redaction hook. The correct
+  // defense is ensuring logs are treated as sensitive when the path matches
+  // /replay/. This header is consumed by Sentry (beforeSend in instrumentation.ts)
+  // and any future log middleware to redact the path segment.
+  //
+  // The raw token is NEVER logged server-side by our own code — this header
+  // is a belt-and-suspenders guard for third-party log capture.
+  if (request.nextUrl.pathname.startsWith('/replay/')) {
+    response.headers.set('x-replay-token-path', 'redacted');
+  }
+
   return response;
 }
 
