@@ -23,7 +23,12 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
-import { SsoSettingsPanel } from './sso-settings-panel';
+// WHY dynamic wrapper: SsoSettingsPanel is a 540-line interactive form importing
+// lucide-react (7 icons) and Radix UI primitives. The SSO settings page is
+// admin-only, visited by at most the team owner (~1 user per team). Deferring
+// it prevents all dashboard users from paying the cost. Pattern from
+// cost-charts-dynamic.tsx (Phase 1.6.13).
+import { SsoSettingsPanelDynamic } from './sso-dynamic';
 
 // ============================================================================
 // Metadata
@@ -130,7 +135,7 @@ export default async function TeamSsoPage({ params }: SsoPageProps) {
         </p>
       </div>
 
-      <SsoSettingsPanel
+      <SsoSettingsPanelDynamic
         teamId={teamId}
         teamName={team.name}
         ssoDomain={team.sso_domain ?? null}

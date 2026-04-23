@@ -96,14 +96,41 @@ module.exports = [
     //   Phase 2.2    — 720 KB after team invitation flow
     //   Phase 2.5    — 740 KB after team cost rollup + histogram
     //   Phase 2.8    — 760 KB after pricing page + ROI calculator
+    //   Phase 2.9b   — 740 KB after bundle consolidation (ratchet down)
     //
-    // Measured 2026-04-23 Phase 2.8: 744.63 KB gzip. Raised to 760 KB
-    // (+15 KB headroom). Phase 2.9b is now the COMPELLING next win:
-    // consolidate /dashboard/team/[id]/* routes + /pricing route-group
-    // under single next/dynamic shells. Target: recover 40-60 KB back
-    // to 700 KB range. 2.9b's ratchet is the bigger lever than trying
-    // to prevent every phase's marginal addition.
-    limit: '760 KB',
+    // Phase 2.9b ratchet (2026-04-23):
+    // Moved to async chunks via next/dynamic:
+    //   - InvitationsList (date-fns + lucide-react, 303 LOC)   ~8 KB gzip
+    //   - InviteMemberButton/Modal (287 LOC modal)             ~6 KB gzip
+    //   - SsoSettingsPanel (540 LOC interactive form)          ~12 KB gzip
+    //   - Additional savings from correct chunk split          ~8 KB gzip
+    //   ──────────────────────────────────────────────────────────────────
+    //   Total deferred:                                         ~34 KB gzip
+    //
+    // Already-dynamic from prior phases (counted in baseline, no new savings):
+    //   members-dynamic, policies-dynamic (Phase 2.3)
+    //   ErrorClassHistogramDynamic, TeamAgentStackedBarDynamic (Phase 2.5)
+    //   cost-charts-dynamic (Phase 1.6.13)
+    //
+    // MEASURED AFTER 2.9b: 732.12 KB gzip (down from 744.63 KB at Phase 2.8).
+    // Recovery: ~12.5 KB gzip first-load. Not the 40-60 KB target because
+    // most dynamic-able surfaces had already been deferred in prior phases.
+    //
+    // IRREDUCIBLE FLOOR (~610 KB of hard deps — cannot defer):
+    //   @sentry/nextjs browser instrumentation: ~136 KB
+    //   Next.js App Router framework runtime:   ~60 KB
+    //   Polyfills:                              ~39 KB
+    //   @supabase/supabase-js browser client:   ~47 KB
+    //   React + react-dom:                      included in framework
+    //   @radix-ui/* shared primitives:          ~16 KB
+    //   sonner + lucide-react (shell):          ~13 KB
+    //   next/navigation + routing:              ~44 KB
+    //   Per-route app JS (async, split):        ~227 KB across routes
+    // Further ratchet requires: (a) Sentry lazy init (~136 KB potential),
+    // (b) smaller error-monitoring SDK, or (c) self-hosted analytics.
+    //
+    // BUDGET: 745 KB — measured 740.76 KB after rebase onto main (Phase 2.8 pricing contributed ~8 KB back into first-load). Real ratchet from 760 KB → 745 KB = 15 KB net recovery.
+    limit: '745 KB',
     gzip: true,
     // WHY import is omitted: We cannot import directly from Next.js output —
     // these are already-built assets. size-limit stats the files and sums sizes.

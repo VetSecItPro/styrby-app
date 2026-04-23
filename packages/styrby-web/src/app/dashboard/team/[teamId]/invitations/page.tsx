@@ -15,11 +15,16 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import {
-  InvitationsList,
   SeatCapBanner,
 } from '@/components/team/invitations';
 import type { InvitationRow } from '@/components/team/invitations';
-import InvitationsClientActions from './InvitationsClientActions';
+// WHY dynamic wrappers: InvitationsList imports date-fns + lucide-react icons;
+// InviteMemberButton/Modal add a further ~287 lines of client JS. The
+// invitations admin surface is visited by at most a handful of team
+// owners/admins. Deferring them keeps the shared dashboard chunk lean and
+// reduces first-load JS for all users. Pattern from cost-charts-dynamic.tsx
+// (Phase 1.6.13). Dynamic wrappers wrap both list and invite button.
+import { InvitationsListDynamic, InviteButtonDynamic } from './invitations-dynamic';
 import { validateSeatCap } from '@styrby/shared';
 import type { SeatCapResult } from '@styrby/shared';
 
@@ -184,8 +189,8 @@ export default async function InvitationsPage({ params }: InvitationsPageProps) 
           </p>
         </div>
 
-        {/* InviteMemberButton is a Client Component — needs to be in a client wrapper */}
-        <InvitationsClientActions teamId={teamId} />
+        {/* InviteButtonDynamic: lazy-loads InviteMemberButton + Modal JS only when visited */}
+        <InviteButtonDynamic teamId={teamId} />
       </div>
 
       {/* Seat cap banner */}
@@ -194,8 +199,8 @@ export default async function InvitationsPage({ params }: InvitationsPageProps) 
         teamId={teamId}
       />
 
-      {/* Invitations list — owns Re-send and Revoke fetch calls internally */}
-      <InvitationsList
+      {/* InvitationsListDynamic: lazy-loads list JS (date-fns + lucide-react) on demand */}
+      <InvitationsListDynamic
         invitations={allInvitations}
         teamId={teamId}
       />
