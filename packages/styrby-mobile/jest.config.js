@@ -28,6 +28,13 @@ module.exports = {
   moduleNameMapper: {
     // Map the @/ path alias to src/ (mirrors tsconfig.json paths)
     '^@/(.*)$': '<rootDir>/src/$1',
+    // WHY @expo/vector-icons mock: The package ships ESM (import statements in
+    // .js files) that babel-jest cannot parse when running in CJS mode under
+    // pnpm's virtual store layout (.pnpm/). Rather than fighting pnpm symlinks
+    // in transformIgnorePatterns, we stub the entire icon library — icon
+    // rendering is cosmetic and not logic-under-test in unit/integration tests.
+    '^@expo/vector-icons$': '<rootDir>/__mocks__/@expo/vector-icons.js',
+    '^@expo/vector-icons/(.*)$': '<rootDir>/__mocks__/@expo/vector-icons.js',
     // Map styrby-shared to its source directory so jest can resolve and transform it
     // WHY: styrby-shared publishes ESM dist/ but jest runs in CJS mode.
     // Pointing at source lets babel-jest handle the transform.

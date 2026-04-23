@@ -43,7 +43,11 @@ type NotificationEventType =
   | 'session_completed'
   | 'session_error'
   | 'budget_warning'
-  | 'budget_exceeded';
+  | 'budget_exceeded'
+  // Phase 2.4 — team approval request notification
+  // Sent to all eligible approvers when the CLI submits a review-class command.
+  // The mobile app surfaces "Approve / Deny / View diff" action buttons.
+  | 'approval_request';
 
 /**
  * Data payload included with the notification event.
@@ -55,6 +59,14 @@ interface NotificationEventData {
 
   /** Which AI agent triggered the event (e.g., "Claude", "Codex") */
   agentType?: string;
+
+  // Phase 2.4 — approval_request specific fields
+  /** Approval row UUID (for deep-link to approval detail screen) */
+  approvalId?: string;
+  /** User ID of the team member who submitted the approval request */
+  requesterUserId?: string;
+  /** Action buttons to surface in the notification (mobile): approve, deny, view_diff */
+  actions?: string[];
 
   /** Custom notification title override */
   title?: string;
@@ -194,6 +206,7 @@ const VALID_EVENT_TYPES: NotificationEventType[] = [
   'session_error',
   'budget_warning',
   'budget_exceeded',
+  'approval_request',  // Phase 2.4
 ];
 
 /**
@@ -207,6 +220,9 @@ const BASE_PRIORITY_BY_EVENT: Record<NotificationEventType, number> = {
   session_error: 2,
   budget_warning: 2,
   budget_exceeded: 1,
+  // WHY priority 1 for approval_request: team members are blocked at the CLI
+  // waiting for this notification to be acted on. Maximum urgency is appropriate.
+  approval_request: 1,
 };
 
 /**
@@ -528,6 +544,13 @@ function isTypeAllowed(
       // per-type preferences to keep the settings UI simple. If users
       // don't want it, they can disable push entirely.
       return true;
+    case 'approval_request':
+      // WHY always true: approval_request notifications cannot be opted out
+      // of at the type level. An approver who disabled push cannot fulfil
+      // their governance role. If they want no push, they must disable their
+      // approver assignment — that's an admin-level change, not a preference
+      // toggle. (SOC2 CC6.3 — governance controls must not be user-bypassable.)
+      return true;
     default:
       return true;
   }
@@ -723,6 +746,36 @@ function buildNotificationPayload(
         },
         sound: 'default',
         priority: 'high',
+      };
+
+    // Phase 2.4 — approval_request notification
+    // Sent to eligible approvers when the CLI pauses on a review-class command.
+    // WHY "Approve / Deny / View diff" in the body: these are the three actions
+    // the mobile app surfaces in the notification tray (via actions[] in data).
+    // Spelling them out in the body text makes the notification scannable even
+    // on watches / notification previews where action buttons don't appear.
+    case 'approval_request':
+      return {
+        title: data.title || `Approval Required: ${data.toolName || 'Tool call'}`,
+        body:
+          data.body ||
+          `A team member is waiting. Tap to Approve, Deny, or View diff.`,
+        data: {
+          screen: 'approvals',
+          approvalId: data.approvalId,
+          requesterUserId: data.requesterUserId,
+          toolName: data.toolName,
+          riskLevel: data.riskLevel,
+          // Action buttons rendered by the mobile notification handler
+          actions: data.actions ?? ['approve', 'deny', 'view_diff'],
+          type: 'approval_request',
+        },
+        sound: 'default',
+        priority: 'high',
+        // WHY "permissions" channel: reuse the existing high-urgency Android
+        // notification channel (aggressive vibration, red LED) — approval
+        // requests are at least as urgent as permission_request notifications.
+        channelId: 'permissions',
       };
 
     default: {
