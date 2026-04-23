@@ -11,7 +11,7 @@ import { isAdmin } from '@/lib/admin';
 // to document the dependency boundary and will be used if we add client-side
 // projections in a future iteration. Remove if still unused at Phase 2.
 // import { calcRunRate, normalizeTier } from '@styrby/shared';
-import { MrrCard, FunnelChart, TierMixTable, CohortRetentionTable, TeamsCard, ErrorClassHistogramDynamic } from '@/components/dashboard/founder';
+import { MrrCard, FunnelChart, TierMixTable, CohortRetentionTable, TeamsCard, ErrorClassHistogramDynamic, ForecastQualityCard } from '@/components/dashboard/founder';
 import type { FounderTeamMetrics } from '@styrby/shared';
 import type { ErrorHistogramDay } from '@/components/dashboard/founder';
 
@@ -210,9 +210,21 @@ export default async function FounderPage() {
             The ErrorClassHistogramDynamic renders its own "No errors" empty
             state, which is itself a meaningful signal (healthy system). Hiding
             the card entirely when there are no errors would hide that signal. */}
-      <div className="mt-6 mb-8">
+      <div className="mt-6 mb-4">
         <h2 className="text-lg font-semibold text-foreground mb-4">System Error Trends</h2>
         <ErrorClassHistogramDynamic data={errorHistogram} />
+      </div>
+
+      {/* Row 7: Forecast quality — Phase 3.4
+          WHY here (below error histogram):
+            Forecast quality is a product-health signal for the predictive alert
+            system. It answers "are we actually warning users in time?" and is
+            owned by the same founder audience as MRR and error trends.
+            Placing it at the bottom maintains the primary → secondary → health
+            information hierarchy. */}
+      <div className="mt-6 mb-8">
+        <h2 className="text-lg font-semibold text-foreground mb-4">Forecast Alert Quality</h2>
+        <ForecastQualityCard />
       </div>
     </div>
   );

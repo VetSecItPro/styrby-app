@@ -26,6 +26,8 @@ import { RunRateCard } from '@/components/dashboard/RunRateCard';
 import { TierUpgradeWarning } from '@/components/dashboard/TierUpgradeWarning';
 import { AgentWeeklySparklines } from '@/components/dashboard/AgentWeeklySparklines';
 import type { AgentSparklineRow } from '@/components/dashboard/AgentWeeklySparklines';
+// Phase 3.4 — Predictive spend forecasting card
+import { ForecastCard } from '@/components/dashboard/ForecastCard';
 
 export const metadata: Metadata = {
   title: 'Cost Analytics | Styrby',
@@ -491,6 +493,15 @@ export default async function CostsPage({
           "am I on track?" — before they dive into the billing model breakdown. */}
       <RunRateCard projection={runRateProjection} />
       <TierUpgradeWarning projection={runRateProjection} tierLabel={tierLabel} />
+
+      {/* Phase 3.4: Predictive spend forecast card — EMA-blend prediction */}
+      {/* WHY below RunRateCard: RunRateCard answers "how am I doing now?"
+          (MTD actuals + run-rate). ForecastCard answers "what will happen next?"
+          (EMA-blend + exhaustion date). Sequential placement guides the user
+          from current state to future prediction. */}
+      <div className="mt-4">
+        <ForecastCard />
+      </div>
 
       {/* Billing model summary strip — shows variable / subscription / credit totals */}
       {/* WHY here: Users glancing at the cost page need an immediate answer to
