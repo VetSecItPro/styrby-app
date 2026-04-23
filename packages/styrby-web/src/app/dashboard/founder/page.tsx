@@ -11,8 +11,9 @@ import { isAdmin } from '@/lib/admin';
 // to document the dependency boundary and will be used if we add client-side
 // projections in a future iteration. Remove if still unused at Phase 2.
 // import { calcRunRate, normalizeTier } from '@styrby/shared';
-import { MrrCard, FunnelChart, TierMixTable, CohortRetentionTable, TeamsCard } from '@/components/dashboard/founder';
+import { MrrCard, FunnelChart, TierMixTable, CohortRetentionTable, TeamsCard, ErrorClassHistogramDynamic } from '@/components/dashboard/founder';
 import type { FounderTeamMetrics } from '@styrby/shared';
+import type { ErrorHistogramDay } from '@/components/dashboard/founder';
 
 export const metadata: Metadata = {
   title: 'Founder Ops | Styrby',
@@ -90,6 +91,8 @@ export default async function FounderPage() {
   let data: FounderMetrics | null = null;
   let fetchError: string | null = null;
   let teamMetrics: FounderTeamMetrics | null = null;
+  // Phase 2.5 (absorbs 1.6.7b): error class histogram data (non-fatal if absent)
+  let errorHistogram: ErrorHistogramDay[] = [];
 
   try {
     // Forward the cookie header so the API route can verify the auth session.
@@ -99,16 +102,23 @@ export default async function FounderPage() {
       .map((c) => `${c.name}=${c.value}`)
       .join('; ');
 
-    // Fetch core metrics and team metrics in parallel to minimise TTFB.
-    // WHY parallel: both are independent admin-gated queries; serial fetches
-    // would double server-render latency for the founder dashboard.
-    const [metricsResponse, teamMetricsResponse] = await Promise.all([
+    // Fetch core metrics, team metrics, and error histogram in parallel.
+    // WHY parallel: all three are independent admin-gated queries; serial fetches
+    // would triple server-render latency for the founder dashboard.
+    // WHY histogram is non-fatal: it uses the audit_log table which may have
+    // no rows in early production (no errors yet). The dashboard should still
+    // render MRR and funnel data if the histogram query fails or returns empty.
+    const [metricsResponse, teamMetricsResponse, histogramResponse] = await Promise.all([
       fetch(`${baseUrl}/api/admin/founder-metrics`, {
         headers: { Cookie: cookieHeader },
         // WHY no-store: We want live data every render, not a cached response.
         cache: 'no-store',
       }),
       fetch(`${baseUrl}/api/admin/founder-team-metrics`, {
+        headers: { Cookie: cookieHeader },
+        cache: 'no-store',
+      }),
+      fetch(`${baseUrl}/api/admin/founder-error-histogram`, {
         headers: { Cookie: cookieHeader },
         cache: 'no-store',
       }),
@@ -124,6 +134,14 @@ export default async function FounderPage() {
     // Team metrics failure is non-fatal — page still shows core metrics.
     if (teamMetricsResponse.ok) {
       teamMetrics = (await teamMetricsResponse.json()) as FounderTeamMetrics;
+    }
+
+    // Error histogram failure is non-fatal.
+    // WHY: A missing or empty histogram is normal in early production.
+    // The chart shows "No errors logged" empty state which is a positive signal.
+    if (histogramResponse.ok) {
+      const histBody = (await histogramResponse.json()) as { histogram?: ErrorHistogramDay[] };
+      errorHistogram = histBody.histogram ?? [];
     }
   } catch (err) {
     fetchError = err instanceof Error ? err.message : 'Failed to fetch founder metrics';
@@ -177,10 +195,25 @@ export default async function FounderPage() {
 
       {/* Row 5: Teams — Phase 2.3 */}
       {teamMetrics && (
-        <div className="mt-6 mb-8">
+        <div className="mt-6">
           <TeamsCard metrics={teamMetrics} />
         </div>
       )}
+
+      {/* Row 6: Error-class histogram — Phase 2.5 (absorbs 1.6.7b)
+          WHY here (below teams, above the fold break):
+            Business metrics (MRR, funnel, cohorts) are the primary read for
+            the founder. Error trends are secondary — product health context.
+            Placing the histogram at the bottom of the dashboard keeps the
+            primary read uncluttered while making errors discoverable on scroll.
+          WHY always rendered (not gated on errorHistogram.length > 0):
+            The ErrorClassHistogramDynamic renders its own "No errors" empty
+            state, which is itself a meaningful signal (healthy system). Hiding
+            the card entirely when there are no errors would hide that signal. */}
+      <div className="mt-6 mb-8">
+        <h2 className="text-lg font-semibold text-foreground mb-4">System Error Trends</h2>
+        <ErrorClassHistogramDynamic data={errorHistogram} />
+      </div>
     </div>
   );
 }
