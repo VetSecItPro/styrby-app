@@ -8,16 +8,33 @@
  * SessionGroupStrip on mobile, the app calls this endpoint to persist which
  * session is the current focus.
  *
- * WHY a dedicated endpoint instead of a general group PATCH:
- *   Focus changes are frequent, high-frequency operations (user swipes
- *   between agents). A narrow endpoint with focused validation is faster,
- *   easier to rate-limit correctly, and produces a clean audit trail
- *   (session_group_focus_changed action) without general PATCH noise.
+ * Phase 3.5 extension:
+ *   On successful focus change, this endpoint additionally reads the group's
+ *   agent_context_memory record (if one exists) and builds a ContextInjectionPayload.
+ *   The payload is included in the response as `contextInjection`. The CLI
+ *   daemon receives this payload via the Realtime channel and injects it as a
+ *   system-role message to the newly-focused agent before its first user prompt.
+ *
+ *   WHY inject via focus endpoint response rather than a separate fetch:
+ *     The focus change and context fetch are a single atomic operation from
+ *     the user's perspective ("I tapped a card — now that agent knows what I
+ *     was doing"). Bundling them in one response eliminates a round trip and
+ *     avoids a race where the CLI fetches context before the focus update is
+ *     committed.
+ *
+ *   WHY nullable contextInjection:
+ *     A group may have no memory record yet (user hasn't run `styrby context sync`
+ *     or the group was just created). Returning null lets the CLI detect this
+ *     and proceed without injection (cold start — same behavior as pre-Phase-3.5).
  *
  * Security model:
  *   - User must own the group (RLS enforces via user_id = auth.uid())
  *   - sessionId must belong to the group (explicit membership check)
  *   - No cross-user group focus (cannot focus another user's sessions)
+ *   - contextInjection contains only SCRUBBED content (Phase 3.3 scrub engine
+ *     was applied when the memory record was written by `styrby context sync`)
+ *   - token_budget is server-side enforced (capped at 8000); client cannot
+ *     request a larger injection payload
  *
  * @auth Required - Supabase Auth JWT via cookie
  * @rateLimit 60 requests per minute per user (mobile swipe UX)
@@ -31,7 +48,8 @@
  * @returns 200 {
  *   groupId: string,
  *   activeSessionId: string,
- *   updatedAt: string  (ISO 8601)
+ *   updatedAt: string  (ISO 8601),
+ *   contextInjection: ContextInjectionPayload | null  (Phase 3.5)
  * }
  *
  * @error 400 { error: 'VALIDATION_FAILED', message: string }
@@ -47,6 +65,8 @@ import { createClient } from '@/lib/supabase/server';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 import { z } from 'zod';
 import { apiError } from '@styrby/shared';
+import { buildInjectionPrompt } from '@styrby/shared/context-sync';
+import type { AgentContextMemory, ContextInjectionPayload } from '@styrby/shared/context-sync';
 
 // ---------------------------------------------------------------------------
 // Request Schema
@@ -215,10 +235,82 @@ export async function POST(request: NextRequest, context: RouteContext) {
       }
     });
 
+    // ── 5. Phase 3.5: Fetch context memory and build injection payload ─────
+    // WHY after the focus update (not before): The focus update is the critical
+    // path. Context injection is a best-effort enhancement — if memory fetch
+    // fails, we still return 200 with contextInjection: null. The new agent
+    // starts cold (same as pre-Phase-3.5) rather than the entire focus change
+    // failing because of a secondary lookup.
+    //
+    // WHY server-side injection payload: The CLI daemon receives this payload
+    // in the response and injects it as a system-role message before the first
+    // user prompt. Building the payload here (rather than returning raw memory)
+    // means the daemon only needs to pass it through — no summarizer code needed
+    // in the daemon process.
+    //
+    // SECURITY: contextInjection is built from agent_context_memory, which
+    // was written by `styrby context sync` after applying the Phase 3.3 scrub
+    // engine. No raw message content is in the memory record.
+    let contextInjection: ContextInjectionPayload | null = null;
+
+    try {
+      const { data: memoryRow } = await supabase
+        .from('agent_context_memory')
+        .select('*')
+        .eq('session_group_id', groupId)
+        .order('version', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (memoryRow) {
+        // Map DB columns → AgentContextMemory interface
+        const memory: AgentContextMemory = {
+          id: String(memoryRow.id),
+          sessionGroupId: String(memoryRow.session_group_id),
+          summaryMarkdown: String(memoryRow.summary_markdown),
+          fileRefs: (memoryRow.file_refs as AgentContextMemory['fileRefs']) ?? [],
+          recentMessages: (memoryRow.recent_messages as AgentContextMemory['recentMessages']) ?? [],
+          tokenBudget: Number(memoryRow.token_budget),
+          version: Number(memoryRow.version),
+          createdAt: String(memoryRow.created_at),
+          updatedAt: String(memoryRow.updated_at),
+        };
+
+        contextInjection = buildInjectionPrompt(memory);
+
+        // Audit the injection (non-fatal)
+        await supabase.from('audit_log').insert({
+          user_id: user.id,
+          action: 'context_memory_injected',
+          metadata: {
+            group_id: groupId,
+            focused_session_id: sessionId,
+            estimated_tokens: contextInjection.estimatedTokens,
+            file_ref_count: contextInjection.includedFileRefs.length,
+            message_count: contextInjection.messageCount,
+          },
+        }).then(({ error: injAuditError }) => {
+          if (injAuditError) {
+            console.warn('[sessions/groups/focus] Context injection audit failed:', injAuditError.message);
+          }
+        });
+      }
+    } catch (memoryError) {
+      // WHY catch-all: context fetch errors must never block the focus change.
+      // Log in dev; silence in production to avoid log noise from groups
+      // that have no memory record yet.
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[sessions/groups/focus] Context memory fetch error:', memoryError);
+      }
+      // contextInjection remains null — cold start for the new agent
+    }
+
     return NextResponse.json({
       groupId: updated.id,
       activeSessionId: updated.active_agent_session_id,
       updatedAt: updated.updated_at,
+      // Phase 3.5: null when no memory record exists yet — agent starts cold
+      contextInjection,
     });
   } catch (error) {
     const isDev = process.env.NODE_ENV === 'development';

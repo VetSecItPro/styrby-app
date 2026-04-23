@@ -28,7 +28,8 @@
       "@styrby/shared/pricing": ["../../styrby-shared/dist/pricing/index"],
       "@styrby/shared/cost": ["../../styrby-shared/dist/cost/index"],
       "@styrby/shared/logging": ["../../styrby-shared/dist/logging/index"],
-      "@styrby/shared/session-handoff": ["../../styrby-shared/dist/session-handoff/index"]
+      "@styrby/shared/session-handoff": ["../../styrby-shared/dist/session-handoff/index"],
+      "@styrby/shared/context-sync": ["../../styrby-shared/dist/context-sync/index"]
     }
   },
   "include": ["src/**/*"],

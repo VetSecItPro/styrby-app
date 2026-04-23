@@ -97,3 +97,31 @@ export * from './feedback/index.js';
 // mobile consumers — which use moduleResolution: "node" and can't follow
 // package.json exports subpaths — can import them directly from the root.)
 export type * from './session-replay/types.js';
+
+// Phase 3.5 — Cross-agent context sync types (runtime summarizer stays at
+// subpath '@styrby/shared/context-sync' for tree-shaking — it imports the
+// scrub engine regex patterns which add bundle weight). Types re-exported here
+// so mobile consumers can import them from the root.
+// Constants also re-exported: TOKEN_BUDGET_DEFAULT etc. are pure number literals
+// with zero bundle weight.
+export type {
+  ContextFileRef,
+  ContextMessage,
+  AgentContextMemory,
+  SummarizerInput,
+  SummarizerInputMessage,
+  SummarizerOutput,
+  ContextShowOptions,
+  ContextSyncOptions,
+  ContextExportOptions,
+  ContextImportOptions,
+  ContextInjectionPayload,
+} from './context-sync/types.js';
+export {
+  CONTEXT_MESSAGE_LIMIT,
+  TOKEN_BUDGET_DEFAULT,
+  TOKEN_BUDGET_MAX,
+  TOKEN_BUDGET_MIN,
+  MESSAGE_PREVIEW_MAX_CHARS,
+  FILE_REF_RELEVANCE_MAX,
+} from './context-sync/types.js';

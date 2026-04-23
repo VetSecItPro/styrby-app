@@ -29,6 +29,7 @@ import { handleCosts } from '@/cli/handlers/costs';
 import {
   handleAuth,
   handleCheckpointCommand,
+  handleContextCommand,
   handleDaemonCommand,
   handleDeleteAccountCommand,
   handleDoctor,
@@ -165,6 +166,10 @@ export async function runCommand(argv: string[]): Promise<void> {
 
     case 'mcp':
       await handleMcpCommand(rest);
+      break;
+
+    case 'context':
+      await handleContextCommand(rest);
       break;
 
     case 'help':

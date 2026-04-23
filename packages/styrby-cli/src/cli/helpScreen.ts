@@ -71,6 +71,12 @@ Commands:
     checkpoint restore <n>  Show restore info for a checkpoint
     checkpoint delete <n>   Delete a checkpoint (--force to skip confirmation)
 
+  Cross-Agent Context Sync (Phase 3.5)
+    context show            --group <groupId>            Display current context memory
+    context sync            --group <groupId>            Recompute memory from recent messages
+    context export          --session <sessionId>        Export memory for a session
+    context import          --session <target> --from <source>  Copy memory between sessions
+
   Daemon
     daemon install          Install daemon to start automatically on boot
     daemon uninstall        Remove daemon from auto-start

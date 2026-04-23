@@ -38,6 +38,12 @@ export default defineConfig({
       // points to dist/session-handoff/index.js, but vitest's Vite resolver
       // needs an explicit alias since it doesn't traverse package.json exports.
       '@styrby/shared/session-handoff': resolve(__dirname, '../styrby-shared/dist/session-handoff/index.js'),
+      // WHY (Phase 3.5): Mirror the tsconfig path for the context-sync subpath
+      // so vitest can resolve `import ... from '@styrby/shared/context-sync'`
+      // during test runs. The subpath export in styrby-shared's package.json
+      // points to dist/context-sync/index.js, but vitest's Vite resolver
+      // needs an explicit alias since it doesn't traverse package.json exports.
+      '@styrby/shared/context-sync': resolve(__dirname, '../styrby-shared/dist/context-sync/index.js'),
     },
   },
 });
