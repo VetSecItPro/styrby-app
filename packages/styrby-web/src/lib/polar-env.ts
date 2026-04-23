@@ -36,7 +36,12 @@
  */
 
 import { z } from 'zod';
-import { getEnv } from './env.js';
+// WHY no .js extension: polar-env.ts is imported by Next.js route handlers which
+// run through webpack (moduleResolution: "bundler"). Webpack cannot resolve
+// explicit .js extensions for TypeScript source files — it expects the import
+// to omit the extension (or use .ts). The .js extension is ESM/Node convention
+// for pre-compiled output but is a webpack foot-gun in mixed Next.js projects.
+import { getEnv } from './env';
 
 // ============================================================================
 // Types

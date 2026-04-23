@@ -42,7 +42,9 @@
  */
 
 import crypto from 'crypto';
-import { getEnv } from './env.js';
+// WHY no .js extension: same as polar-env.ts — webpack (moduleResolution: bundler)
+// cannot resolve explicit .js extensions for TypeScript source files.
+import { getEnv } from './env';
 
 // ============================================================================
 // Core verification
