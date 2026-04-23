@@ -175,6 +175,7 @@ DECLARE
   v_admin     UUID := gen_random_uuid();
   v_non_admin UUID := gen_random_uuid();
   v_caught    BOOLEAN := FALSE;
+  v_exc_code  text;
 BEGIN
   PERFORM _rls_test_reset_role();
 
@@ -192,13 +193,18 @@ BEGIN
   VALUES
     (v_admin, v_non_admin, 'reset_password', 'test seed', '0', '0');
 
-  -- Attempt UPDATE as non-admin — must be rejected
+  -- Attempt UPDATE as non-admin — must be rejected with 42501 (insufficient_privilege).
+  -- WHY assert SQLSTATE and not just v_caught: a trigger failure or FK violation
+  -- would also raise WHEN OTHERS but with a different code, causing a false pass.
+  -- Asserting 42501 confirms the denial is a genuine RLS / privilege rejection, not
+  -- an incidental error that happens to prevent the mutation.
   PERFORM _rls_test_impersonate(v_non_admin);
   BEGIN
     UPDATE public.admin_audit_log SET reason = 'TAMPERED' WHERE actor_id = v_admin;
     -- If we reach here, the UPDATE was not denied — test fails
   EXCEPTION WHEN OTHERS THEN
-    v_caught := TRUE;
+    v_caught   := TRUE;
+    GET STACKED DIAGNOSTICS v_exc_code = RETURNED_SQLSTATE;
   END;
 
   PERFORM _rls_test_reset_role();
@@ -206,14 +212,19 @@ BEGIN
   IF NOT v_caught THEN
     RAISE EXCEPTION 'TEST (c) FAILED: UPDATE on admin_audit_log was NOT rejected for non-admin';
   END IF;
+  IF v_exc_code <> '42501' THEN
+    RAISE EXCEPTION 'TEST (c) FAILED: non-admin UPDATE raised SQLSTATE %, expected 42501', v_exc_code;
+  END IF;
 
   -- Also attempt UPDATE as the site admin — should also be denied (REVOKE is absolute)
   PERFORM _rls_test_impersonate(v_admin);
-  v_caught := FALSE;
+  v_caught   := FALSE;
+  v_exc_code := NULL;
   BEGIN
     UPDATE public.admin_audit_log SET reason = 'TAMPERED' WHERE actor_id = v_admin;
   EXCEPTION WHEN OTHERS THEN
-    v_caught := TRUE;
+    v_caught   := TRUE;
+    GET STACKED DIAGNOSTICS v_exc_code = RETURNED_SQLSTATE;
   END;
 
   PERFORM _rls_test_reset_role();
@@ -221,8 +232,11 @@ BEGIN
   IF NOT v_caught THEN
     RAISE EXCEPTION 'TEST (c) FAILED: UPDATE on admin_audit_log was NOT rejected even for site admin';
   END IF;
+  IF v_exc_code <> '42501' THEN
+    RAISE EXCEPTION 'TEST (c) FAILED: site-admin UPDATE raised SQLSTATE %, expected 42501', v_exc_code;
+  END IF;
 
-  RAISE NOTICE 'TEST (c) PASS: UPDATE on admin_audit_log raises exception for both non-admin and site-admin';
+  RAISE NOTICE 'TEST (c) PASS: UPDATE on admin_audit_log raises exception (42501) for both non-admin and site-admin';
 END;
 $$;
 
@@ -565,6 +579,486 @@ BEGIN
   DELETE FROM auth.users WHERE id = v_non_admin;
 
   RAISE NOTICE 'TEST (i) PASS: verify_admin_audit_chain raises "not authorized" for non-admin caller';
+END;
+$$;
+
+ROLLBACK;
+BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- Test (j): admin_override_tier — happy path + authorization (Migration 041)
+-- ---------------------------------------------------------------------------
+-- WHY: This test confirms all three invariants of admin_override_tier:
+--   (j.1) A non-admin caller is rejected with SQLSTATE 42501.
+--   (j.2) A site admin can override a tier and the subscription row reflects
+--         the new tier, override_source='manual', and correct override_reason.
+--   (j.3) The audit log gains a row with correct action, actor, and non-null
+--         before_json/after_json.
+--   (j.4) An invalid tier value raises SQLSTATE 22023.
+--   (j.5) An empty reason raises SQLSTATE 23514.
+--
+-- SOC2 CC7.2: Authorization enforced + mutation audited in same transaction.
+-- OWASP A01:2021: Non-admin cannot call the mutation wrapper.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_admin         UUID := gen_random_uuid();
+  v_non_admin     UUID := gen_random_uuid();
+  v_target        UUID := gen_random_uuid();
+  v_audit_id      bigint;
+  v_tier_after    text;
+  v_src_after     text;
+  v_expires_after timestamptz;
+  v_reason_after  text;
+  v_audit_count   int;
+  v_action_val    text;
+  v_actor_val     uuid;
+  v_target_val    uuid;
+  v_before_null   boolean;
+  v_after_null    boolean;
+  v_caught        boolean;
+  v_exc_code      text;
+BEGIN
+  PERFORM _rls_test_reset_role();
+
+  -- Seed three auth users
+  INSERT INTO auth.users (id, email, encrypted_password, created_at, updated_at)
+    VALUES
+      (v_admin,     'admin_j@rls.test',     'x', now(), now()),
+      (v_non_admin, 'non_admin_j@rls.test', 'x', now(), now()),
+      (v_target,    'target_j@rls.test',    'x', now(), now());
+
+  -- Seed site_admin for v_admin only
+  INSERT INTO public.site_admins (user_id, added_by, note)
+    VALUES (v_admin, v_admin, 'rls test seed j');
+
+  -- Seed a subscriptions row for the target so UPDATE path is exercised
+  INSERT INTO public.subscriptions (user_id, tier, override_source)
+    VALUES (v_target, 'free', 'polar');
+
+  -- ---- j.1: non-admin caller is rejected (42501) ----
+  v_caught := FALSE;
+  PERFORM _rls_test_impersonate(v_non_admin);
+  BEGIN
+    SELECT public.admin_override_tier(
+      v_target, 'power', NULL, 'test upgrade', '127.0.0.1'::inet, 'test-ua'
+    ) INTO v_audit_id;
+  EXCEPTION WHEN OTHERS THEN
+    v_caught   := TRUE;
+    v_exc_code := SQLSTATE;
+  END;
+  PERFORM _rls_test_reset_role();
+
+  IF NOT v_caught OR v_exc_code <> '42501' THEN
+    RAISE EXCEPTION 'TEST (j.1) FAILED: expected 42501, got caught=% code=%', v_caught, v_exc_code;
+  END IF;
+
+  -- ---- j.2: site admin happy path ----
+  PERFORM _rls_test_impersonate(v_admin);
+  SELECT public.admin_override_tier(
+    v_target, 'power', NULL, 'test upgrade', '10.0.0.1'::inet, 'Mozilla/5.0'
+  ) INTO v_audit_id;
+  PERFORM _rls_test_reset_role();
+
+  -- Verify subscription row mutation
+  SELECT s.tier, s.override_source, s.override_expires_at, s.override_reason
+    INTO v_tier_after, v_src_after, v_expires_after, v_reason_after
+    FROM public.subscriptions s
+    WHERE s.user_id = v_target;
+
+  IF v_tier_after <> 'power' THEN
+    RAISE EXCEPTION 'TEST (j.2) FAILED: tier = %, expected power', v_tier_after;
+  END IF;
+  IF v_src_after <> 'manual' THEN
+    RAISE EXCEPTION 'TEST (j.2) FAILED: override_source = %, expected manual', v_src_after;
+  END IF;
+  IF v_expires_after IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST (j.2) FAILED: override_expires_at = %, expected NULL', v_expires_after;
+  END IF;
+  IF v_reason_after <> 'test upgrade' THEN
+    RAISE EXCEPTION 'TEST (j.2) FAILED: override_reason = %, expected ''test upgrade''', v_reason_after;
+  END IF;
+
+  -- ---- j.3: audit log row correctness ----
+  SELECT count(*),
+         max(a.action),
+         max(a.actor_id),
+         max(a.target_user_id),
+         bool_and(a.before_json IS NOT NULL),
+         bool_and(a.after_json  IS NOT NULL)
+    INTO v_audit_count, v_action_val, v_actor_val, v_target_val, v_before_null, v_after_null
+    FROM public.admin_audit_log a
+    WHERE a.id = v_audit_id;
+
+  IF v_audit_count <> 1 THEN
+    RAISE EXCEPTION 'TEST (j.3) FAILED: audit row count = %, expected 1', v_audit_count;
+  END IF;
+  IF v_action_val <> 'override_tier' THEN
+    RAISE EXCEPTION 'TEST (j.3) FAILED: action = %, expected override_tier', v_action_val;
+  END IF;
+  IF v_actor_val <> v_admin THEN
+    RAISE EXCEPTION 'TEST (j.3) FAILED: actor_id mismatch';
+  END IF;
+  IF v_target_val <> v_target THEN
+    RAISE EXCEPTION 'TEST (j.3) FAILED: target_user_id mismatch';
+  END IF;
+  IF NOT v_before_null THEN
+    RAISE EXCEPTION 'TEST (j.3) FAILED: before_json is NULL (expected non-null — subscription row existed)';
+  END IF;
+  IF NOT v_after_null THEN
+    RAISE EXCEPTION 'TEST (j.3) FAILED: after_json is NULL (expected non-null)';
+  END IF;
+
+  -- ---- j.4: invalid tier raises 22023 ----
+  v_caught := FALSE;
+  PERFORM _rls_test_impersonate(v_admin);
+  BEGIN
+    SELECT public.admin_override_tier(
+      v_target, 'bogus', NULL, 'test reason', '10.0.0.1'::inet, 'ua'
+    ) INTO v_audit_id;
+  EXCEPTION WHEN OTHERS THEN
+    v_caught   := TRUE;
+    v_exc_code := SQLSTATE;
+  END;
+  PERFORM _rls_test_reset_role();
+
+  IF NOT v_caught OR v_exc_code <> '22023' THEN
+    RAISE EXCEPTION 'TEST (j.4) FAILED: expected 22023, got caught=% code=%', v_caught, v_exc_code;
+  END IF;
+
+  -- ---- j.5: empty reason raises 23514 ----
+  v_caught := FALSE;
+  PERFORM _rls_test_impersonate(v_admin);
+  BEGIN
+    SELECT public.admin_override_tier(
+      v_target, 'power', NULL, '', '10.0.0.1'::inet, 'ua'
+    ) INTO v_audit_id;
+  EXCEPTION WHEN OTHERS THEN
+    v_caught   := TRUE;
+    v_exc_code := SQLSTATE;
+  END;
+  PERFORM _rls_test_reset_role();
+
+  IF NOT v_caught OR v_exc_code <> '23514' THEN
+    RAISE EXCEPTION 'TEST (j.5) FAILED: expected 23514, got caught=% code=%', v_caught, v_exc_code;
+  END IF;
+
+  RAISE NOTICE 'TEST (j) PASS: admin_override_tier happy path + authorization all verified';
+END;
+$$;
+
+ROLLBACK;
+BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- Test (k): admin_toggle_consent — grant then revoke cycle (Migration 041)
+-- ---------------------------------------------------------------------------
+-- WHY: Confirms the four invariants of admin_toggle_consent:
+--   (k.1) Site admin grants consent — consent_flags row has granted_at non-null,
+--         revoked_at null, granted_by = admin. Audit row written with correct action.
+--   (k.2) Site admin revokes consent — same row now has revoked_at non-null.
+--         A second audit row is written.
+--   (k.3) Non-admin caller is rejected with SQLSTATE 42501.
+--   (k.4) Site admin revoke on a target with NO prior consent row is a no-op:
+--         consent_flags count stays 0 (no ghost row); audit row IS written with
+--         before_json IS NULL and after_json IS NULL.
+--
+-- SOC2 CC7.2: Every consent change has a corresponding audit trail.
+-- GDPR Article 7: Consent revocability requires a working revoke path — tested here.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_admin        UUID := gen_random_uuid();
+  v_non_admin    UUID := gen_random_uuid();
+  v_target       UUID := gen_random_uuid();
+  v_audit_id1    bigint;
+  v_audit_id2    bigint;
+  v_granted_at   timestamptz;
+  v_revoked_at   timestamptz;
+  v_granted_by   uuid;
+  v_audit_count  int;
+  v_action_val   text;
+  v_after_val    jsonb;
+  v_caught       boolean;
+  v_exc_code     text;
+BEGIN
+  PERFORM _rls_test_reset_role();
+
+  INSERT INTO auth.users (id, email, encrypted_password, created_at, updated_at)
+    VALUES
+      (v_admin,     'admin_k@rls.test',     'x', now(), now()),
+      (v_non_admin, 'non_admin_k@rls.test', 'x', now(), now()),
+      (v_target,    'target_k@rls.test',    'x', now(), now());
+
+  INSERT INTO public.site_admins (user_id, added_by, note)
+    VALUES (v_admin, v_admin, 'rls test seed k');
+
+  -- ---- k.1: site admin grants consent ----
+  PERFORM _rls_test_impersonate(v_admin);
+  SELECT public.admin_toggle_consent(
+    v_target, 'support_read_metadata', TRUE, 'support ticket #100', '10.0.0.1'::inet, 'ua-k'
+  ) INTO v_audit_id1;
+  PERFORM _rls_test_reset_role();
+
+  -- Verify consent_flags row state after grant
+  SELECT cf.granted_at, cf.revoked_at, cf.granted_by
+    INTO v_granted_at, v_revoked_at, v_granted_by
+    FROM public.consent_flags cf
+    WHERE cf.user_id = v_target
+      AND cf.purpose = 'support_read_metadata';
+
+  IF v_granted_at IS NULL THEN
+    RAISE EXCEPTION 'TEST (k.1) FAILED: granted_at is NULL after grant';
+  END IF;
+  IF v_revoked_at IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST (k.1) FAILED: revoked_at = % after grant, expected NULL', v_revoked_at;
+  END IF;
+  IF v_granted_by <> v_admin THEN
+    RAISE EXCEPTION 'TEST (k.1) FAILED: granted_by mismatch (expected admin uuid)';
+  END IF;
+
+  -- Verify audit row for the grant
+  SELECT count(*), max(a.action), max(a.after_json)
+    INTO v_audit_count, v_action_val, v_after_val
+    FROM public.admin_audit_log a
+    WHERE a.id = v_audit_id1;
+
+  IF v_audit_count <> 1 THEN
+    RAISE EXCEPTION 'TEST (k.1) FAILED: audit row count = %, expected 1', v_audit_count;
+  END IF;
+  IF v_action_val <> 'toggle_consent' THEN
+    RAISE EXCEPTION 'TEST (k.1) FAILED: action = %, expected toggle_consent', v_action_val;
+  END IF;
+  IF v_after_val IS NULL THEN
+    RAISE EXCEPTION 'TEST (k.1) FAILED: after_json is NULL for grant audit row';
+  END IF;
+  -- Verify after_json shows the granted state
+  IF (v_after_val->>'granted_at') IS NULL THEN
+    RAISE EXCEPTION 'TEST (k.1) FAILED: after_json.granted_at is NULL — grant not reflected in audit';
+  END IF;
+
+  -- ---- k.2: site admin revokes consent ----
+  PERFORM _rls_test_impersonate(v_admin);
+  SELECT public.admin_toggle_consent(
+    v_target, 'support_read_metadata', FALSE, 'user requested revoke', '10.0.0.1'::inet, 'ua-k'
+  ) INTO v_audit_id2;
+  PERFORM _rls_test_reset_role();
+
+  -- Verify consent_flags row state after revoke
+  SELECT cf.revoked_at
+    INTO v_revoked_at
+    FROM public.consent_flags cf
+    WHERE cf.user_id = v_target
+      AND cf.purpose = 'support_read_metadata';
+
+  IF v_revoked_at IS NULL THEN
+    RAISE EXCEPTION 'TEST (k.2) FAILED: revoked_at is NULL after revoke';
+  END IF;
+
+  -- Verify second audit row was written
+  SELECT count(*)
+    INTO v_audit_count
+    FROM public.admin_audit_log a
+    WHERE a.id = v_audit_id2;
+
+  IF v_audit_count <> 1 THEN
+    RAISE EXCEPTION 'TEST (k.2) FAILED: second audit row not found (id=%)', v_audit_id2;
+  END IF;
+
+  -- Confirm the two audit IDs are distinct (two separate audit rows were written)
+  IF v_audit_id1 = v_audit_id2 THEN
+    RAISE EXCEPTION 'TEST (k.2) FAILED: grant and revoke produced same audit id';
+  END IF;
+
+  -- ---- k.3: non-admin caller is rejected (42501) ----
+  v_caught := FALSE;
+  PERFORM _rls_test_impersonate(v_non_admin);
+  BEGIN
+    SELECT public.admin_toggle_consent(
+      v_target, 'support_read_metadata', TRUE, 'unauthorized attempt', '127.0.0.1'::inet, 'ua'
+    ) INTO v_audit_id1;
+  EXCEPTION WHEN OTHERS THEN
+    v_caught   := TRUE;
+    v_exc_code := SQLSTATE;
+  END;
+  PERFORM _rls_test_reset_role();
+
+  IF NOT v_caught OR v_exc_code <> '42501' THEN
+    RAISE EXCEPTION 'TEST (k.3) FAILED: expected 42501, got caught=% code=%', v_caught, v_exc_code;
+  END IF;
+
+  -- ---- k.4: revoke on a target with NO prior consent row is a no-op mutation ----
+  -- WHY: the revoke branch must not insert a ghost row with granted_at = NULL,
+  -- revoked_at = <timestamp>. Phase 4.2 UI treats any consent_flags row as evidence
+  -- of a past grant event; a ghost row would misrepresent the user's history.
+  -- We use a fresh target UUID (v_fresh_target) that has never had a consent row.
+  DECLARE
+    v_fresh_target  UUID := gen_random_uuid();
+    v_audit_id_noop bigint;
+    v_ghost_count   int;
+    v_before_val    jsonb;
+    v_after_val     jsonb;
+  BEGIN
+    INSERT INTO auth.users (id, email, encrypted_password, created_at, updated_at)
+      VALUES (v_fresh_target, 'fresh_k@rls.test', 'x', now(), now());
+
+    -- Confirm no prior consent row exists for this target
+    SELECT count(*) INTO v_ghost_count
+      FROM public.consent_flags cf
+      WHERE cf.user_id = v_fresh_target;
+
+    IF v_ghost_count <> 0 THEN
+      RAISE EXCEPTION 'TEST (k.4) SETUP: fresh_target already has % consent rows, expected 0', v_ghost_count;
+    END IF;
+
+    -- Site admin attempts to revoke consent that was never granted
+    PERFORM _rls_test_impersonate(v_admin);
+    SELECT public.admin_toggle_consent(
+      v_fresh_target, 'support_read_metadata', FALSE, 'revoke nonexistent', '10.0.0.1'::inet, 'ua-k4'
+    ) INTO v_audit_id_noop;
+    PERFORM _rls_test_reset_role();
+
+    -- Assert: NO ghost row was inserted into consent_flags
+    SELECT count(*) INTO v_ghost_count
+      FROM public.consent_flags cf
+      WHERE cf.user_id = v_fresh_target;
+
+    IF v_ghost_count <> 0 THEN
+      RAISE EXCEPTION 'TEST (k.4) FAILED: % ghost consent_flags row(s) created for nonexistent consent — expected 0', v_ghost_count;
+    END IF;
+
+    -- Assert: audit row WAS written with before_json IS NULL and after_json IS NULL
+    SELECT a.before_json, a.after_json
+      INTO v_before_val, v_after_val
+      FROM public.admin_audit_log a
+      WHERE a.id = v_audit_id_noop;
+
+    IF v_before_val IS NOT NULL THEN
+      RAISE EXCEPTION 'TEST (k.4) FAILED: before_json = % for no-op revoke, expected NULL', v_before_val;
+    END IF;
+    IF v_after_val IS NOT NULL THEN
+      RAISE EXCEPTION 'TEST (k.4) FAILED: after_json = % for no-op revoke, expected NULL', v_after_val;
+    END IF;
+
+    -- Cleanup fresh_target auth user
+    DELETE FROM auth.users WHERE id = v_fresh_target;
+  END;
+
+  RAISE NOTICE 'TEST (k) PASS: admin_toggle_consent grant + revoke cycle + authorization + revoke-nonexistent no-op verified';
+END;
+$$;
+
+ROLLBACK;
+BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- Test (l): admin_record_password_reset — audit-only (Migration 041)
+-- ---------------------------------------------------------------------------
+-- WHY: Confirms the two invariants of admin_record_password_reset:
+--   (l.1) Site admin call writes an audit row with action='reset_password',
+--         before_json containing email + id, and after_json = NULL.
+--         auth.users is NOT mutated (password reset happens app-layer, not here).
+--   (l.2) Non-admin caller is rejected with SQLSTATE 42501.
+--
+-- SOC2 CC7.2: Password reset events are audited before execution.
+-- OWASP A09:2021: Every admin password reset action is logged with IP and UA.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_admin        UUID := gen_random_uuid();
+  v_non_admin    UUID := gen_random_uuid();
+  v_target       UUID := gen_random_uuid();
+  v_target_email text := 'target_l@rls.test';
+  v_audit_id     bigint;
+  v_action_val   text;
+  v_before_val   jsonb;
+  v_after_val    jsonb;
+  v_audit_count  int;
+  v_before_email text;
+  v_before_id    text;
+  v_auth_email_before text;
+  v_auth_email_after  text;
+  v_caught       boolean;
+  v_exc_code     text;
+BEGIN
+  PERFORM _rls_test_reset_role();
+
+  INSERT INTO auth.users (id, email, encrypted_password, created_at, updated_at)
+    VALUES
+      (v_admin,     'admin_l@rls.test',   'x', now(), now()),
+      (v_non_admin, 'nonadmin_l@rls.test','x', now(), now()),
+      (v_target,    v_target_email,        'x', now(), now());
+
+  INSERT INTO public.site_admins (user_id, added_by, note)
+    VALUES (v_admin, v_admin, 'rls test seed l');
+
+  -- ---- l.1: site admin happy path ----
+  -- Capture auth.users email before the call to verify no mutation happened.
+  SELECT u.email INTO v_auth_email_before
+    FROM auth.users u WHERE u.id = v_target;
+
+  PERFORM _rls_test_impersonate(v_admin);
+  SELECT public.admin_record_password_reset(
+    v_target, 'user requested reset via email', '10.0.0.1'::inet, 'Mozilla/5.0'
+  ) INTO v_audit_id;
+  PERFORM _rls_test_reset_role();
+
+  -- Verify auth.users was NOT mutated (password reset is app-layer)
+  SELECT u.email INTO v_auth_email_after
+    FROM auth.users u WHERE u.id = v_target;
+
+  IF v_auth_email_before IS DISTINCT FROM v_auth_email_after THEN
+    RAISE EXCEPTION 'TEST (l.1) FAILED: auth.users.email changed — function should not mutate auth.users';
+  END IF;
+
+  -- Verify audit row content
+  SELECT count(*), max(a.action), max(a.before_json), max(a.after_json)
+    INTO v_audit_count, v_action_val, v_before_val, v_after_val
+    FROM public.admin_audit_log a
+    WHERE a.id = v_audit_id;
+
+  IF v_audit_count <> 1 THEN
+    RAISE EXCEPTION 'TEST (l.1) FAILED: audit row count = %, expected 1', v_audit_count;
+  END IF;
+  IF v_action_val <> 'reset_password' THEN
+    RAISE EXCEPTION 'TEST (l.1) FAILED: action = %, expected reset_password', v_action_val;
+  END IF;
+  IF v_after_val IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST (l.1) FAILED: after_json = %, expected NULL (audit-only function)', v_after_val;
+  END IF;
+  IF v_before_val IS NULL THEN
+    RAISE EXCEPTION 'TEST (l.1) FAILED: before_json is NULL — expected auth.users snapshot';
+  END IF;
+
+  -- Verify before_json contains id and email fields
+  v_before_id    := v_before_val->>'id';
+  v_before_email := v_before_val->>'email';
+
+  IF v_before_id IS NULL OR v_before_id::uuid <> v_target THEN
+    RAISE EXCEPTION 'TEST (l.1) FAILED: before_json.id = %, expected %', v_before_id, v_target;
+  END IF;
+  IF v_before_email IS NULL OR v_before_email <> v_target_email THEN
+    RAISE EXCEPTION 'TEST (l.1) FAILED: before_json.email = %, expected %', v_before_email, v_target_email;
+  END IF;
+
+  -- ---- l.2: non-admin caller is rejected (42501) ----
+  v_caught := FALSE;
+  PERFORM _rls_test_impersonate(v_non_admin);
+  BEGIN
+    SELECT public.admin_record_password_reset(
+      v_target, 'unauthorized attempt', '127.0.0.1'::inet, 'ua'
+    ) INTO v_audit_id;
+  EXCEPTION WHEN OTHERS THEN
+    v_caught   := TRUE;
+    v_exc_code := SQLSTATE;
+  END;
+  PERFORM _rls_test_reset_role();
+
+  IF NOT v_caught OR v_exc_code <> '42501' THEN
+    RAISE EXCEPTION 'TEST (l.2) FAILED: expected 42501, got caught=% code=%', v_caught, v_exc_code;
+  END IF;
+
+  RAISE NOTICE 'TEST (l) PASS: admin_record_password_reset audit-only behavior + authorization verified';
 END;
 $$;
 
