@@ -359,13 +359,13 @@ describe('POST /api/billing/checkout/team', () => {
   });
 
   it('does not include POLAR_ACCESS_TOKEN in the 502 error response', async () => {
-    process.env.POLAR_ACCESS_TOKEN = 'polar_at_supersecrettoken12345';
+    process.env.POLAR_ACCESS_TOKEN = 'test-placeholder-polar-value-xyz';
     mockCheckoutsCreate.mockRejectedValue(new Error('auth failure'));
     const req = buildRequest(VALID_BODY);
     const res = await POST(req);
     const text = await res.text();
 
-    expect(text).not.toContain('polar_at_supersecrettoken12345');
+    expect(text).not.toContain('test-placeholder-polar-value-xyz');
     delete process.env.POLAR_ACCESS_TOKEN;
   });
 

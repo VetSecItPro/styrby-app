@@ -290,7 +290,7 @@ export function TeamCheckoutSummary({
             )}
 
             <p className="mt-4 text-center text-xs text-gray-500">
-              You will be redirected to Polar's secure payment page.
+              You will be redirected to Polar&apos;s secure payment page.
               Billing is managed by Polar - cancel anytime.
             </p>
           </div>
