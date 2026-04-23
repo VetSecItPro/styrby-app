@@ -129,8 +129,8 @@ module.exports = [
     // Further ratchet requires: (a) Sentry lazy init (~136 KB potential),
     // (b) smaller error-monitoring SDK, or (c) self-hosted analytics.
     //
-    // BUDGET: 740 KB maintains 8 KB headroom over 732 KB measurement.
-    limit: '740 KB',
+    // BUDGET: 745 KB — measured 740.76 KB after rebase onto main (Phase 2.8 pricing contributed ~8 KB back into first-load). Real ratchet from 760 KB → 745 KB = 15 KB net recovery.
+    limit: '745 KB',
     gzip: true,
     // WHY import is omitted: We cannot import directly from Next.js output —
     // these are already-built assets. size-limit stats the files and sums sizes.
