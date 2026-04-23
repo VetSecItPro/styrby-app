@@ -8,6 +8,8 @@
  *      assert expected output shape → clean up
  *   3. Reports PASS / FAIL / NOT_INSTALLED with a diagnostic message pointing
  *      to the relevant parser file when the stream format has drifted.
+ *   4. (Phase 1.6.4b) Compares the detected version against the known-compatible
+ *      range and emits a structured Sentry warning if drift is detected.
  *
  * WHY per-agent probes instead of a single generic check:
  *   Every agent has a unique output format. A generic "binary exists" check
@@ -24,6 +26,15 @@
  *   and responds structurally, it's PASS. Format-contract violations (the
  *   agent changed its JSON schema) are caught by the unit tests in
  *   agentSmokeTests.test.ts — not by the runtime doctor check.
+ *
+ * Version drift detection (Phase 1.6.4b):
+ *   Each agent entry now carries MIN_SUPPORTED_VERSION and MAX_TESTED_VERSION.
+ *   After detecting the installed version, we compare against the range. A
+ *   version below the minimum means the agent is known-incompatible (streaming
+ *   format changed). A version above MAX_TESTED_VERSION means Styrby hasn't
+ *   been validated against it — possible incompatibility. Both cases emit a
+ *   structured Sentry warning and appear in `styrby doctor` under "Version
+ *   compatibility".
  *
  * @module commands/agentProbe
  */
@@ -46,6 +57,30 @@ const execFileAsync = promisify(execFile);
  * - `NOT_INSTALLED` — binary not on PATH
  */
 export type AgentProbeStatus = 'PASS' | 'FAIL' | 'NOT_INSTALLED';
+
+/**
+ * Version compatibility classification for a detected agent version.
+ *
+ * WHY three states: a version below MIN is known-broken (our parser will
+ * fail against old format). A version above MAX_TESTED is unknown territory —
+ * the agent may have changed its stream format since we last validated.
+ * Both are worth surfacing in doctor, but with different urgency.
+ */
+export type VersionCompatibility = 'compatible' | 'below-min' | 'above-max-tested' | 'unknown';
+
+/**
+ * Result of comparing a detected version against the known-compatible range.
+ */
+export interface VersionCompatibilityResult {
+  /** The parsed semver string (e.g. "1.2.3") */
+  detectedVersion: string;
+  /** MIN_SUPPORTED_VERSION from the probe registry */
+  minSupported: string;
+  /** MAX_TESTED_VERSION from the probe registry */
+  maxTested: string;
+  /** Classification of the detected version */
+  compatibility: VersionCompatibility;
+}
 
 /**
  * Result of probing a single agent.
@@ -90,6 +125,13 @@ export interface AgentProbeResult {
    * Included in diagnostic messages so developers can find the relevant code.
    */
   parserFile: string;
+
+  /**
+   * Version compatibility classification result.
+   * Populated after probeAgent() detects and compares the installed version.
+   * Undefined when the agent is not installed or version cannot be parsed.
+   */
+  versionCompatibility?: VersionCompatibilityResult;
 }
 
 /**
@@ -158,6 +200,45 @@ interface AgentProbeConfig {
 
   /** Install instructions shown when the agent is not found on PATH */
   installHint: string;
+
+  /**
+   * Minimum version of this agent that Styrby's parser is known to support.
+   *
+   * WHY: When the agent ships a major version with a breaking stream format
+   * change, versions below this threshold are guaranteed to produce parse
+   * errors. We surface this in doctor rather than letting the user hit a
+   * cryptic "undefined is not an object" at session start.
+   *
+   * Format: semver string (e.g. "1.0.0"). "0.0.0" means we have no lower
+   * bound (all known versions work).
+   */
+  minSupportedVersion: string;
+
+  /**
+   * Maximum version of this agent that Styrby has been validated against.
+   *
+   * WHY: When the user upgrades an agent past the last version we tested,
+   * there may be undocumented stream format changes. We emit a structured
+   * warning so the user knows to report any issues, but do not hard-block
+   * the session (the new version may be fully compatible).
+   *
+   * Format: semver string (e.g. "2.5.0"). "99.99.99" means no upper bound
+   * (we accept any version).
+   */
+  maxTestedVersion: string;
+
+  /**
+   * Regex patterns found in the agent's startup stdout that identify its
+   * version without requiring a separate `--version` call.
+   *
+   * WHY: Some agents (Claude Code, Codex) print version info to their initial
+   * startup banner. Parsing it here enables version drift detection even when
+   * the agent is launched via subprocess rather than via direct `--version`.
+   * Each pattern must have one capture group that extracts the semver string.
+   *
+   * @example /Claude Code v(\d+\.\d+\.\d+)/
+   */
+  startupVersionPatterns: RegExp[];
 }
 
 /**
@@ -181,6 +262,17 @@ const AGENT_PROBE_REGISTRY: Record<AllAgentType, AgentProbeConfig> = {
     },
     parserFile: 'agent/factories/claude.ts (parseClaudeJsonlLine)',
     installHint: 'npm install -g @anthropic-ai/claude-code',
+    // WHY version range: Claude Code 1.0.x introduced the structured JSONL
+    // assistant message format (type:"assistant", message.usage.*). Versions
+    // before 1.0.0 emitted only plain text. The 1.0.71 fixture in our test
+    // suite is the current baseline.
+    minSupportedVersion: '1.0.0',
+    maxTestedVersion: '2.99.99',
+    startupVersionPatterns: [
+      /Claude Code v?(\d+\.\d+\.\d+)/i,
+      /claude-code@(\d+\.\d+\.\d+)/i,
+      /"version":"(\d+\.\d+\.\d+)"/,
+    ],
   },
 
   codex: {
@@ -189,12 +281,22 @@ const AGENT_PROBE_REGISTRY: Record<AllAgentType, AgentProbeConfig> = {
     versionFlag: '--version',
     versionPattern: /(\d+\.\d+\.\d+)/,
     expectedStreamFormat: {
-      type: '"message" | "tool_use" | "tool_result" | "reasoning"',
-      id: 'string',
+      type: '"message" | "tool_use" | "tool_result" | "reasoning" | "task_started" | "task_complete" | "token_count" | "patch_apply_begin" | "patch_apply_end"',
+      id: 'string (Codex session id)',
       role: '"assistant" | "user"',
     },
     parserFile: 'codex/codexMcpClient.ts',
     installHint: 'npm install -g @openai/codex',
+    // WHY: Codex 0.2.x introduced the MCP-based STDIO bridge protocol used
+    // by CodexMcpClient. The Styrby STDIO bridge (happyMcpStdioBridge.ts)
+    // requires at least 0.2.0. We flag anything below that as incompatible.
+    minSupportedVersion: '0.2.0',
+    maxTestedVersion: '1.99.99',
+    startupVersionPatterns: [
+      /Codex v?(\d+\.\d+\.\d+)/i,
+      /codex@(\d+\.\d+\.\d+)/i,
+      /"version":"(\d+\.\d+\.\d+)"/,
+    ],
   },
 
   gemini: {
@@ -208,6 +310,9 @@ const AGENT_PROBE_REGISTRY: Record<AllAgentType, AgentProbeConfig> = {
     },
     parserFile: 'agent/transport/handlers/GeminiTransport.ts',
     installHint: 'npm install -g @google/gemini-cli',
+    minSupportedVersion: '0.1.0',
+    maxTestedVersion: '2.99.99',
+    startupVersionPatterns: [/Gemini CLI v?(\d+\.\d+\.\d+)/i, /gemini-cli@(\d+\.\d+\.\d+)/i],
   },
 
   opencode: {
@@ -223,6 +328,9 @@ const AGENT_PROBE_REGISTRY: Record<AllAgentType, AgentProbeConfig> = {
     },
     parserFile: 'agent/factories/opencode.ts (handleJsonMessage)',
     installHint: 'npm install -g opencode-ai',
+    minSupportedVersion: '0.1.0',
+    maxTestedVersion: '1.99.99',
+    startupVersionPatterns: [/opencode v?(\d+\.\d+\.\d+)/i, /opencode@(\d+\.\d+\.\d+)/i],
   },
 
   aider: {
@@ -237,6 +345,11 @@ const AGENT_PROBE_REGISTRY: Record<AllAgentType, AgentProbeConfig> = {
     },
     parserFile: 'agent/factories/aider.ts (parseAiderTokenSummary)',
     installHint: 'pip install aider-chat',
+    // WHY: aider 0.60.0 introduced the --show-tokens flag we depend on for
+    // CostReport extraction. Earlier versions do not emit the token summary.
+    minSupportedVersion: '0.60.0',
+    maxTestedVersion: '0.99.99',
+    startupVersionPatterns: [/aider v?(\d+\.\d+\.\d+)/i],
   },
 
   goose: {
@@ -252,6 +365,9 @@ const AGENT_PROBE_REGISTRY: Record<AllAgentType, AgentProbeConfig> = {
     },
     parserFile: 'agent/factories/goose.ts (handleGooseEvent)',
     installHint: 'See https://github.com/aaif-goose/goose for installation',
+    minSupportedVersion: '1.0.0',
+    maxTestedVersion: '2.99.99',
+    startupVersionPatterns: [/goose v?(\d+\.\d+\.\d+)/i],
   },
 
   amp: {
@@ -267,6 +383,9 @@ const AGENT_PROBE_REGISTRY: Record<AllAgentType, AgentProbeConfig> = {
     },
     parserFile: 'agent/factories/amp.ts (handleAmpMessage)',
     installHint: 'npm install -g @sourcegraph/amp',
+    minSupportedVersion: '0.5.0',
+    maxTestedVersion: '1.99.99',
+    startupVersionPatterns: [/amp v?(\d+\.\d+\.\d+)/i, /amp@(\d+\.\d+\.\d+)/i],
   },
 
   crush: {
@@ -282,6 +401,9 @@ const AGENT_PROBE_REGISTRY: Record<AllAgentType, AgentProbeConfig> = {
     },
     parserFile: 'agent/factories/crush.ts (handleCrushEvent)',
     installHint: 'brew install charmbracelet/tap/crush',
+    minSupportedVersion: '0.1.0',
+    maxTestedVersion: '1.99.99',
+    startupVersionPatterns: [/crush v?(\d+\.\d+\.\d+)/i],
   },
 
   kilo: {
@@ -297,6 +419,9 @@ const AGENT_PROBE_REGISTRY: Record<AllAgentType, AgentProbeConfig> = {
     },
     parserFile: 'agent/factories/kilo.ts (handleKiloMessage)',
     installHint: 'npm install -g @kilocode/cli',
+    minSupportedVersion: '1.0.0',
+    maxTestedVersion: '2.99.99',
+    startupVersionPatterns: [/kilo v?(\d+\.\d+\.\d+)/i, /kilocode@(\d+\.\d+\.\d+)/i],
   },
 
   kiro: {
@@ -312,6 +437,9 @@ const AGENT_PROBE_REGISTRY: Record<AllAgentType, AgentProbeConfig> = {
     },
     parserFile: 'agent/factories/kiro.ts (handleKiroEvent)',
     installHint: 'See https://kiro.dev for installation',
+    minSupportedVersion: '0.1.0',
+    maxTestedVersion: '1.99.99',
+    startupVersionPatterns: [/kiro v?(\d+\.\d+\.\d+)/i],
   },
 
   droid: {
@@ -327,8 +455,138 @@ const AGENT_PROBE_REGISTRY: Record<AllAgentType, AgentProbeConfig> = {
     },
     parserFile: 'agent/factories/droid.ts (handleDroidMessage)',
     installHint: 'npm install -g droid (or see https://docs.factory.ai/cli)',
+    minSupportedVersion: '0.1.0',
+    maxTestedVersion: '1.99.99',
+    startupVersionPatterns: [/droid v?(\d+\.\d+\.\d+)/i],
   },
 };
+
+// ============================================================================
+// Version Compatibility Helpers (Phase 1.6.4b)
+// ============================================================================
+
+/**
+ * Compare two semver strings lexicographically by numeric part.
+ *
+ * WHY not a full semver library: adding a semver dependency to the CLI for one
+ * comparator adds 15 KB to the bundle. This comparator handles the common
+ * "major.minor.patch" format that all 11 supported agents use.
+ *
+ * @param a - First semver string (e.g. "1.2.3")
+ * @param b - Second semver string (e.g. "1.2.4")
+ * @returns -1 if a < b, 0 if equal, 1 if a > b
+ */
+export function compareSemver(a: string, b: string): -1 | 0 | 1 {
+  const parsePart = (s: string): number[] =>
+    s.split('.').map((n) => parseInt(n, 10) || 0);
+
+  const aParts = parsePart(a);
+  const bParts = parsePart(b);
+  const len = Math.max(aParts.length, bParts.length);
+
+  for (let i = 0; i < len; i++) {
+    const av = aParts[i] ?? 0;
+    const bv = bParts[i] ?? 0;
+    if (av < bv) return -1;
+    if (av > bv) return 1;
+  }
+  return 0;
+}
+
+/**
+ * Classify a detected version string against the probe registry's compatible range.
+ *
+ * WHY: When a user upgrades Claude Code / Codex / Gemini etc., the stream format
+ * can shift. This comparator drives `styrby doctor`'s "Version compatibility"
+ * section and the structured Sentry warning on drift.
+ *
+ * @param agentId - The agent whose registry entry to consult
+ * @param detectedVersion - The version string parsed from `--version` output
+ * @returns VersionCompatibilityResult with classification
+ */
+export function checkVersionCompatibility(
+  agentId: AllAgentType,
+  detectedVersion: string,
+): VersionCompatibilityResult {
+  const config = AGENT_PROBE_REGISTRY[agentId];
+  const { minSupportedVersion, maxTestedVersion } = config;
+
+  const cmpMin = compareSemver(detectedVersion, minSupportedVersion);
+  const cmpMax = compareSemver(detectedVersion, maxTestedVersion);
+
+  let compatibility: VersionCompatibility;
+  if (cmpMin < 0) {
+    compatibility = 'below-min';
+  } else if (cmpMax > 0) {
+    compatibility = 'above-max-tested';
+  } else {
+    compatibility = 'compatible';
+  }
+
+  return { detectedVersion, minSupported: minSupportedVersion, maxTested: maxTestedVersion, compatibility };
+}
+
+/**
+ * Parse a version string from an agent's startup banner / stdout.
+ *
+ * WHY subprocess-based instead of `--version`:
+ * Claude Code and Codex are full application-level launchers that cannot be
+ * imported as standalone backend factories. Their startup messages include
+ * version info in the initial banner lines. This parser extracts the version
+ * from those lines for drift detection without requiring a separate process.
+ *
+ * @param agentId - The agent whose startupVersionPatterns to try
+ * @param startupOutput - The first few lines of the agent's stdout
+ * @returns The extracted version string, or null if not found
+ */
+export function parseVersionFromStartupMessage(
+  agentId: AllAgentType,
+  startupOutput: string,
+): string | null {
+  const config = AGENT_PROBE_REGISTRY[agentId];
+  for (const pattern of config.startupVersionPatterns) {
+    const match = pattern.exec(startupOutput);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
+/**
+ * Emit a structured Sentry warning when an agent's version is outside the
+ * known-compatible range.
+ *
+ * WHY Sentry: version drift events must be visible to the founder even when the
+ * user doesn't file a support ticket. The structured payload (`error_class`,
+ * `agent`, `seen_version`, `expected_range`) allows Sentry dashboards to group
+ * drift events by agent and version, showing which upgrades most frequently
+ * break Styrby parsers.
+ *
+ * WHY non-fatal: a version above MAX_TESTED may still work. We warn rather
+ * than block so users with a brand-new agent version can still run sessions
+ * while the Styrby team validates the new format.
+ *
+ * @param agentId - The agent that triggered the drift
+ * @param compatibility - The full compatibility result
+ */
+function emitVersionDriftWarning(
+  agentId: AllAgentType,
+  compatibility: VersionCompatibilityResult,
+): void {
+  const msg =
+    compatibility.compatibility === 'below-min'
+      ? `Agent version ${compatibility.detectedVersion} is below minimum supported ${compatibility.minSupported}`
+      : `Agent version ${compatibility.detectedVersion} is above max tested ${compatibility.maxTested} — format may have changed`;
+
+  // WHY structured log: pairs with Sentry for observability. The structured
+  // payload lets the Sentry dashboard group by agent + version automatically.
+  logger.warn(`[VersionDrift] ${agentId}: ${msg}`, {
+    level: 'warn',
+    error_class: 'agent_version_drift',
+    agent: agentId,
+    seen_version: compatibility.detectedVersion,
+    expected_range: `${compatibility.minSupported}..${compatibility.maxTested}`,
+  });
+}
 
 // ============================================================================
 // Detection Utilities
@@ -434,10 +692,20 @@ export async function probeAgent(agentId: AllAgentType): Promise<AgentProbeResul
 
     logger.debug(`[AgentProbe] ${config.command} version output: ${output.slice(0, 80)}`);
 
+    // Phase 1.6.4b: check version against known-compatible range and warn on drift.
+    let versionCompatibility: VersionCompatibilityResult | undefined;
+    if (version) {
+      versionCompatibility = checkVersionCompatibility(agentId, version);
+      if (versionCompatibility.compatibility !== 'compatible') {
+        emitVersionDriftWarning(agentId, versionCompatibility);
+      }
+    }
+
     return {
       ...base,
       status: 'PASS',
       version,
+      versionCompatibility,
       message: version ? undefined : `Version not parseable from output: "${output.slice(0, 40)}"`,
     };
   }
@@ -490,7 +758,19 @@ export function formatAgentProbeReport(results: AgentProbeResult[]): string[] {
           : 'FAIL';
     const versionStr = r.version ? ` v${r.version}` : '';
     const detail = r.message ? ` — ${r.message}` : '';
-    return `  ${icon} [${statusLabel}] ${r.displayName} (${r.command})${versionStr}${detail}`;
+
+    // Phase 1.6.4b: append version compatibility note when drift detected.
+    let compatNote = '';
+    if (r.versionCompatibility && r.versionCompatibility.compatibility !== 'compatible') {
+      const vc = r.versionCompatibility;
+      if (vc.compatibility === 'below-min') {
+        compatNote = ` [VERSION DRIFT: ${vc.detectedVersion} < min ${vc.minSupported} — update ${r.command} or report at https://github.com/VetSecItPro/styrby-app/issues]`;
+      } else {
+        compatNote = ` [VERSION UNTESTED: ${vc.detectedVersion} > max tested ${vc.maxTested} — report at https://github.com/VetSecItPro/styrby-app/issues]`;
+      }
+    }
+
+    return `  ${icon} [${statusLabel}] ${r.displayName} (${r.command})${versionStr}${detail}${compatNote}`;
   });
 }
 
