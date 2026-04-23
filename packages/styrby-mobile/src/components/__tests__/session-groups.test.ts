@@ -67,7 +67,7 @@ describe('AgentSessionCard', () => {
 
   it('does not use em-dashes in UI copy', () => {
     // CLAUDE.md prohibition: never use — in UI text
-    expect(src).not.toMatch(/[^\-]—[^\-]/);
+    expect(src).not.toMatch(/[^-]—[^-]/);
   });
 
   it('does not import Sparkles icon', () => {
@@ -171,7 +171,7 @@ describe('SessionGroupStrip', () => {
   });
 
   it('does not use em-dashes in UI copy', () => {
-    expect(src).not.toMatch(/[^\-]—[^\-]/);
+    expect(src).not.toMatch(/[^-]—[^-]/);
   });
 
   it('does not import Sparkles icon', () => {
