@@ -18,3 +18,7 @@ export type { TierMixTableProps, TierCount, AgentUsage } from './TierMixTable';
 
 export { CohortRetentionTable } from './CohortRetentionTable';
 export type { CohortRetentionTableProps, CohortRow } from './CohortRetentionTable';
+
+// Phase 2.3 — Teams card for the founder dashboard
+export { TeamsCard } from './TeamsCard';
+export type { TeamsCardProps } from './TeamsCard';

@@ -11,7 +11,8 @@ import { isAdmin } from '@/lib/admin';
 // to document the dependency boundary and will be used if we add client-side
 // projections in a future iteration. Remove if still unused at Phase 2.
 // import { calcRunRate, normalizeTier } from '@styrby/shared';
-import { MrrCard, FunnelChart, TierMixTable, CohortRetentionTable } from '@/components/dashboard/founder';
+import { MrrCard, FunnelChart, TierMixTable, CohortRetentionTable, TeamsCard } from '@/components/dashboard/founder';
+import type { FounderTeamMetrics } from '@styrby/shared';
 
 export const metadata: Metadata = {
   title: 'Founder Ops | Styrby',
@@ -88,6 +89,7 @@ export default async function FounderPage() {
 
   let data: FounderMetrics | null = null;
   let fetchError: string | null = null;
+  let teamMetrics: FounderTeamMetrics | null = null;
 
   try {
     // Forward the cookie header so the API route can verify the auth session.
@@ -97,17 +99,31 @@ export default async function FounderPage() {
       .map((c) => `${c.name}=${c.value}`)
       .join('; ');
 
-    const response = await fetch(`${baseUrl}/api/admin/founder-metrics`, {
-      headers: { Cookie: cookieHeader },
-      // WHY no-store: We want live data every render, not a cached response.
-      cache: 'no-store',
-    });
+    // Fetch core metrics and team metrics in parallel to minimise TTFB.
+    // WHY parallel: both are independent admin-gated queries; serial fetches
+    // would double server-render latency for the founder dashboard.
+    const [metricsResponse, teamMetricsResponse] = await Promise.all([
+      fetch(`${baseUrl}/api/admin/founder-metrics`, {
+        headers: { Cookie: cookieHeader },
+        // WHY no-store: We want live data every render, not a cached response.
+        cache: 'no-store',
+      }),
+      fetch(`${baseUrl}/api/admin/founder-team-metrics`, {
+        headers: { Cookie: cookieHeader },
+        cache: 'no-store',
+      }),
+    ]);
 
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      fetchError = (body as { message?: string }).message ?? `HTTP ${response.status}`;
+    if (!metricsResponse.ok) {
+      const body = await metricsResponse.json().catch(() => ({}));
+      fetchError = (body as { message?: string }).message ?? `HTTP ${metricsResponse.status}`;
     } else {
-      data = (await response.json()) as FounderMetrics;
+      data = (await metricsResponse.json()) as FounderMetrics;
+    }
+
+    // Team metrics failure is non-fatal — page still shows core metrics.
+    if (teamMetricsResponse.ok) {
+      teamMetrics = (await teamMetricsResponse.json()) as FounderTeamMetrics;
     }
   } catch (err) {
     fetchError = err instanceof Error ? err.message : 'Failed to fetch founder metrics';
@@ -155,9 +171,16 @@ export default async function FounderPage() {
       </div>
 
       {/* Row 4: Cohort retention */}
-      <div className="mt-6 mb-8">
+      <div className="mt-6">
         <CohortRetentionTable cohorts={data.cohortRetention} />
       </div>
+
+      {/* Row 5: Teams — Phase 2.3 */}
+      {teamMetrics && (
+        <div className="mt-6 mb-8">
+          <TeamsCard metrics={teamMetrics} />
+        </div>
+      )}
     </div>
   );
 }
