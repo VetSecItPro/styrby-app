@@ -339,6 +339,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.47.10
         version: 2.95.3
+      '@upstash/redis':
+        specifier: 1.37.0
+        version: 1.37.0
       libsodium-wrappers:
         specifier: ^0.7.15
         version: 0.7.15
@@ -16519,7 +16522,7 @@ snapshots:
     dependencies:
       '@sentry/bundler-plugin-core': 5.1.1
       uuid: 9.0.1
-      webpack: 5.105.0
+      webpack: 5.105.0(esbuild@0.25.0)
     transitivePeerDependencies:
       - encoding
       - supports-color
@@ -16568,7 +16571,7 @@ snapshots:
       zod: 4.3.6
     optionalDependencies:
       typescript: 5.9.3
-      webpack: 5.105.0
+      webpack: 5.105.0(esbuild@0.25.0)
     transitivePeerDependencies:
       - browserslist
 
@@ -22529,7 +22532,7 @@ snapshots:
       neo-async: 2.6.2
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
-      webpack: 5.105.0
+      webpack: 5.105.0(esbuild@0.25.0)
 
   react-shallow-renderer@16.15.0(react@18.3.1):
     dependencies:
@@ -23494,15 +23497,6 @@ snapshots:
     optionalDependencies:
       esbuild: 0.25.0
 
-  terser-webpack-plugin@5.3.16(webpack@5.105.0):
-    dependencies:
-      '@jridgewell/trace-mapping': 0.3.31
-      jest-worker: 27.5.1
-      schema-utils: 4.3.3
-      serialize-javascript: 7.0.5
-      terser: 5.46.0
-      webpack: 5.105.0
-
   terser@5.46.0:
     dependencies:
       '@jridgewell/source-map': 0.3.11
@@ -24147,38 +24141,6 @@ snapshots:
       - utf-8-validate
 
   webpack-sources@3.3.3: {}
-
-  webpack@5.105.0:
-    dependencies:
-      '@types/eslint-scope': 3.7.7
-      '@types/estree': 1.0.8
-      '@types/json-schema': 7.0.15
-      '@webassemblyjs/ast': 1.14.1
-      '@webassemblyjs/wasm-edit': 1.14.1
-      '@webassemblyjs/wasm-parser': 1.14.1
-      acorn: 8.16.0
-      acorn-import-phases: 1.0.4(acorn@8.16.0)
-      browserslist: 4.28.1
-      chrome-trace-event: 1.0.4
-      enhanced-resolve: 5.19.0
-      es-module-lexer: 2.0.0
-      eslint-scope: 5.1.1
-      events: 3.3.0
-      glob-to-regexp: 0.4.1
-      graceful-fs: 4.2.11
-      json-parse-even-better-errors: 2.3.1
-      loader-runner: 4.3.1
-      mime-types: 2.1.35
-      neo-async: 2.6.2
-      schema-utils: 4.3.3
-      tapable: 2.3.0
-      terser-webpack-plugin: 5.3.16(webpack@5.105.0)
-      watchpack: 2.5.1
-      webpack-sources: 3.3.3
-    transitivePeerDependencies:
-      - '@swc/core'
-      - esbuild
-      - uglify-js
 
   webpack@5.105.0(esbuild@0.25.0):
     dependencies:

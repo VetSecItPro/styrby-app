@@ -35,7 +35,32 @@ const mockChannel: any = {
 let mockNotificationsData: unknown[] | null = [];
 let mockNotificationsError: { message: string } | null = null;
 
-jest.mock('../lib/supabase', () => ({
+// WHY ../../lib/supabase: This test lives at src/hooks/__tests__/useInAppNotifications.test.ts.
+// The hook (src/hooks/useInAppNotifications.ts) imports '../lib/supabase' which resolves
+// to src/lib/supabase.ts. From the __tests__/ subdirectory the correct relative path to
+// src/lib/supabase.ts is '../../lib/supabase' — one extra level up.
+
+// WHY ../../lib/supabase: This test lives at src/hooks/__tests__/useInAppNotifications.test.ts.
+// The hook (src/hooks/useInAppNotifications.ts) imports '../lib/supabase' which resolves
+// to src/lib/supabase.ts. From the __tests__/ subdirectory the correct relative path to
+// src/lib/supabase.ts is '../../lib/supabase' — one extra level up.
+
+// WHY proxy object for supabase mock:
+//   jest.mock() factories are hoisted to the top of the file before any variable
+//   declarations. That means module-scope jest.fn() instances (mockChannel,
+//   mockRemoveChannel) are in the temporal dead zone when the factory runs.
+//   To work around this, the supabase mock exposes a proxy object whose methods
+//   delegate through a module-scope `supabaseMockImpl` object that beforeEach
+//   can update freely — no temporal dead zone issue because the proxy is only
+//   called at test runtime, not at factory-execution time.
+const supabaseMockImpl = {
+  channelImpl: (...args: unknown[]) => {
+    void args;
+    return undefined as unknown as ReturnType<typeof mockChannel>;
+  },
+};
+
+jest.mock('../../lib/supabase', () => ({
   supabase: {
     auth: {
       getUser: () => mockGetUser(),
@@ -62,8 +87,12 @@ jest.mock('../lib/supabase', () => ({
       }
       return {};
     },
-    channel: jest.fn().mockReturnValue(mockChannel),
-    removeChannel: mockRemoveChannel,
+    // WHY delegate to supabaseMockImpl.channelImpl:
+    //   The factory is hoisted before variable declarations so direct references to
+    //   mockChannel here would be undefined (temporal dead zone). Delegating through
+    //   supabaseMockImpl (which beforeEach populates) defers the lookup to call time.
+    channel: (...args: unknown[]) => supabaseMockImpl.channelImpl(...args),
+    removeChannel: (...args: unknown[]) => mockRemoveChannel(...args),
   },
 }));
 
@@ -96,8 +125,17 @@ beforeEach(() => {
 
   mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
+  // WHY restore these after clearAllMocks():
+  //   jest.clearAllMocks() resets all mock implementations set with mockReturnThis() etc.
+  //   Re-establish the channel chaining contract so each test sees a wired realtime stub.
   mockChannel.on.mockReturnThis();
   mockChannel.subscribe.mockReturnThis();
+
+  // WHY set supabaseMockImpl.channelImpl here:
+  //   The jest.mock factory delegates channel() calls to supabaseMockImpl.channelImpl
+  //   (deferred lookup avoids temporal dead zone at hoist time). Each beforeEach wires
+  //   it to return mockChannel so the hook's .channel(...).on(...).subscribe() chain works.
+  supabaseMockImpl.channelImpl = () => mockChannel;
 });
 
 // ============================================================================

@@ -23,6 +23,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../src/lib/supabase';
 import { useNotifications } from '../src/hooks/useNotifications';
 import { startConnectivityListener } from '../src/services/offline-sync';
+import { useInviteLinkHandler } from '../src/hooks/useInviteLinkHandler';
 import type { Session } from '@supabase/supabase-js';
 
 import type { ErrorBoundaryProps } from 'expo-router';
@@ -95,6 +96,14 @@ export default function RootLayout() {
    * available to ensure the token is persisted to the device_tokens table.
    */
   const { isRegistered: isPushRegistered, register: registerPush } = useNotifications();
+
+  /**
+   * WHY at root layout: useInviteLinkHandler must be called exactly once at
+   * the app root so it can intercept both cold-start and warm-start invite
+   * deep-links regardless of which screen is currently active. Placing it
+   * here (RootLayout) guarantees it mounts before any route renders.
+   */
+  useInviteLinkHandler();
 
   // Re-register push token when user signs in (token may have been obtained
   // before auth was available, so savePushToken would have silently failed).
@@ -170,15 +179,21 @@ export default function RootLayout() {
     // require authentication — anyone with the share link should be able to view
     // the session replay. We exempt it from the auth/onboarding redirect guards.
     const inShared = segments[0] === 'shared';
+    // WHY: The invite accept screen is a deep-link entry point that handles its
+    // own auth check internally (redirects to login with returnTo if no session).
+    // A brand-new user arriving via an invite link must reach InviteAcceptScreen
+    // before we know whether onboarding is needed — exempting it here lets
+    // InviteAcceptScreen's own returnTo logic fire correctly after auth completes.
+    const inInvite = segments[0] === 'invite';
 
     // Not onboarded → show onboarding (public screens exempt)
-    if (!hasOnboarded && !inOnboarding && !inShared) {
+    if (!hasOnboarded && !inOnboarding && !inShared && !inInvite) {
       router.replace('/onboarding');
       return;
     }
 
-    // Onboarded but not logged in → show login (unless already in auth or shared)
-    if (hasOnboarded && !session && !inAuthGroup && !inShared) {
+    // Onboarded but not logged in → show login (unless already in auth, shared, or invite)
+    if (hasOnboarded && !session && !inAuthGroup && !inShared && !inInvite) {
       router.replace('/(auth)/login');
       return;
     }
@@ -293,6 +308,23 @@ export default function RootLayout() {
           name="shared/[shareId]"
           options={{
             title: 'Session Replay',
+            presentation: 'card',
+          }}
+        />
+        {/*
+         * Team invitation deep-link route.
+         * Handles: https://styrbyapp.com/invite/<token>
+         *          styrby://invite/<token>
+         *
+         * The `[token]` segment is extracted by Expo Router and forwarded to
+         * InviteAcceptScreen via useLocalSearchParams(). No auth is checked
+         * here — InviteAcceptScreen handles the auth guard internally and
+         * redirects to login with a returnTo param if the user is not signed in.
+         */}
+        <Stack.Screen
+          name="invite/[token]"
+          options={{
+            title: 'Team Invitation',
             presentation: 'card',
           }}
         />
