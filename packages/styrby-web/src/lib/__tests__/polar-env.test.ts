@@ -189,6 +189,92 @@ describe('validatePolarEnv() rethrow contract (simulates non-test module scope)'
 });
 
 // ============================================================================
+// NEXT_PHASE build-time gate contract
+// ============================================================================
+//
+// route.ts wraps the module-scope validatePolarEnv() call with:
+//
+//   if (process.env.NEXT_PHASE !== 'phase-production-build') {
+//     try { validatePolarEnv(); } catch (err) {
+//       console.error('[polar-env] Startup validation failed:', ...);
+//       if (process.env.NODE_ENV !== 'test') { throw err; }
+//     }
+//   }
+//
+// The tests below verify the two observable behaviours of that gate in
+// isolation — without importing route.ts (which would trigger the actual
+// module-scope block). We simulate the gate logic inline so the test is
+// not coupled to the route module's import side effects.
+//
+// WHY inline simulation (not import route.ts): importing route.ts runs the
+// module-scope block immediately, which in NODE_ENV='test' swallows any throw.
+// We cannot meaningfully test that the NEXT_PHASE gate *suppresses* the call
+// via the route import — the NODE_ENV guard masks it. Simulating the gate logic
+// directly tests the contract that `next build` relies on.
+
+describe('NEXT_PHASE build-time gate (simulates route.ts module-scope wrapper)', () => {
+  /**
+   * Simulates the full gate + rethrow wrapper from route.ts.
+   * Returns 'skipped' when NEXT_PHASE === 'phase-production-build' (gate active),
+   * 'passed' when validatePolarEnv() succeeds, or rethrows when it fails and
+   * nodeEnvIsTest is false.
+   *
+   * @param nodeEnvIsTest - true = test branch (swallow), false = prod/dev branch (rethrow)
+   */
+  function runGatedValidation(nodeEnvIsTest: boolean): 'skipped' | 'passed' {
+    if (process.env.NEXT_PHASE === 'phase-production-build') {
+      return 'skipped';
+    }
+    try {
+      validatePolarEnv();
+      return 'passed';
+    } catch (err) {
+      if (!nodeEnvIsTest) {
+        throw err;
+      }
+      return 'passed'; // swallowed — test mode
+    }
+  }
+
+  it('does NOT call validatePolarEnv when NEXT_PHASE === phase-production-build', () => {
+    // WHY: This is the core CI fix. During `next build`, NEXT_PHASE is set to
+    // 'phase-production-build'. The gate must skip validation entirely so the
+    // build succeeds without Polar env vars present.
+    vi.stubEnv('NEXT_PHASE', 'phase-production-build');
+    // All env vars absent — if validatePolarEnv() were called, it would throw.
+    // The gate must prevent that call.
+    expect(() => runGatedValidation(false)).not.toThrow();
+    expect(runGatedValidation(false)).toBe('skipped');
+  });
+
+  it('calls validatePolarEnv and rethrows when NEXT_PHASE is undefined and NODE_ENV is not test', () => {
+    // WHY: In production (no NEXT_PHASE, no NODE_ENV=test), a missing env var
+    // must cause the cold-start to fail loudly. The gate is inactive (NEXT_PHASE
+    // not set), and the rethrow path is active (nodeEnvIsTest = false).
+    vi.stubEnv('NEXT_PHASE', ''); // unset — gate inactive
+    // All env vars absent — validatePolarEnv() will throw.
+    expect(() => runGatedValidation(false)).toThrow(/missing or blank/);
+  });
+
+  it('swallows the error when NEXT_PHASE is undefined but NODE_ENV is test', () => {
+    // WHY: During tests, the NEXT_PHASE gate is inactive but the NODE_ENV guard
+    // prevents the rethrow. This matches the existing test-suite behaviour for
+    // imports that do not set the 6 Polar vars.
+    vi.stubEnv('NEXT_PHASE', '');
+    expect(() => runGatedValidation(true)).not.toThrow();
+  });
+
+  it('calls validatePolarEnv normally when NEXT_PHASE is a non-build value', () => {
+    // WHY: NEXT_PHASE can be set to other values (e.g. 'phase-development-server').
+    // The gate must only suppress validation for the exact 'phase-production-build'
+    // value, not for any other NEXT_PHASE string.
+    vi.stubEnv('NEXT_PHASE', 'phase-development-server');
+    stubFullEnv(); // all vars present — validatePolarEnv() passes
+    expect(runGatedValidation(false)).toBe('passed');
+  });
+});
+
+// ============================================================================
 // getPolarProductId() — all 4 combinations
 // ============================================================================
 

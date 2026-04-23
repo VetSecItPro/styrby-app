@@ -207,3 +207,24 @@ ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'team_seat_count_decreased';
 -- Payment failure / grace period lifecycle events
 ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'team_billing_grace_period_entered';
 ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'team_billing_past_due';
+
+-- Checkout and downgrade guard events
+-- WHY team_checkout_initiated: written by POST /api/billing/checkout/team at the moment
+-- a team-tier Polar checkout session is created. Provides an audit trail of intent
+-- before any Polar webhook fires — important for reconciliation if a checkout
+-- completes but the webhook is delayed or dropped. SOC2 CC7.2 requires we log
+-- every billing state-change attempt, not just confirmed transitions.
+--
+-- WHY team_downgrade_blocked: written by POST /api/billing/seats when a seat
+-- reduction would violate the minimum seat floor for the current billing tier
+-- (e.g. attempting to drop a Team plan below 3 seats). Logging the blocked
+-- attempt gives ops visibility into customer friction points and confirms the
+-- floor enforcement is firing as intended.
+--
+-- Full taxonomy of all 9 billing audit_action values added in this migration:
+--   Subscription lifecycle:  team_subscription_created, team_subscription_updated, team_subscription_canceled
+--   Seat count changes:      team_seat_count_increased, team_seat_count_decreased
+--   Payment failure:         team_billing_grace_period_entered, team_billing_past_due
+--   Checkout / guards:       team_checkout_initiated, team_downgrade_blocked
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'team_checkout_initiated';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'team_downgrade_blocked';

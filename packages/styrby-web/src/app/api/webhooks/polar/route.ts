@@ -61,32 +61,37 @@ import { validateSeatCount } from '@styrby/shared/billing';
 // Cold-start env validation (team-tier Polar product IDs + secrets)
 // ============================================================================
 
-// WHY at module scope: Next.js edge functions are initialised once per cold
-// start. Running validatePolarEnv() here causes the function to fail before
-// accepting any traffic when misconfigured — surfaces the error in Vercel
-// logs immediately rather than silently discarding billing events.
+// WHY NEXT_PHASE gate: `next build` loads all route modules for page-data
+// collection (static analysis / bundle splitting). In CI without the 6 Polar
+// env vars set, the module-scope validatePolarEnv() call would throw during
+// build-time module introspection and abort the build — not a runtime failure.
+// Gating on NEXT_PHASE skips validation when Next.js is in its build phase;
+// it still runs on every cold-start request in production and development.
+// See: https://nextjs.org/docs/app/api-reference/next-config-js/generateBuildId
 //
-// WHY rethrow in non-test: swallowing the throw allows the route to continue
-// loading on prod with missing billing env vars. The result is that
-// resolvePolarProductId() returns undefined for every inbound team webhook,
-// every event falls through to the "unknown product" audit-log branch, and
-// billing state silently corrupts with no visible failure. The structured 500
-// that Next.js produces on a module-load error is surfaced by deploy-time
-// health checks — far better than silent corruption.
+// WHY rethrow in non-test (inside the phase gate): swallowing the throw allows
+// the route to continue loading on prod with missing billing env vars. The
+// result is that resolvePolarProductId() returns undefined for every inbound
+// team webhook, every event falls through to the "unknown product" audit-log
+// branch, and billing state silently corrupts with no visible failure. The
+// structured 500 that Next.js produces on a module-load error is surfaced by
+// deploy-time health checks — far better than silent corruption.
 //
 // WHY suppress only in test (NODE_ENV === 'test'): existing solo-tier tests
 // import this route without setting the six team-tier Polar env vars.
 // validatePolarEnv is tested exhaustively in its own test file.
-try {
-  validatePolarEnv();
-} catch (err) {
-  // WHY rethrow in non-test: prod cold-start MUST fail loudly on missing
-  // billing env vars. Silently swallowing would let the webhook accept traffic
-  // and misroute every team-tier subscription event into the "unknown product"
-  // audit-log branch — billing state corruption with no visible failure.
-  console.error('[polar-env] Startup validation failed:', (err as Error).message);
-  if (process.env.NODE_ENV !== 'test') {
-    throw err;
+if (process.env.NEXT_PHASE !== 'phase-production-build') {
+  try {
+    validatePolarEnv();
+  } catch (err) {
+    // WHY rethrow in non-test: prod cold-start MUST fail loudly on missing
+    // billing env vars. Silently swallowing would let the webhook accept traffic
+    // and misroute every team-tier subscription event into the "unknown product"
+    // audit-log branch — billing state corruption with no visible failure.
+    console.error('[polar-env] Startup validation failed:', (err as Error).message);
+    if (process.env.NODE_ENV !== 'test') {
+      throw err;
+    }
   }
 }
 
