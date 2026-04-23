@@ -8,6 +8,22 @@
     {
       "path": "/api/cron/retention",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/weekly-digest",
+      "schedule": "0 23 * * 0"
+    },
+    {
+      "path": "/api/cron/budget-threshold",
+      "schedule": "5 * * * *"
+    },
+    {
+      "path": "/api/cron/agent-finished",
+      "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/nps-prompt-dispatch",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

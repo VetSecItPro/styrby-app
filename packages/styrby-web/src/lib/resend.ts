@@ -15,6 +15,7 @@ import SubscriptionCanceledEmail from '@/emails/subscription-canceled';
 import PaymentFailedEmail from '@/emails/payment-failed';
 import BudgetAlertEmail from '@/emails/budget-alert';
 import WeeklySummaryEmail from '@/emails/weekly-summary';
+import WeeklyDigestEmail from '@/emails/weekly-digest';
 import SupportReplyEmail from '@/emails/support-reply';
 
 // Lazy-initialize Resend client to avoid build-time errors
@@ -299,6 +300,57 @@ export async function sendWeeklySummaryEmail({
       topProject,
       agentStats,
       savedWithCache,
+    }),
+  });
+}
+
+/**
+ * Send weekly digest email with cost/session/agent stats and referral CTA.
+ *
+ * Called by the /api/cron/weekly-digest route on Sunday evenings.
+ * Distinct from sendWeeklySummaryEmail (which uses a different template
+ * with token counts and cache stats for the dashboard-triggered summary).
+ *
+ * @param email - Recipient email address
+ * @param displayName - User's display name for personalization
+ * @param weekOf - Formatted week start date string (e.g. "April 14")
+ * @param totalCost - Formatted total cost string (e.g. "$12.34")
+ * @param totalSessions - Number of sessions in the period
+ * @param costChange - Percentage change vs prior week (positive = increase)
+ * @param agentStats - Top 3 agents by spend with name, sessions, cost
+ * @param referralCode - User's referral code for the invite CTA (optional)
+ * @returns Result object with `success` boolean
+ */
+export async function sendWeeklyDigestEmail({
+  email,
+  displayName,
+  weekOf,
+  totalCost,
+  totalSessions,
+  costChange,
+  agentStats,
+  referralCode,
+}: {
+  email: string;
+  displayName?: string;
+  weekOf: string;
+  totalCost: string;
+  totalSessions: number;
+  costChange: number;
+  agentStats: Array<{ name: string; sessions: number; cost: string }>;
+  referralCode?: string;
+}) {
+  return sendEmail({
+    to: email,
+    subject: `Your Styrby week: ${totalCost} — ${totalSessions} session${totalSessions !== 1 ? 's' : ''}`,
+    react: React.createElement(WeeklyDigestEmail, {
+      displayName,
+      weekOf,
+      totalCost,
+      totalSessions,
+      costChange,
+      agentStats,
+      referralCode,
     }),
   });
 }
