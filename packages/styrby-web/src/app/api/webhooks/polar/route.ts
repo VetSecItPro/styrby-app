@@ -45,6 +45,7 @@ import crypto from 'crypto';
 import { z } from 'zod';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
+import { getHttpsUrlEnv, getEnv } from '@/lib/env';
 import {
   validatePolarEnv,
   resolvePolarProductId,
@@ -113,11 +114,19 @@ if (process.env.NEXT_PHASE !== 'phase-production-build') {
  * 1. The webhook signature check is the primary security control
  * 2. Local dev does not face real webhook traffic
  */
-const webhookLimiter = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+// WHY getHttpsUrlEnv (not raw process.env): a Production placeholder value
+// ("PLACEHOLDER_CREATE_UPSTASH_REDIS_DB") set during the Phase 2 activation
+// runbook was truthy under the old `process.env.X &&` guard, flowing into
+// `new Redis({ url })` which throws synchronously on URL parse and crashed
+// Next.js build-time page-data collection. Scheme validation at the boundary
+// keeps the fallback path intact when the env is unset, missing, or garbage.
+const webhookUpstashUrl = getHttpsUrlEnv('UPSTASH_REDIS_REST_URL');
+const webhookUpstashToken = getEnv('UPSTASH_REDIS_REST_TOKEN');
+const webhookLimiter = webhookUpstashUrl && webhookUpstashToken
   ? new Ratelimit({
       redis: new Redis({
-        url: process.env.UPSTASH_REDIS_REST_URL,
-        token: process.env.UPSTASH_REDIS_REST_TOKEN,
+        url: webhookUpstashUrl,
+        token: webhookUpstashToken,
       }),
       limiter: Ratelimit.slidingWindow(100, '60 s'),
       prefix: 'styrby:polar-webhook',

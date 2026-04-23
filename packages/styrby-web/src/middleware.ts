@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { updateSession } from '@/lib/supabase/middleware';
+import { getHttpsUrlEnv, getEnv } from '@/lib/env';
 
 // ============================================================================
 // Real Client IP Resolution (Cloudflare Proxy Preparation)
@@ -185,9 +186,14 @@ function classifyUserAgent(userAgent: string): BotCategory {
  * limiting for AI crawlers. This is acceptable -- local dev does not face real
  * crawler traffic, and CI only runs test requests.
  */
-const isRedisConfigured =
-  !!process.env.UPSTASH_REDIS_REST_URL &&
-  !!process.env.UPSTASH_REDIS_REST_TOKEN;
+// WHY getHttpsUrlEnv: a non-https placeholder ("PLACEHOLDER_...") on Vercel
+// Production previously satisfied the raw truthy check below and then crashed
+// `new Redis({ url })` during build-time page-data collection. Validate the
+// scheme at the boundary so garbage env values fall through to the
+// null-limiter fallback instead of exploding at module load.
+const middlewareUpstashUrl = getHttpsUrlEnv('UPSTASH_REDIS_REST_URL');
+const middlewareUpstashToken = getEnv('UPSTASH_REDIS_REST_TOKEN');
+const isRedisConfigured = !!middlewareUpstashUrl && !!middlewareUpstashToken;
 
 /**
  * Sliding-window rate limiter for AI crawlers.
@@ -201,8 +207,8 @@ const isRedisConfigured =
 const aiCrawlerLimiter = isRedisConfigured
   ? new Ratelimit({
       redis: new Redis({
-        url: process.env.UPSTASH_REDIS_REST_URL!,
-        token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+        url: middlewareUpstashUrl!,
+        token: middlewareUpstashToken!,
       }),
       limiter: Ratelimit.slidingWindow(60, '60 s'),
       prefix: 'styrby:bot-ratelimit',

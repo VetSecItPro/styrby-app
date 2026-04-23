@@ -77,3 +77,52 @@ export function requireEnv(name: string): string {
 export function getEnvOr(name: string, fallback: string): string {
   return getEnv(name) ?? fallback;
 }
+
+/**
+ * Read an env var and return it only if it parses as an https:// URL.
+ *
+ * WHY this exists: On 2026-04-23 the Vercel Production environment was
+ * populated with the literal string "PLACEHOLDER_CREATE_UPSTASH_REDIS_DB"
+ * during the Phase 2 activation runbook. `getEnv()` strips whitespace but
+ * does not validate the scheme, so the non-empty placeholder flowed through
+ * the `if (url && token)` guard and into `new Redis({ url })`, which throws
+ * synchronously on URL parsing. Because Redis clients are constructed at
+ * module scope, the throw crashed Next.js's build-time page-data collection
+ * for every API route that imports a rate-limiter, producing "Failed to
+ * collect page data" errors and a fully-broken Production deploy while
+ * Preview (which had no such env var) continued to pass.
+ *
+ * This helper moves scheme validation to the boundary so a placeholder,
+ * typo, or copy-paste error ("http://", "redis://", bare host, "TODO")
+ * is treated as "unset" rather than "set to garbage". The in-memory
+ * fallback paths every Redis call site already has will then engage
+ * cleanly instead of the build crashing.
+ *
+ * Governing standards:
+ * - OWASP ASVS V14.1 (build and deployment — environment config hygiene)
+ * - SOC2 CC7.2 (system operations — configuration error detection)
+ *
+ * @param name - Exact env var name (case-sensitive)
+ * @returns The trimmed value, or undefined if unset/blank/not an https URL
+ *
+ * @example
+ * const url = getHttpsUrlEnv('UPSTASH_REDIS_REST_URL');
+ * if (url) {
+ *   redis = new Redis({ url, token: requireEnv('UPSTASH_REDIS_REST_TOKEN') });
+ * } else {
+ *   // fall back to in-memory limiter
+ * }
+ */
+export function getHttpsUrlEnv(name: string): string | undefined {
+  const value = getEnv(name);
+  if (value === undefined) return undefined;
+  if (!value.startsWith('https://')) return undefined;
+  try {
+    // Final guard: reject anything that is not actually parseable as a URL
+    // (e.g. "https://" alone, "https:// spaces", embedded control chars).
+    new URL(value);
+    return value;
+  } catch {
+    return undefined;
+  }
+}
