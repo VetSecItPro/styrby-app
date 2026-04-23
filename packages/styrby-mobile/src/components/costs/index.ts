@@ -34,3 +34,6 @@ export { AgentWeeklySparkline, AgentSparklineEmpty } from './AgentWeeklySparklin
 export type { AgentWeeklySparklineProps, AgentDayCost } from './AgentWeeklySparkline';
 export { SessionCostRow } from './SessionCostRow';
 export type { SessionCostData, SessionCostRowProps } from './SessionCostRow';
+// Phase 2.5 — team cost projection card
+export { TeamCostProjectionCard } from './TeamCostProjectionCard';
+export type { TeamCostProjectionCardProps, TeamProjectionCardData } from './TeamCostProjectionCard';

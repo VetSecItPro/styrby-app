@@ -22,3 +22,7 @@ export type { CohortRetentionTableProps, CohortRow } from './CohortRetentionTabl
 // Phase 2.3 — Teams card for the founder dashboard
 export { TeamsCard } from './TeamsCard';
 export type { TeamsCardProps } from './TeamsCard';
+
+// Phase 2.5 (absorbs 1.6.7b) — Error class histogram for the founder dashboard
+export { ErrorClassHistogramDynamic } from './ErrorClassHistogramDynamic';
+export type { ErrorClassHistogramProps, ErrorHistogramDay } from './ErrorClassHistogram';
