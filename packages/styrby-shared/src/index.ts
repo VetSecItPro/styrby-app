@@ -91,3 +91,9 @@ export { MODEL_PRICING_TABLE, PROVIDER_DISPLAY_NAMES, STATIC_PRICING_LAST_VERIFI
 // NPS calculation utilities (calcNPS, groupNpsByWeek, formatNpsScore) and types.
 // Pure TypeScript, zero Node.js builtins — safe for web, mobile, and CLI.
 export * from './feedback/index.js';
+
+// Phase 3.3 — Session replay types (runtime scrub engine stays at subpath
+// '@styrby/shared/session-replay' for tree-shaking; types re-exported here so
+// mobile consumers — which use moduleResolution: "node" and can't follow
+// package.json exports subpaths — can import them directly from the root.)
+export type * from './session-replay/types.js';

@@ -64,6 +64,10 @@
     "./session-handoff": {
       "types": "./dist/session-handoff/index.d.ts",
       "import": "./dist/session-handoff/index.js"
+    },
+    "./session-replay": {
+      "types": "./dist/session-replay/index.d.ts",
+      "import": "./dist/session-replay/index.js"
     }
   },
   "scripts": {
