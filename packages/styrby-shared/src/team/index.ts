@@ -13,6 +13,9 @@ export * from './role-matrix.js';
 export * from './approval-chain.js';
 export * from './seat-cap.js';
 
+// Phase 2.3 — admin UI types (member admin view, policy settings, founder team metrics)
+export * from './admin-types.js';
+
 // WHY invite-rate-limit is NOT re-exported from the barrel:
 // It imports @upstash/redis (~20-30 KB gzipped), which would be transitively
 // pulled into the web client bundle anywhere @styrby/shared is imported.
