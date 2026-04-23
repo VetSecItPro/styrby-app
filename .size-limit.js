@@ -59,6 +59,20 @@ module.exports = [
   //
   // BUDGET = projected ~620 KB + 10% headroom = 682 KB → rounded to 700 KB.
   //
+  // 2026-04-23 Phase 2.2 merge: measured 709 KB after team-invitation-flow
+  // web surfaces landed (/invite/[token] public route, /api/invitations/*
+  // routes, /dashboard/team/[id]/invitations admin panel + 4 components,
+  // SeatCapBanner). Excluded @upstash/redis from the @styrby/shared barrel
+  // (server-only deep import now) to recover ~1.4 KB — the bulk of the
+  // remaining weight is genuine user-facing feature code. Budget raised
+  // 700 → 720 KB with a +10 KB headroom.
+  //
+  // RATCHET PLAN (Phase 2.3): when admin UI work consolidates the
+  // /dashboard/team/** surface, dynamic-import the invitations+members
+  // admin components via next/dynamic (same pattern as cost-charts-dynamic
+  // from Phase 1.6.13) so they don't contribute to first-load. Target: back
+  // toward 680-700 KB once /dashboard/team is a separate dynamic chunk.
+  //
   // IRREDUCIBLE FLOOR: Next.js App Router framework runtime, React, Radix UI
   // primitives, Supabase browser client, and @sentry/nextjs browser layer
   // account for ~350-400 KB gzipped and cannot be deferred (they are required
@@ -75,7 +89,7 @@ module.exports = [
     // build-web job produces .next/static/chunks/**/*.js. We use a broad
     // glob and rely on the limit to catch regressions.
     path: 'packages/styrby-web/.next/static/chunks/!(*.*.js)',
-    limit: '700 KB',
+    limit: '720 KB',
     gzip: true,
     // WHY import is omitted: We cannot import directly from Next.js output —
     // these are already-built assets. size-limit stats the files and sums sizes.

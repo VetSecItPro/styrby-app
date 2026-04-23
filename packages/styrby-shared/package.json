@@ -49,6 +49,10 @@
       "types": "./dist/team/index.d.ts",
       "import": "./dist/team/index.js"
     },
+    "./team/invite-rate-limit": {
+      "types": "./dist/team/invite-rate-limit.d.ts",
+      "import": "./dist/team/invite-rate-limit.js"
+    },
     "./logging": {
       "types": "./dist/logging/index.d.ts",
       "import": "./dist/logging/index.js"

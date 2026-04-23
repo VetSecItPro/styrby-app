@@ -12,4 +12,12 @@ export * from './types.js';
 export * from './role-matrix.js';
 export * from './approval-chain.js';
 export * from './seat-cap.js';
-export * from './invite-rate-limit.js';
+
+// WHY invite-rate-limit is NOT re-exported from the barrel:
+// It imports @upstash/redis (~20-30 KB gzipped), which would be transitively
+// pulled into the web client bundle anywhere @styrby/shared is imported.
+// This is server-only code (edge functions + Next.js route handlers) — the
+// single server consumer should deep-import from '@styrby/shared/team/invite-rate-limit.js'.
+// Matches the packages/styrby-shared/src/index.ts pattern established for
+// pricing/litellm-pricing.ts (Node built-ins) in Phase 1.6.13.
+// export * from './invite-rate-limit.js'; // INTENTIONALLY EXCLUDED

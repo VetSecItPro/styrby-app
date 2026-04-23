@@ -51,12 +51,12 @@ vi.mock('@/lib/resend', () => ({
 }));
 
 // Mock checkInviteRateLimit from shared package.
-// WHY mock @styrby/shared: The real implementation connects to Upstash Redis
+// WHY mock @styrby/shared/team/invite-rate-limit: The real implementation connects to Upstash Redis
 // which is not available in CI. We mock only the rate-limit function and
 // re-export the rest (types, constants) as-is.
 // WHY NOT importOriginal: ESM interop issues with the shared package's
 // build output can cause importOriginal to hang. We inline what we need.
-vi.mock('@styrby/shared', () => ({
+vi.mock('@styrby/shared/team/invite-rate-limit', () => ({
   checkInviteRateLimit: vi.fn().mockResolvedValue({
     allowed: true,
     remaining: 19,
@@ -97,7 +97,7 @@ describe('POST /api/invitations/[invitationId]/resend', () => {
     mockFromResults.length = 0;
 
     // Re-apply default rate limit mock after clearAllMocks may clear it.
-    const sharedMod = await import('@styrby/shared');
+    const sharedMod = await import('@styrby/shared/team/invite-rate-limit');
     vi.mocked(sharedMod.checkInviteRateLimit).mockResolvedValue({
       allowed: true,
       remaining: 19,
@@ -270,7 +270,7 @@ describe('POST /api/invitations/[invitationId]/resend', () => {
     mockFromResults.push({ data: { role: 'admin' }, error: null });
 
     // Simulate rate limit hit by overriding the mock for this test
-    const sharedMod = await import('@styrby/shared');
+    const sharedMod = await import('@styrby/shared/team/invite-rate-limit');
     vi.mocked(sharedMod.checkInviteRateLimit).mockResolvedValueOnce({
       allowed: false,
       remaining: 0,

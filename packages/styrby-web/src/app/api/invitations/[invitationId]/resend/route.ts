@@ -33,7 +33,11 @@
 import { NextResponse } from 'next/server';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { sendTeamInvitationEmail } from '@/lib/resend';
-import { checkInviteRateLimit } from '@styrby/shared';
+// WHY deep import: checkInviteRateLimit is server-only (imports @upstash/redis).
+// It is intentionally excluded from the @styrby/shared root/team barrels to
+// avoid pulling the Redis client into the web client bundle. See
+// packages/styrby-shared/src/team/index.ts for the exclusion rationale.
+import { checkInviteRateLimit } from '@styrby/shared/team/invite-rate-limit';
 
 // ============================================================================
 // Constants
