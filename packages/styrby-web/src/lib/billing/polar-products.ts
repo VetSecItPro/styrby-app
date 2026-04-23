@@ -1,20 +1,36 @@
 /**
- * Polar billing product definitions and pricing math.
+ * Polar billing product definitions and pricing helpers for the public pricing page.
  *
- * Single source of truth for all per-seat pricing calculations. Reused by:
- * - /pricing page (public-facing seat-count slider)
- * - /api/billing/checkout (server-side checkout creation)
- * - Future: plan comparison, ROI calculator
+ * This module EXTENDS @styrby/shared/billing — it delegates all core per-seat
+ * math (team, business, enterprise) to the shared module and adds only what is
+ * pricing-page-specific:
+ *   - PublicTierId including 'solo' (no Polar billing object; free/Power tier)
+ *   - Slider bound constants (TEAM_MIN_SEATS, TEAM_MAX_SEATS, etc.)
+ *   - ANNUAL_DISCOUNT_BPS constant (re-exported for display code)
+ *   - TIER_DEFINITIONS with solo entry and UI metadata (name, tagline, CTA, etc.)
+ *   - calculateAnnualMonthlyEquivalentCents — display helper (annual ÷ 12)
+ *   - formatCents — display helper (cents → "$X.XX")
  *
- * WHY integer cents everywhere: floating-point arithmetic is unsafe for money.
- * $19.00 × 3 = $56.999... in IEEE 754. Integer cents (1900 × 3 = 5700) are
- * exact and can be formatted to dollars at display time only.
+ * WHY delegate to shared for team/business math:
+ *   SOC2 CC7.2 — billing math must have a single code path. Two independent
+ *   implementations of the same formula create audit risk: a price bump would
+ *   require two coordinated edits, and divergence would silently corrupt one
+ *   surface (pricing page display vs. checkout API) without a type error.
  *
- * WHY basis points for discounts: 1 basis point = 0.01%. Annual discount is
- * expressed as 1700 bps (17%) to avoid 0.17 float multiplication.
+ * WHY solo handled locally:
+ *   Solo is a fixed-price individual plan with no Polar per-seat billing object.
+ *   @styrby/shared/billing's BillableTier union only covers 'team' | 'business' |
+ *   'enterprise'. Solo lives here where the PublicTierId type is defined.
  *
  * @module billing/polar-products
  */
+
+import {
+  calculateMonthlyCostCents as sharedCalculateMonthlyCostCents,
+  calculateAnnualCostCents as sharedCalculateAnnualCostCents,
+  validateSeatCount as sharedValidateSeatCount,
+  type BillableTier,
+} from '@styrby/shared/billing';
 
 // ============================================================================
 // Constants
@@ -26,6 +42,10 @@
  *
  * WHY 17%: equivalent to "2 months free" on a 12-month subscription
  * (10/12 ≈ 83.3% of monthly cost → ~16.7% discount, rounded to 17%).
+ *
+ * WHY re-exported here (not just from shared): pricing page components import
+ * from this module; having them reach into @styrby/shared/billing directly
+ * would bypass the PublicTierId layer that this module owns.
  */
 export const ANNUAL_DISCOUNT_BPS = 1700;
 
@@ -54,12 +74,18 @@ export const BUSINESS_MAX_SEATS = 100;
 
 /**
  * Tier identifiers for the public pricing page.
- * Distinct from internal TierId to avoid coupling to billing internals.
+ *
+ * WHY 'solo' exists here but not in shared BillableTier: solo is the
+ * free/Power individual plan. It has no Polar per-seat product object and
+ * is not billed through the same metered mechanism as team/business. The
+ * shared module's BillableTier only covers plans that go through Polar
+ * per-seat checkout. Solo lives in PublicTierId because the pricing page
+ * must render all four tiers side-by-side.
  */
 export type PublicTierId = 'solo' | 'team' | 'business' | 'enterprise';
 
 /**
- * Pricing definition for a single tier.
+ * Pricing definition for a single tier as rendered on the public pricing page.
  * All monetary amounts are in USD cents (integer).
  */
 export interface TierDefinition {
@@ -94,15 +120,17 @@ export interface TierDefinition {
 /**
  * TIER_DEFINITIONS — canonical public-facing pricing tiers.
  *
- * WHY a separate object (not reusing TIERS from polar.ts): TIERS in polar.ts
- * mixes server-side product IDs (env vars) with marketing copy. This module
- * is safe for client-side rendering — no env var reads, no server-only imports.
+ * WHY a separate object (not reusing TIER_DEFINITIONS from @styrby/shared):
+ *   The shared TIER_DEFINITIONS carries server-side metadata (productIdEnvVar,
+ *   annualProductIdEnvVar) and only covers BillableTier (team/business/enterprise).
+ *   This object is safe for client-side rendering — no env var reads, no
+ *   server-only imports — and includes the solo tier used only on this page.
  *
  * Pricing source: CLAUDE.md "Current Pricing (2026-04-19)"
- * - Solo (Power): $49/mo individual ($41/mo annual)
- * - Team: $19/seat/mo, 3-seat minimum ($57/mo floor)
- * - Business: $39/seat/mo, 10-seat minimum ($390/mo floor)
- * - Enterprise: custom, ~$15K+ annual floor
+ *   - Solo (Power): $49/mo individual ($41/mo annual)
+ *   - Team: $19/seat/mo, 3-seat minimum ($57/mo floor)
+ *   - Business: $39/seat/mo, 10-seat minimum ($390/mo floor)
+ *   - Enterprise: custom, ~$15K+ annual floor
  */
 export const TIER_DEFINITIONS: Record<PublicTierId, TierDefinition> = {
   solo: {
@@ -189,46 +217,58 @@ export const TIER_DEFINITIONS: Record<PublicTierId, TierDefinition> = {
 };
 
 // ============================================================================
-// Pricing math (integer cents + basis points)
+// Pricing math — delegates to @styrby/shared/billing for team/business
 // ============================================================================
 
 /**
  * Calculates the total monthly cost in USD cents for a given tier and seat count.
  *
- * WHY: Integer-cents math avoids float drift. 100 seats at $19 = 190000 cents
- * ($1,900) computed as 100 × 1900 = 190000 (exact).
+ * Delegation:
+ *   - 'team' | 'business' | 'enterprise' → sharedCalculateMonthlyCostCents
+ *     (single source of truth in @styrby/shared/billing; SOC2 CC7.2)
+ *   - 'solo' → handled locally (solo is not a BillableTier; no Polar per-seat
+ *     billing object; price is a fixed $49/mo regardless of "seat count")
+ *
+ * WHY clamping for solo: the pricing page slider doesn't exist for solo (maxSeats=1),
+ * but clamping guards against programmatic callers passing unexpected values.
  *
  * @param tierId - The tier identifier.
- * @param seatCount - Number of seats. Clamped to tier min/max internally.
+ * @param seatCount - Number of seats. Clamped to tier min/max for solo.
  * @returns Total monthly cost in USD cents. 0 for enterprise.
  *
  * @example
  * ```ts
- * calculateMonthlyCostCents('team', 5); // 9500 → $95.00/mo
+ * calculateMonthlyCostCents('solo', 1);     // 4900  → $49.00/mo
+ * calculateMonthlyCostCents('team', 5);     // 9500  → $95.00/mo
  * calculateMonthlyCostCents('business', 10); // 39000 → $390.00/mo
+ * calculateMonthlyCostCents('enterprise', 50); // 0   → custom
  * ```
  */
 export function calculateMonthlyCostCents(tierId: PublicTierId, seatCount: number): number {
-  const tier = TIER_DEFINITIONS[tierId];
-  if (!tier) return 0;
-  if (tierId === 'enterprise') return 0;
+  if (tierId === 'solo') {
+    // WHY: solo has exactly 1 seat — fixed price; clamp before multiplying.
+    const tier = TIER_DEFINITIONS.solo;
+    const seats = Math.max(tier.minSeats, Math.min(tier.maxSeats, seatCount));
+    return seats * tier.pricePerSeatMonthlyUsdCents;
+  }
 
-  // Clamp seat count to tier bounds before computing.
-  // WHY: UI slider may pass values outside bounds during animation.
-  const seats = Math.max(tier.minSeats, Math.min(tier.maxSeats === Infinity ? seatCount : tier.maxSeats, seatCount));
-  return seats * tier.pricePerSeatMonthlyUsdCents;
+  // Delegate team / business / enterprise to the shared canonical implementation.
+  // BillableTier = 'team' | 'business' | 'enterprise' — all non-solo PublicTierIds.
+  return sharedCalculateMonthlyCostCents(tierId as BillableTier, seatCount);
 }
 
 /**
  * Calculates the total annual cost in USD cents for a given tier and seat count,
- * applying the annual discount (1700 basis points = 17%).
+ * applying the 17% annual discount (1700 basis points).
  *
- * WHY basis points: avoids the float multiplication hazard of 0.17 × N.
- * The calculation is: annualCents = monthlyTotal × 12 × (10000 - 1700) / 10000
- *                                 = monthlyTotal × 12 × 8300 / 10000
+ * Delegation:
+ *   - 'team' | 'business' | 'enterprise' → sharedCalculateAnnualCostCents
+ *   - 'solo' → computed locally using ANNUAL_DISCOUNT_BPS (solo is not in
+ *     shared BillableTier, but the same discount formula applies)
  *
- * Integer division is taken via Math.floor — the subscriber gets the benefit
- * of rounding down (slightly less charged), not the platform.
+ * WHY the solo formula matches shared's formula exactly: consistency — both use
+ * Math.floor((monthly × 12 × (10000 - bps)) / 10000) to keep discount math
+ * in integer cents and truncate in the customer's favour.
  *
  * @param tierId - The tier identifier.
  * @param seatCount - Number of seats.
@@ -236,23 +276,29 @@ export function calculateMonthlyCostCents(tierId: PublicTierId, seatCount: numbe
  *
  * @example
  * ```ts
- * calculateAnnualCostCents('team', 3);
- * // monthlyTotal = 3 × 1900 = 5700 cents
- * // annual undiscounted = 5700 × 12 = 68400 cents
- * // discount = 68400 × 1700 / 10000 = 11628 cents
- * // annual discounted = 68400 - 11628 = 56772 cents → $567.72/yr
+ * calculateAnnualCostCents('solo', 1);
+ * // monthly = 4900, undiscounted annual = 58800
+ * // discount = floor(58800 × 1700 / 10000) = 9996
+ * // annual = 48804
  * ```
  */
 export function calculateAnnualCostCents(tierId: PublicTierId, seatCount: number): number {
-  if (tierId === 'enterprise') return 0;
-  const monthlyTotal = calculateMonthlyCostCents(tierId, seatCount);
-  const annualUndiscounted = monthlyTotal * 12;
-  const discountCents = Math.floor((annualUndiscounted * ANNUAL_DISCOUNT_BPS) / 10000);
-  return annualUndiscounted - discountCents;
+  if (tierId === 'solo') {
+    const monthly = calculateMonthlyCostCents('solo', seatCount);
+    const annualUndiscounted = monthly * 12;
+    const discountCents = Math.floor((annualUndiscounted * ANNUAL_DISCOUNT_BPS) / 10000);
+    return annualUndiscounted - discountCents;
+  }
+
+  // Delegate team / business / enterprise to shared.
+  return sharedCalculateAnnualCostCents(tierId as BillableTier, seatCount);
 }
 
 /**
  * Calculates the effective per-month cost when paying annually (for display).
+ *
+ * Used by the pricing page toggle to show "billed annually at $X/mo".
+ * Not in shared because it is a display helper — shared only exposes billing math.
  *
  * @param tierId - The tier identifier.
  * @param seatCount - Number of seats.
@@ -260,7 +306,7 @@ export function calculateAnnualCostCents(tierId: PublicTierId, seatCount: number
  *
  * @example
  * ```ts
- * calculateAnnualMonthlyEquivalentCents('team', 3); // ~4731 → ~$47.31/mo
+ * calculateAnnualMonthlyEquivalentCents('team', 3); // floor(56772 / 12) = 4731
  * ```
  */
 export function calculateAnnualMonthlyEquivalentCents(tierId: PublicTierId, seatCount: number): number {
@@ -271,8 +317,15 @@ export function calculateAnnualMonthlyEquivalentCents(tierId: PublicTierId, seat
 /**
  * Validates that a seat count is within acceptable bounds for a given tier.
  *
- * Server-side validation mirrors client-side slider. Called by the checkout
- * API to prevent crafted requests with out-of-range seat counts.
+ * Delegation:
+ *   - 'team' | 'business' | 'enterprise' → sharedValidateSeatCount (returns
+ *     SeatValidationResult), mapped to boolean (.ok) for API parity.
+ *   - 'solo' → handled locally (min 1, max 1).
+ *
+ * WHY boolean return (not SeatValidationResult): callers on the pricing page
+ * (checkout page, billing API) expect a boolean. The shared function returns a
+ * richer SeatValidationResult for webhook handlers that need the failure reason —
+ * those callers import directly from @styrby/shared/billing.
  *
  * @param tierId - The tier identifier.
  * @param seatCount - Proposed seat count to validate.
@@ -280,30 +333,50 @@ export function calculateAnnualMonthlyEquivalentCents(tierId: PublicTierId, seat
  *
  * @example
  * ```ts
- * validateSeatCount('team', 2); // false (below minimum 3)
- * validateSeatCount('team', 5); // true
+ * validateSeatCount('solo', 1);    // true
+ * validateSeatCount('team', 2);    // false (below minimum 3)
+ * validateSeatCount('team', 5);    // true
  * validateSeatCount('business', 101); // false (above maximum 100)
  * ```
  */
 export function validateSeatCount(tierId: PublicTierId, seatCount: number): boolean {
-  if (!Number.isInteger(seatCount) || seatCount < 1) return false;
-  if (tierId === 'enterprise') return seatCount >= 1;
+  if (tierId === 'solo') {
+    return Number.isInteger(seatCount) && seatCount === 1;
+  }
 
+  if (tierId === 'enterprise') {
+    // WHY not delegating enterprise to shared: shared validates enterprise as
+    // "any non-negative integer" (0 is technically allowed there because the
+    // sales contract determines the actual seat count). The pricing page slider
+    // requires at least 1 seat for any tier — 0 is never a valid UI input.
+    return Number.isInteger(seatCount) && seatCount >= 1;
+  }
+
+  // Delegate minimum-seat enforcement to shared for team / business.
+  // sharedValidateSeatCount returns SeatValidationResult; extract .ok.
+  const sharedResult = sharedValidateSeatCount(tierId as BillableTier, seatCount);
+  if (!sharedResult.ok) return false;
+
+  // WHY enforce max here (not in shared): shared billing math has no concept of
+  // a UI slider maximum. The 100-seat cap is a pricing-page rule — seats beyond
+  // 100 are handled by the enterprise tier via the sales team, not a self-serve
+  // slider. Shared intentionally omits maxSeats so that webhook handlers (which
+  // receive Polar-approved seat counts) are not artificially capped.
   const tier = TIER_DEFINITIONS[tierId];
-  if (!tier) return false;
+  if (tier.maxSeats !== Infinity && seatCount > tier.maxSeats) return false;
 
-  const max = tier.maxSeats === Infinity ? Number.MAX_SAFE_INTEGER : tier.maxSeats;
-  return seatCount >= tier.minSeats && seatCount <= max;
+  return true;
 }
 
 /**
  * Formats USD cents as a display string.
  *
- * WHY: Centralise formatting so all price displays use the same locale and
- * fractional-digit rules. Amounts under $1 show cents; others show no decimals.
+ * WHY not in shared: formatting is a display concern tied to the web locale.
+ * Shared billing math is locale-agnostic (integer cents only). Mobile has its
+ * own formatting layer via platform-billing.ts.
  *
  * @param cents - Amount in USD cents.
- * @returns Formatted string, e.g. "$95", "$1,900", "$0.95".
+ * @returns Formatted string, e.g. "$95", "$1,900", "$0.50".
  *
  * @example
  * ```ts

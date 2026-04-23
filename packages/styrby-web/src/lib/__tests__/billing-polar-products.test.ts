@@ -1,18 +1,25 @@
 /**
  * Tests for billing/polar-products.ts
  *
- * Covers:
- * - calculateMonthlyCostCents: edge cases at tier minimums, mid-range, maximum (100 seats)
- * - calculateAnnualCostCents: integer math correctness, discount applied at basis-point precision
- * - calculateAnnualMonthlyEquivalentCents: 17% discount reflected per month
- * - validateSeatCount: boundary enforcement for team (3-100) and business (10-100)
- * - formatCents: whole-dollar and fractional display
+ * Scope: pricing-page-specific extensions only.
  *
- * WHY test at 3, 10, 100 seats: these are the boundary values (min team, min business,
- * max) where off-by-one errors are most likely. Mid-range tests catch proportionality.
+ * WHY we do NOT re-test team/business monthly/annual math here:
+ *   Those calculations delegate to @styrby/shared/billing which has its own
+ *   comprehensive test suite (packages/styrby-shared/src/billing/__tests__/).
+ *   Duplicating those assertions here would violate SOC2 CC7.2 single-source
+ *   intent — two test suites asserting different expected values would mask
+ *   divergence instead of catching it.
  *
- * WHY integer-cents assertions: the entire design guarantee is that these functions
- * produce exact integer results. Any float drift would violate the contract.
+ * What IS tested here (page-specific):
+ *   - PublicTierId including 'solo' tier math (solo is not in shared BillableTier)
+ *   - Slider bound constants (TEAM_MIN_SEATS, BUSINESS_MIN_SEATS, etc.)
+ *   - ANNUAL_DISCOUNT_BPS exported constant value
+ *   - calculateAnnualMonthlyEquivalentCents — display helper (annual ÷ 12)
+ *   - validateSeatCount — boolean API (shared returns SeatValidationResult; we
+ *     return .ok — this adapter behaviour belongs in this test suite)
+ *   - formatCents — display formatting
+ *   - TIER_DEFINITIONS — structure, UI metadata, copy rules
+ *   - Enterprise / solo zero-return paths
  */
 
 import { describe, it, expect } from 'vitest';
@@ -31,187 +38,67 @@ import {
 } from '../billing/polar-products';
 
 // ============================================================================
-// calculateMonthlyCostCents
+// calculateMonthlyCostCents — solo and enterprise only
+// (team/business delegate to @styrby/shared/billing; tested there)
 // ============================================================================
 
 describe('calculateMonthlyCostCents', () => {
-  describe('solo tier (single seat)', () => {
+  describe('solo tier (single seat — handled locally, not in shared BillableTier)', () => {
     it('returns 4900 cents for 1 seat', () => {
       expect(calculateMonthlyCostCents('solo', 1)).toBe(4900);
     });
 
     it('clamps to 1 seat when 2 requested (solo max is 1)', () => {
-      // solo max = 1, so clamping to 1
+      // solo maxSeats = 1, so clamping to 1
       expect(calculateMonthlyCostCents('solo', 2)).toBe(4900);
     });
   });
 
-  describe('team tier', () => {
-    it('returns correct cost at minimum (3 seats)', () => {
-      // 3 × 1900 = 5700
-      expect(calculateMonthlyCostCents('team', 3)).toBe(5700);
-    });
-
-    it('returns correct cost at 10 seats', () => {
-      // 10 × 1900 = 19000
-      expect(calculateMonthlyCostCents('team', 10)).toBe(19000);
-    });
-
-    it('returns correct cost at maximum (100 seats)', () => {
-      // 100 × 1900 = 190000
-      expect(calculateMonthlyCostCents('team', 100)).toBe(190000);
-    });
-
-    it('clamps below minimum to minimum (2 seats → 3)', () => {
-      // 3 × 1900 = 5700
-      expect(calculateMonthlyCostCents('team', 2)).toBe(5700);
-    });
-
-    it('clamps above maximum to maximum (101 seats → 100)', () => {
-      // 100 × 1900 = 190000
-      expect(calculateMonthlyCostCents('team', 101)).toBe(190000);
-    });
-
-    it('returns integer cents (no float drift) at 7 seats', () => {
-      const result = calculateMonthlyCostCents('team', 7);
-      // 7 × 1900 = 13300 — exact integer
-      expect(result).toBe(13300);
-      expect(Number.isInteger(result)).toBe(true);
-    });
-  });
-
-  describe('business tier', () => {
-    it('returns correct cost at minimum (10 seats)', () => {
-      // 10 × 3900 = 39000
-      expect(calculateMonthlyCostCents('business', 10)).toBe(39000);
-    });
-
-    it('returns correct cost at 25 seats', () => {
-      // 25 × 3900 = 97500
-      expect(calculateMonthlyCostCents('business', 25)).toBe(97500);
-    });
-
-    it('returns correct cost at maximum (100 seats)', () => {
-      // 100 × 3900 = 390000
-      expect(calculateMonthlyCostCents('business', 100)).toBe(390000);
-    });
-
-    it('clamps below minimum to minimum (5 seats → 10)', () => {
-      // 10 × 3900 = 39000
-      expect(calculateMonthlyCostCents('business', 5)).toBe(39000);
-    });
-
-    it('returns integer cents at all valid values', () => {
-      for (const seats of [10, 20, 50, 75, 100]) {
-        const result = calculateMonthlyCostCents('business', seats);
-        expect(Number.isInteger(result)).toBe(true);
-      }
-    });
-  });
-
   describe('enterprise tier', () => {
-    it('returns 0 (custom pricing)', () => {
+    it('returns 0 (custom pricing — delegates to shared which returns 0)', () => {
       expect(calculateMonthlyCostCents('enterprise', 50)).toBe(0);
     });
   });
 });
 
 // ============================================================================
-// calculateAnnualCostCents
+// calculateAnnualCostCents — solo and enterprise only
+// (team/business delegate to @styrby/shared/billing; tested there)
 // ============================================================================
 
 describe('calculateAnnualCostCents', () => {
-  // Annual = monthly × 12 × (10000 - 1700) / 10000 = monthly × 12 × 0.83
-  // = monthly × 9.96
-  // Discount applied to the annual total (not per-month).
-
-  describe('team tier', () => {
-    it('applies 17% discount correctly at 3 seats', () => {
-      // monthly = 5700
-      // undiscounted annual = 5700 × 12 = 68400
-      // discount = floor(68400 × 1700 / 10000) = floor(11628) = 11628
-      // discounted = 68400 - 11628 = 56772
-      const result = calculateAnnualCostCents('team', 3);
-      expect(result).toBe(56772);
-      expect(Number.isInteger(result)).toBe(true);
-    });
-
-    it('applies 17% discount correctly at 10 seats', () => {
-      // monthly = 19000
-      // undiscounted = 228000
-      // discount = floor(228000 × 1700 / 10000) = floor(38760) = 38760
-      // discounted = 228000 - 38760 = 189240
-      const result = calculateAnnualCostCents('team', 10);
-      expect(result).toBe(189240);
-      expect(Number.isInteger(result)).toBe(true);
-    });
-
-    it('applies 17% discount correctly at 100 seats', () => {
-      // monthly = 190000
-      // undiscounted = 2280000
-      // discount = floor(2280000 × 1700 / 10000) = floor(387600) = 387600
-      // discounted = 2280000 - 387600 = 1892400
-      const result = calculateAnnualCostCents('team', 100);
-      expect(result).toBe(1892400);
-      expect(Number.isInteger(result)).toBe(true);
-    });
-
-    it('annual cost is always less than 12x monthly', () => {
-      for (const seats of [3, 10, 50, 100]) {
-        const monthly = calculateMonthlyCostCents('team', seats);
-        const annual = calculateAnnualCostCents('team', seats);
-        expect(annual).toBeLessThan(monthly * 12);
-      }
-    });
-  });
-
-  describe('business tier', () => {
-    it('applies 17% discount correctly at 10 seats', () => {
-      // monthly = 39000
-      // undiscounted = 468000
-      // discount = floor(468000 × 1700 / 10000) = floor(79560) = 79560
-      // discounted = 468000 - 79560 = 388440
-      const result = calculateAnnualCostCents('business', 10);
-      expect(result).toBe(388440);
-      expect(Number.isInteger(result)).toBe(true);
-    });
-
-    it('applies 17% discount correctly at 100 seats', () => {
-      // monthly = 390000
-      // undiscounted = 4680000
-      // discount = floor(4680000 × 1700 / 10000) = 795600
-      // discounted = 3884400
-      const result = calculateAnnualCostCents('business', 100);
-      expect(result).toBe(3884400);
-      expect(Number.isInteger(result)).toBe(true);
-    });
-  });
-
-  describe('solo tier', () => {
+  describe('solo tier (handled locally with ANNUAL_DISCOUNT_BPS)', () => {
     it('applies 17% discount at 1 seat', () => {
       // monthly = 4900
-      // undiscounted = 58800
+      // undiscounted annual = 4900 × 12 = 58800
       // discount = floor(58800 × 1700 / 10000) = floor(9996) = 9996
-      // discounted = 48804
+      // discounted = 58800 - 9996 = 48804
       const result = calculateAnnualCostCents('solo', 1);
       expect(result).toBe(48804);
       expect(Number.isInteger(result)).toBe(true);
     });
+
+    it('is less than 12x monthly for solo', () => {
+      const monthly = calculateMonthlyCostCents('solo', 1);
+      const annual = calculateAnnualCostCents('solo', 1);
+      expect(annual).toBeLessThan(monthly * 12);
+    });
   });
 
   describe('enterprise tier', () => {
-    it('returns 0', () => {
+    it('returns 0 (delegates to shared)', () => {
       expect(calculateAnnualCostCents('enterprise', 50)).toBe(0);
     });
   });
 
-  it('uses the ANNUAL_DISCOUNT_BPS constant (1700)', () => {
+  it('ANNUAL_DISCOUNT_BPS constant is 1700', () => {
     expect(ANNUAL_DISCOUNT_BPS).toBe(1700);
   });
 });
 
 // ============================================================================
 // calculateAnnualMonthlyEquivalentCents
+// (page-specific display helper — floor(annual / 12))
 // ============================================================================
 
 describe('calculateAnnualMonthlyEquivalentCents', () => {
@@ -234,14 +121,37 @@ describe('calculateAnnualMonthlyEquivalentCents', () => {
     expect(ratio).toBeGreaterThanOrEqual(0.82);
     expect(ratio).toBeLessThanOrEqual(0.84);
   });
+
+  it('is 0 for enterprise', () => {
+    expect(calculateAnnualMonthlyEquivalentCents('enterprise', 50)).toBe(0);
+  });
 });
 
 // ============================================================================
-// validateSeatCount
+// validateSeatCount — boolean adapter over shared SeatValidationResult
+// (the boolean return type is page-specific; tested here)
 // ============================================================================
 
 describe('validateSeatCount', () => {
-  describe('team tier (min 3, max 100)', () => {
+  describe('solo tier (min 1, max 1 — handled locally)', () => {
+    it('accepts 1', () => {
+      expect(validateSeatCount('solo', 1)).toBe(true);
+    });
+
+    it('rejects 0', () => {
+      expect(validateSeatCount('solo', 0)).toBe(false);
+    });
+
+    it('rejects 2 (max is 1)', () => {
+      expect(validateSeatCount('solo', 2)).toBe(false);
+    });
+
+    it('rejects non-integer', () => {
+      expect(validateSeatCount('solo', 1.5)).toBe(false);
+    });
+  });
+
+  describe('team tier (min 3, max 100 — delegates to shared)', () => {
     it('accepts minimum (3)', () => {
       expect(validateSeatCount('team', TEAM_MIN_SEATS)).toBe(true);
     });
@@ -275,7 +185,7 @@ describe('validateSeatCount', () => {
     });
   });
 
-  describe('business tier (min 10, max 100)', () => {
+  describe('business tier (min 10, max 100 — delegates to shared)', () => {
     it('accepts minimum (10)', () => {
       expect(validateSeatCount('business', BUSINESS_MIN_SEATS)).toBe(true);
     });
@@ -293,14 +203,8 @@ describe('validateSeatCount', () => {
     });
   });
 
-  describe('solo tier (min 1, max 1)', () => {
-    it('accepts 1', () => {
-      expect(validateSeatCount('solo', 1)).toBe(true);
-    });
-  });
-
   describe('enterprise tier', () => {
-    it('accepts any positive integer', () => {
+    it('accepts any positive integer (delegates to shared)', () => {
       expect(validateSeatCount('enterprise', 1)).toBe(true);
       expect(validateSeatCount('enterprise', 1000)).toBe(true);
     });
@@ -337,7 +241,7 @@ describe('formatCents', () => {
 // ============================================================================
 
 describe('TIER_DEFINITIONS', () => {
-  it('has all four tiers', () => {
+  it('has all four tiers including solo', () => {
     expect(TIER_DEFINITIONS).toHaveProperty('solo');
     expect(TIER_DEFINITIONS).toHaveProperty('team');
     expect(TIER_DEFINITIONS).toHaveProperty('business');
@@ -391,7 +295,7 @@ describe('TIER_DEFINITIONS', () => {
     // WHY: CLAUDE.md prohibits em dashes in UI copy.
     for (const tier of Object.values(TIER_DEFINITIONS)) {
       for (const highlight of tier.highlights) {
-        expect(highlight).not.toContain('—'); // em dash —
+        expect(highlight).not.toContain('—'); // em dash
       }
     }
   });
@@ -400,5 +304,34 @@ describe('TIER_DEFINITIONS', () => {
     for (const tier of Object.values(TIER_DEFINITIONS)) {
       expect(tier.tagline).not.toContain('—');
     }
+  });
+});
+
+// ============================================================================
+// Slider bound constants
+// ============================================================================
+
+describe('slider bound constants', () => {
+  it('TEAM_MIN_SEATS is 3', () => {
+    expect(TEAM_MIN_SEATS).toBe(3);
+  });
+
+  it('TEAM_MAX_SEATS is 100', () => {
+    expect(TEAM_MAX_SEATS).toBe(100);
+  });
+
+  it('BUSINESS_MIN_SEATS is 10', () => {
+    expect(BUSINESS_MIN_SEATS).toBe(10);
+  });
+
+  it('BUSINESS_MAX_SEATS is 100', () => {
+    expect(BUSINESS_MAX_SEATS).toBe(100);
+  });
+
+  it('constants match TIER_DEFINITIONS entries', () => {
+    expect(TIER_DEFINITIONS.team.minSeats).toBe(TEAM_MIN_SEATS);
+    expect(TIER_DEFINITIONS.team.maxSeats).toBe(TEAM_MAX_SEATS);
+    expect(TIER_DEFINITIONS.business.minSeats).toBe(BUSINESS_MIN_SEATS);
+    expect(TIER_DEFINITIONS.business.maxSeats).toBe(BUSINESS_MAX_SEATS);
   });
 });
