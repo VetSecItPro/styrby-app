@@ -160,7 +160,7 @@ export default function PricingPage() {
               ROI Estimator
             </p>
             <h2 className="mt-3 text-balance text-3xl font-bold tracking-tight text-foreground">
-              Estimate your team's value recovered
+              Estimate your team&apos;s value recovered
             </h2>
             <p className="mx-auto mt-3 max-w-lg text-muted-foreground">
               Based on published research. Defaults to conservative 25% gain on repetitive tasks.
