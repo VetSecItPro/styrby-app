@@ -14,8 +14,7 @@
 
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react-native';
-import { renderHook, act } from '@testing-library/react-hooks';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { renderHook, act } from '@testing-library/react-native';
 
 import { ApprovalRequestCard } from '../ApprovalRequestCard';
 import { useApprovalActions } from '../useApprovalActions';
@@ -47,11 +46,11 @@ const expiredApproval: ApprovalRequest = {
 // ─── ApprovalRequestCard tests ─────────────────────────────────────────────
 
 describe('ApprovalRequestCard', () => {
-  const onVote = vi.fn();
-  const onViewDetails = vi.fn();
+  const onVote = jest.fn();
+  const onViewDetails = jest.fn();
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   it('renders the tool name', () => {
@@ -117,8 +116,8 @@ describe('ApprovalRequestCard', () => {
         onViewDetails={onViewDetails}
       />,
     );
-    fireEvent.press(screen.getByAccessibilityLabel('Approve this tool call approval request'));
-    expect(onVote).toHaveBeenCalledOnce();
+    fireEvent.press(screen.getByLabelText('Approve this tool call approval request'));
+    expect(onVote).toHaveBeenCalledTimes(1);
     expect(onVote).toHaveBeenCalledWith(UUID(1), 'approved');
   });
 
@@ -130,7 +129,7 @@ describe('ApprovalRequestCard', () => {
         onViewDetails={onViewDetails}
       />,
     );
-    fireEvent.press(screen.getByAccessibilityLabel('Deny this tool call approval request'));
+    fireEvent.press(screen.getByLabelText('Deny this tool call approval request'));
     expect(onVote).toHaveBeenCalledWith(UUID(1), 'denied');
   });
 
@@ -143,10 +142,14 @@ describe('ApprovalRequestCard', () => {
         onViewDetails={onViewDetails}
       />,
     );
-    const approveBtn = screen.getByAccessibilityLabel('Approve this tool call approval request');
-    const denyBtn = screen.getByAccessibilityLabel('Deny this tool call approval request');
-    expect(approveBtn.props.accessibilityState?.disabled).toBe(true);
-    expect(denyBtn.props.accessibilityState?.disabled).toBe(true);
+    const approveBtn = screen.getByLabelText('Approve this tool call approval request');
+    const denyBtn = screen.getByLabelText('Deny this tool call approval request');
+    // WHY .props.disabled not .props.accessibilityState: the RN mock propagates
+    // the `disabled` prop directly; TouchableOpacity in native sets accessibilityState
+    // at render time but in tests checking the raw disabled prop is both
+    // simpler and sufficient to verify the button is non-interactive.
+    expect(approveBtn.props.disabled).toBe(true);
+    expect(denyBtn.props.disabled).toBe(true);
   });
 
   it('shows "Expired" when expiresAt is in the past', () => {
@@ -168,8 +171,9 @@ describe('ApprovalRequestCard', () => {
         onViewDetails={onViewDetails}
       />,
     );
-    const approveBtn = screen.getByAccessibilityLabel('Approve this tool call approval request');
-    expect(approveBtn.props.accessibilityState?.disabled).toBe(true);
+    const approveBtn = screen.getByLabelText('Approve this tool call approval request');
+    // WHY .props.disabled: see comment in "disables both buttons while isVoting is true"
+    expect(approveBtn.props.disabled).toBe(true);
   });
 
   it('renders voteError banner when voteError is provided', () => {
@@ -192,7 +196,7 @@ describe('ApprovalRequestCard', () => {
         onViewDetails={onViewDetails}
       />,
     );
-    fireEvent.press(screen.getByAccessibilityLabel('View full approval request details'));
+    fireEvent.press(screen.getByLabelText('View full approval request details'));
     expect(onViewDetails).toHaveBeenCalledWith(UUID(1));
   });
 });
@@ -201,32 +205,32 @@ describe('ApprovalRequestCard', () => {
 
 describe('useApprovalActions', () => {
   const mockAccessToken = 'test-jwt-token';
-  const getAccessToken = vi.fn().mockResolvedValue(mockAccessToken);
-  const onResolved = vi.fn();
+  const getAccessToken = jest.fn().mockResolvedValue(mockAccessToken);
+  const onResolved = jest.fn();
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   /**
    * Builds a stubbed fetch that returns the given status and body.
    */
   function makeFetch(httpStatus: number, body: Record<string, unknown>): typeof fetch {
-    return vi.fn().mockResolvedValue({
+    return jest.fn().mockResolvedValue({
       ok: httpStatus >= 200 && httpStatus < 300,
       status: httpStatus,
-      json: vi.fn().mockResolvedValue(body),
+      json: jest.fn().mockResolvedValue(body),
     }) as unknown as typeof fetch;
   }
 
   it('sets isVoting to true during the request and false after', async () => {
     let resolvePromise!: () => void;
-    const fetchImpl = vi.fn().mockReturnValue(
+    const fetchImpl = jest.fn().mockReturnValue(
       new Promise<Response>((resolve) => {
         resolvePromise = () => resolve({
           ok: true,
           status: 200,
-          json: vi.fn().mockResolvedValue({ approvalId: UUID(1), status: 'approved' }),
+          json: jest.fn().mockResolvedValue({ approvalId: UUID(1), status: 'approved' }),
         } as unknown as Response);
       }),
     );
@@ -317,7 +321,7 @@ describe('useApprovalActions', () => {
   });
 
   it('sets voteError on network failure', async () => {
-    const fetchImpl = vi.fn().mockRejectedValue(new Error('Network timeout')) as unknown as typeof fetch;
+    const fetchImpl = jest.fn().mockRejectedValue(new Error('Network timeout')) as unknown as typeof fetch;
 
     const { result } = renderHook(() =>
       useApprovalActions({ fetchImpl, getAccessToken, onResolved }),
@@ -332,11 +336,11 @@ describe('useApprovalActions', () => {
   });
 
   it('sets voteError when access token is unavailable', async () => {
-    const getTokenFailing = vi.fn().mockResolvedValue(null);
+    const getTokenFailing = jest.fn().mockResolvedValue(null);
 
     const { result } = renderHook(() =>
       useApprovalActions({
-        fetchImpl: vi.fn() as unknown as typeof fetch,
+        fetchImpl: jest.fn() as unknown as typeof fetch,
         getAccessToken: getTokenFailing,
         onResolved,
       }),
@@ -372,12 +376,12 @@ describe('useApprovalActions', () => {
 
   it('prevents double-submit when isVoting is already true', async () => {
     let resolvePromise!: () => void;
-    const fetchImpl = vi.fn().mockReturnValue(
+    const fetchImpl = jest.fn().mockReturnValue(
       new Promise<Response>((resolve) => {
         resolvePromise = () => resolve({
           ok: true,
           status: 200,
-          json: vi.fn().mockResolvedValue({ approvalId: UUID(1), status: 'approved' }),
+          json: jest.fn().mockResolvedValue({ approvalId: UUID(1), status: 'approved' }),
         } as unknown as Response);
       }),
     ) as unknown as typeof fetch;
@@ -404,6 +408,6 @@ describe('useApprovalActions', () => {
     });
 
     // fetch should only have been called once (second vote was blocked)
-    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
