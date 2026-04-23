@@ -6,7 +6,7 @@
  * the invitation email (case-insensitive), then atomically inserts the team
  * member and marks the invitation accepted.
  *
- * @auth Required - Supabase Auth JWT via cookie
+ * @auth Required - Supabase Auth JWT via cookie (web) OR Authorization: Bearer <token> header (mobile)
  *
  * @body {
  *   token: string  (96-hex raw token from the invite URL)
@@ -18,7 +18,7 @@
  * @error 401 { error: 'UNAUTHORIZED', message: string }
  * @error 403 { error: 'EMAIL_MISMATCH', message: string }
  * @error 404 { error: 'NOT_FOUND', message: string }   (unknown OR expired - same shape prevents enumeration)
- * @error 409 { error: 'ALREADY_PROCESSED', message: string }  (accepted or revoked)
+ * @error 409 { error: 'ALREADY_ACCEPTED', message: string }  (accepted or revoked)
  * @error 410 { error: 'EXPIRED', message: string }
  * @error 500 { error: 'INTERNAL_ERROR', message: string }
  *
@@ -31,11 +31,15 @@
  *     "no row for this hash" state to prevent enumeration of issued tokens.
  *   - service_role client is NOT used for the accept flow — all DB ops use the
  *     user-scoped client so RLS policies remain enforced.
+ *   - Mobile clients send Authorization: Bearer <access_token> (no cookies).
+ *     When the header is present, a cookie-free Supabase client is constructed
+ *     with that JWT so RLS still applies via the user-scoped token.
  */
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { timingSafeEqual } from 'crypto';
+import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@/lib/supabase/server';
 import { INVITE_ROLE_TO_MEMBER_ROLE } from '@styrby/shared';
 
@@ -174,7 +178,41 @@ export async function POST(request: Request): Promise<NextResponse> {
   //   The accept flow operates on behalf of the authenticated user. Using the
   //   user-scoped client ensures RLS policies apply and no service_role
   //   credentials are exposed via this route.
-  const supabase = await createClient();
+  //
+  // WHY Bearer-token path:
+  //   Mobile clients cannot set cookies (no browser). They send the Supabase
+  //   session access_token in the Authorization header instead. We detect this
+  //   and build a cookie-free Supabase client scoped to that JWT, which lets
+  //   auth.getUser() resolve the mobile user and RLS still applies via the
+  //   user-scoped token. Web cookie sessions use the standard createClient().
+  const authHeader = request.headers.get('authorization');
+  const hasBearerAuth = authHeader?.startsWith('Bearer ') ?? false;
+
+  let supabase;
+  if (hasBearerAuth) {
+    // WHY: mobile clients send the session access_token in Authorization
+    // header (no cookies). Build a client scoped to that JWT so the
+    // subsequent auth.getUser() resolves the mobile user correctly.
+    const accessToken = authHeader!.slice(7);
+    supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          get: () => undefined,
+          set: () => {},
+          remove: () => {},
+        },
+        global: {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      },
+    );
+  } else {
+    // Web cookie-session path (unchanged)
+    supabase = await createClient();
+  }
+
   const { data: { user }, error: authError } = await supabase.auth.getUser();
 
   if (authError || !user) {
@@ -231,7 +269,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   //   A user on the wrong account who intercepts an invitation URL must NOT
   //   learn whether the invitation is active, expired, or already consumed.
   //   If we checked status first, a wrong-email user would see "EXPIRED" or
-  //   "ALREADY_PROCESSED" — leaking the invitation's lifecycle state. By
+  //   "ALREADY_ACCEPTED" — leaking the invitation's lifecycle state. By
   //   checking email first, wrong-email users always get 403 WRONG_EMAIL
   //   regardless of invitation state.
   //
@@ -261,7 +299,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (invitation.status !== 'pending') {
     return NextResponse.json(
       {
-        error: 'ALREADY_PROCESSED',
+        error: 'ALREADY_ACCEPTED',
         message: 'This invitation has already been accepted or revoked',
       },
       { status: 409 },
@@ -311,7 +349,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     // accepted via another invite), return 409 rather than 500.
     if (memberInsertError.code === '23505') {
       return NextResponse.json(
-        { error: 'ALREADY_PROCESSED', message: 'You are already a member of this team' },
+        { error: 'ALREADY_ACCEPTED', message: 'You are already a member of this team' },
         { status: 409 },
       );
     }

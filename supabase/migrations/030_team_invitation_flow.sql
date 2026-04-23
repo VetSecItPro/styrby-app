@@ -201,7 +201,17 @@ GRANT EXECUTE ON FUNCTION public.acquire_team_invite_lock TO authenticated, serv
 
 -- WHY IF NOT EXISTS: ALTER TYPE ADD VALUE is non-transactional in Postgres; the
 -- guard prevents failure on re-run (e.g., migration retries after partial apply).
+-- WHY these 4 values: The accept, resend, and revoke routes (and the send edge
+-- function) all write audit_log rows using these action strings. If the enum
+-- doesn't contain them, the INSERT will fail with a Postgres type error at runtime.
+-- team_invite_email_failed is produced by the send edge function on email error.
+-- team_invite_accepted is written by POST /api/invitations/accept on success.
+-- team_invite_resent   is written by POST /api/invitations/[id]/resend on success.
+-- team_invite_revoked  is written by POST /api/invitations/[id]/revoke on success.
 ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'team_invite_email_failed';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'team_invite_accepted';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'team_invite_resent';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'team_invite_revoked';
 
 -- ============================================================================
 -- Comments

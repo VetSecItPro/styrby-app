@@ -61,6 +61,17 @@ vi.mock('@/lib/supabase/server', () => ({
   })),
 }));
 
+// WHY mock @supabase/ssr separately: the Bearer-auth path in the accept route
+// constructs its own Supabase client via createServerClient() from @supabase/ssr
+// (bypassing the cookie client). We intercept it here so getUser() resolves the
+// mobile user when a valid Bearer token is presented.
+vi.mock('@supabase/ssr', () => ({
+  createServerClient: vi.fn(() => ({
+    auth: { getUser: mockGetUser },
+    from: vi.fn(() => nextFromMock()),
+  })),
+}));
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -75,6 +86,25 @@ function createRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost:3000/api/invitations/accept', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Creates a NextRequest with Authorization: Bearer header (mobile client style).
+ * No cookies are set — mirrors the mobile accept flow exactly.
+ *
+ * @param body - JSON body (token is the raw hex token)
+ * @param accessToken - Supabase session access_token to embed in Authorization header
+ * @returns NextRequest without cookies, with Bearer authorization header
+ */
+function createBearerRequest(body: unknown, accessToken = 'mobile-access-token-abc123'): NextRequest {
+  return new NextRequest('http://localhost:3000/api/invitations/accept', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'authorization': `Bearer ${accessToken}`,
+    },
     body: JSON.stringify(body),
   });
 }
@@ -130,6 +160,58 @@ describe('POST /api/invitations/accept', () => {
 
     const body = await res.json();
     expect(body.error).toBe('UNAUTHORIZED');
+  });
+
+  /**
+   * Mobile Bearer-token auth: request with Authorization: Bearer <token> and
+   * NO cookies resolves the mobile user and completes the happy path.
+   *
+   * WHY this test exists: mobile clients cannot set cookies. This covers the
+   * Bearer-auth code path added in the integration fix-pass to unblock mobile.
+   * The @supabase/ssr createServerClient mock returns the same mockGetUser so we
+   * can verify the route resolves the user from the Bearer token and not from cookies.
+   */
+  it('accepts invitation via Bearer-token auth (mobile path, no cookies)', async () => {
+    const rawToken = fakeToken();
+    const tokenHash = await sha256Hex(rawToken);
+
+    // Mobile user resolved via Bearer token (mocked by @supabase/ssr mock above)
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: 'mobile-user-1', email: 'mobile@example.com' } },
+      error: null,
+    });
+
+    // Invitation lookup
+    mockFromResults.push({
+      data: {
+        id: 'inv-mobile-1',
+        team_id: 'team-mobile',
+        email: 'mobile@example.com',
+        role: 'member',
+        status: 'pending',
+        expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+        token_hash: tokenHash,
+        invited_by: 'admin-1',
+      },
+      error: null,
+    });
+
+    // team_members insert
+    mockFromResults.push({ data: null, error: null });
+    // team_invitations update
+    mockFromResults.push({ data: null, error: null });
+    // audit_log insert
+    mockFromResults.push({ data: null, error: null });
+
+    // Send request with Bearer header and NO cookie — mobile style
+    const req = createBearerRequest({ token: rawToken }, 'valid-mobile-session-token');
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.team_id).toBe('team-mobile');
+    expect(body.role).toBe('member');
   });
 
   /**
@@ -234,7 +316,7 @@ describe('POST /api/invitations/accept', () => {
     const res = await POST(req);
     expect(res.status).toBe(409);
     const body = await res.json();
-    expect(body.error).toMatch(/ALREADY_PROCESSED/i);
+    expect(body.error).toMatch(/ALREADY_ACCEPTED/i);
   });
 
   /**
@@ -267,7 +349,7 @@ describe('POST /api/invitations/accept', () => {
     const res = await POST(req);
     expect(res.status).toBe(409);
     const body = await res.json();
-    expect(body.error).toMatch(/ALREADY_PROCESSED/i);
+    expect(body.error).toMatch(/ALREADY_ACCEPTED/i);
   });
 
   /**
