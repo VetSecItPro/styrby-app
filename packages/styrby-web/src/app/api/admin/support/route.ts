@@ -62,7 +62,7 @@ export async function GET(request: Request) {
   const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.standard, 'admin-support');
   if (!allowed) return rateLimitResponse(retryAfter!);
 
-  // Verify admin access via profiles.is_admin (A-001)
+  // Verify admin access via site_admins / is_site_admin() RPC (A-001; migration 042 T3.5 cutover)
   if (!(await isAdmin(user.id))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }

@@ -1063,6 +1063,62 @@ END;
 $$;
 
 ROLLBACK;
+BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- Test (m): is_site_admin() denies EXECUTE to authenticated callers (Migration 042 T3.5)
+-- ---------------------------------------------------------------------------
+-- WHY: Migration 040 granted EXECUTE on is_site_admin to the `authenticated` role.
+-- Migration 042 (step 1b) REVOKEs that and re-GRANTs to service_role only.
+-- This test confirms that an authenticated user who attempts to call
+-- public.is_site_admin() directly receives SQLSTATE 42501 (insufficient_privilege).
+-- Without this assertion, a regression reintroducing the GRANT to `authenticated`
+-- would go undetected.
+--
+-- Governing: SOC2 CC6.1 (least privilege), OWASP ASVS V4.1.3.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_auth_user UUID    := gen_random_uuid();
+  v_caught    BOOLEAN := FALSE;
+  v_exc_code  text;
+BEGIN
+  PERFORM _rls_test_reset_role();
+
+  INSERT INTO auth.users (id, email, encrypted_password, created_at, updated_at)
+    VALUES (v_auth_user, 'auth_m@rls.test', 'x', now(), now());
+
+  -- Impersonate a plain authenticated user (not in site_admins)
+  PERFORM _rls_test_impersonate(v_auth_user);
+
+  BEGIN
+    -- An authenticated caller must NOT be able to invoke is_site_admin() directly.
+    -- Migration 042 revoked EXECUTE from `authenticated` and granted only to
+    -- `service_role`. Calling it here must raise 42501 (insufficient_privilege).
+    PERFORM public.is_site_admin('00000000-0000-0000-0000-000000000000'::uuid);
+    -- If we reach here, the REVOKE from migration 042 did not apply — test fails.
+  EXCEPTION WHEN OTHERS THEN
+    v_caught   := TRUE;
+    GET STACKED DIAGNOSTICS v_exc_code = RETURNED_SQLSTATE;
+  END;
+
+  PERFORM _rls_test_reset_role();
+
+  -- Cleanup
+  DELETE FROM auth.users WHERE id = v_auth_user;
+
+  IF NOT v_caught THEN
+    RAISE EXCEPTION 'TEST (m) FAILED: authenticated user could call is_site_admin() — EXECUTE REVOKE from migration 042 may not have applied';
+  END IF;
+  IF v_exc_code <> '42501' THEN
+    RAISE EXCEPTION 'TEST (m) FAILED: expected SQLSTATE 42501, got %', v_exc_code;
+  END IF;
+
+  RAISE NOTICE 'TEST (m) PASS: authenticated role cannot EXECUTE is_site_admin() (42501 confirmed)';
+END;
+$$;
+
+ROLLBACK;
 
 -- ---------------------------------------------------------------------------
 -- All tests passed

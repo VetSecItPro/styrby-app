@@ -21,7 +21,7 @@
  * WHY no pagination: At 30 days × 5 error classes = 150 rows max.
  * The full result set is tiny and safe to return in one response.
  *
- * @auth   Required - Supabase Auth JWT via cookie (is_admin = true)
+ * @auth   Required - Supabase Auth JWT via cookie (must be in site_admins table; verified via is_site_admin() RPC; migration 042 T3.5 cutover)
  * @rateLimit 10 requests per minute
  *
  * @returns 200 {
@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Admin gate — must have is_admin = true in profiles
+  // Admin gate — must be in site_admins table (verified via is_site_admin() RPC; A-001; migration 042 T3.5 cutover)
   const adminOk = await isAdmin(user.id);
   if (!adminOk) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -139,7 +139,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const DAYS = 30;
-    const adminDb = await createAdminClient();
+    const adminDb = createAdminClient();
 
     // Compute the lookback window start date.
     // WHY DATE_TRUNC in the query (not a timestamp): We group by date, so

@@ -18,7 +18,7 @@
  * gate. A single endpoint with query params reduces the auth surface area
  * and keeps the founder page's data fetching logic in one place.
  *
- * @auth Required - Supabase Auth JWT (cookie), is_admin = true
+ * @auth Required - Supabase Auth JWT (cookie), must be in site_admins table (verified via is_site_admin() RPC; migration 042 T3.5 cutover)
  * @rateLimit 10 requests per minute
  *
  * @query tab - 'nps' | 'general' | 'postmortems' (default: 'nps')
