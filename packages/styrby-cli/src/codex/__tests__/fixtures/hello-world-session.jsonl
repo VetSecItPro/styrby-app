@@ -1,0 +1,8 @@
+{"type":"system","content":"Codex 0.2.1 — OpenAI Codex CLI\nModel: o4-mini\nApproval policy: on-failure\nSandbox: workspace-write"}
+{"type":"task_started","task":"write hello world to main.ts","session_id":"codex-smoke-001"}
+{"type":"agent_message","message":"I'll write a hello world program to main.ts for you.","session_id":"codex-smoke-001"}
+{"type":"patch_apply_begin","call_id":"patch-001","auto_approved":true,"changes":{"main.ts":{"type":"create","content":"console.log('Hello, world!');\n"}}}
+{"type":"patch_apply_end","call_id":"patch-001","stdout":"Created main.ts (1 line)","stderr":"","success":true}
+{"type":"agent_message","message":"Done! Created main.ts with a hello world program.","session_id":"codex-smoke-001"}
+{"type":"token_count","session_id":"codex-smoke-001","input_tokens":289,"output_tokens":44,"model":"o4-mini","cost_usd":0.0008}
+{"type":"task_complete","session_id":"codex-smoke-001","exit_code":0}
