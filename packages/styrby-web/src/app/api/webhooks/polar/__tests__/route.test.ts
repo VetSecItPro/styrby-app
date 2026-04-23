@@ -216,17 +216,27 @@ describe('POST /api/webhooks/polar', () => {
   // --------------------------------------------------------------------------
 
   describe('missing configuration', () => {
-    it('returns 500 if POLAR_WEBHOOK_SECRET is not set', async () => {
+    it('returns 401 if POLAR_WEBHOOK_SECRET is not set (library treats missing secret as invalid)', async () => {
+      // WHY 401 (not 500): with the library-based verifyPolarSignatureOrThrow,
+      // a missing POLAR_WEBHOOK_SECRET causes verifyPolarSignature() to return
+      // false (secret unset → reject), which verifyPolarSignatureOrThrow
+      // converts to a PolarSignatureError → 401. The 500 path is reserved for
+      // truly unexpected errors thrown outside PolarSignatureError. This is the
+      // correct behavior: a missing secret means every signature verification
+      // fails, which is a 401 from the caller's perspective.
+      //
+      // validatePolarEnv() at cold-start is the first line of defense against
+      // a missing POLAR_WEBHOOK_SECRET reaching this path in production.
       vi.stubEnv('POLAR_WEBHOOK_SECRET', '');
 
       const event = createSubscriptionEvent('subscription.created');
       const request = createWebhookRequest(event);
 
       const response = await POST(request);
-      expect(response.status).toBe(500);
+      expect(response.status).toBe(401);
 
       const body = await response.json();
-      expect(body.error).toBe('Webhook not configured');
+      expect(body.error).toBe('Invalid signature');
     });
   });
 
