@@ -7,12 +7,16 @@
  *
  * Exports:
  * - QuarantinePanel — failed message review UI (self-hides when queue is clean)
+ * - StorageQuotaBanner — storage full/near-full warning banner (Phase 1.6.3b)
  * - useQuarantine — hook for loading quarantine state and actions
  * - Types re-exported from src/types/offline-queue
  */
 
 export { QuarantinePanel } from './QuarantinePanel';
 export type { QuarantinePanelProps } from './QuarantinePanel';
+
+export { StorageQuotaBanner } from './StorageQuotaBanner';
+export type { StorageQuotaBannerProps } from './StorageQuotaBanner';
 
 export { useQuarantine } from './useQuarantine';
 

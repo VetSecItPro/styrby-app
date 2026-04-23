@@ -43,6 +43,35 @@ jest.mock('styrby-shared', () => ({
   shouldRetry: (...args: unknown[]) => mockShouldRetry(...args),
 }));
 
+// Phase 1.6.3b: mock expo-crypto (used by offline-queue.ts for idempotency key generation)
+let mockStressUuidCounter = 0;
+jest.mock('expo-crypto', () => ({
+  randomUUID: jest.fn(() => `mock-stress-key-${++mockStressUuidCounter}`),
+}));
+
+// Phase 1.6.3b: mock storage-quota guard (not under test in stress suite)
+jest.mock('../storage-quota', () => ({
+  isQuotaError: jest.fn().mockReturnValue(false),
+  storageQuotaGuard: {
+    recordQuotaError: jest.fn(),
+    clearQuotaError: jest.fn(),
+    isFull: false,
+    subscribe: jest.fn().mockReturnValue(() => {}),
+  },
+}));
+
+// Phase 1.6.3b: mock lamport clock (not under test in stress suite)
+let mockStressLamportVal = 0;
+jest.mock('../lamport-clock', () => ({
+  lamportClock: {
+    init: jest.fn().mockResolvedValue(undefined),
+    tick: jest.fn().mockImplementation(() => Promise.resolve(++mockStressLamportVal)),
+    receive: jest.fn().mockResolvedValue(1),
+    peek: jest.fn().mockResolvedValue(0),
+  },
+  compareLamportOrder: jest.fn(),
+}));
+
 // ============================================================================
 // In-memory SQLite simulator (same pattern as offline-queue.test.ts)
 // ============================================================================
@@ -56,6 +85,7 @@ const mockRunAsync = jest.fn(async (sql: string, params: unknown[] = []) => {
   sqlCallCount++;
 
   if (sql.includes('INSERT INTO command_queue')) {
+    // Phase 1.6.3b: INSERT now has 10 params (added idempotency_key, lamport_clock)
     mockRows.set(params[0] as string, {
       id: params[0],
       message: params[1],
@@ -65,6 +95,8 @@ const mockRunAsync = jest.fn(async (sql: string, params: unknown[] = []) => {
       created_at: params[5],
       expires_at: params[6],
       priority: params[7],
+      idempotency_key: params[8],
+      lamport_clock: params[9],
       last_attempt_at: null,
       last_error: null,
     });
@@ -95,9 +127,11 @@ const mockRunAsync = jest.fn(async (sql: string, params: unknown[] = []) => {
       const row = mockRows.get(id);
       if (row) { row.status = 'sending'; row.last_attempt_at = params[0]; }
     } else {
-      const id = params[1] as string;
+      // markSent: UPDATE command_queue SET status = 'sent' WHERE id = ?
+      // params[0] is the id (status hardcoded in SQL)
+      const id = params[0] as string;
       const row = mockRows.get(id);
-      if (row) { row.status = params[0]; }
+      if (row) { row.status = 'sent'; }
     }
     return { changes: 1 };
   }
