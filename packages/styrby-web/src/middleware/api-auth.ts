@@ -28,7 +28,7 @@ import { extractApiKeyPrefix, isValidApiKeyFormat } from '@styrby/shared';
 import { getClientIp } from '@/lib/rateLimit';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
-import { getEnv } from '@/lib/env';
+import { getEnv, getHttpsUrlEnv } from '@/lib/env';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -89,7 +89,9 @@ const API_RATE_LIMIT = {
 // Trimmed env access prevents trailing-newline paste errors in Vercel from
 // crashing `new Redis({ url })` at module-import time (which 500s every route
 // that imports this file).
-const upstashUrl = getEnv('UPSTASH_REDIS_REST_URL');
+// getHttpsUrlEnv (not getEnv) rejects placeholder / non-URL values so the
+// fallback path engages cleanly instead of the Redis constructor throwing.
+const upstashUrl = getHttpsUrlEnv('UPSTASH_REDIS_REST_URL');
 const upstashToken = getEnv('UPSTASH_REDIS_REST_TOKEN');
 const isRedisConfigured = !!upstashUrl && !!upstashToken;
 

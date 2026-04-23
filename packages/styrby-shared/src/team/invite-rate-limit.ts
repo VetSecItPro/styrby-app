@@ -74,6 +74,19 @@ function getRedisClient(): Redis {
     );
   }
 
+  // WHY scheme check: on 2026-04-23 a literal "PLACEHOLDER_..." string left
+  // in Vercel Production (from the Phase 2 activation runbook) passed the
+  // truthy guard above and then threw an opaque "invalid URL" error deep
+  // inside `new Redis`. Validate at the boundary so misconfiguration surfaces
+  // with a clear, actionable message instead of a URL-parse stack trace.
+  if (!url.startsWith('https://')) {
+    throw new Error(
+      `UPSTASH_REDIS_REST_URL must be an https:// URL. ` +
+      `Received a value starting with "${url.slice(0, 16)}...". ` +
+      `Check Vercel / .env for a placeholder left from the activation runbook.`,
+    );
+  }
+
   _redis = new Redis({ url, token });
   return _redis;
 }

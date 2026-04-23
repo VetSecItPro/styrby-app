@@ -18,7 +18,7 @@
 
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
-import { getEnv } from './env';
+import { getEnv, getHttpsUrlEnv } from './env';
 
 // ============================================================================
 // Types
@@ -67,7 +67,9 @@ type RateLimitResult = {
  * paste-errors in the Vercel dashboard can never crash the serverless
  * function at boot.
  */
-const upstashUrl = getEnv('UPSTASH_REDIS_REST_URL');
+// getHttpsUrlEnv rejects placeholder / non-https values so garbage env data
+// falls through to the in-memory fallback instead of throwing in `new Redis`.
+const upstashUrl = getHttpsUrlEnv('UPSTASH_REDIS_REST_URL');
 const upstashToken = getEnv('UPSTASH_REDIS_REST_TOKEN');
 const isRedisConfigured = !!upstashUrl && !!upstashToken;
 
