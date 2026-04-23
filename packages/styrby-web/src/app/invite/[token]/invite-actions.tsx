@@ -3,96 +3,85 @@
 /**
  * Invite Actions Client Component
  *
- * Handles the accept/decline actions for team invitations.
- * Uses client-side state for loading and error handling.
+ * Handles the accept action for team invitations.
+ * POSTs to /api/invitations/accept (Unit B route) which performs the DB
+ * transaction, role mapping, and audit log server-side.
+ *
+ * WHY we POST to the API route instead of calling supabase.rpc directly:
+ *   The old `accept_team_invitation` RPC (Phase 2.1) doesn't apply
+ *   INVITE_ROLE_TO_MEMBER_ROLE, doesn't use timing-safe token comparison,
+ *   and doesn't write the Phase 2.2 audit_log action. The new API route
+ *   encapsulates all these concerns correctly.
  */
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createBrowserClient } from '@supabase/ssr';
 
 interface InviteActionsProps {
   token: string;
   teamName: string;
 }
 
+/**
+ * Renders Accept and Decline buttons for a pending invitation.
+ *
+ * @param token - The raw invitation token from the URL
+ * @param teamName - Display name of the team (for redirect URL)
+ */
 export function InviteActions({ token, teamName }: InviteActionsProps) {
   const router = useRouter();
   const [isAccepting, setIsAccepting] = useState(false);
-  const [isDeclining, setIsDeclining] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   /**
-   * Creates a Supabase client for browser-side operations.
-   */
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-
-  /**
-   * Accepts the team invitation using the database function.
+   * Accepts the team invitation via the /api/invitations/accept route.
+   *
+   * WHY API route instead of direct Supabase RPC:
+   *   The accept route performs timing-safe token comparison, maps invitation
+   *   roles through INVITE_ROLE_TO_MEMBER_ROLE, and writes audit_log correctly.
+   *   The old RPC does not implement Phase 2.2 security requirements.
    */
   async function handleAccept() {
     setIsAccepting(true);
     setError(null);
 
     try {
-      const { data, error: rpcError } = await supabase.rpc('accept_team_invitation', {
-        p_invitation_token: token,
+      const response = await fetch('/api/invitations/accept', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
       });
 
-      if (rpcError) {
-        console.error('Failed to accept invitation:', rpcError);
-        setError('Failed to accept invitation. Please try again.');
+      const data = await response.json();
+
+      if (!response.ok) {
+        const message =
+          data?.message ??
+          data?.error ??
+          'Failed to accept invitation. Please try again.';
+        setError(message);
         setIsAccepting(false);
         return;
       }
 
-      // Check the result
-      const result = data?.[0];
-      if (!result?.success) {
-        setError(result?.message || 'Failed to accept invitation.');
-        setIsAccepting(false);
-        return;
-      }
-
-      // Redirect to the team page
-      router.push(`/team?joined=${encodeURIComponent(teamName)}`);
+      // On success, redirect to team dashboard
+      router.push(`/dashboard/team/${data.team_id}?joined=${encodeURIComponent(teamName)}`);
     } catch (err) {
-      console.error('Error accepting invitation:', err);
+      console.error('[InviteActions] Error accepting invitation:', err);
       setError('An unexpected error occurred. Please try again.');
       setIsAccepting(false);
     }
   }
 
   /**
-   * Declines the team invitation.
+   * Navigates away without accepting. No DB mutation - the invitation remains
+   * pending until it expires or is revoked.
+   *
+   * WHY no "decline" DB mutation: Decline is not in the Phase 2.2 scope.
+   * Invitations expire after 24h. A dedicated decline endpoint is Phase 2.3.
    */
-  async function handleDecline() {
-    setIsDeclining(true);
-    setError(null);
-
-    try {
-      const { error: updateError } = await supabase
-        .from('team_invitations')
-        .update({ status: 'declined', responded_at: new Date().toISOString() })
-        .eq('token', token);
-
-      if (updateError) {
-        console.error('Failed to decline invitation:', updateError);
-        setError('Failed to decline invitation. Please try again.');
-        setIsDeclining(false);
-        return;
-      }
-
-      // Redirect to dashboard
-      router.push('/dashboard');
-    } catch (err) {
-      console.error('Error declining invitation:', err);
-      setError('An unexpected error occurred. Please try again.');
-      setIsDeclining(false);
-    }
+  function handleDecline() {
+    router.push('/dashboard');
   }
 
   return (
@@ -105,7 +94,7 @@ export function InviteActions({ token, teamName }: InviteActionsProps) {
 
       <button
         onClick={handleAccept}
-        disabled={isAccepting || isDeclining}
+        disabled={isAccepting}
         className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-500/50 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
       >
         {isAccepting ? (
@@ -153,35 +142,10 @@ export function InviteActions({ token, teamName }: InviteActionsProps) {
 
       <button
         onClick={handleDecline}
-        disabled={isAccepting || isDeclining}
+        disabled={isAccepting}
         className="w-full bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800/50 disabled:cursor-not-allowed text-zinc-300 px-6 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
       >
-        {isDeclining ? (
-          <>
-            <svg
-              className="w-5 h-5 animate-spin"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              />
-            </svg>
-            Declining...
-          </>
-        ) : (
-          'Decline'
-        )}
+        Decline
       </button>
     </div>
   );
