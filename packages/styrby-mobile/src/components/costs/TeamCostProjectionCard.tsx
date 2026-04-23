@@ -144,7 +144,13 @@ export function TeamCostProjectionCard({ projection }: TeamCostProjectionCardPro
         <View
           className="h-full rounded-full"
           style={{
-            width: `${actualPct.toFixed(1)}%`,
+            // WHY `as DimensionValue`: RN's ViewStyle.width type doesn't
+            // accept template-literal percent strings whose body is a
+            // dynamic expression (TS widens `${number}%` to `string` which
+            // doesn't narrow back to the `${number}%` literal shape RN wants).
+            // The runtime value is always a valid percent string; the cast
+            // is the idiomatic escape hatch for this exact TS quirk.
+            width: `${actualPct.toFixed(1)}%` as import('react-native').DimensionValue,
             backgroundColor: barColor,
           }}
           accessibilityRole="progressbar"
