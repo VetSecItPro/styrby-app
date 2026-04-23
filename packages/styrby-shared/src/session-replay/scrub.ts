@@ -178,7 +178,13 @@ const ABSOLUTE_PATH_PATTERN = /(?:\/(?:Users|home|root|var|tmp|etc|opt|usr|srv)[
  * WHY capture the $: Stripping the prompt entirely would remove context that
  * tells the viewer "this was a shell command invocation".
  */
-const SHELL_COMMAND_PATTERN = /^(\s*\$\s+).+$/gm;
+// WHY [ \t] instead of \s: Using \s here would create a ReDoS vulnerability
+// (CWE-1333). The \s class matches newlines, so in multiline (/m) mode the
+// engine can explore exponentially many ways to split horizontal-whitespace
+// sequences across alternations. Restricting to [ \t] (horizontal whitespace
+// only) eliminates the catastrophic-backtracking vector while still matching
+// every realistic shell-prompt format. (CodeQL: js/redos)
+const SHELL_COMMAND_PATTERN = /^([ \t]*\$[ \t]+).+$/gm;
 
 // ============================================================================
 // Core scrub function

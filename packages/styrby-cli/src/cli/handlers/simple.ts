@@ -204,3 +204,20 @@ export async function handleDeleteAccountCommand(args: string[]): Promise<void> 
   const { handleDeleteAccount } = await import('@/commands/privacy');
   await handleDeleteAccount(args);
 }
+
+/**
+ * Handle the `styrby context` subcommand (Phase 3.5).
+ *
+ * Routes to context show, sync, export, and import subcommands for
+ * cross-agent context synchronisation within a session group.
+ *
+ * WHY a dedicated handler: context commands require the Phase 3.5 summarizer
+ * and are new enough that keeping them separate from other "simple" delegates
+ * avoids polluting the existing module namespace during review.
+ *
+ * @param args - Arguments after `styrby context`.
+ */
+export async function handleContextCommand(args: string[]): Promise<void> {
+  const { handleContextCommand: contextCmd } = await import('@/commands/context');
+  await contextCmd(args);
+}

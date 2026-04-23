@@ -68,6 +68,10 @@
     "./session-replay": {
       "types": "./dist/session-replay/index.d.ts",
       "import": "./dist/session-replay/index.js"
+    },
+    "./context-sync": {
+      "types": "./dist/context-sync/index.d.ts",
+      "import": "./dist/context-sync/index.js"
     }
   },
   "scripts": {
