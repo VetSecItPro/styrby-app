@@ -38,7 +38,7 @@ import type {
   ReplayTokenMaxViews,
   ScrubMask,
   CreateReplayTokenResponse,
-} from '@styrby/shared/session-replay';
+} from '@styrby/shared';
 
 // ============================================================================
 // Types
