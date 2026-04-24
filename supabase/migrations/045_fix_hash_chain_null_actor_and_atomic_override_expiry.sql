@@ -79,8 +79,8 @@ BEGIN
     -- WHY: Try to extract 'id' as the resource identifier. Most Styrby tables
     -- use UUID primary key named 'id'. EXCEPTION block handles tables without it.
     CASE
-      WHEN TG_OP = 'DELETE' THEN (v_record->>'id')::text
-      ELSE (v_record->>'id')::text
+      WHEN TG_OP = 'DELETE' THEN (v_record->>'id')::uuid
+      ELSE (v_record->>'id')::uuid
     END,
 
     -- WHY: Store the full row snapshot as JSONB in metadata. This lets auditors
