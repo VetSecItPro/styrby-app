@@ -40,7 +40,7 @@ vi.mock('@sentry/nextjs', () => ({
   captureException: vi.fn(),
 }));
 
-import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/supabase/server';
 import { isAdmin } from '@/lib/admin';
 import * as Sentry from '@sentry/nextjs';
 import { GET } from '../../app/api/admin/audit/verify/route';
@@ -66,12 +66,23 @@ function mockAuthUser(user: { id: string } | null) {
 }
 
 /**
- * Configures createAdminClient mock to return a given RPC result.
+ * Configures createClient to return both auth (admin-1) and the RPC result.
+ *
+ * WHY createClient (not createAdminClient): Fix P0 swapped verify_admin_audit_chain
+ * RPC from service-role to user-scoped client so auth.uid() resolves inside the
+ * SECURITY DEFINER function. The route reuses the same createClient() instance
+ * for both getUser() and rpc(), so this helper provides both in one mock.
  *
  * @param rpcResponse - What the `rpc('verify_admin_audit_chain')` call returns.
  */
 function mockAdminRpc(rpcResponse: { data: unknown; error: Error | null }) {
-  (createAdminClient as Mock).mockReturnValue({
+  (createClient as Mock).mockResolvedValue({
+    auth: {
+      getUser: vi.fn().mockResolvedValue({
+        data:  { user: { id: 'admin-uuid-001' } },
+        error: null,
+      }),
+    },
     rpc: vi.fn().mockResolvedValue(rpcResponse),
   });
 }

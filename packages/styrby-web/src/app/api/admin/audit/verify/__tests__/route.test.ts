@@ -38,7 +38,7 @@ vi.mock('@sentry/nextjs', () => ({
   captureException: vi.fn(),
 }));
 
-import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/supabase/server';
 import { isAdmin } from '@/lib/admin';
 import * as Sentry from '@sentry/nextjs';
 import { GET } from '../route';
@@ -63,7 +63,11 @@ function mockSupabaseUser(user: { id: string } | null) {
 }
 
 /**
- * Configures the createAdminClient mock to return an RPC result.
+ * Configures the createClient mock to also return an RPC result.
+ *
+ * WHY createClient (not createAdminClient): Fix P0 swapped the verify_admin_audit_chain
+ * RPC call from service-role to user-scoped so auth.uid() resolves inside the
+ * SECURITY DEFINER function. The mock must reflect the production code path.
  *
  * @param data  - Data returned by the RPC (or null on error)
  * @param error - Error returned by the RPC (or null on success)
@@ -72,7 +76,15 @@ function mockRpc(
   data: Record<string, unknown> | null,
   error: { message: string } | null = null
 ) {
-  (createAdminClient as Mock).mockReturnValue({
+  // The route reuses the same createClient() instance for both getUser() and
+  // rpc(). We chain both mock behaviors on the same resolved client object.
+  (createClient as Mock).mockResolvedValue({
+    auth: {
+      getUser: vi.fn().mockResolvedValue({
+        data: { user: { id: 'admin-1' } },
+        error: null,
+      }),
+    },
     rpc: vi.fn().mockResolvedValue({ data, error }),
   });
 }
@@ -108,21 +120,32 @@ describe('GET /api/admin/audit/verify', () => {
     expect(body.error).toBe('Forbidden');
   });
 
-  it('does not call createAdminClient for non-admins', async () => {
-    mockSupabaseUser({ id: 'attacker' });
+  it('does not call RPC for non-admins (admin gate enforced before DB access)', async () => {
+    const mockRpcFn = vi.fn();
+    (createClient as Mock).mockResolvedValue({
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: 'attacker' } },
+          error: null,
+        }),
+      },
+      rpc: mockRpcFn,
+    });
     (isAdmin as Mock).mockResolvedValue(false);
 
     await GET();
 
-    // WHY: service-role DB access must never occur before the admin gate passes.
-    // SOC 2 CC6.1: admin client used only after authorization confirmed.
-    expect(createAdminClient).not.toHaveBeenCalled();
+    // WHY: the RPC must never be called before the admin gate passes.
+    // Fix P0: route now uses user-scoped client for RPC, so we assert the RPC
+    // function itself was not invoked rather than asserting createAdminClient
+    // was not called. SOC 2 CC6.1: DB access guarded behind authorization.
+    expect(mockRpcFn).not.toHaveBeenCalled();
   });
 
   // ── PASS path ──────────────────────────────────────────────────────────────
 
   it('(a) returns 200 with { status: "ok" } when RPC returns ok', async () => {
-    mockSupabaseUser({ id: 'admin-1' });
+    // mockRpc sets up createClient with both auth (user admin-1) and rpc result.
     (isAdmin as Mock).mockResolvedValue(true);
     mockRpc({ status: 'ok', first_broken_id: null, total_rows: 150 });
 
@@ -138,7 +161,6 @@ describe('GET /api/admin/audit/verify', () => {
   // ── FAIL paths ─────────────────────────────────────────────────────────────
 
   it('(b) returns 200 with row_hash_mismatch when RPC detects row tampering', async () => {
-    mockSupabaseUser({ id: 'admin-1' });
     (isAdmin as Mock).mockResolvedValue(true);
     mockRpc({ status: 'row_hash_mismatch', first_broken_id: 42, total_rows: 100 });
 
@@ -152,7 +174,6 @@ describe('GET /api/admin/audit/verify', () => {
   });
 
   it('returns 200 with prev_hash_mismatch when RPC detects chain link deletion', async () => {
-    mockSupabaseUser({ id: 'admin-1' });
     (isAdmin as Mock).mockResolvedValue(true);
     mockRpc({ status: 'prev_hash_mismatch', first_broken_id: 77, total_rows: 200 });
 
@@ -167,7 +188,6 @@ describe('GET /api/admin/audit/verify', () => {
   // ── RPC error path ─────────────────────────────────────────────────────────
 
   it('(c) returns 500 when RPC errors', async () => {
-    mockSupabaseUser({ id: 'admin-1' });
     (isAdmin as Mock).mockResolvedValue(true);
     mockRpc(null, { message: 'function verify_admin_audit_chain does not exist' });
 
@@ -179,7 +199,6 @@ describe('GET /api/admin/audit/verify', () => {
   });
 
   it('(c) captures RPC errors to Sentry', async () => {
-    mockSupabaseUser({ id: 'admin-1' });
     (isAdmin as Mock).mockResolvedValue(true);
     const rpcError = { message: 'DB error' };
     mockRpc(null, rpcError);
@@ -196,7 +215,6 @@ describe('GET /api/admin/audit/verify', () => {
   });
 
   it('(c) does not capture Sentry on successful verification', async () => {
-    mockSupabaseUser({ id: 'admin-1' });
     (isAdmin as Mock).mockResolvedValue(true);
     mockRpc({ status: 'ok', first_broken_id: null, total_rows: 50 });
 
@@ -210,10 +228,16 @@ describe('GET /api/admin/audit/verify', () => {
   it('returns 200 when RPC returns array shape (RETURNS TABLE from Supabase JS)', async () => {
     // WHY: verify_admin_audit_chain is declared RETURNS TABLE — Supabase JS wraps
     // the result in an array with one element. The route must handle this shape.
-    mockSupabaseUser({ id: 'admin-1' });
+    // Fix P0: route now uses user-scoped createClient for RPC, so mock it here.
     (isAdmin as Mock).mockResolvedValue(true);
-    // Simulate the array-wrapped TABLE return
-    (createAdminClient as Mock).mockReturnValue({
+    (createClient as Mock).mockResolvedValue({
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: 'admin-1' } },
+          error: null,
+        }),
+      },
+      // Simulate the array-wrapped TABLE return
       rpc: vi.fn().mockResolvedValue({
         data: [{ status: 'ok', first_broken_id: null, total_rows: 77 }],
         error: null,
@@ -232,7 +256,6 @@ describe('GET /api/admin/audit/verify', () => {
     // WHY: If the Postgres function changes shape (e.g., renames a column),
     // Zod parse fails and we return 500 + Sentry alert instead of bad JSON.
     // OWASP A08:2021: Software and Data Integrity Failures.
-    mockSupabaseUser({ id: 'admin-1' });
     (isAdmin as Mock).mockResolvedValue(true);
     mockRpc({ unexpected_field: 'schema_drift', some_other: 123 });
 

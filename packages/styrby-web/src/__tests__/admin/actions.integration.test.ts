@@ -24,7 +24,7 @@
  * guards pass, so the audit row is never written for an invalid/tampered form.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 // ============================================================================
 // Mocks
@@ -71,8 +71,15 @@ const mockGenerateLink = vi.fn();
 const mockGetUserById = vi.fn();
 
 vi.mock('@/lib/supabase/server', () => ({
+  // WHY createClient returns rpc (Fix P0): admin_* RPCs are now called on the
+  // user-scoped client so auth.uid() resolves inside SECURITY DEFINER functions.
+  // Service-role has no JWT context → auth.uid() = NULL → 42501 in prod.
+  // createClient factory is plain vi.fn() here to avoid hoisting issues — the
+  // resolved value with {rpc: mockRpc} is set in each beforeEach() below.
+  createClient: vi.fn(),
+  // WHY createAdminClient retains only auth.admin methods: getUserById and
+  // generateLink require service-role privilege; they stay on the admin client.
   createAdminClient: () => ({
-    rpc: mockRpc,
     auth: {
       admin: {
         generateLink: mockGenerateLink,
@@ -80,7 +87,6 @@ vi.mock('@/lib/supabase/server', () => ({
       },
     },
   }),
-  createClient: vi.fn(),
 }));
 
 // ============================================================================
@@ -89,6 +95,11 @@ vi.mock('@/lib/supabase/server', () => ({
 
 const VALID_UUID   = 'c1d2e3f4-a5b6-7890-cdef-123456789abc';
 const VALID_UUID_2 = 'd2e3f4a5-b6c7-8901-defa-234567890bcd';
+
+// Import mocked module so beforeEach can restore createClient's resolved value.
+// WHY import after vi.mock: Vitest hoists vi.mock to top of file; this import
+// receives the mocked version. Fix P0: createClient is now the RPC client.
+import { createClient } from '@/lib/supabase/server';
 
 /**
  * Builds a FormData object from a plain record.
@@ -111,6 +122,9 @@ function makeFormData(entries: Record<string, string | null | undefined>): FormD
 describe('overrideTierAction — integration (form → Zod → RPC)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // WHY restore createClient: clearAllMocks wipes mockResolvedValue.
+    // Fix P0: createClient (user-scoped) is the RPC client for admin_* RPCs.
+    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
     mockHeadersGet.mockImplementation((name: string) => {
       if (name === 'x-forwarded-for') return MOCK_XFF;
       if (name === 'user-agent') return MOCK_UA;
@@ -243,6 +257,9 @@ describe('overrideTierAction — integration (form → Zod → RPC)', () => {
 describe('resetPasswordAction — integration (form → Zod → RPC → generateLink)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // WHY restore createClient: clearAllMocks wipes mockResolvedValue.
+    // Fix P0: admin_record_password_reset RPC uses user-scoped client.
+    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
     mockHeadersGet.mockImplementation((name: string) => {
       if (name === 'x-forwarded-for') return MOCK_XFF;
       if (name === 'user-agent') return MOCK_UA;
@@ -371,6 +388,9 @@ describe('resetPasswordAction — integration (form → Zod → RPC → generate
 describe('toggleConsentAction — integration (form → Zod → RPC)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // WHY restore createClient: clearAllMocks wipes mockResolvedValue.
+    // Fix P0: admin_toggle_consent RPC uses user-scoped client.
+    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
     mockHeadersGet.mockImplementation((name: string) => {
       if (name === 'x-forwarded-for') return MOCK_XFF;
       if (name === 'user-agent') return MOCK_UA;

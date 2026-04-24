@@ -266,13 +266,15 @@ export async function overrideTierAction(
   const ua = hdrs.get('user-agent') ?? null;
 
   // ── 3. Call SECURITY DEFINER RPC ──────────────────────────────────────────
-  // WHY createAdminClient (service role): the RPC itself enforces site-admin
-  // authorization via `is_site_admin(auth.uid())`. The service-role client is
-  // used here so the RPC call succeeds regardless of the caller's RLS context.
-  // The triple-layer security (middleware + layout + SECURITY DEFINER) means
-  // the caller is always a verified site admin before we reach this point.
+  // WHY createClient() (user-scoped, NOT service-role) for the RPC call:
+  // The SECURITY DEFINER RPC body calls `is_site_admin(auth.uid())`. When
+  // called via the service-role client, auth.uid() returns NULL inside
+  // Postgres (no JWT context → NULL uid → is_site_admin(NULL) = false →
+  // 42501 INSUFFICIENT_PRIVILEGE). The user-scoped client carries the admin's
+  // session cookie → JWT is forwarded → auth.uid() resolves correctly.
+  // The GRANT EXECUTE ... TO authenticated (migration 040/041) allows this.
   // SOC 2 CC6.1, CC7.2.
-  const supabase = createAdminClient();
+  const supabase = await createClient();
 
   const { data: auditId, error } = await supabase.rpc('admin_override_tier', {
     p_target_user_id: parsed.data.targetUserId,
@@ -362,7 +364,16 @@ export async function resetPasswordAction(
   const ip = extractIP(hdrs.get('x-forwarded-for'));
   const ua = hdrs.get('user-agent') ?? null;
 
-  const supabase = createAdminClient();
+  // WHY two separate clients for this action:
+  //   - adminClient (service_role): required for auth.admin.getUserById() and
+  //     auth.admin.generateLink() — these Auth Admin APIs require service-role
+  //     privilege and cannot be accessed with a user-scoped client.
+  //   - userScopedSupabase (user-scoped): required for the admin_record_password_reset
+  //     RPC. The RPC's SECURITY DEFINER body calls is_site_admin(auth.uid()). With
+  //     service-role there is no JWT context → auth.uid() = NULL → 42501. The user-
+  //     scoped client forwards the admin's session cookie → auth.uid() resolves.
+  //   SOC 2 CC6.1, CC7.2.
+  const adminClient = createAdminClient();
 
   // ── 3. Fetch target user server-side via trusted Auth Admin API ───────────
   // CRITICAL (C1): email is resolved from the server-side Auth Admin API, not
@@ -370,7 +381,7 @@ export async function resetPasswordAction(
   // redirect the recovery magic-link to an email they control (account takeover).
   // The Auth Admin API is only accessible with the service-role key, which never
   // reaches the client. SOC 2 CC6.1.
-  const { data: authUser, error: userFetchErr } = await supabase.auth.admin.getUserById(
+  const { data: authUser, error: userFetchErr } = await adminClient.auth.admin.getUserById(
     parsed.data.targetUserId
   );
 
@@ -411,7 +422,9 @@ export async function resetPasswordAction(
   //   The admin's intent to trigger a reset should be recorded even when we
   //   refuse to send the link. This preserves the SOC 2 CC7.2 audit trail and
   //   lets ops reconcile why a reset was attempted but blocked.
-  const { data: auditId, error: rpcErr } = await supabase.rpc('admin_record_password_reset', {
+  // WHY user-scoped client for this RPC (not adminClient): see client setup above.
+  const userScopedSupabase = await createClient();
+  const { data: auditId, error: rpcErr } = await userScopedSupabase.rpc('admin_record_password_reset', {
     p_target_user_id: parsed.data.targetUserId,
     p_reason: parsed.data.reason,
     p_ip: ip,
@@ -448,7 +461,7 @@ export async function resetPasswordAction(
   // internally. The `type: 'recovery'` mode creates a password-reset link, not
   // a sign-in link, which is semantically correct for a site-admin-initiated reset.
   // WHY trustedEmail (not FormData): see step 3 above (C1).
-  const { error: linkErr } = await supabase.auth.admin.generateLink({
+  const { error: linkErr } = await adminClient.auth.admin.generateLink({
     type: 'recovery',
     email: trustedEmail,
   });
@@ -541,7 +554,11 @@ export async function toggleConsentAction(
   const ua = hdrs.get('user-agent') ?? null;
 
   // ── 3. Call SECURITY DEFINER RPC ──────────────────────────────────────────
-  const supabase = createAdminClient();
+  // WHY createClient() (user-scoped): the RPC's SECURITY DEFINER body calls
+  // is_site_admin(auth.uid()). Service-role has no JWT context → auth.uid()
+  // = NULL → 42501. User-scoped client forwards the admin's session cookie.
+  // SOC 2 CC6.1, CC7.2.
+  const supabase = await createClient();
 
   const { error } = await supabase.rpc('admin_toggle_consent', {
     p_target_user_id: parsed.data.targetUserId,

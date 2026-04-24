@@ -79,11 +79,17 @@ vi.mock('@sentry/nextjs', () => ({
 // ─── Supabase mock ───────────────────────────────────────────────────────────
 
 /**
- * Configurable mock for the Supabase admin client.
+ * Configurable mocks for the Supabase clients.
  *
- * WHY separate mocks per method: the three actions call different RPC methods
- * and the reset-password action calls both .rpc() and .auth.admin.generateLink().
- * We need independent control over each call's return value.
+ * Fix P0 client routing:
+ *   - createClient() (user-scoped) is now used for ALL admin_* RPC calls
+ *     (admin_override_tier, admin_toggle_consent, admin_record_password_reset).
+ *     The RPC's SECURITY DEFINER body calls is_site_admin(auth.uid()). With
+ *     service-role there is no JWT context → auth.uid() = NULL → 42501.
+ *     User-scoped client forwards the session cookie so auth.uid() resolves.
+ *   - createAdminClient() (service-role) is still used for:
+ *       - auth.admin.getUserById() — requires service-role privilege
+ *       - auth.admin.generateLink() — requires service-role privilege
  *
  * WHY mockGetUserById (C1):
  *   resetPasswordAction now fetches the target email server-side via getUserById()
@@ -95,8 +101,19 @@ const mockGenerateLink = vi.fn();
 const mockGetUserById = vi.fn();
 
 vi.mock('@/lib/supabase/server', () => ({
+  // WHY createClient is plain vi.fn() here (not .mockResolvedValue):
+  //   vi.mock factories are hoisted to the top of the file by Vitest. At hoist
+  //   time, mockRpc/mockGenerateLink/mockGetUserById are not yet initialized —
+  //   referencing them inside the factory body causes "Cannot access before
+  //   initialization". We set the resolved value in beforeEach() instead, after
+  //   all const declarations are live. Fix P0.
+  createClient: vi.fn(),
+  // WHY createAdminClient retains auth.admin methods: getUserById and
+  // generateLink require service-role privilege; they stay on admin client.
+  // mockGetUserById/mockGenerateLink are referenced via closure and are always
+  // initialized by the time the factory executes (they're const declarations
+  // outside the factory, not inside it).
   createAdminClient: () => ({
-    rpc: mockRpc,
     auth: {
       admin: {
         generateLink: mockGenerateLink,
@@ -104,8 +121,13 @@ vi.mock('@/lib/supabase/server', () => ({
       },
     },
   }),
-  createClient: vi.fn(),
 }));
+
+// Import mocked modules so tests can assert on them.
+// WHY import after vi.mock: Vitest hoists vi.mock calls to the top, so these
+// imports get the mocked versions regardless of declaration order in the file.
+import { createClient, createAdminClient } from '@/lib/supabase/server';
+import type { Mock } from 'vitest';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -131,6 +153,10 @@ const VALID_UUID_2 = 'b2c3d4e5-f6a7-8901-bcde-f12345678901';
 describe('overrideTierAction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // WHY restore after clearAllMocks: clearAllMocks wipes mockResolvedValue.
+    // createClient must return an object with rpc so actions can call it.
+    // Fix P0: createClient (user-scoped) is now the RPC client for all admin_* calls.
+    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
   });
 
   // ── (a) Zod validation ────────────────────────────────────────────────────
@@ -330,6 +356,35 @@ describe('overrideTierAction', () => {
     const [, sentryCtx] = mockSentryCaptureMessage.mock.calls[0];
     expect(sentryCtx.tags.admin_action).toBe('override_tier');
   });
+
+  // ── (P0 regression guard) Client routing ─────────────────────────────────
+
+  it('(P0) RPC is called on user-scoped createClient, NOT via createAdminClient', async () => {
+    // WHY this test: guards against regression back to service-role for RPC calls.
+    // The SECURITY DEFINER RPC calls is_site_admin(auth.uid()). Service-role has
+    // no JWT context → auth.uid() = NULL → 42501 in prod. User-scoped client
+    // forwards the admin session cookie so auth.uid() resolves correctly.
+    // Fix P0 — we verify (a) createClient was awaited for the RPC, and (b) the
+    // RPC was invoked on the client returned by createClient (i.e. mockRpc).
+    const auditId = 99;
+    mockRpc.mockResolvedValueOnce({ data: auditId, error: null });
+
+    const { overrideTierAction } = await import('../actions');
+
+    await expect(
+      overrideTierAction(
+        VALID_UUID,
+        makeFormData({ targetUserId: VALID_UUID, newTier: 'power', reason: 'P0 guard test' })
+      )
+    ).rejects.toThrow(/NEXT_REDIRECT/);
+
+    // (a) createClient must have been called — user-scoped client was used.
+    expect(createClient).toHaveBeenCalled();
+    // (b) The RPC was invoked on the mock returned by createClient (mockRpc).
+    //     If the code regresses to createAdminClient, mockRpc would not be called
+    //     (createAdminClient has no rpc property in the mock setup).
+    expect(mockRpc).toHaveBeenCalledWith('admin_override_tier', expect.any(Object));
+  });
 });
 
 // ─── resetPasswordAction ─────────────────────────────────────────────────────
@@ -337,6 +392,9 @@ describe('overrideTierAction', () => {
 describe('resetPasswordAction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // WHY restore after clearAllMocks: createClient must return {rpc} for RPC calls.
+    // Fix P0: user-scoped client is now the RPC client for admin_record_password_reset.
+    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
     // Restore header mock to return valid values by default.
     mockHeadersGet.mockImplementation((name: string) => {
       if (name === 'x-forwarded-for') return MOCK_XFF;
@@ -652,6 +710,9 @@ describe('resetPasswordAction', () => {
 describe('toggleConsentAction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // WHY restore after clearAllMocks: createClient must return {rpc} for RPC calls.
+    // Fix P0: user-scoped client is now the RPC client for admin_toggle_consent.
+    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
     mockHeadersGet.mockImplementation((name: string) => {
       if (name === 'x-forwarded-for') return MOCK_XFF;
       if (name === 'user-agent') return MOCK_UA;

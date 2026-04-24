@@ -12,10 +12,13 @@
  *     receive a 404 before this handler runs.
  *   - As a secondary belt-and-suspenders check this handler also verifies the
  *     caller is authenticated and is a site admin before executing the RPC.
- *   - `createAdminClient()` (service role) is used for the RPC call because
- *     `verify_admin_audit_chain` is SECURITY DEFINER and reads the full
- *     admin_audit_log table across all users. The user-scoped client cannot
- *     access cross-user rows.
+ *   - The user-scoped client (createClient) is used for the RPC call.
+ *     verify_admin_audit_chain is SECURITY DEFINER and internally calls
+ *     is_site_admin(auth.uid()). Service-role has no JWT context, so
+ *     auth.uid() = NULL → 42501 in prod. The user-scoped client forwards
+ *     the admin's session cookie so auth.uid() resolves correctly. The
+ *     SECURITY DEFINER + is_site_admin check inside the function provides
+ *     the row-level protection instead of RLS bypass. (Fix P0)
  *   SOC 2 CC7.2: Audit log integrity monitoring — chain verification provides
  *   tamper-evidence for the admin action log. NIST SP 800-53 AU-9.
  *
@@ -30,7 +33,7 @@
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/supabase/server';
 import { isAdmin } from '@/lib/admin';
 import * as Sentry from '@sentry/nextjs';
 
@@ -121,13 +124,15 @@ export async function GET(): Promise<NextResponse> {
   }
 
   // ── Execute RPC ────────────────────────────────────────────────────────────
-  // WHY createAdminClient(): verify_admin_audit_chain is SECURITY DEFINER and
-  // reads the full admin_audit_log table (cross-user data, RLS-protected).
-  // Service role bypasses RLS for this trusted server-side operation.
-  // SOC 2 CC6.1: admin client used only after the admin gate has passed.
-  const adminDb = createAdminClient();
-
-  const { data, error: rpcError } = await adminDb.rpc('verify_admin_audit_chain');
+  // WHY user-scoped client (not createAdminClient) for the RPC:
+  //   verify_admin_audit_chain is SECURITY DEFINER. Inside its body, it calls
+  //   is_site_admin(auth.uid()) to guard access. Service-role has no JWT
+  //   context → auth.uid() = NULL → is_site_admin(NULL) = false → 42501.
+  //   The user-scoped `supabase` client (already created above for getUser())
+  //   carries the admin's session cookie → auth.uid() resolves correctly.
+  //   The GRANT EXECUTE ... TO authenticated (migration 040) allows the call.
+  //   SOC 2 CC6.1: admin gate already verified above before reaching this point.
+  const { data, error: rpcError } = await supabase.rpc('verify_admin_audit_chain');
 
   if (rpcError) {
     // WHY Sentry capture here (not elsewhere): The RPC should never error in
