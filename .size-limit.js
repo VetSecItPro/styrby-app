@@ -142,7 +142,13 @@ module.exports = [
     // + the one-time cookie flash success page. All gated behind /dashboard/admin
     // middleware or user-authenticated /support/access routes — no impact on
     // public marketing traffic.
-    limit: '770 KB',
+    //
+    // Phase 4.3 ratchet 770 → 775: billing ops added 1.64 KB of client weight
+    // via IssueRefundForm + IssueCreditForm + SendChurnSaveOfferForm +
+    // ChurnSaveOfferCard. All gated behind /dashboard/admin or user-authenticated
+    // /billing/offer routes. Small ratchet — smaller than prior phases because
+    // we reused the datetime-local normalize + dollar-to-cents helpers.
+    limit: '775 KB',
     gzip: true,
     // WHY import is omitted: We cannot import directly from Next.js output —
     // these are already-built assets. size-limit stats the files and sums sizes.
