@@ -62,34 +62,27 @@
 
 
 -- ============================================================================
--- Part A: subscriptions.tier DB-level CHECK constraint
+-- Part A: subscriptions.tier CHECK — DROPPED FROM THIS MIGRATION
 -- ============================================================================
-
--- WHY IF NOT EXISTS guard: supabase db reset applies all migrations in sequence.
--- On a fresh reset the constraint does not exist. But defensive existence-check
--- prevents CI failures if this migration is partially applied and re-run.
--- pg_constraint is indexed on (conname, conrelid) — this look-up is O(1).
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'subscriptions_tier_check'
-      AND conrelid = 'public.subscriptions'::regclass
-  ) THEN
-    ALTER TABLE public.subscriptions
-      ADD CONSTRAINT subscriptions_tier_check
-      CHECK (tier IN ('free', 'pro', 'power', 'team', 'business', 'enterprise'));
-  END IF;
-END;
-$$;
-
-COMMENT ON CONSTRAINT subscriptions_tier_check ON public.subscriptions IS
-  'DB-level allowlist for the tier column (migration 054 hardening).
-   Belt-and-suspenders over the RPC-layer validation in admin_override_tier
-   and the Polar webhook handler. Prevents direct service-role writes from
-   landing invalid tier strings. Tier extension requires both an enum migration
-   AND updating admin_override_tier + polar webhook handler allowlists.
-   SOC2 CC7.2 data integrity. Added: 2026-04-24.';
+--
+-- Original intent was a DB-level allowlist `tier IN ('free','pro','power',
+-- 'team','business','enterprise')`. Postgres rejected it with SQLSTATE
+-- 22P02 because `subscriptions.tier` is typed as the `subscription_tier`
+-- ENUM (migration 001 line 59), which currently contains only 'free',
+-- 'pro', 'power'. A CHECK with 'team' / 'business' / 'enterprise'
+-- literals cannot be coerced to the enum type.
+--
+-- This reveals a separate data-modeling question (where do team/business/
+-- enterprise tiers live at the DB layer today?) that is out of scope for
+-- this hardening bundle. Deferred as a follow-up: either extend the
+-- subscription_tier enum to cover all 6 Polar-supported tiers, or retire
+-- the enum in favor of text + CHECK.
+--
+-- The RPC-layer allowlists in admin_override_tier (migration 041 + 054
+-- below) and apply_polar_subscription_with_override_check (migration 045)
+-- already enforce the 6-value set at the write boundary. The enum prevents
+-- arbitrary string writes at the DB layer. DB-level allowlist parity with
+-- the RPC layer is the deferred belt-and-suspenders item.
 
 
 -- ============================================================================
