@@ -4,13 +4,14 @@
  * Admin Support Ticket Detail Page
  *
  * Shows the full ticket with user info panel, reply thread, admin reply form,
- * status management dropdown, and internal notes textarea.
+ * status management dropdown, internal notes textarea, and session access grants
+ * section (Phase 4.2 T4 — request-access UI).
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Send, RefreshCw, User } from 'lucide-react';
+import { ArrowLeft, Send, RefreshCw, User, KeyRound, Plus } from 'lucide-react';
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -45,6 +46,19 @@ interface TicketUser {
   tier: string;
   subscription_status: string | null;
   machines_count: number;
+}
+
+/**
+ * A support_access_grant row displayed in the ticket detail sidebar.
+ * Fetched from /api/admin/support/[id]/grants (Phase 4.2 T4).
+ */
+interface AccessGrant {
+  id: number;
+  session_id: string;
+  status: 'pending' | 'approved' | 'revoked' | 'expired' | 'consumed';
+  expires_at: string;
+  requested_at: string;
+  reason: string;
 }
 
 /* ──────────────────────────── Helpers ────────────────────────── */
@@ -104,6 +118,12 @@ export default function AdminTicketDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Phase 4.2 T4: session access grants for this ticket.
+  // WHY separate state: grants are fetched from a separate API endpoint and
+  // we don't want a grant fetch failure to break the entire ticket view.
+  const [accessGrants, setAccessGrants] = useState<AccessGrant[]>([]);
+  const [grantsLoading, setGrantsLoading] = useState(true);
+
   // Admin reply form
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
@@ -145,10 +165,37 @@ export default function AdminTicketDetailPage() {
     setLoading(false);
   }, [id]);
 
+  /**
+   * Fetches existing session access grants for this ticket.
+   *
+   * WHY separate fetch: grants are a Phase 4.2 addition. Keeping them in a
+   * separate call isolates failures — a broken grants endpoint won't break
+   * the entire ticket page. The grants list is for context only.
+   */
+  const fetchGrants = useCallback(async () => {
+    setGrantsLoading(true);
+    try {
+      const res = await fetch(`/api/admin/support/${id}/grants`);
+      if (res.ok) {
+        const data = await res.json();
+        setAccessGrants(data.grants ?? []);
+      }
+      // WHY silent failure: if the grants endpoint is unavailable (not yet
+      // deployed, network error), we show an empty list rather than an error
+      // state. The admin can still use the ticket; grants are context only.
+    } catch {
+      // Silent failure — grants list is advisory only.
+    }
+    setGrantsLoading(false);
+  }, [id]);
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchTicket();
-  }, [fetchTicket]);
+    // WHY fetch grants in the same effect: grants are always needed alongside
+    // the ticket. Both fetches run in parallel (no await chaining).
+    fetchGrants();
+  }, [fetchTicket, fetchGrants]);
 
   /**
    * Sends an admin reply and triggers email notification.
@@ -427,7 +474,8 @@ export default function AdminTicketDetailPage() {
         </div>
 
         {/* User info sidebar (1/3 width on desktop) */}
-        <div className="lg:col-span-1">
+        <div className="space-y-6 lg:col-span-1">
+          {/* User card */}
           <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
             <div className="mb-4 flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800">
@@ -469,6 +517,84 @@ export default function AdminTicketDetailPage() {
                 </span>
               </div>
             </div>
+          </div>
+
+          {/* ── Session Access Grants (Phase 4.2 T4) ──────────────────── */}
+          {/*
+            WHY this section: allows the admin to see all existing grants for
+            this ticket and navigate to request a new one without leaving the
+            ticket detail page. The "+ Request new access" link goes to the
+            dedicated server-component form page for safer action handling.
+          */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <KeyRound className="h-4 w-4 text-zinc-400" />
+                <span className="text-sm font-medium text-zinc-300">Session Access Grants</span>
+              </div>
+              <Link
+                href={`/dashboard/admin/support/${id}/request-access`}
+                className="inline-flex items-center gap-1 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1 text-xs font-medium text-amber-400 transition-colors hover:bg-amber-500/10"
+                data-testid="request-new-access-link"
+              >
+                <Plus className="h-3 w-3" />
+                Request new access
+              </Link>
+            </div>
+
+            {grantsLoading ? (
+              <p className="text-xs text-zinc-500" data-testid="grants-loading">
+                Loading grants...
+              </p>
+            ) : accessGrants.length === 0 ? (
+              <p className="text-xs text-zinc-500" data-testid="no-grants-message">
+                No session access grants yet for this ticket.
+              </p>
+            ) : (
+              <div className="space-y-2" data-testid="grants-list">
+                {accessGrants.map((grant) => {
+                  // WHY derive display values here: status badge colours mirror
+                  // the ticket status pattern used elsewhere in this file.
+                  const isApproved =
+                    grant.status === 'approved' &&
+                    new Date(grant.expires_at) > new Date();
+                  const isPendingGrant = grant.status === 'pending';
+                  const statusColor = isApproved
+                    ? 'text-green-400'
+                    : isPendingGrant
+                    ? 'text-amber-400'
+                    : 'text-zinc-500';
+
+                  return (
+                    <div
+                      key={grant.id}
+                      className="rounded-lg border border-zinc-800 px-3 py-2"
+                      data-testid={`grant-item-${grant.id}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-mono text-xs text-zinc-500">
+                          {grant.session_id.slice(0, 8)}...
+                        </p>
+                        <span className={`shrink-0 text-xs font-medium ${statusColor}`}>
+                          {grant.status}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 line-clamp-2 text-xs text-zinc-400">
+                        {/* WHY 60-char truncation: reason may contain user-input text.
+                            Truncating in the compact sidebar view prevents the card
+                            from growing unbounded. Full reason is on the request-access
+                            page. */}
+                        {grant.reason.slice(0, 60)}
+                        {grant.reason.length > 60 ? '…' : ''}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        Expires {new Date(grant.expires_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>
