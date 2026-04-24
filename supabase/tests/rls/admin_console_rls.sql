@@ -1119,6 +1119,88 @@ END;
 $$;
 
 ROLLBACK;
+BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- Test (n): INSERT admin_audit_log with actor_id = NULL + chain integrity
+--           (Migration 045 C1 regression guard)
+-- ---------------------------------------------------------------------------
+-- WHY: Migration 044 permits NULL actor_id for system-action rows (e.g.
+--   'manual_override_expired'). Migration 045 fixed the hash-chain trigger to
+--   COALESCE(actor_id::text, '') so a NULL actor does not propagate NULL into
+--   the SHA-256 preimage and crash the NOT NULL row_hash column. This test:
+--     (n.1) Asserts that an INSERT with actor_id = NULL and
+--           action = 'manual_override_expired' succeeds without error.
+--     (n.2) Asserts that verify_admin_audit_chain() returns 'ok' after the
+--           null-actor insert (hash chain is intact, not broken).
+--
+-- SOC2 CC7.2: System-initiated audit rows must be recordable without crashing
+--   the owning transaction. Losing audit coverage is a monitoring failure.
+-- OWASP A09:2021 (Security Logging and Monitoring Failures): silent audit gaps
+--   are worse than nullable actor attribution.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_admin         UUID := gen_random_uuid();
+  v_target        UUID := gen_random_uuid();
+  v_null_actor_id bigint;
+  v_status        text;
+  v_broken_id     bigint;
+  v_total_rows    bigint;
+BEGIN
+  PERFORM _rls_test_reset_role();
+
+  INSERT INTO auth.users (id, email, encrypted_password, created_at, updated_at)
+    VALUES
+      (v_admin,  'admin_n@rls.test',  'x', now(), now()),
+      (v_target, 'target_n@rls.test', 'x', now(), now());
+
+  INSERT INTO public.site_admins (user_id, added_by, note)
+    VALUES (v_admin, v_admin, 'rls test seed n');
+
+  -- Insert a baseline (non-null actor) row to establish a chain before the null-actor row.
+  INSERT INTO public.admin_audit_log
+    (actor_id, target_user_id, action, reason, prev_hash, row_hash)
+  VALUES
+    (v_admin, v_target, 'override_tier', 'test (n) baseline row', '0', '0');
+
+  -- (n.1) Insert null-actor row. This is valid per migration 044 for
+  -- 'manual_override_expired'. The trigger must fire without error.
+  INSERT INTO public.admin_audit_log
+    (actor_id, target_user_id, action, reason, prev_hash, row_hash)
+  VALUES
+    (NULL, v_target, 'manual_override_expired',
+     'Polar webhook auto-expired manual override after override_expires_at (rls test n)',
+     '0', '0')
+  RETURNING id INTO v_null_actor_id;
+
+  IF v_null_actor_id IS NULL THEN
+    RAISE EXCEPTION 'TEST (n.1) FAILED: INSERT with actor_id=NULL returned no id — trigger blocked the row unexpectedly';
+  END IF;
+
+  -- (n.2) Verify chain is intact after the null-actor insert.
+  PERFORM _rls_test_impersonate(v_admin);
+
+  SELECT v.status, v.first_broken_id, v.total_rows
+    INTO v_status, v_broken_id, v_total_rows
+    FROM public.verify_admin_audit_chain() AS v;
+
+  PERFORM _rls_test_reset_role();
+
+  IF v_status <> 'ok' THEN
+    RAISE EXCEPTION 'TEST (n.2) FAILED: verify_admin_audit_chain returned status=%, first_broken_id=%, total_rows=% after null-actor insert',
+      v_status, v_broken_id, v_total_rows;
+  END IF;
+
+  IF v_broken_id IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST (n.2) FAILED: first_broken_id = % after null-actor insert, expected NULL', v_broken_id;
+  END IF;
+
+  RAISE NOTICE 'TEST (n) PASS: null actor_id INSERT succeeds + chain verifies ok after null-actor row (% rows inspected)', v_total_rows;
+END;
+$$;
+
+ROLLBACK;
 
 -- ---------------------------------------------------------------------------
 -- All tests passed
