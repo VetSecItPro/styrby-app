@@ -49,10 +49,14 @@ vi.mock('@styrby/shared/billing', async (importOriginal) => {
 
 // ── Supabase mock chain ───────────────────────────────────────────────────────
 
+// WHY separate mockUpsertSelectFn: the route calls .upsert(...).select('event_id')
+// for Polar webhook dedup. The chained .select() requires the upsert mock to
+// return an object with a select method, not a plain resolved value.
+const mockUpsertSelectFn = vi.fn();
 const mockSelect  = vi.fn().mockReturnThis();
 const mockEq      = vi.fn().mockReturnThis();
 const mockSingle  = vi.fn();
-const mockUpsert  = vi.fn().mockResolvedValue({ data: null, error: null });
+const mockUpsert  = vi.fn();
 const mockUpdate  = vi.fn().mockReturnThis();
 const mockInsert  = vi.fn().mockResolvedValue({ data: null, error: null });
 
@@ -154,7 +158,33 @@ function subscriptionEvent(
 
 describe('POST /api/webhooks/polar — manual override honor flow', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    // WHY resetAllMocks not clearAllMocks: clearAllMocks clears call counts but
+    // leaves mockReturnValueOnce queues intact. If a test sets a Once override
+    // on mockUpsert, subsequent tests consume it unexpectedly. resetAllMocks
+    // wipes the queue so every test starts from the defaults below.
+    vi.resetAllMocks();
+
+    // Re-establish mockFrom return value after reset wipes it.
+    mockFrom.mockReturnValue({
+      select:  mockSelect,
+      eq:      mockEq,
+      single:  mockSingle,
+      upsert:  mockUpsert,
+      update:  mockUpdate,
+      insert:  mockInsert,
+    });
+
+    // Re-establish chainable mocks wiped by resetAllMocks.
+    mockSelect.mockReturnThis();
+    mockEq.mockReturnThis();
+    mockUpdate.mockReturnThis();
+
+    // Default upsert: the dedup SELECT chain resolves as "new event" (non-empty RETURNING).
+    mockUpsertSelectFn.mockResolvedValue({ data: [{ event_id: 'evt_default_new' }], error: null });
+    mockUpsert.mockReturnValue({ select: mockUpsertSelectFn });
+
+    // Default insert resolves cleanly.
+    mockInsert.mockResolvedValue({ data: null, error: null });
 
     // Inject required env vars for product resolution and signature.
     vi.stubEnv('POLAR_WEBHOOK_SECRET',          WEBHOOK_SECRET);
@@ -167,7 +197,6 @@ describe('POST /api/webhooks/polar — manual override honor flow', () => {
     vi.mocked(headers).mockImplementation(async () => new Headers() as unknown as Awaited<ReturnType<typeof headers>>);
 
     // Default DB responses.
-    mockEq.mockReturnThis();
     mockSingle.mockResolvedValue({
       data:  { id: 'user-uuid-integration' },
       error: null,
@@ -256,10 +285,11 @@ describe('POST /api/webhooks/polar — manual override honor flow', () => {
     const body = await response.json();
     expect(body).toEqual({ received: true });
 
-    // The upsert must NOT have been called — the override is still active.
-    // WHY: upsert would overwrite the admin-set tier. The honour logic must
-    // intercept before the subscription upsert.
-    expect(mockUpsert).not.toHaveBeenCalled();
+    // WHY exactly 1 upsert call: the dedup check runs first (call #1 to
+    // polar_webhook_events). The honour logic then intercepts before the
+    // subscription upsert, so the subscriptions upsert (call #2) never runs.
+    // Only the dedup upsert fires — the admin-set tier is preserved. SOC 2 CC6.1.
+    expect(mockUpsert).toHaveBeenCalledTimes(1);
 
     // WHY structured log check: the webhook must emit a structured JSON log
     // so ops can trace "why didn't the tier change?" from Sentry/Datadog
@@ -359,8 +389,10 @@ describe('POST /api/webhooks/polar — manual override honor flow', () => {
     // shouldHonorManualOverride is called for the second delivery too.
     expect(mockShouldHonorManualOverride).toHaveBeenCalledOnce();
 
-    // Normal upsert path is followed (subscription updated).
-    expect(mockUpsert).toHaveBeenCalledOnce();
+    // WHY 2 upsert calls: dedup upsert (polar_webhook_events, call #1) runs
+    // first, then the subscription upsert (subscriptions table, call #2) runs
+    // because the dedup returned a non-empty RETURNING row (new event).
+    expect(mockUpsert).toHaveBeenCalledTimes(2);
   });
 
   // --------------------------------------------------------------------------
