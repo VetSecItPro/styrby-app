@@ -206,21 +206,59 @@ export default function RequestAccessSuccessPage() {
               </p>
             )}
 
-            {/* User-facing approval link */}
-            <div className="rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3">
-              <p className="mb-1 text-xs font-medium text-zinc-400">
-                User approval link
-              </p>
-              <p className="break-all font-mono text-xs text-zinc-300" data-testid="approval-link">
-                {typeof window !== 'undefined'
-                  ? `${window.location.origin}/api/support-access/${grantId ?? ''}/approve?token=${rawToken}`
-                  : `/api/support-access/${grantId ?? ''}/approve?token=${rawToken}`}
-              </p>
-              <p className="mt-1 text-xs text-zinc-500">
-                Share this link with the user or include it in the support reply.
-                It expires when the grant expires.
-              </p>
-            </div>
+            {/* User-facing approval link
+                WHY this URL requires NO token in the query string:
+                  - The user must be authenticated via their own session cookie.
+                  - RLS on support_access_grants enforces ownership — a logged-in
+                    user can only see grants that belong to them.
+                  - The grantId in the URL is already persisted in the DB; the page
+                    reads it via RLS-protected SELECT, not via a query-param token.
+                  - Embedding rawToken in the URL was removed because:
+                    (a) /api/support-access/[grantId]/approve does not exist and
+                        would produce a broken link for the admin,
+                    (b) GDPR Art. 7 forbids query-param auto-approval (no affirmative
+                        POST action), and
+                    (c) exposing the token in the DOM extends the blast radius beyond
+                        the short-lived non-HttpOnly cookie.
+                  SOC2 CC6.1 / OWASP A01:2021 / GDPR Art. 7. */}
+            {grantId && (
+              <div className="rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3">
+                <p className="mb-1 text-xs font-medium text-zinc-400">
+                  User approval link
+                </p>
+                <p
+                  className="break-all font-mono text-xs text-zinc-300"
+                  data-testid="approval-link"
+                >
+                  {typeof window !== 'undefined'
+                    ? `${window.location.origin}/support/access/${grantId}`
+                    : `/support/access/${grantId}`}
+                </p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const origin =
+                      typeof window !== 'undefined' ? window.location.origin : '';
+                    try {
+                      await navigator.clipboard.writeText(
+                        `${origin}/support/access/${grantId}`,
+                      );
+                    } catch {
+                      // Clipboard API may be denied — fail silently.
+                    }
+                  }}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+                  data-testid="copy-approval-link-button"
+                >
+                  <Copy className="h-3 w-3" />
+                  Copy link
+                </button>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Share this link with the user via the ticket reply form. The user
+                  must be signed in to approve - no token is embedded in the URL.
+                </p>
+              </div>
+            )}
           </div>
         ) : (
           /* Fallback when cookie is gone (reload / expired) */

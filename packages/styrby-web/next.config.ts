@@ -261,11 +261,30 @@ const nextConfig: NextConfig = {
         // WHY: CDN caching authenticated pages is a critical data-leakage risk.
         // private prevents CDN storage; no-cache forces revalidation with the
         // origin on every request; no-store disallows any intermediate storage.
+        // must-revalidate ensures HTTP/1.1 proxies also skip stale serving.
         source: '/dashboard/:path*',
         headers: [
           {
             key: 'Cache-Control',
-            value: 'private, no-cache, no-store',
+            value: 'private, no-cache, no-store, must-revalidate',
+          },
+        ],
+      },
+      {
+        // Support access pages: never cache — authenticated user approval flow
+        // WHY: /support/access/[grantId] renders per-user grant approval state.
+        // Any CDN or browser cache storing this page could expose one user's
+        // grant to another user on a shared device or after session rotation.
+        // private, no-cache, no-store, must-revalidate matches the dashboard
+        // policy and satisfies OWASP A01:2021 / SOC2 CC6.1 / GDPR Art. 5(1)(f).
+        // NOTE: This next.config.ts rule is the authoritative source of the
+        // no-store guarantee — NOT middleware. The admin session page comment
+        // previously stated middleware was responsible; that was inaccurate.
+        source: '/support/access/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'private, no-cache, no-store, must-revalidate',
           },
         ],
       },

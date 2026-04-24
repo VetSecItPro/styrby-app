@@ -717,10 +717,12 @@ export default async function AdminSupportSessionPage({
   void headerStore; // headers() is called above; Next.js does not expose set() on this API
   // Note: In Next.js App Router Server Components, response headers are set via
   // the generateMetadata export or the special `headers` export. For no-store, we
-  // rely on the middleware adding Cache-Control: no-store to /dashboard/admin/* routes.
+  // rely on next.config.ts headers rules which apply Cache-Control:
+  //   private, no-cache, no-store, must-revalidate
+  // to both /dashboard/:path* and /support/access/:path* at the CDN/proxy layer.
+  // That config is the authoritative guarantee — NOT middleware.
   // Additional belt-and-suspenders could be added via a route.ts Response wrapper,
   // but Server Component pages cannot directly set response headers in Next.js 15.
-  // The admin middleware (Phase 4.1) should enforce no-store on the admin segment.
 
   // ── Step 13: Render ────────────────────────────────────────────────────────
   return (
