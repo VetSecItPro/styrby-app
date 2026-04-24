@@ -29,15 +29,7 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { createAdminClient } from '@/lib/supabase/server';
 import { IssueRefundForm, type SubscriptionOption } from '@/components/admin/IssueRefundForm';
-
-// ─── Placeholder action ───────────────────────────────────────────────────────
-// WHY import from here (T5 will provide the real action):
-// The real `issueRefundAction` lives in a T5 actions.ts. For T4 scope we
-// accept an `action` prop from the server component. Because Next.js requires
-// a server action to be an actual `'use server'` function, we provide a
-// stub typed to the same AdminActionResult contract that T5 will replace.
-// The form page binds the real action once T5 ships.
-import type { AdminActionResult } from '@/app/dashboard/admin/users/[userId]/actions';
+import { issueRefundAction } from '../actions';
 
 // ─── UUID validation ──────────────────────────────────────────────────────────
 
@@ -47,27 +39,6 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 interface RefundPageProps {
   params: Promise<{ userId: string }>;
-}
-
-// ─── Stub action (T5 will replace) ───────────────────────────────────────────
-
-/**
- * Placeholder server action stub — replaced by the real issueRefundAction in T5.
- *
- * WHY needed: Next.js 15 requires form actions to be 'use server' functions bound
- * at the server component level. T4 scope excludes server actions (T5). This stub
- * satisfies the TypeScript prop contract so the form renders; T5 binds the real
- * action.
- *
- * WHY not 'use server' pragma on stub: the pragma would make this importable as
- * a server action, creating confusion. The real action will live in billing/actions.ts
- * with the pragma. This stub is only used during T4 development.
- */
-async function _stubRefundAction(_formData: FormData): Promise<AdminActionResult> {
-  'use server';
-  // T5 replaces this — intentional no-op that surfaces a clear error if called
-  // before T5 ships (e.g. in staging with T4 merged but T5 pending).
-  return { ok: false, error: 'Refund action not yet implemented (T5 pending)' };
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -120,8 +91,8 @@ export default async function IssueRefundPage({ params }: RefundPageProps) {
 
   // WHY bind userId server-side (Fix B pattern from Phase 4.1):
   // The bound action receives the unforgeable URL userId as its first argument.
-  // FormData.targetUserId is cross-checked against this bound value in T5 actions.ts.
-  const boundAction = _stubRefundAction.bind(null);
+  // FormData.targetUserId is cross-checked against this bound value in billing/actions.ts.
+  const boundAction = issueRefundAction.bind(null, userId);
 
   return (
     <div className="mx-auto max-w-lg">

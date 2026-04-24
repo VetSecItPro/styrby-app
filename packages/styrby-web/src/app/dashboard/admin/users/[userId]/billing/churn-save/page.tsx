@@ -32,7 +32,7 @@ import Link from 'next/link';
 import { ArrowLeft, AlertTriangle } from 'lucide-react';
 import { createAdminClient } from '@/lib/supabase/server';
 import { SendChurnSaveOfferForm } from '@/components/admin/SendChurnSaveOfferForm';
-import type { AdminActionResult } from '@/app/dashboard/admin/users/[userId]/actions';
+import { sendChurnSaveOfferAction } from '../actions';
 
 // ─── UUID validation ──────────────────────────────────────────────────────────
 
@@ -42,18 +42,6 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 interface ChurnSavePageProps {
   params: Promise<{ userId: string }>;
-}
-
-// ─── Stub action (T5 will replace) ───────────────────────────────────────────
-
-/**
- * Placeholder server action stub — replaced by the real sendChurnSaveOfferAction in T5.
- *
- * WHY 'use server' pragma: Next.js 15 requires form actions to be server functions.
- */
-async function _stubChurnSaveAction(_formData: FormData): Promise<AdminActionResult> {
-  'use server';
-  return { ok: false, error: 'Churn-save action not yet implemented (T5 pending)' };
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -108,9 +96,11 @@ export default async function SendChurnSaveOfferPage({ params }: ChurnSavePagePr
     .eq('user_id', userId)
     .maybeSingle();
 
-  // WHY bind pattern (Fix B from Phase 4.1): T5 real action will be bound with
-  // userId. Stub uses .bind(null) as placeholder.
-  const boundAction = _stubChurnSaveAction.bind(null);
+  // WHY bind pattern (Fix B from Phase 4.1): the action is bound with userId so
+  // it receives the unforgeable URL param as its first argument. The action's
+  // URL cross-check rejects any FormData.targetUserId that differs from this
+  // bound value, preventing mutations on the wrong user. billing/actions.ts.
+  const boundAction = sendChurnSaveOfferAction.bind(null, userId);
 
   return (
     <div className="mx-auto max-w-lg">

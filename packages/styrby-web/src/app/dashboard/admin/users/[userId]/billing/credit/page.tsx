@@ -21,7 +21,7 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { createAdminClient } from '@/lib/supabase/server';
 import { IssueCreditForm } from '@/components/admin/IssueCreditForm';
-import type { AdminActionResult } from '@/app/dashboard/admin/users/[userId]/actions';
+import { issueCreditAction } from '../actions';
 
 // ─── UUID validation ──────────────────────────────────────────────────────────
 
@@ -31,19 +31,6 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 interface CreditPageProps {
   params: Promise<{ userId: string }>;
-}
-
-// ─── Stub action (T5 will replace) ───────────────────────────────────────────
-
-/**
- * Placeholder server action stub — replaced by the real issueCreditAction in T5.
- *
- * WHY 'use server' pragma: Next.js 15 requires form actions to be server functions.
- * This stub satisfies the type contract; T5 binds the real admin_issue_credit RPC.
- */
-async function _stubCreditAction(_formData: FormData): Promise<AdminActionResult> {
-  'use server';
-  return { ok: false, error: 'Credit action not yet implemented (T5 pending)' };
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -75,10 +62,11 @@ export default async function IssueCreditPage({ params }: CreditPageProps) {
     notFound();
   }
 
-  // WHY bind pattern (Fix B from Phase 4.1): the real T5 action will be bound
-  // with userId so the action receives the unforgeable URL param. The stub here
-  // uses .bind(null) as a placeholder; T5 replaces with .bind(null, userId).
-  const boundAction = _stubCreditAction.bind(null);
+  // WHY bind pattern (Fix B from Phase 4.1): the action is bound with userId so
+  // it receives the unforgeable URL param as its first argument. The action's
+  // URL cross-check rejects any FormData.targetUserId that differs from this
+  // bound value, preventing mutations on the wrong user. billing/actions.ts.
+  const boundAction = issueCreditAction.bind(null, userId);
 
   return (
     <div className="mx-auto max-w-lg">
