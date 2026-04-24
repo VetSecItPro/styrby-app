@@ -560,12 +560,771 @@ $$;
 
 ROLLBACK;
 
+-- ===========================================================================
+-- T2 WRAPPER TESTS: Migration 049 (SECURITY DEFINER functions)
+-- ===========================================================================
+--
+-- Test blocks (f)–(k) exercise the four SECURITY DEFINER wrapper functions
+-- created in migration 049. They verify:
+--   (f) admin_request_support_access happy path — grant + audit rows created
+--   (g) admin_request_support_access rejects non-admin (42501)
+--   (h) admin_request_support_access rejects session not owned by p_user_id
+--   (i) user_approve_support_access happy path + rejects non-owner + rejects non-pending
+--   (j) user_revoke_support_access happy path + idempotent on terminal state
+--   (k) admin_consume_support_access happy path + access_count increments +
+--       auto-consumed at cap + rejects expired + rejects pending status
+--
+-- HARNESS NOTE:
+--   These tests call the SECURITY DEFINER wrappers directly via the postgres
+--   superuser role. The wrappers check auth.uid() via is_site_admin(); for admin
+--   wrapper tests we use _rls_test_impersonate to set the JWT claim, then call
+--   the function. For user wrapper tests we impersonate the resource owner.
+--   "service_role" GRANT restriction is enforced at the Postgres privilege layer
+--   and cannot be easily tested in a pgTAP-style script without switching roles.
+--   These tests validate the SECURITY DEFINER logic (authorization, state machine,
+--   audit rows) — the GRANT restriction is validated by CI integration tests.
+--
+-- SOC2 CC7.2: Every mutation path audited; wrapper tests validate this invariant.
+-- OWASP A01:2021: Authorization checks inside every function tested for both
+--   happy path and rejection cases.
+-- ===========================================================================
+
+
+-- ---------------------------------------------------------------------------
+-- Test (f): admin_request_support_access happy path
+--   - Creates a pending grant row
+--   - Writes an audit row with action='support_access_requested'
+-- ---------------------------------------------------------------------------
+-- WHY: Validates the primary create path — the most exercised code path in
+-- normal support workflows. Confirms grant row is properly seeded and audit
+-- trail is written atomically.
+--
+-- SOC2 CC7.2: Grant creation and audit write are atomic.
+-- GDPR Article 7: Pending status confirms user has not yet been asked to consent.
+-- ---------------------------------------------------------------------------
+BEGIN;
+
+DO $$
+DECLARE
+  v_owner      UUID := gen_random_uuid();
+  v_admin      UUID := gen_random_uuid();
+  v_ticket_id  UUID := gen_random_uuid();
+  v_session_id UUID := gen_random_uuid();
+  v_token_hash text := lpad(md5(random()::text), 64, '0');
+  v_grant_id   bigint;
+  v_grant_row  public.support_access_grants%ROWTYPE;
+  v_audit_count int;
+BEGIN
+  PERFORM _rls_test_reset_role();
+
+  -- Seed auth users
+  INSERT INTO auth.users (id, email, encrypted_password, created_at, updated_at)
+    VALUES
+      (v_owner, 'owner_f@rls.test', 'x', now(), now()),
+      (v_admin, 'admin_f@rls.test', 'x', now(), now());
+
+  -- Make v_admin a site admin
+  INSERT INTO public.site_admins (user_id, added_by, note)
+    VALUES (v_admin, v_admin, 'rls test seed f');
+
+  -- Seed support ticket owned by v_owner
+  INSERT INTO public.support_tickets (id, user_id, type, subject, description)
+    VALUES (v_ticket_id, v_owner, 'bug', 'Test ticket F', 'Test description for test f');
+
+  -- Seed session owned by v_owner
+  PERFORM _rls_seed_session(v_session_id, v_owner);
+
+  -- Impersonate admin to call the wrapper (auth.uid() = v_admin → is_site_admin = true)
+  PERFORM _rls_test_impersonate(v_admin);
+
+  v_grant_id := public.admin_request_support_access(
+    v_ticket_id, v_owner, v_session_id,
+    'Investigating crash in session',
+    24,
+    v_token_hash
+  );
+
+  PERFORM _rls_test_reset_role();
+
+  -- Verify grant row created with correct initial state
+  SELECT * INTO v_grant_row
+    FROM public.support_access_grants
+    WHERE id = v_grant_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'TEST (f) FAILED: grant row not found after admin_request_support_access';
+  END IF;
+
+  IF v_grant_row.status <> 'pending' THEN
+    RAISE EXCEPTION 'TEST (f) FAILED: expected status=pending, got %', v_grant_row.status;
+  END IF;
+
+  IF v_grant_row.user_id <> v_owner THEN
+    RAISE EXCEPTION 'TEST (f) FAILED: grant.user_id mismatch';
+  END IF;
+
+  IF v_grant_row.session_id <> v_session_id THEN
+    RAISE EXCEPTION 'TEST (f) FAILED: grant.session_id mismatch';
+  END IF;
+
+  IF v_grant_row.token_hash <> v_token_hash THEN
+    RAISE EXCEPTION 'TEST (f) FAILED: token_hash not stored correctly';
+  END IF;
+
+  IF v_grant_row.granted_by <> v_admin THEN
+    RAISE EXCEPTION 'TEST (f) FAILED: granted_by should be admin UUID';
+  END IF;
+
+  -- Verify audit row was written in the same transaction
+  SELECT count(*) INTO v_audit_count
+    FROM public.admin_audit_log
+    WHERE action = 'support_access_requested'
+      AND target_user_id = v_owner
+      AND actor_id = v_admin
+      AND after_json->>'grant_id' = v_grant_id::text;
+
+  IF v_audit_count <> 1 THEN
+    RAISE EXCEPTION 'TEST (f) FAILED: expected 1 audit row for support_access_requested, got %', v_audit_count;
+  END IF;
+
+  RAISE NOTICE 'TEST (f) PASS: admin_request_support_access creates grant + audit row atomically';
+END;
+$$;
+
+ROLLBACK;
+BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- Test (g): admin_request_support_access rejects non-admin (42501)
+-- ---------------------------------------------------------------------------
+-- WHY: Confirms that a regular authenticated user who is NOT in site_admins
+-- cannot create support access grants. is_site_admin(auth.uid()) must return
+-- false and the function must raise 42501.
+--
+-- SOC2 CC6.1: Least privilege — only site admins may request support access.
+-- OWASP A01:2021: Broken access control mitigated at function body level
+--   (defense-in-depth over the service_role GRANT restriction).
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_owner      UUID := gen_random_uuid();
+  v_non_admin  UUID := gen_random_uuid();
+  v_ticket_id  UUID := gen_random_uuid();
+  v_session_id UUID := gen_random_uuid();
+  v_token_hash text := lpad(md5(random()::text), 64, '0');
+  v_caught     BOOLEAN := FALSE;
+  v_exc_code   text;
+BEGIN
+  PERFORM _rls_test_reset_role();
+
+  INSERT INTO auth.users (id, email, encrypted_password, created_at, updated_at)
+    VALUES
+      (v_owner,     'owner_g@rls.test',     'x', now(), now()),
+      (v_non_admin, 'non_admin_g@rls.test', 'x', now(), now());
+
+  -- Deliberately do NOT add v_non_admin to site_admins
+
+  INSERT INTO public.support_tickets (id, user_id, type, subject, description)
+    VALUES (v_ticket_id, v_owner, 'bug', 'Test ticket G', 'Test description for test g');
+
+  PERFORM _rls_seed_session(v_session_id, v_owner);
+
+  -- Impersonate non-admin
+  PERFORM _rls_test_impersonate(v_non_admin);
+
+  BEGIN
+    PERFORM public.admin_request_support_access(
+      v_ticket_id, v_owner, v_session_id,
+      'Attempting unauthorized access',
+      24,
+      v_token_hash
+    );
+  EXCEPTION WHEN OTHERS THEN
+    v_caught := TRUE;
+    GET STACKED DIAGNOSTICS v_exc_code = RETURNED_SQLSTATE;
+  END;
+
+  PERFORM _rls_test_reset_role();
+
+  IF NOT v_caught THEN
+    RAISE EXCEPTION 'TEST (g) FAILED: non-admin call was NOT rejected';
+  END IF;
+  IF v_exc_code <> '42501' THEN
+    RAISE EXCEPTION 'TEST (g) FAILED: expected SQLSTATE 42501, got %', v_exc_code;
+  END IF;
+
+  -- Verify no grant row was created (transaction is clean)
+  PERFORM 1 FROM public.support_access_grants WHERE token_hash = v_token_hash;
+  IF FOUND THEN
+    RAISE EXCEPTION 'TEST (g) FAILED: grant row was created despite non-admin rejection';
+  END IF;
+
+  RAISE NOTICE 'TEST (g) PASS: admin_request_support_access rejects non-admin with 42501';
+END;
+$$;
+
+ROLLBACK;
+BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- Test (h): admin_request_support_access rejects session not owned by p_user_id
+-- ---------------------------------------------------------------------------
+-- WHY: Validates the session ownership check. An admin passing a session that
+-- belongs to user A but claiming it belongs to user B must be rejected (22023).
+-- This prevents admins from gaining access to sessions by misattributing ownership.
+--
+-- SOC2 CC6.3: Per-session scoping — the session must belong to the declared user.
+-- GDPR Article 25: Data minimisation — access scoped to a specific user's session.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_owner_real UUID := gen_random_uuid();
+  v_owner_wrong UUID := gen_random_uuid();
+  v_admin      UUID := gen_random_uuid();
+  v_ticket_id  UUID := gen_random_uuid();
+  v_session_id UUID := gen_random_uuid();
+  v_token_hash text := lpad(md5(random()::text), 64, '0');
+  v_caught     BOOLEAN := FALSE;
+  v_exc_code   text;
+BEGIN
+  PERFORM _rls_test_reset_role();
+
+  INSERT INTO auth.users (id, email, encrypted_password, created_at, updated_at)
+    VALUES
+      (v_owner_real,  'owner_real_h@rls.test',  'x', now(), now()),
+      (v_owner_wrong, 'owner_wrong_h@rls.test', 'x', now(), now()),
+      (v_admin,       'admin_h@rls.test',        'x', now(), now());
+
+  INSERT INTO public.site_admins (user_id, added_by, note)
+    VALUES (v_admin, v_admin, 'rls test seed h');
+
+  -- Ticket belongs to v_owner_wrong
+  INSERT INTO public.support_tickets (id, user_id, type, subject, description)
+    VALUES (v_ticket_id, v_owner_wrong, 'bug', 'Test ticket H', 'Test description for test h');
+
+  -- Session belongs to v_owner_real (not v_owner_wrong)
+  PERFORM _rls_seed_session(v_session_id, v_owner_real);
+
+  -- Admin tries to create grant claiming session belongs to v_owner_wrong (lie)
+  PERFORM _rls_test_impersonate(v_admin);
+
+  BEGIN
+    PERFORM public.admin_request_support_access(
+      v_ticket_id, v_owner_wrong, v_session_id,
+      'Testing session ownership mismatch',
+      24,
+      v_token_hash
+    );
+  EXCEPTION WHEN OTHERS THEN
+    v_caught := TRUE;
+    GET STACKED DIAGNOSTICS v_exc_code = RETURNED_SQLSTATE;
+  END;
+
+  PERFORM _rls_test_reset_role();
+
+  IF NOT v_caught THEN
+    RAISE EXCEPTION 'TEST (h) FAILED: mismatched session ownership was NOT rejected';
+  END IF;
+  IF v_exc_code <> '22023' THEN
+    RAISE EXCEPTION 'TEST (h) FAILED: expected SQLSTATE 22023, got %', v_exc_code;
+  END IF;
+
+  RAISE NOTICE 'TEST (h) PASS: admin_request_support_access rejects session not owned by p_user_id';
+END;
+$$;
+
+ROLLBACK;
+BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- Test (i): user_approve_support_access — happy path + non-owner rejection +
+--           rejection of already-consumed grant (state machine enforcement)
+-- ---------------------------------------------------------------------------
+-- WHY: Three sub-tests in one block share setup to keep the test suite efficient.
+--   i.1: owner approves own pending grant → status='approved', audit written
+--   i.2: non-owner trying to approve → 42501
+--   i.3: approving an already-consumed grant → 22023 (state machine forward-only)
+--
+-- SOC2 CC9.2: User approval flow verified end-to-end.
+-- GDPR Article 7: Affirmative consent via approval; audit trail created.
+-- SOC2 CC7.2: State machine prevents back-edges (consumed → pending bypass).
+-- OWASP A01:2021: Non-owner cannot approve another user's grant.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_owner      UUID := gen_random_uuid();
+  v_bystander  UUID := gen_random_uuid();
+  v_admin      UUID := gen_random_uuid();
+  v_ticket_id  UUID := gen_random_uuid();
+  v_session_id UUID := gen_random_uuid();
+  v_grant_id   bigint;
+  v_consumed_grant_id bigint;
+  v_audit_id   bigint;
+  v_grant_row  public.support_access_grants%ROWTYPE;
+  v_caught     BOOLEAN;
+  v_exc_code   text;
+BEGIN
+  PERFORM _rls_test_reset_role();
+
+  INSERT INTO auth.users (id, email, encrypted_password, created_at, updated_at)
+    VALUES
+      (v_owner,     'owner_i@rls.test',     'x', now(), now()),
+      (v_bystander, 'bystander_i@rls.test', 'x', now(), now()),
+      (v_admin,     'admin_i@rls.test',     'x', now(), now());
+
+  INSERT INTO public.site_admins (user_id, added_by, note)
+    VALUES (v_admin, v_admin, 'rls test seed i');
+
+  INSERT INTO public.support_tickets (id, user_id, type, subject, description)
+    VALUES (v_ticket_id, v_owner, 'bug', 'Test ticket I', 'Test description for test i');
+
+  PERFORM _rls_seed_session(v_session_id, v_owner);
+
+  -- Seed a pending grant via admin wrapper
+  PERFORM _rls_test_impersonate(v_admin);
+  v_grant_id := public.admin_request_support_access(
+    v_ticket_id, v_owner, v_session_id,
+    'Testing approve happy path',
+    24,
+    lpad(md5(random()::text), 64, '0')
+  );
+
+  -- Seed a consumed grant directly (test harness — bypasses RLS) for sub-test i.3
+  INSERT INTO public.support_access_grants
+    (ticket_id, user_id, session_id, granted_by, token_hash, status, expires_at, reason)
+  VALUES
+    (v_ticket_id, v_owner, v_session_id, v_admin,
+     lpad(md5(random()::text), 64, '0'),
+     'consumed',
+     now() + interval '24 hours',
+     'test i.3 consumed grant')
+  RETURNING id INTO v_consumed_grant_id;
+
+  PERFORM _rls_test_reset_role();
+
+  -- ── i.1: Owner approves own pending grant ──────────────────────────────────
+  PERFORM _rls_test_impersonate(v_owner);
+  v_audit_id := public.user_approve_support_access(v_grant_id);
+  PERFORM _rls_test_reset_role();
+
+  -- Verify status transition
+  SELECT * INTO v_grant_row
+    FROM public.support_access_grants WHERE id = v_grant_id;
+
+  IF v_grant_row.status <> 'approved' THEN
+    RAISE EXCEPTION 'TEST (i.1) FAILED: expected status=approved, got %', v_grant_row.status;
+  END IF;
+
+  IF v_grant_row.approved_at IS NULL THEN
+    RAISE EXCEPTION 'TEST (i.1) FAILED: approved_at not set after approval';
+  END IF;
+
+  IF v_audit_id IS NULL OR v_audit_id = 0 THEN
+    RAISE EXCEPTION 'TEST (i.1) FAILED: audit_id not returned from user_approve_support_access';
+  END IF;
+
+  RAISE NOTICE 'TEST (i.1) PASS: owner can approve own pending grant';
+
+  -- ── i.2: Bystander (non-owner) cannot approve owner's grant ──────────────
+  -- Seed another pending grant for this sub-test
+  PERFORM _rls_test_impersonate(v_admin);
+  DECLARE
+    v_grant_id_2 bigint;
+  BEGIN
+    v_grant_id_2 := public.admin_request_support_access(
+      v_ticket_id, v_owner, v_session_id,
+      'Testing non-owner approval rejection',
+      24,
+      lpad(md5(random()::text), 64, '0')
+    );
+    PERFORM _rls_test_reset_role();
+
+    v_caught := FALSE;
+    v_exc_code := NULL;
+    PERFORM _rls_test_impersonate(v_bystander);
+    BEGIN
+      PERFORM public.user_approve_support_access(v_grant_id_2);
+    EXCEPTION WHEN OTHERS THEN
+      v_caught := TRUE;
+      GET STACKED DIAGNOSTICS v_exc_code = RETURNED_SQLSTATE;
+    END;
+    PERFORM _rls_test_reset_role();
+
+    IF NOT v_caught THEN
+      RAISE EXCEPTION 'TEST (i.2) FAILED: non-owner approval was NOT rejected';
+    END IF;
+    IF v_exc_code NOT IN ('42501', '22023') THEN
+      RAISE EXCEPTION 'TEST (i.2) FAILED: expected 42501 or 22023, got %', v_exc_code;
+    END IF;
+  END;
+
+  RAISE NOTICE 'TEST (i.2) PASS: non-owner cannot approve another user''s grant';
+
+  -- ── i.3: Cannot approve an already-consumed grant (state machine) ─────────
+  v_caught := FALSE;
+  v_exc_code := NULL;
+  PERFORM _rls_test_impersonate(v_owner);
+  BEGIN
+    PERFORM public.user_approve_support_access(v_consumed_grant_id);
+  EXCEPTION WHEN OTHERS THEN
+    v_caught := TRUE;
+    GET STACKED DIAGNOSTICS v_exc_code = RETURNED_SQLSTATE;
+  END;
+  PERFORM _rls_test_reset_role();
+
+  IF NOT v_caught THEN
+    RAISE EXCEPTION 'TEST (i.3) FAILED: approving consumed grant was NOT rejected';
+  END IF;
+  IF v_exc_code <> '22023' THEN
+    RAISE EXCEPTION 'TEST (i.3) FAILED: expected SQLSTATE 22023, got %', v_exc_code;
+  END IF;
+
+  RAISE NOTICE 'TEST (i.3) PASS: user_approve_support_access rejects consumed grant (forward-only state machine)';
+  RAISE NOTICE 'TEST (i) PASS: all user_approve_support_access sub-tests passed';
+END;
+$$;
+
+ROLLBACK;
+BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- Test (j): user_revoke_support_access — happy path + idempotent on terminal state
+-- ---------------------------------------------------------------------------
+-- WHY: Two sub-tests:
+--   j.1: Owner revokes an approved grant → status='revoked', audit written,
+--        revoked_at set
+--   j.2: Revoking an already-revoked grant → returns 0 (idempotent no-op),
+--        no new audit row written (prevents audit log inflation from retries)
+--
+-- SOC2 CC9.2: Revocation takes effect immediately at DB layer.
+-- GDPR Article 7: Consent revocable at any time; no restriction on timing.
+-- SOC2 CC7.2: Revocation audited; idempotent path writes no duplicate audit row.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_owner      UUID := gen_random_uuid();
+  v_admin      UUID := gen_random_uuid();
+  v_ticket_id  UUID := gen_random_uuid();
+  v_session_id UUID := gen_random_uuid();
+  v_grant_id   bigint;
+  v_grant_id_2 bigint;
+  v_result     bigint;
+  v_grant_row  public.support_access_grants%ROWTYPE;
+  v_audit_count_before int;
+  v_audit_count_after  int;
+BEGIN
+  PERFORM _rls_test_reset_role();
+
+  INSERT INTO auth.users (id, email, encrypted_password, created_at, updated_at)
+    VALUES
+      (v_owner, 'owner_j@rls.test', 'x', now(), now()),
+      (v_admin, 'admin_j@rls.test', 'x', now(), now());
+
+  INSERT INTO public.site_admins (user_id, added_by, note)
+    VALUES (v_admin, v_admin, 'rls test seed j');
+
+  INSERT INTO public.support_tickets (id, user_id, type, subject, description)
+    VALUES (v_ticket_id, v_owner, 'bug', 'Test ticket J', 'Test description for test j');
+
+  PERFORM _rls_seed_session(v_session_id, v_owner);
+
+  -- Seed an approved grant for j.1
+  PERFORM _rls_test_impersonate(v_admin);
+  v_grant_id := public.admin_request_support_access(
+    v_ticket_id, v_owner, v_session_id,
+    'Testing revoke happy path',
+    24,
+    lpad(md5(random()::text), 64, '0')
+  );
+  PERFORM _rls_test_reset_role();
+
+  -- Approve it first so it's in 'approved' state
+  PERFORM _rls_test_impersonate(v_owner);
+  PERFORM public.user_approve_support_access(v_grant_id);
+  PERFORM _rls_test_reset_role();
+
+  -- ── j.1: Owner revokes an approved grant ──────────────────────────────────
+  PERFORM _rls_test_impersonate(v_owner);
+  v_result := public.user_revoke_support_access(v_grant_id);
+  PERFORM _rls_test_reset_role();
+
+  SELECT * INTO v_grant_row FROM public.support_access_grants WHERE id = v_grant_id;
+
+  IF v_grant_row.status <> 'revoked' THEN
+    RAISE EXCEPTION 'TEST (j.1) FAILED: expected status=revoked, got %', v_grant_row.status;
+  END IF;
+
+  IF v_grant_row.revoked_at IS NULL THEN
+    RAISE EXCEPTION 'TEST (j.1) FAILED: revoked_at not set after revocation';
+  END IF;
+
+  IF v_result = 0 THEN
+    RAISE EXCEPTION 'TEST (j.1) FAILED: expected non-zero audit_id, got 0 (idempotent path taken on non-terminal grant)';
+  END IF;
+
+  RAISE NOTICE 'TEST (j.1) PASS: owner can revoke approved grant; status=revoked, revoked_at set';
+
+  -- ── j.2: Revoking already-revoked grant is idempotent (returns 0) ─────────
+  -- Count audit rows before idempotent call
+  SELECT count(*) INTO v_audit_count_before
+    FROM public.admin_audit_log
+    WHERE action = 'support_access_revoked'
+      AND after_json->>'grant_id' = v_grant_id::text;
+
+  PERFORM _rls_test_impersonate(v_owner);
+  v_result := public.user_revoke_support_access(v_grant_id);
+  PERFORM _rls_test_reset_role();
+
+  IF v_result <> 0 THEN
+    RAISE EXCEPTION 'TEST (j.2) FAILED: expected return 0 for idempotent revoke, got %', v_result;
+  END IF;
+
+  -- Verify no new audit row was written
+  SELECT count(*) INTO v_audit_count_after
+    FROM public.admin_audit_log
+    WHERE action = 'support_access_revoked'
+      AND after_json->>'grant_id' = v_grant_id::text;
+
+  IF v_audit_count_after <> v_audit_count_before THEN
+    RAISE EXCEPTION 'TEST (j.2) FAILED: idempotent revoke wrote % new audit row(s), expected 0',
+      v_audit_count_after - v_audit_count_before;
+  END IF;
+
+  RAISE NOTICE 'TEST (j.2) PASS: revoking already-revoked grant is idempotent (returns 0, no new audit row)';
+  RAISE NOTICE 'TEST (j) PASS: all user_revoke_support_access sub-tests passed';
+END;
+$$;
+
+ROLLBACK;
+BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- Test (k): admin_consume_support_access — happy path + access_count increment +
+--           auto-consumed at max_access_count cap + rejects expired + rejects pending
+-- ---------------------------------------------------------------------------
+-- WHY: Five sub-tests:
+--   k.1: Admin consumes approved grant → returns (grant_id, session_id, scope),
+--        access_count increments by 1, audit row written
+--   k.2: At max_access_count cap → status transitions to 'consumed', access_count
+--        equals max_access_count (atomic CAS verified)
+--   k.3: Attempting consume after status='consumed' → 22023 (access denied)
+--   k.4: Attempting consume on expired grant → 22023 (access denied)
+--   k.5: Attempting consume on pending grant → 22023 (must be approved first)
+--
+-- SOC2 A1.1: Blast-radius cap (max_access_count) enforced atomically.
+-- SOC2 CC7.2: Every consume audited; access_count CAS verified.
+-- OWASP A04:2021: TOCTOU on view count prevented by FOR UPDATE CAS.
+-- OWASP A02:2021: Same error (22023) for all rejection modes — oracle attack mitigation.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_owner        UUID := gen_random_uuid();
+  v_admin        UUID := gen_random_uuid();
+  v_ticket_id    UUID := gen_random_uuid();
+  v_session_id   UUID := gen_random_uuid();
+  v_token_hash_1 text := lpad(md5(random()::text), 64, '0');
+  v_token_hash_2 text := lpad(md5(random()::text), 64, '0');
+  v_token_hash_3 text := lpad(md5(random()::text), 64, '0');
+  v_token_hash_4 text := lpad(md5(random()::text), 64, '0');
+  v_grant_id_1   bigint;
+  v_grant_id_cap bigint;
+  v_grant_row    public.support_access_grants%ROWTYPE;
+  v_ret_grant_id bigint;
+  v_ret_session  uuid;
+  v_ret_scope    jsonb;
+  v_audit_count  int;
+  v_caught       BOOLEAN;
+  v_exc_code     text;
+BEGIN
+  PERFORM _rls_test_reset_role();
+
+  INSERT INTO auth.users (id, email, encrypted_password, created_at, updated_at)
+    VALUES
+      (v_owner, 'owner_k@rls.test', 'x', now(), now()),
+      (v_admin, 'admin_k@rls.test', 'x', now(), now());
+
+  INSERT INTO public.site_admins (user_id, added_by, note)
+    VALUES (v_admin, v_admin, 'rls test seed k');
+
+  INSERT INTO public.support_tickets (id, user_id, type, subject, description)
+    VALUES (v_ticket_id, v_owner, 'bug', 'Test ticket K', 'Test description for test k');
+
+  PERFORM _rls_seed_session(v_session_id, v_owner);
+
+  -- Seed grant #1 (for k.1: normal happy path consume)
+  PERFORM _rls_test_impersonate(v_admin);
+  v_grant_id_1 := public.admin_request_support_access(
+    v_ticket_id, v_owner, v_session_id,
+    'Testing consume happy path',
+    24,
+    v_token_hash_1
+  );
+  PERFORM _rls_test_reset_role();
+
+  -- Approve grant #1
+  PERFORM _rls_test_impersonate(v_owner);
+  PERFORM public.user_approve_support_access(v_grant_id_1);
+  PERFORM _rls_test_reset_role();
+
+  -- ── k.1: Happy path consume — access_count increments, returns session data ─
+  PERFORM _rls_test_impersonate(v_admin);
+  SELECT r.grant_id, r.session_id, r.scope
+    INTO v_ret_grant_id, v_ret_session, v_ret_scope
+    FROM public.admin_consume_support_access(v_token_hash_1) r;
+  PERFORM _rls_test_reset_role();
+
+  IF v_ret_grant_id <> v_grant_id_1 THEN
+    RAISE EXCEPTION 'TEST (k.1) FAILED: returned grant_id % does not match expected %', v_ret_grant_id, v_grant_id_1;
+  END IF;
+
+  IF v_ret_session <> v_session_id THEN
+    RAISE EXCEPTION 'TEST (k.1) FAILED: returned session_id does not match expected session_id';
+  END IF;
+
+  IF v_ret_scope IS NULL THEN
+    RAISE EXCEPTION 'TEST (k.1) FAILED: returned scope is NULL';
+  END IF;
+
+  -- Verify access_count incremented
+  SELECT * INTO v_grant_row FROM public.support_access_grants WHERE id = v_grant_id_1;
+  IF v_grant_row.access_count <> 1 THEN
+    RAISE EXCEPTION 'TEST (k.1) FAILED: expected access_count=1, got %', v_grant_row.access_count;
+  END IF;
+
+  -- Verify audit row written
+  SELECT count(*) INTO v_audit_count
+    FROM public.admin_audit_log
+    WHERE action = 'support_access_used'
+      AND after_json->>'grant_id' = v_grant_id_1::text;
+  IF v_audit_count <> 1 THEN
+    RAISE EXCEPTION 'TEST (k.1) FAILED: expected 1 audit row for support_access_used, got %', v_audit_count;
+  END IF;
+
+  RAISE NOTICE 'TEST (k.1) PASS: admin_consume_support_access returns correct data and increments access_count';
+
+  -- ── k.2: At cap → status transitions to consumed ──────────────────────────
+  -- Seed a grant with max_access_count=1 directly (test harness) so one consume
+  -- exhausts it immediately.
+  INSERT INTO public.support_access_grants
+    (ticket_id, user_id, session_id, granted_by, token_hash, status, expires_at,
+     max_access_count, access_count, reason)
+  VALUES
+    (v_ticket_id, v_owner, v_session_id, v_admin,
+     v_token_hash_2,
+     'approved',
+     now() + interval '24 hours',
+     1, 0,  -- max_access_count=1 so first consume exhausts it
+     'test k.2 cap grant')
+  RETURNING id INTO v_grant_id_cap;
+
+  PERFORM _rls_test_impersonate(v_admin);
+  PERFORM public.admin_consume_support_access(v_token_hash_2);
+  PERFORM _rls_test_reset_role();
+
+  SELECT * INTO v_grant_row FROM public.support_access_grants WHERE id = v_grant_id_cap;
+  IF v_grant_row.status <> 'consumed' THEN
+    RAISE EXCEPTION 'TEST (k.2) FAILED: expected status=consumed after hitting cap, got %', v_grant_row.status;
+  END IF;
+  IF v_grant_row.access_count <> 1 THEN
+    RAISE EXCEPTION 'TEST (k.2) FAILED: expected access_count=1 after hitting cap, got %', v_grant_row.access_count;
+  END IF;
+
+  RAISE NOTICE 'TEST (k.2) PASS: grant auto-transitions to consumed when access_count reaches max_access_count';
+
+  -- ── k.3: Consuming a consumed grant → 22023 ───────────────────────────────
+  v_caught := FALSE;
+  v_exc_code := NULL;
+  PERFORM _rls_test_impersonate(v_admin);
+  BEGIN
+    PERFORM public.admin_consume_support_access(v_token_hash_2);
+  EXCEPTION WHEN OTHERS THEN
+    v_caught := TRUE;
+    GET STACKED DIAGNOSTICS v_exc_code = RETURNED_SQLSTATE;
+  END;
+  PERFORM _rls_test_reset_role();
+
+  IF NOT v_caught THEN
+    RAISE EXCEPTION 'TEST (k.3) FAILED: consuming consumed grant was NOT rejected';
+  END IF;
+  IF v_exc_code <> '22023' THEN
+    RAISE EXCEPTION 'TEST (k.3) FAILED: expected SQLSTATE 22023, got %', v_exc_code;
+  END IF;
+
+  RAISE NOTICE 'TEST (k.3) PASS: consuming consumed grant raises 22023';
+
+  -- ── k.4: Consuming an expired grant → 22023 ───────────────────────────────
+  -- Seed a grant with expires_at in the past
+  INSERT INTO public.support_access_grants
+    (ticket_id, user_id, session_id, granted_by, token_hash, status, expires_at, reason)
+  VALUES
+    (v_ticket_id, v_owner, v_session_id, v_admin,
+     v_token_hash_3,
+     'approved',
+     now() - interval '1 hour',  -- already expired
+     'test k.4 expired grant');
+
+  v_caught := FALSE;
+  v_exc_code := NULL;
+  PERFORM _rls_test_impersonate(v_admin);
+  BEGIN
+    PERFORM public.admin_consume_support_access(v_token_hash_3);
+  EXCEPTION WHEN OTHERS THEN
+    v_caught := TRUE;
+    GET STACKED DIAGNOSTICS v_exc_code = RETURNED_SQLSTATE;
+  END;
+  PERFORM _rls_test_reset_role();
+
+  IF NOT v_caught THEN
+    RAISE EXCEPTION 'TEST (k.4) FAILED: consuming expired grant was NOT rejected';
+  END IF;
+  IF v_exc_code <> '22023' THEN
+    RAISE EXCEPTION 'TEST (k.4) FAILED: expected SQLSTATE 22023, got %', v_exc_code;
+  END IF;
+
+  RAISE NOTICE 'TEST (k.4) PASS: consuming expired grant raises 22023';
+
+  -- ── k.5: Consuming a pending grant (not yet approved) → 22023 ─────────────
+  -- Seed a pending grant (not approved)
+  INSERT INTO public.support_access_grants
+    (ticket_id, user_id, session_id, granted_by, token_hash, status, expires_at, reason)
+  VALUES
+    (v_ticket_id, v_owner, v_session_id, v_admin,
+     v_token_hash_4,
+     'pending',
+     now() + interval '24 hours',
+     'test k.5 pending grant');
+
+  v_caught := FALSE;
+  v_exc_code := NULL;
+  PERFORM _rls_test_impersonate(v_admin);
+  BEGIN
+    PERFORM public.admin_consume_support_access(v_token_hash_4);
+  EXCEPTION WHEN OTHERS THEN
+    v_caught := TRUE;
+    GET STACKED DIAGNOSTICS v_exc_code = RETURNED_SQLSTATE;
+  END;
+  PERFORM _rls_test_reset_role();
+
+  IF NOT v_caught THEN
+    RAISE EXCEPTION 'TEST (k.5) FAILED: consuming pending grant was NOT rejected';
+  END IF;
+  IF v_exc_code <> '22023' THEN
+    RAISE EXCEPTION 'TEST (k.5) FAILED: expected SQLSTATE 22023, got %', v_exc_code;
+  END IF;
+
+  RAISE NOTICE 'TEST (k.5) PASS: consuming pending grant raises 22023 (must be approved first)';
+  RAISE NOTICE 'TEST (k) PASS: all admin_consume_support_access sub-tests passed';
+END;
+$$;
+
+ROLLBACK;
+
 -- ---------------------------------------------------------------------------
 -- All tests passed
 -- ---------------------------------------------------------------------------
 DO $$
 BEGIN
-  RAISE NOTICE '=== ALL SUPPORT_ACCESS_GRANTS RLS TESTS PASSED ===';
+  RAISE NOTICE '=== ALL SUPPORT_ACCESS_GRANTS RLS TESTS PASSED (T1 + T2) ===';
 END;
 $$;
 
