@@ -408,7 +408,20 @@ export async function middleware(request: NextRequest) {
   }
 
   // Protected routes that require authentication
-  const protectedPaths = ['/dashboard'];
+  //
+  // WHY /support/access/* is here (Phase 4.2 T5):
+  //   The user-facing grant approval page at /support/access/[grantId] requires
+  //   authentication so the Server Component can call createClient() with the
+  //   user's session and RLS on support_access_grants enforces ownership
+  //   (grant.user_id = auth.uid()). Unauthenticated visitors are redirected to
+  //   /login?redirect=/support/access/[grantId] so the magic link flow works:
+  //   user clicks email link → lands here → auth redirect → magic link login →
+  //   next= redirect brings them back to the grant page.
+  //
+  //   We do NOT gate this at the admin level: any logged-in user may visit their
+  //   own grant URLs. The RLS policy (support_access_grants_select_self) and the
+  //   SECURITY DEFINER RPCs enforce per-user ownership at the DB layer.
+  const protectedPaths = ['/dashboard', '/support/access'];
   const isProtectedPath = protectedPaths.some((path) =>
     request.nextUrl.pathname.startsWith(path)
   );
