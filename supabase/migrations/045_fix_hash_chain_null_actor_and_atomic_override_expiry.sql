@@ -1,4 +1,111 @@
 -- ============================================================================
+-- Migration 045: PRE-FLIGHT — Fix audit_trigger_fn column name (details → metadata)
+-- ============================================================================
+-- WHY this fix is bundled here (not in a separate later migration):
+--   This migration's test fixture (DO $$ block at the end of §3) triggers
+--   audit_trigger_fn via an auth.users INSERT → handle_new_user() cascade →
+--   profiles INSERT → audit_trigger_fn(). The function body in migration 018
+--   references a non-existent column "details" (the actual column is "metadata"
+--   per migration 001 line 755) — a latent bug since migration 018. We MUST
+--   fix it before our test block runs, otherwise the profiles INSERT triggers
+--   SQLSTATE 42703 ("column details does not exist"), which aborts the DO $$
+--   block and rolls back the entire migration.
+--
+--   Migration 047 (which was originally planned to carry this fix) has been
+--   deleted because it ran AFTER 045 where the broken trigger was already
+--   crashing. The fix must land here, as the very first statement.
+--
+-- SOC2 CC7.2: audit_trigger_fn must insert correctly into audit_log. A broken
+--   function body means audit records are silently dropped on every tracked
+--   table mutation — a monitoring gap that violates CC7.2.
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION audit_trigger_fn()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user_id  UUID;
+  v_record   JSONB;
+BEGIN
+  -- WHY: For DELETE we log OLD (the row that was removed). For INSERT and
+  -- UPDATE we log NEW (the row as it now exists). This mirrors standard
+  -- audit-log practice: the "what happened" record is the new/removed state.
+  IF TG_OP = 'DELETE' THEN
+    v_record := to_jsonb(OLD);
+    -- WHY: Attempt to extract user_id from the deleted row so the audit entry
+    -- is owner-attributed. Falls back to NULL if the column doesn't exist on
+    -- this table (handled by the EXCEPTION block below).
+    BEGIN
+      v_user_id := (OLD).user_id;
+    EXCEPTION WHEN others THEN
+      v_user_id := NULL;
+    END;
+  ELSE
+    v_record := to_jsonb(NEW);
+    BEGIN
+      v_user_id := (NEW).user_id;
+    EXCEPTION WHEN others THEN
+      v_user_id := NULL;
+    END;
+  END IF;
+
+  INSERT INTO audit_log (
+    user_id,
+    action,
+    resource_type,
+    resource_id,
+    metadata,            -- FIX: was "details" (non-existent column); actual column is "metadata" (migration 001 line 755)
+    created_at
+  ) VALUES (
+    -- WHY: Prefer the row's own user_id. If the trigger fires from a
+    -- service-role operation (e.g. billing webhook updating subscriptions),
+    -- the row's user_id is the affected user - correct for audit attribution.
+    -- Falls back to auth.uid() if the row has no user_id column.
+    COALESCE(v_user_id, auth.uid()),
+
+    -- WHY: Cast TG_OP to audit_action via text. TG_OP values are 'INSERT',
+    -- 'UPDATE', 'DELETE' - which must exist in the audit_action enum.
+    -- If they don't, this cast will raise a DB error and the migration should
+    -- be updated to add the missing enum values first.
+    TG_OP::text::audit_action,
+
+    -- WHY: TG_TABLE_NAME is the unqualified table name (e.g. 'profiles').
+    -- This is consistent with how other audit_log entries record resource_type.
+    TG_TABLE_NAME,
+
+    -- WHY: Try to extract 'id' as the resource identifier. Most Styrby tables
+    -- use UUID primary key named 'id'. EXCEPTION block handles tables without it.
+    CASE
+      WHEN TG_OP = 'DELETE' THEN (v_record->>'id')::text
+      ELSE (v_record->>'id')::text
+    END,
+
+    -- WHY: Store the full row snapshot as JSONB in metadata. This lets auditors
+    -- reconstruct the exact state at the time of mutation, including which
+    -- fields changed on UPDATE. No PII scrubbing here - audit_log is a
+    -- high-privilege table with service-role access only (SOC2 requirement).
+    jsonb_build_object(
+      'operation', TG_OP,
+      'table',     TG_TABLE_NAME,
+      'record',    v_record,
+      'control_ref', 'SOC2 CC7.2'
+    ),
+
+    now()
+  );
+
+  -- WHY: For AFTER triggers, the return value is ignored for non-STATEMENT
+  -- triggers. We return NULL here as the canonical form; returning NEW or OLD
+  -- would also work but NULL makes the intent explicit: we are observing, not
+  -- modifying the row.
+  RETURN NULL;
+END;
+$$;
+
+-- ============================================================================
 -- Migration 045: Two CRITICAL fixes from T8 quality review.
 --
 -- CRITICAL 1 (C1) - Hash chain crash on null actor_id

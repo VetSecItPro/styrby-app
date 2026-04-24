@@ -23,7 +23,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseCursor } from '../page';
+// WHY import from ../utils (not ../page): Next.js 15 restricts page file exports
+// to a specific allowlist (default, generateMetadata, etc.). parseCursor was moved
+// to utils.ts so it can be exported for tests without triggering a build error.
+import { parseCursor } from '../utils';
 
 describe('parseCursor', () => {
   // ── Null / missing input ────────────────────────────────────────────────────

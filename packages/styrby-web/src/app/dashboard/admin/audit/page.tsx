@@ -47,6 +47,7 @@ import { resolveAdminEmails } from '@/lib/admin/resolveEmails';
 import { AuditLogTable } from '@/components/admin/AuditLogTable';
 import { VerifyChainButton } from '@/components/admin/VerifyChainButton';
 import { ScrollText } from 'lucide-react';
+import { parseCursor } from './utils';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -67,31 +68,11 @@ interface AuditPageProps {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Parses and validates a cursor string from the URL query param.
- *
- * WHY parseInt with NaN guard: the cursor is user-controlled (URL param).
- * A non-numeric or negative value must not reach the DB query.
- * Returning null falls back to "first page" behavior (no WHERE clause).
- *
- * @param raw - Raw cursor string from ?cursor= param
- * @returns Positive integer cursor, or null if absent/invalid
- */
-// Invalid or out-of-range cursors (NaN, negative, huge integers beyond the
-// bigserial PK range) silently collapse to "first page" since the WHERE clause
-// `id < :cursor` naturally returns the most recent rows for any cursor larger
-// than the max id. No error leak.
-// WHY exported: allows unit tests to exercise this function directly without
-// rendering the full async Server Component. Tests verify URL-injection safety.
-export function parseCursor(raw: string | undefined): number | null {
-  if (!raw) return null;
-  const n = parseInt(raw, 10);
-  // WHY isNaN + positive check: negative IDs are invalid in a serial PK table.
-  // Coercing negative cursors to null is safe (returns first page) rather than
-  // passing them to the DB where they'd return 0 rows (confusing).
-  if (isNaN(n) || n <= 0) return null;
-  return n;
-}
+// parseCursor is defined in ./utils (not here) so that it can be exported for
+// unit tests without violating Next.js 15's page export constraints.
+// WHY: Next.js 15 only allows a specific set of named exports from page files
+// (default, generateMetadata, generateStaticParams, etc.). Any other named export
+// causes a build error: "'X' is not a valid Page export field."
 
 // ─── Page Component ───────────────────────────────────────────────────────────
 
