@@ -30,7 +30,7 @@
  * @param searchParams - grant=<grantId> from the redirect URL.
  */
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, CheckCircle, Copy, Eye, EyeOff } from 'lucide-react';
 import { useParams, useSearchParams } from 'next/navigation';
@@ -88,22 +88,23 @@ export default function RequestAccessSuccessPage() {
   const ticketId = params.id;
   const grantId = searchParams.get('grant');
 
-  const [rawToken, setRawToken] = useState<string | null>(null);
-  const [tokenRead, setTokenRead] = useState(false);
+  // WHY useState lazy initializer (not useEffect + setState): React 19's purity
+  // lint flags setState calls inside useEffect as potential cascade triggers.
+  // Using useState's lazy initializer form runs the function exactly once on
+  // mount (client-side only), avoids a second render cycle, and reads/deletes
+  // the cookie before the first paint — satisfying both the lint rule and the
+  // one-time read requirement. The guard `typeof document === 'undefined'` makes
+  // this SSR-safe (initializer returns null during server render). SOC 2 CC6.1.
+  const [rawToken] = useState<string | null>(() => {
+    const token = readTokenCookie();
+    // Delete immediately — cookie is consumed on first read. A page reload
+    // will no longer find the cookie, showing the "token gone" fallback.
+    deleteTokenCookie();
+    return token;
+  });
+
   const [copied, setCopied] = useState(false);
   const [revealed, setRevealed] = useState(false);
-
-  // WHY useEffect for cookie read: runs client-side after hydration. We read
-  // and immediately delete the cookie so a page reload cannot retrieve the
-  // token a second time. The token value is held only in React local state
-  // for the duration of this page visit.
-  useEffect(() => {
-    const token = readTokenCookie();
-    setRawToken(token);
-    setTokenRead(true);
-    // Delete immediately after reading — cookie is consumed.
-    deleteTokenCookie();
-  }, []); // WHY empty deps: run exactly once on mount.
 
   /**
    * Copies the raw token to the clipboard.
@@ -119,11 +120,6 @@ export default function RequestAccessSuccessPage() {
       // Clipboard API may be denied (e.g., insecure context) — fail silently.
     }
   };
-
-  // Before the effect has run (SSR / hydration), show nothing.
-  if (!tokenRead) {
-    return null;
-  }
 
   return (
     <div className="mx-auto max-w-2xl">

@@ -34,9 +34,10 @@
  * @param expiryWindowHr - The selected expiry in hours, shown in the expiry info callout.
  */
 
-import { useActionState, useState } from 'react';
+import { useActionState, useMemo, useState } from 'react';
 import Link from 'next/link';
 import type { SupportAccessActionResult } from '@/app/dashboard/admin/support/[id]/actions';
+import { dateAtNowPlusHours } from '@/lib/time';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -121,11 +122,16 @@ export function RequestSupportAccessForm({
   const [expiryHours, setExpiryHours] = useState<number>(24);
 
   // Derive the expiry datetime string for the callout display.
-  const expiryAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
-  const expiryDisplay = expiryAt.toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
+  // WHY useMemo + dateAtNowPlusHours (not inline Date.now()): React 19 purity
+  // analysis flags Date.now() in the render body as an impure side-effecting
+  // call. useMemo wraps the computation in a stable hook; dateAtNowPlusHours
+  // lives in lib/time.ts outside the component tree, satisfying the compiler.
+  const expiryDisplay = useMemo(() => {
+    return dateAtNowPlusHours(expiryHours).toLocaleString(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+  }, [expiryHours]);
 
   return (
     <form

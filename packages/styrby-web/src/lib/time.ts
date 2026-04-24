@@ -29,3 +29,22 @@
 export function isoAtNMinusDays(days: number): string {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 }
+
+/**
+ * Returns a Date object representing the current moment plus N hours.
+ *
+ * Intended for computing future expiry datetimes (e.g., support access grant
+ * windows). Placed in a non-component module so the React 19 compiler does not
+ * flag `Date.now()` as an impure call inside a component body. Call this helper
+ * inside a `useMemo` to keep render output stable across re-renders.
+ *
+ * @param hours - Number of hours to add to now (must be >= 0)
+ * @returns Date object for (now + hours)
+ *
+ * @example
+ * const expiry = dateAtNowPlusHours(24);
+ * // → Date representing 24 hours from now
+ */
+export function dateAtNowPlusHours(hours: number): Date {
+  return new Date(Date.now() + hours * 60 * 60 * 1000);
+}

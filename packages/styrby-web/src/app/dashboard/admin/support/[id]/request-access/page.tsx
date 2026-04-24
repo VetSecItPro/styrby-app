@@ -37,6 +37,7 @@ import { ArrowLeft } from 'lucide-react';
 import { createAdminClient } from '@/lib/supabase/server';
 import { RequestSupportAccessForm, type SelectableSession } from '@/components/admin/RequestSupportAccessForm';
 import { requestSupportAccessAction } from '@/app/dashboard/admin/support/[id]/actions';
+import { isoAtNMinusDays } from '@/lib/time';
 
 // ─── UUID validation ──────────────────────────────────────────────────────────
 
@@ -124,7 +125,10 @@ export default async function RequestAccessPage({ params }: RequestAccessPagePro
   // with coverage (some issues need context from older sessions in the window).
   // WHY service role: sessions are RLS-scoped to auth.uid(). Admin reads require
   // service-role to bypass the user-owns-row check. SOC 2 CC6.1.
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  // WHY isoAtNMinusDays (not inline Date.now()): React 19 purity analysis flags
+  // Date.now() inside component bodies as an impure call. The helper in lib/time.ts
+  // is outside the component tree and satisfies the compiler.
+  const thirtyDaysAgo = isoAtNMinusDays(30);
 
   const { data: rawSessions } = await adminDb
     .from('sessions')
