@@ -33,6 +33,7 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/server';
+import { isoAtNMinusDays } from '@/lib/time';
 import { Terminal, AlertTriangle } from 'lucide-react';
 import { fmtDateTime, fmtCost } from './formatters';
 
@@ -76,7 +77,10 @@ export async function SessionsCard({ userId }: { userId: string }) {
   // client allows the admin to read any user's sessions. SOC 2 CC6.1.
   const adminDb = createAdminClient();
 
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  // WHY isoAtNMinusDays: Date.now() inside a component body is flagged as
+  // impure by the React 19 compiler. The helper lives in lib/time.ts (a plain
+  // module function), which is outside the compiler's purity analysis scope.
+  const thirtyDaysAgo = isoAtNMinusDays(30);
 
   // WHY Promise.all: count + recent list are independent queries. Running them
   // in parallel halves the latency vs. sequential awaits.
