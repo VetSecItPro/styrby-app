@@ -193,7 +193,7 @@ async function RefundsSection({ userId }: { userId: string }) {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
           Recent Refunds
         </h2>
-        <span className="ml-auto text-xs text-zinc-600">Last 10</span>
+        <span className="ml-auto text-xs text-zinc-400">Last 10</span>
       </div>
       {refunds && refunds.length > 0 ? (
         <div className="overflow-x-auto">
