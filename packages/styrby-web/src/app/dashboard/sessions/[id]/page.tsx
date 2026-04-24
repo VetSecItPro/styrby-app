@@ -20,6 +20,7 @@ import { SessionExportButton } from './session-export-button';
 import { SessionShareButton } from './session-share-button';
 import { SessionCheckpoints } from './session-checkpoints';
 import { SessionBookmarkButton } from './session-bookmark-button';
+import { SessionPrivacyBanner } from '@/components/support/SessionPrivacyBanner';
 
 /**
  * Props for the session detail page.
@@ -248,6 +249,12 @@ export default async function SessionPage({ params }: SessionPageProps) {
           />
         </div>
       </header>
+
+      {/* Support access notice banner — shown when an active support_access_grant
+          exists for this session (SOC 2 CC7.2 — user visibility of active access).
+          Returns null if no active grant, so there is no layout shift for the
+          common case (no support access). */}
+      <SessionPrivacyBanner sessionId={id} />
 
       {/* Main content: chat/replay view + sidebar panels */}
       <div className="flex flex-1 min-h-0">

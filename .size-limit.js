@@ -136,7 +136,13 @@ module.exports = [
     // (all gated behind /dashboard/admin middleware, so the overhead only affects
     // the admin's experience, not public marketing traffic). Matches the observed
     // "5-10 KB per phase" pattern from prior phases (Phase 3.3 was 745 → 750).
-    limit: '760 KB',
+    //
+    // Phase 4.2 ratchet 760 → 770: support access tooling added 5.5 KB of client
+    // weight via RequestSupportAccessForm + GrantApprovalCard + SessionPrivacyBanner
+    // + the one-time cookie flash success page. All gated behind /dashboard/admin
+    // middleware or user-authenticated /support/access routes — no impact on
+    // public marketing traffic.
+    limit: '770 KB',
     gzip: true,
     // WHY import is omitted: We cannot import directly from Next.js output —
     // these are already-built assets. size-limit stats the files and sums sizes.
