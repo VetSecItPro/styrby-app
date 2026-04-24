@@ -183,16 +183,17 @@ describe('issueRefundAction — end-to-end refund flow', () => {
     // WHY check divisibility: the key's timestamp is rounded to minute boundaries.
     expect(Number(keyParts[3]) % 60_000).toBe(0);
 
-    // 1c. RPC called with Polar IDs from the helper response.
+    // 1c. RPC called with Polar IDs from the helper response (8 params — migration 051 signature).
     expect(mockRpc).toHaveBeenCalledOnce();
     expect(mockRpc).toHaveBeenCalledWith('admin_issue_refund', {
-      p_target_user_id:    TARGET_UUID,
-      p_amount_cents:      1000,
-      p_currency:          'usd',
-      p_reason:            expect.stringContaining('customer_request'),
-      p_polar_event_id:    'evt_abc123',
-      p_polar_refund_id:   'ref_abc123',
-      p_polar_response_json: fakePolarResponse,
+      p_target_user_id:         TARGET_UUID,
+      p_amount_cents:           1000,
+      p_currency:               'usd',
+      p_reason:                 expect.stringContaining('customer_request'),
+      p_polar_event_id:         'evt_abc123',
+      p_polar_refund_id:        'ref_abc123',
+      p_polar_subscription_id:  SUB_ID,
+      p_polar_response_json:    fakePolarResponse,
     });
 
     // 1d. Redirect to billing dossier, no Sentry fires.

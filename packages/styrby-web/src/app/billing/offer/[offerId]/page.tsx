@@ -108,7 +108,12 @@ function formatDate(iso: string): string {
 function deriveOfferStatus(offer: OfferRow): 'active' | 'accepted' | 'revoked' | 'expired' {
   if (offer.accepted_at !== null) return 'accepted';
   if (offer.revoked_at !== null) return 'revoked';
-  if (new Date(offer.expires_at) < new Date()) return 'expired';
+  // WHY <=: migration 051 admin_accept_churn_save_offer uses `expires_at <= now()`
+  // (line 785) to gate acceptance, and migration 050 status comment documents
+  // `expired: expires_at <= now()`. Using `<` here would show an offer as "active"
+  // for the exact millisecond it expires, letting the user attempt to accept it
+  // while the DB would reject with 22023. Match RPC semantics exactly.
+  if (new Date(offer.expires_at) <= new Date()) return 'expired';
   return 'active';
 }
 

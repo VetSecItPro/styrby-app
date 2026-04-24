@@ -31,11 +31,6 @@
  *   The user-scoped client forwards the admin's session cookie so auth.uid()
  *   resolves correctly. SOC 2 CC6.1, CC7.2.
  *
- * WHY createAdminClient() for email fetch in issueRefundAction:
- *   profiles rows are RLS-scoped to auth.uid(). Service role is required to read
- *   any user's profile. The email is used only for Polar audit metadata — it is
- *   never returned to the client. SOC 2 CC6.1.
- *
  * SOC 2 CC6.1: admin operations require authenticated site admin session.
  * SOC 2 CC7.2: every mutation is audited in admin_audit_log via the RPC.
  */
@@ -43,7 +38,7 @@
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { createAdminClient, createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/supabase/server';
 import * as Sentry from '@sentry/nextjs';
 import { createPolarRefund, RefundError } from '@/lib/billing/polar-refund';
 import type { AdminActionResult } from '@/app/dashboard/admin/users/[userId]/actions';
@@ -355,6 +350,12 @@ export async function issueRefundAction(
     p_reason: reason,
     p_polar_event_id: polarEventId,
     p_polar_refund_id: polarRefundId,
+    // WHY pass subscription_id explicitly: migration 051 admin_issue_refund has
+    // 8 params — the 7th is p_polar_subscription_id. Nullable in DB so a
+    // one-time charge that has no subscription passes null here. GDPR/SOC2:
+    // linking the audit row to the Polar subscription enables charge reconciliation
+    // and supports chargeback investigations without querying Polar directly.
+    p_polar_subscription_id: subscription_id,
     p_polar_response_json: polarResponseJson,
   });
 

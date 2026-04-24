@@ -190,7 +190,7 @@ describe('issueRefundAction', () => {
       }),
     );
 
-    // RPC called with correct params
+    // RPC called with correct params (8 params — migration 051 signature)
     expect(mockRpc).toHaveBeenCalledWith('admin_issue_refund', {
       p_target_user_id: VALID_UUID,
       p_amount_cents: 4900,
@@ -198,6 +198,7 @@ describe('issueRefundAction', () => {
       p_reason: 'Customer requested refund for billing error',
       p_polar_event_id: DEFAULT_POLAR_RESPONSE.eventId,
       p_polar_refund_id: DEFAULT_POLAR_RESPONSE.refundId,
+      p_polar_subscription_id: 'sub_polar_123',
       p_polar_response_json: DEFAULT_POLAR_RESPONSE.rawResponse,
     });
 
