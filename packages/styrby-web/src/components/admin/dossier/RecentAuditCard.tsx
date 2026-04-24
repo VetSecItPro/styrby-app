@@ -34,6 +34,7 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/server';
+import { resolveAdminEmails } from '@/lib/admin/resolveEmails';
 import { ScrollText, AlertTriangle } from 'lucide-react';
 import { fmtDateTime } from './formatters';
 
@@ -112,18 +113,11 @@ export async function RecentAuditCard({ userId }: { userId: string }) {
   let actorEmailMap: Record<string, string> = {};
 
   if (uniqueActorIds.length > 0) {
-    const { data: actorProfiles, error: actorError } = await adminDb
-      .from('profiles')
-      .select('id, email')
-      .in('id', uniqueActorIds as string[]);
-
-    if (actorError) {
-      console.error('[RecentAuditCard] actor profile lookup error:', actorError.message);
-    }
-
-    actorEmailMap = Object.fromEntries(
-      (actorProfiles ?? []).map((p) => [p.id, p.email ?? p.id])
-    );
+    // WHY resolveAdminEmails (not profiles.email): profiles has no email column.
+    // auth.users.email is only reachable via the resolve_user_emails_for_admin
+    // SECURITY DEFINER RPC (migration 043). See lib/admin/resolveEmails.ts.
+    // SOC 2 CC6.1: service-role + admin gate inside the function.
+    actorEmailMap = await resolveAdminEmails(adminDb, uniqueActorIds as string[]);
   }
 
   // Step 3: Compose display rows.

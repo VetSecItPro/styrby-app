@@ -77,6 +77,7 @@ const mockLimit = vi.fn();
 // WHY chainable mock: Supabase client uses a builder pattern.
 // Each method in the chain returns `this`-like object so the next method
 // can be called on it. We satisfy this with `mockReturnThis()`.
+const mockRpc = vi.fn();
 const mockAdminChain = {
   from: vi.fn().mockReturnThis(),
   select: vi.fn().mockReturnThis(),
@@ -88,6 +89,10 @@ const mockAdminChain = {
   maybeSingle: mockMaybeSingle,
   range: mockRange,
   limit: mockLimit,
+  // WHY rpc: resolveAdminEmails uses .rpc('resolve_user_emails_for_admin')
+  // instead of .from('profiles').select('email').in() — profiles has no
+  // email column. Migration 043. SOC 2 CC7.2.
+  rpc: mockRpc,
 };
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -561,6 +566,9 @@ describe('RecentAuditCard', () => {
     mockAdminChain.eq.mockReturnThis();
     mockAdminChain.in.mockReturnThis();
     mockAdminChain.order.mockReturnThis();
+    // WHY default rpc mock: resolveAdminEmails calls rpc(); default to empty
+    // so tests that don't need email resolution don't crash.
+    mockRpc.mockResolvedValue({ data: [], error: null });
   });
 
   it('(error) renders error state when audit query returns an error', async () => {
@@ -592,10 +600,12 @@ describe('RecentAuditCard', () => {
       error: null,
     });
 
-    // Actor profiles query: ends with .in() call.
-    // WHY: After limit() resolves, the card issues a .from('profiles').select().in() query.
-    mockAdminChain.in.mockResolvedValueOnce({
-      data: [{ id: actorId, email: 'admin@example.com' }],
+    // Actor email resolution: now uses rpc('resolve_user_emails_for_admin').
+    // WHY: profiles has no email column. RecentAuditCard calls resolveAdminEmails
+    // which bridges to auth.users via the SECURITY DEFINER RPC (migration 043).
+    // SOC 2 CC7.2: audit actor identity must be resolvable.
+    mockRpc.mockResolvedValueOnce({
+      data: [{ user_id: actorId, email: 'admin@example.com' }],
       error: null,
     });
 
