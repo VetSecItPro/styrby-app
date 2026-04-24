@@ -143,7 +143,7 @@ export async function RecentAuditCard({ userId }: { userId: string }) {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
           Recent Admin Actions
         </h2>
-        <span className="ml-auto text-xs text-zinc-600">{displayRows.length} row{displayRows.length !== 1 ? 's' : ''}</span>
+        <span className="ml-auto text-xs text-zinc-400">{displayRows.length} row{displayRows.length !== 1 ? 's' : ''}</span>
       </div>
 
       {displayRows.length > 0 ? (
@@ -179,7 +179,7 @@ export async function RecentAuditCard({ userId }: { userId: string }) {
                 >
                   {row.reason || '—'}
                 </td>
-                <td className="py-2 text-zinc-600" title={row.created_at}>
+                <td className="py-2 text-zinc-400" title={row.created_at}>
                   {fmtDateTime(row.created_at)}
                 </td>
               </tr>

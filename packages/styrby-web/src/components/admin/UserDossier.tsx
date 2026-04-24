@@ -124,7 +124,7 @@ export function UserDossier({ userId, userEmail }: UserDossierProps) {
                     React escapes it — no XSS risk from dangerouslySetInnerHTML. */}
                 {userEmail}
               </h1>
-              <p className="mt-0.5 font-mono text-xs text-zinc-600">{userId}</p>
+              <p className="mt-0.5 font-mono text-xs text-zinc-400">{userId}</p>
             </div>
           </div>
 

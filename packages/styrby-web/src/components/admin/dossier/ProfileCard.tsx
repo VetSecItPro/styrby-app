@@ -197,7 +197,7 @@ export async function ProfileCard({ userId }: { userId: string }) {
       {/* Empty consent state */}
       {consentFlags.length === 0 && (
         <div className="mt-5 border-t border-zinc-800 pt-4">
-          <p className="text-xs text-zinc-600">No consent flags on record.</p>
+          <p className="text-xs text-zinc-400">No consent flags on record.</p>
         </div>
       )}
     </div>

@@ -115,7 +115,7 @@ export async function TeamsCard({ userId }: { userId: string }) {
       <div className="mb-4 flex items-center gap-2">
         <Users className="h-4 w-4 text-zinc-400" aria-hidden="true" />
         <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">Teams</h2>
-        <span className="ml-auto text-xs text-zinc-600">{memberships.length} team{memberships.length !== 1 ? 's' : ''}</span>
+        <span className="ml-auto text-xs text-zinc-400">{memberships.length} team{memberships.length !== 1 ? 's' : ''}</span>
       </div>
 
       {memberships.length > 0 ? (
