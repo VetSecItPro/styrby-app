@@ -289,6 +289,26 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        // Billing offer acceptance pages: never cache — authenticated user offer flow
+        // WHY: /billing/offer/[offerId] renders per-user churn-save offer state.
+        // Any CDN or browser cache storing this page could expose one user's
+        // offer (including their polar_discount_code) to another user on a shared
+        // device or after session rotation.
+        // private, no-cache, no-store, must-revalidate matches the dashboard and
+        // /support/access policy and satisfies OWASP A01:2021 / SOC2 CC6.1 /
+        // GDPR Art. 5(1)(f) (integrity and confidentiality).
+        // NOTE: This next.config.ts rule is the authoritative source of the
+        // no-store guarantee — NOT middleware. Phase 4.2 T5 established this
+        // pattern for /support/access/:path*; Phase 4.3 T6 follows it here.
+        source: '/billing/offer/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'private, no-cache, no-store, must-revalidate',
+          },
+        ],
+      },
+      {
         // FIX-066: Restrict CORS on API routes
         // WHY: Without explicit CORS headers, browsers may allow
         // cross-origin requests from any domain. Restricting to
