@@ -95,6 +95,11 @@ vi.mock('@/lib/support/token', () => ({
 // the resolved value in beforeEach after all consts are live (Fix P0 pattern).
 const mockRpc = vi.fn();
 
+// WHY mockFrom is needed: Fix 1 adds a server-side SELECT on support_tickets
+// to resolve p_user_id before the RPC call. Tests must mock the .from() chain
+// so the action can retrieve the ticket's user_id without a real DB connection.
+const mockFrom = vi.fn();
+
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(),
 }));
@@ -122,6 +127,8 @@ function makeFormData(entries: Record<string, string | null | undefined>): FormD
 const VALID_TICKET_ID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
 const VALID_SESSION_ID = 'b2c3d4e5-f6a7-8901-bcde-f12345678901';
 const VALID_GRANT_ID = '42';
+/** user_id returned by the server-side support_tickets SELECT (Fix 1). */
+const VALID_USER_ID = 'ccccdddd-eeee-ffff-aaaa-bbbbccccdddd';
 
 /** Minimal valid form data for happy-path tests. */
 function validFormData(overrides: Record<string, string> = {}): FormData {
@@ -138,8 +145,21 @@ function validFormData(overrides: Record<string, string> = {}): FormData {
 describe('requestSupportAccessAction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // WHY build the from() chain mock here: Fix 1 adds a server-side SELECT on
+    // support_tickets before the RPC to resolve p_user_id. The mock must return
+    // a fluent chain: .from().select().eq().maybeSingle() → { data: { user_id }, error: null }.
+    // Any table other than 'support_tickets' falls through to a permissive no-op chain.
+    const mockMaybeSingle = vi.fn().mockResolvedValue({
+      data: { user_id: VALID_USER_ID },
+      error: null,
+    });
+    const mockEq = vi.fn().mockReturnValue({ maybeSingle: mockMaybeSingle });
+    const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
+    mockFrom.mockReturnValue({ select: mockSelect });
+
     // WHY set here (not in factory): see Fix P0 note above.
-    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
+    (createClient as Mock).mockResolvedValue({ rpc: mockRpc, from: mockFrom });
     // Default happy-path RPC response.
     mockRpc.mockResolvedValue({ data: VALID_GRANT_ID, error: null });
   });
@@ -313,7 +333,13 @@ describe('requestSupportAccessAction', () => {
 
   // ── (c) Happy path ─────────────────────────────────────────────────────────
 
-  it('(c) calls RPC with correct args including IP, UA, token hash, and expiry', async () => {
+  it('(c) calls RPC with correct args including p_user_id (from ticket), token hash, and expiry — no p_ip / p_ua', async () => {
+    // WHY p_user_id (not p_ip / p_ua): migration 049 signature is
+    //   admin_request_support_access(p_ticket_id, p_user_id, p_session_id, p_reason,
+    //                                p_expires_in_hours, p_token_hash)
+    // p_ip and p_ua are NOT parameters. p_user_id is resolved server-side from the
+    // ticket row (not from FormData) to prevent a tampered form from targeting a
+    // different user. Fix 1 — RPC signature drift correction.
     const { requestSupportAccessAction } = await import('../actions');
 
     await expect(
@@ -322,13 +348,17 @@ describe('requestSupportAccessAction', () => {
 
     expect(mockRpc).toHaveBeenCalledWith('admin_request_support_access', {
       p_ticket_id: VALID_TICKET_ID,
+      p_user_id: VALID_USER_ID,
       p_session_id: VALID_SESSION_ID,
       p_reason: 'User reported cost spike — investigating session tool call pattern.',
       p_expires_in_hours: 24,
       p_token_hash: MOCK_HASH,
-      p_ip: '203.0.113.5',
-      p_ua: MOCK_UA,
     });
+
+    // p_ip and p_ua must NOT be in the RPC args (not in migration 049 signature).
+    const rpcArgs = mockRpc.mock.calls[0][1] as Record<string, unknown>;
+    expect(rpcArgs).not.toHaveProperty('p_ip');
+    expect(rpcArgs).not.toHaveProperty('p_ua');
   });
 
   it('(c) sets the one-time cookie with the raw token on success', async () => {
@@ -399,7 +429,12 @@ describe('requestSupportAccessAction', () => {
 
     expect(mockRpc).toHaveBeenCalledWith(
       'admin_request_support_access',
-      expect.objectContaining({ p_ticket_id: ANOTHER_TICKET })
+      expect.objectContaining({
+        p_ticket_id: ANOTHER_TICKET,
+        // p_user_id is resolved from the ticket row (server-side) — it will be
+        // VALID_USER_ID because our mockFrom returns that for any ticket ID.
+        p_user_id: VALID_USER_ID,
+      })
     );
   });
 

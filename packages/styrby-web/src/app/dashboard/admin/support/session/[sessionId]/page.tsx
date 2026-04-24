@@ -556,23 +556,38 @@ export default async function AdminSupportSessionPage({
     return <AccessDeniedPage />;
   }
 
-  // ── Step 8: Log structured access event ────────────────────────────────────
+  // ── Step 8: Fetch current access_count and log structured access event ─────
+  // WHY a separate SELECT (not reading from rpcRows):
+  //   admin_consume_support_access RETURNS TABLE(grant_id, session_id, scope) —
+  //   access_count is NOT in the RPC return shape. Reading rpcRows[0].access_count
+  //   would silently return undefined, giving the admin a nonsensical "Access #undefined"
+  //   display. Instead we do a focused SELECT on support_access_grants by grant_id
+  //   to read the current (post-consume, atomically incremented) access_count.
+  //   This does NOT bypass the CAS guarantee: the consume RPC already incremented
+  //   access_count atomically; this read only retrieves the post-increment value
+  //   for display and log purposes. OWASP A01:2021: no security decision depends on
+  //   this value — it is display-only. SOC2 CC7.2: included in structured log.
+  //
   // WHY log grant_id (not token_hash, not raw token):
   //   grant_id is a bigserial PK — safe for logs and cross-reference in admin_audit_log.
   //   token_hash is a security artefact; logging it creates unnecessary exposure.
   //   raw token MUST NEVER be logged anywhere. SOC2 CC7.2.
-  const accessCount = rpcRows.length > 0
-    ? (typeof (rpcRows[0] as { access_count?: number }).access_count === 'number'
-        ? (rpcRows[0] as { access_count?: number }).access_count
-        : undefined)
-    : undefined;
+  let accessCount: number | undefined;
+  const { data: grantRow2 } = await supabase
+    .from('support_access_grants')
+    .select('access_count')
+    .eq('id', grantId.toString())
+    .maybeSingle();
+
+  if (grantRow2 && typeof grantRow2.access_count === 'number') {
+    accessCount = grantRow2.access_count;
+  }
 
   console.info('[support-session] support_access_consumed', {
     event: 'support_access_consumed',
     grant_id: grantId.toString(),
     session_id: sessionId,
-    // access_count may not be returned by the RPC (depends on RETURNS TABLE shape)
-    // — omit undefined values to keep logs clean
+    // access_count reflects the post-consume value fetched via a separate SELECT
     ...(accessCount !== undefined ? { access_count: accessCount } : {}),
   });
 

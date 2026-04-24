@@ -118,6 +118,30 @@ vi.mock('@/lib/supabase/server', () => ({
 
 import { createClient } from '@/lib/supabase/server';
 
+// ─── Shared support_tickets mock chain ────────────────────────────────────────
+
+const MOCK_USER_ID = 'ddddeeee-ffff-aaaa-bbbb-ccccddddeeee';
+
+/**
+ * Builds the from('support_tickets').select().eq().maybeSingle() chain for
+ * requestSupportAccessAction Fix 1 (server-side p_user_id resolution).
+ *
+ * WHY needed: the action now fetches the ticket's user_id before calling the
+ * RPC. Tests that exercise requestSupportAccessAction must mock this chain,
+ * otherwise from() returns undefined and the action errors with "Ticket not found".
+ *
+ * @returns A mock chain that resolves with { data: { user_id: MOCK_USER_ID }, error: null }.
+ */
+function makeTicketFromChain() {
+  const mockMaybeSingle = vi.fn().mockResolvedValue({
+    data: { user_id: MOCK_USER_ID },
+    error: null,
+  });
+  const mockEq     = vi.fn().mockReturnValue({ maybeSingle: mockMaybeSingle });
+  const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
+  return { select: mockSelect };
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -142,7 +166,12 @@ function makeRequestFormData(overrides: Partial<{
 describe('Step 1: Admin requestSupportAccessAction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
+    // WHY include from: mockFrom — Fix 1 adds a server-side SELECT on
+    // support_tickets before the RPC call. The mockFrom must return the
+    // ticket chain so the action can resolve p_user_id. Without this the
+    // action returns { ok: false, error: 'Ticket not found' } before the RPC.
+    mockFrom.mockImplementation(() => makeTicketFromChain());
+    (createClient as Mock).mockResolvedValue({ rpc: mockRpc, from: mockFrom });
   });
 
   it('1-a: calls admin_request_support_access RPC with token_hash (SHA-256 hex, 64 chars)', async () => {
@@ -169,9 +198,16 @@ describe('Step 1: Admin requestSupportAccessAction', () => {
 
     // Other required fields are present.
     expect(rpcArgs.p_ticket_id).toBe(TICKET_ID);
+    // WHY assert p_user_id (Fix 1): the action resolves user_id server-side from
+    // the ticket row — not from FormData. MOCK_USER_ID is what makeTicketFromChain()
+    // returns. p_ip and p_ua are NOT in the migration 049 RPC signature.
+    expect(rpcArgs.p_user_id).toBe(MOCK_USER_ID);
     expect(rpcArgs.p_session_id).toBe(SESSION_ID);
     expect(rpcArgs.p_reason).toBe('Reproduce a cost spike from support ticket #42');
     expect(rpcArgs.p_expires_in_hours).toBe(24);
+    // Confirm p_ip and p_ua are absent (not valid RPC parameters in migration 049).
+    expect(rpcArgs).not.toHaveProperty('p_ip');
+    expect(rpcArgs).not.toHaveProperty('p_ua');
   });
 
   it('1-b: raw token is flashed via cookie (not returned in action result)', async () => {
@@ -426,16 +462,34 @@ describe('Step 4: Admin consume — token hash contract', () => {
 describe('Audit side effects — RPC is the sole audit channel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
+    // WHY include from: mockFrom — Fix 1 adds a server-side SELECT on
+    // support_tickets. Without this, requestSupportAccessAction returns
+    // { ok: false, error: 'Ticket not found' } before calling the RPC.
+    mockFrom.mockImplementation(() => makeTicketFromChain());
+    (createClient as Mock).mockResolvedValue({ rpc: mockRpc, from: mockFrom });
     mockRpc.mockResolvedValue({ data: null, error: null });
   });
 
   it('no direct INSERT/UPDATE — all mutations flow through named RPCs', async () => {
     // WHY: the schema forbids direct DML on support_access_grants. The only
     // mutations allowed are via SECURITY DEFINER wrappers. This test confirms
-    // that the action layer only calls `rpc()` — never `from().insert()`,
-    // `from().update()`, etc. Asserting `mockFrom` was never called verifies
-    // the action uses only the RPC path.
+    // that the action layer calls `from()` ONLY for the read-only support_tickets
+    // SELECT (Fix 1 — server-side p_user_id resolution), never for INSERT/UPDATE.
+    //
+    // WHY we track insert/update on a mock chain rather than asserting mockFrom
+    // was never called: Fix 1 legitimately calls from('support_tickets').select()
+    // before the RPC. We allow that read-only call but must ensure no
+    // from().insert() or from().update() is ever invoked by the action.
+    const mockInsert = vi.fn();
+    const mockUpdate = vi.fn();
+    const ticketChain = makeTicketFromChain();
+    // Augment the chain with insert/update spies to detect any rogue DML.
+    mockFrom.mockImplementation((table: string) => ({
+      ...ticketChain,
+      insert: mockInsert,
+      update: mockUpdate,
+    }));
+
     (createClient as Mock).mockResolvedValue({
       rpc:  mockRpc,
       from: mockFrom,
@@ -450,9 +504,13 @@ describe('Audit side effects — RPC is the sole audit channel', () => {
       requestSupportAccessAction(TICKET_ID, makeRequestFormData())
     ).rejects.toThrow(/NEXT_REDIRECT/);
 
-    // The action called rpc() — never from().
+    // The action called rpc() once (the SECURITY DEFINER mutation path).
     expect(mockRpc).toHaveBeenCalledOnce();
-    expect(mockFrom).not.toHaveBeenCalled();
+    // The action called from() once — for the read-only support_tickets SELECT.
+    expect(mockFrom).toHaveBeenCalledWith('support_tickets');
+    // No direct DML — insert and update must never be called.
+    expect(mockInsert).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 
   it('failed Zod validation: RPC not called → no audit row written', async () => {

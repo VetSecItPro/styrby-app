@@ -201,9 +201,15 @@ export async function requestSupportAccessAction(
   }
 
   // ── 2. Extract network context ─────────────────────────────────────────────
+  // WHY we still extract IP/UA here (even though they are not RPC parameters):
+  //   They are available for future structured logging or audit enhancement without
+  //   requiring a form-layer change. Currently not forwarded to the RPC because the
+  //   migration 049 signature does not include p_ip / p_ua — the RPC logs context
+  //   through the DB session and admin_audit_log, which captures auth.uid().
   const hdrs = await headers();
-  const ip = extractIP(hdrs.get('x-forwarded-for'));
-  const ua = hdrs.get('user-agent') ?? null;
+  const _ip = extractIP(hdrs.get('x-forwarded-for'));
+  const _ua = hdrs.get('user-agent') ?? null;
+  void _ip; void _ua; // reserved for future structured logging
 
   // ── 3. Generate token and hash ─────────────────────────────────────────────
   // WHY generate here, before the RPC: the hash is passed to the RPC which
@@ -217,14 +223,30 @@ export async function requestSupportAccessAction(
   // UUID inside the RPC for is_site_admin() to pass. SOC 2 CC6.1, CC7.2.
   const supabase = await createClient();
 
+  // WHY resolve p_user_id from the ticket server-side (not from FormData):
+  //   The admin's form submits session_id and reason — there is no user_id field
+  //   in the form. Deriving user_id from the ticket row server-side prevents a
+  //   malicious admin from tampering FormData to target a different user's session.
+  //   The ticket is fetched using trustedTicketId (URL-bound, unforgeable) so the
+  //   resulting user_id is authoritative. SOC 2 CC6.1: input integrity at the
+  //   server boundary before any privileged operation.
+  const { data: ticket, error: ticketErr } = await supabase
+    .from('support_tickets')
+    .select('user_id')
+    .eq('id', trustedTicketId)
+    .maybeSingle();
+
+  if (ticketErr || !ticket?.user_id) {
+    return { ok: false, error: 'Ticket not found' };
+  }
+
   const { data: grantId, error } = await supabase.rpc('admin_request_support_access', {
     p_ticket_id: trustedTicketId,
+    p_user_id: ticket.user_id,
     p_session_id: parsed.data.session_id,
     p_reason: parsed.data.reason,
     p_expires_in_hours: parsed.data.expires_in_hours,
     p_token_hash: hash,
-    p_ip: ip,
-    p_ua: ua,
   });
 
   if (error) return mapRpcError(error, 'request_support_access');

@@ -171,7 +171,16 @@ beforeEach(() => {
   const mockEqSession = vi.fn().mockReturnValue({ single: mockSingle });
   const mockEqMessages = vi.fn().mockReturnValue({ order: mockOrder });
 
-  // sessions vs session_messages routing by table name
+  // sessions vs session_messages vs support_access_grants routing by table name.
+  // WHY support_access_grants: Fix 2 adds a post-RPC SELECT on this table to read
+  // the current access_count (post-consume, atomically incremented by the RPC).
+  // The mock returns access_count: 1 by default (first consume of this grant).
+  const mockGrantMaybeSingle = vi.fn().mockResolvedValue({
+    data: { access_count: 1 },
+    error: null,
+  });
+  const mockGrantEq = vi.fn().mockReturnValue({ maybeSingle: mockGrantMaybeSingle });
+
   mockFromFn.mockImplementation((table: string) => {
     if (table === 'sessions') {
       return {
@@ -181,6 +190,11 @@ beforeEach(() => {
     if (table === 'session_messages') {
       return {
         select: vi.fn().mockReturnValue({ eq: mockEqMessages }),
+      };
+    }
+    if (table === 'support_access_grants') {
+      return {
+        select: vi.fn().mockReturnValue({ eq: mockGrantEq }),
       };
     }
     return {
@@ -354,6 +368,11 @@ describe('AdminSupportSessionPage', () => {
     const mockEqMessages = vi.fn().mockReturnValue({ order: mockOrder });
     const mockSingle = vi.fn().mockResolvedValue({ data: MOCK_SESSION_ROW, error: null });
     const mockEqSession = vi.fn().mockReturnValue({ single: mockSingle });
+    // WHY support_access_grants branch: Fix 2 adds a post-RPC SELECT to read
+    // access_count. Absent this branch the from() fallback returns a chainable
+    // no-op and accessCount stays undefined (rendered as "Access #1" due to ?? 1).
+    const mockGrantMaybeSingle2 = vi.fn().mockResolvedValue({ data: { access_count: 1 }, error: null });
+    const mockGrantEq2 = vi.fn().mockReturnValue({ maybeSingle: mockGrantMaybeSingle2 });
 
     mockFromFn.mockImplementation((table: string) => {
       if (table === 'sessions') {
@@ -361,6 +380,9 @@ describe('AdminSupportSessionPage', () => {
       }
       if (table === 'session_messages') {
         return { select: vi.fn().mockReturnValue({ eq: mockEqMessages }) };
+      }
+      if (table === 'support_access_grants') {
+        return { select: vi.fn().mockReturnValue({ eq: mockGrantEq2 }) };
       }
       return { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis() };
     });
@@ -405,10 +427,16 @@ describe('AdminSupportSessionPage', () => {
     const mockEqMessages = vi.fn().mockReturnValue({ order: mockOrder });
     const mockSingle = vi.fn().mockResolvedValue({ data: MOCK_SESSION_ROW, error: null });
     const mockEqSession = vi.fn().mockReturnValue({ single: mockSingle });
+    // WHY support_access_grants branch: Fix 2 SELECT — same reasoning as T5.
+    const mockGrantMaybeSingle3 = vi.fn().mockResolvedValue({ data: { access_count: 1 }, error: null });
+    const mockGrantEq3 = vi.fn().mockReturnValue({ maybeSingle: mockGrantMaybeSingle3 });
 
     mockFromFn.mockImplementation((table: string) => {
       if (table === 'sessions') {
         return { select: vi.fn().mockReturnValue({ eq: mockEqSession }) };
+      }
+      if (table === 'support_access_grants') {
+        return { select: vi.fn().mockReturnValue({ eq: mockGrantEq3 }) };
       }
       return { select: vi.fn().mockReturnValue({ eq: mockEqMessages }) };
     });
@@ -465,12 +493,25 @@ describe('AdminSupportSessionPage', () => {
       return { eq: mockEqSession };
     });
 
+    // WHY support_access_grants branch: Fix 2 SELECT for access_count.
+    // We capture its cols in capturedSelectArgs too — the test already asserts
+    // they must not contain content fields (access_count is safe).
+    const mockGrantMaybeSingleT6 = vi.fn().mockResolvedValue({ data: { access_count: 1 }, error: null });
+    const mockGrantEqT6 = vi.fn().mockReturnValue({ maybeSingle: mockGrantMaybeSingleT6 });
+    const mockSelectGrants = vi.fn().mockImplementation((cols: string) => {
+      capturedSelectArgs.push(cols);
+      return { eq: mockGrantEqT6 };
+    });
+
     mockFromFn.mockImplementation((table: string) => {
       if (table === 'sessions') {
         return { select: mockSelectSession };
       }
       if (table === 'session_messages') {
         return { select: mockSelect };
+      }
+      if (table === 'support_access_grants') {
+        return { select: mockSelectGrants };
       }
       return { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis() };
     });
