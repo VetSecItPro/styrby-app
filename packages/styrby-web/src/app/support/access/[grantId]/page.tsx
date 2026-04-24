@@ -424,7 +424,7 @@ export default async function GrantApprovalPage({ params }: PageProps) {
       )}
 
       {/* Footer */}
-      <p className="mt-8 text-center text-xs text-zinc-600">
+      <p className="mt-8 text-center text-xs text-zinc-500">
         Grant ID {grantId} &middot; Questions?{' '}
         <a
           href="/dashboard/support"

@@ -359,7 +359,7 @@ function MessageMetaTable({ messages }: { messages: MessageRow[] }) {
                 </td>
                 <td className="px-4 py-2.5 font-mono text-xs text-zinc-400">
                   {msg.tool_name ?? (
-                    <span className="text-zinc-600">-</span>
+                    <span className="text-zinc-400">-</span>
                   )}
                 </td>
                 <td className="px-4 py-2.5 text-xs text-zinc-400 tabular-nums">
@@ -370,7 +370,7 @@ function MessageMetaTable({ messages }: { messages: MessageRow[] }) {
                 </td>
                 <td className="px-4 py-2.5 text-xs text-zinc-400 tabular-nums">
                   {msg.duration_ms != null ? msg.duration_ms.toLocaleString() : (
-                    <span className="text-zinc-600">-</span>
+                    <span className="text-zinc-400">-</span>
                   )}
                 </td>
               </tr>
