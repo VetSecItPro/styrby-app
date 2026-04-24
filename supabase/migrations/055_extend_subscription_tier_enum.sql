@@ -1,0 +1,46 @@
+-- Migration 055: Extend subscription_tier enum with team / business / enterprise.
+--
+-- PRE-EXISTING DEFECT CLOSED:
+--   `subscription_tier` enum (migration 001 line 59) contained only 'free',
+--   'pro', 'power'. Phase 2.6 shipped team + business + enterprise tiers via
+--   the `teams.billing_tier` TEXT column with its own CHECK constraint
+--   (migration 031 line 52). However, `admin_override_tier` (migration 041)
+--   accepts the full 6-value allowlist and writes the chosen tier to
+--   `subscriptions.tier` directly — which would raise SQLSTATE 22P02 for
+--   any non-solo tier because the enum could not coerce 'team' et al.
+--
+--   The defect was latent because manual admin tier overrides to team-tier
+--   values have not yet occurred in production. Migration 054 surfaced it
+--   when attempting to add a CHECK constraint covering the full 6 values.
+--
+-- APPROACH: extend the enum to match the RPC allowlist. The enum now IS
+--   the DB-level allowlist — no separate CHECK needed. Both solo and team
+--   tier values coexist in one type, consistent with the admin override
+--   path that may legitimately move a user between any two values.
+--
+-- CONSTRAINT: Postgres does not allow referencing a newly-added enum value
+--   in the same transaction (SQLSTATE 55P04). This migration only ADDs the
+--   values. Any code that references 'team' / 'business' / 'enterprise' as
+--   subscription_tier literals (none in the current codebase — callers pass
+--   strings to TEXT parameters which are cast by the RPC's internal IN-list)
+--   is unaffected. Future migrations that need to CAST to the new enum
+--   values must run in a subsequent migration file.
+--
+-- IDEMPOTENT: uses IF NOT EXISTS on each ADD VALUE, safe to re-run.
+--
+-- DATA MODEL NOTE (non-blocking):
+--   `teams.billing_tier` (TEXT + CHECK) and `subscriptions.tier`
+--   (subscription_tier enum) now hold overlapping value sets. The two
+--   columns answer different questions:
+--     - teams.billing_tier: what tier is this TEAM paying for?
+--     - subscriptions.tier: what tier is this USER on? (includes solo tiers
+--       AND — via admin override or future account-type consolidation — team
+--       tiers.)
+--   Reconciling these into a single source of truth is a separate data-
+--   modeling task (new backlog item), not required for this fix.
+--
+-- Governing: SOC2 CC7.2 (data integrity via type constraint).
+
+ALTER TYPE public.subscription_tier ADD VALUE IF NOT EXISTS 'team';
+ALTER TYPE public.subscription_tier ADD VALUE IF NOT EXISTS 'business';
+ALTER TYPE public.subscription_tier ADD VALUE IF NOT EXISTS 'enterprise';
