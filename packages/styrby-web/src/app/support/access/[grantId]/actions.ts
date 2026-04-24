@@ -196,7 +196,7 @@ export async function approveAction(grantId: number): Promise<UserSupportAccessA
  * Flow:
  *   1. Validate grantId (Zod).
  *   2. Call `user_revoke_support_access(p_grant_id)` RPC (SECURITY DEFINER).
- *   3. On success (or idempotent no-op) — revalidate + redirect.
+ *   3. On success (or idempotent no-op) — revalidate relevant path(s) + redirect.
  *   4. On error — map SQLSTATE to safe user-facing error and return.
  *
  * WHY idempotent:
@@ -204,10 +204,24 @@ export async function approveAction(grantId: number): Promise<UserSupportAccessA
  *   submit twice. The RPC is designed to be a no-op on terminal states so double-
  *   submission never creates an error the user has to deal with.
  *
- * @param grantId - Grant ID from the URL param, bound server-side (unforgeable).
+ * WHY optional sessionId:
+ *   When this action is invoked from the SessionPrivacyBanner on a session detail
+ *   page, we revalidate the session page so the banner disappears immediately.
+ *   When invoked from the /support/access/[grantId] page (the original call site),
+ *   sessionId is omitted and we redirect back to that page as before.
+ *   Both call sites bind grantId server-side — sessionId is bound the same way
+ *   to prevent FormData tampering.
+ *
+ * @param grantId  - Grant ID from the URL param, bound server-side (unforgeable).
+ * @param sessionId - Optional session UUID. When provided, revalidates the session
+ *                    detail page so the banner disappears and redirects there.
+ *                    When omitted, redirects back to /support/access/[grantId].
  * @returns UserSupportAccessActionResult.
  */
-export async function revokeAction(grantId: number): Promise<UserSupportAccessActionResult> {
+export async function revokeAction(
+  grantId: number,
+  sessionId?: string,
+): Promise<UserSupportAccessActionResult> {
   // ── 1. Validate grantId ────────────────────────────────────────────────────
   const parsed = GrantIdSchema.safeParse(grantId);
   if (!parsed.success) {
@@ -224,8 +238,21 @@ export async function revokeAction(grantId: number): Promise<UserSupportAccessAc
   if (error) return mapRpcError(error, 'revoke');
 
   // ── 3. Revalidate + redirect ───────────────────────────────────────────────
+  // WHY always revalidate the grant page: even when the action originates from
+  // the session banner, a user may navigate back to the grant page. Revalidating
+  // both ensures consistent state across all surfaces that display grant status.
   revalidatePath(`/support/access/${grantId}`);
-  redirect(`/support/access/${grantId}`);
+
+  if (sessionId) {
+    // Called from the SessionPrivacyBanner on the session detail page.
+    // Revalidate the session page so the banner disappears, then redirect
+    // back to the session (not away from it — the user was viewing their session).
+    revalidatePath(`/dashboard/sessions/${sessionId}`);
+    redirect(`/dashboard/sessions/${sessionId}`);
+  } else {
+    // Called from the /support/access/[grantId] page — original behavior.
+    redirect(`/support/access/${grantId}`);
+  }
 
   return { ok: true };
 }
