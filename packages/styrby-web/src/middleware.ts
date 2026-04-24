@@ -421,7 +421,21 @@ export async function middleware(request: NextRequest) {
   //   We do NOT gate this at the admin level: any logged-in user may visit their
   //   own grant URLs. The RLS policy (support_access_grants_select_self) and the
   //   SECURITY DEFINER RPCs enforce per-user ownership at the DB layer.
-  const protectedPaths = ['/dashboard', '/support/access'];
+  //
+  // WHY /billing/offer/* is here (Phase 4.3 T6):
+  //   The user-facing churn-save offer acceptance page at /billing/offer/[offerId]
+  //   requires authentication so the Server Component can call createClient() with
+  //   the user's session and RLS on churn_save_offers enforces ownership
+  //   (offer.user_id = auth.uid()). Unauthenticated visitors are redirected to
+  //   /login?redirect=/billing/offer/[offerId] so the deep-link email flow works:
+  //   user clicks offer email → lands here → auth redirect → login →
+  //   next= redirect brings them back to their offer page.
+  //
+  //   We do NOT gate this at the admin level: any logged-in user may visit their
+  //   own offer URLs. The RLS policy (churn_save_offers_select_self) and the
+  //   SECURITY DEFINER RPC (user_accept_churn_save_offer) enforce per-user
+  //   ownership at the DB layer. SOC 2 CC6.1.
+  const protectedPaths = ['/dashboard', '/support/access', '/billing/offer'];
   const isProtectedPath = protectedPaths.some((path) =>
     request.nextUrl.pathname.startsWith(path)
   );
