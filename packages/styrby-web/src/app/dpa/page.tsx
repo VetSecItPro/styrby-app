@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { DownloadDpaButton } from './DownloadDpaButton';
 
 export const metadata: Metadata = {
   title: 'Data Processing Agreement',
@@ -29,12 +30,63 @@ export const metadata: Metadata = {
  * Key architecture note: session message content is zero-knowledge. Styrby
  * relays encrypted ciphertext only. We cannot access plaintext session content.
  * This materially limits what "processing of personal data" means in practice.
+ *
+ * PDF download:
+ *   The DownloadDpaButton triggers window.print() which opens the browser
+ *   print dialog. Users choose "Save as PDF" for a clean single-column PDF.
+ *   The @media print style block below hides navigation chrome and the button
+ *   itself so the printed output contains only the DPA text.
+ *
+ *   WHY browser print vs. server PDF generation: zero new dependencies, works
+ *   in all browsers, and the existing HTML renders a well-formatted PDF.
+ *   See spec Phase 4.4 §4.4 for decision rationale.
  */
 export default function DpaPage() {
   return (
     <div className="min-h-screen bg-zinc-950">
+      {/*
+       * Print styles — hide non-content chrome when printing to PDF.
+       *
+       * WHY inline <style>: Tailwind's @media print arbitrary variants are
+       * verbose for multi-selector rules. An inline style block is cleaner
+       * and guaranteed to load before the user clicks print.
+       *
+       * Selectors:
+       *   header.dpa-header          — site navigation bar (logo + back link)
+       *   [data-print-hide]          — the Download PDF button itself
+       *   .dpa-related-links         — "Related documents" footer section
+       *
+       * Link href expansion: makes links readable as text URLs in the PDF,
+       * which matters for a legal document where URLs may be referenced.
+       */}
+      <style>{`
+        @media print {
+          header.dpa-header,
+          [data-print-hide],
+          .dpa-related-links {
+            display: none !important;
+          }
+          body {
+            margin: 0.5in;
+            color: black !important;
+            background: white !important;
+          }
+          .min-h-screen {
+            background: white !important;
+          }
+          article {
+            color: black !important;
+          }
+          a[href]::after {
+            content: " (" attr(href) ")";
+            color: #555;
+            font-size: 90%;
+          }
+        }
+      `}</style>
+
       {/* Navigation header */}
-      <header className="border-b border-zinc-800 bg-zinc-900/50">
+      <header className="dpa-header border-b border-zinc-800 bg-zinc-900/50">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
             <Link href="/" className="flex items-center gap-2">
@@ -55,6 +107,11 @@ export default function DpaPage() {
 
       {/* DPA content */}
       <main className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
+        {/* Download PDF button — hidden in print output via data-print-hide */}
+        <div className="mb-6 flex justify-end">
+          <DownloadDpaButton />
+        </div>
+
         <article className="prose prose-invert max-w-none prose-headings:text-zinc-100 prose-p:text-zinc-300 prose-li:text-zinc-300 prose-a:text-orange-400 prose-a:no-underline hover:prose-a:text-orange-300 prose-strong:text-zinc-200">
           <h1>Data Processing Agreement</h1>
           <p className="text-sm text-zinc-500">
@@ -446,13 +503,15 @@ export default function DpaPage() {
 
           {/* ── Related ──────────────────────────────────────── */}
           <hr />
-          <p className="text-sm text-zinc-500">
+          <p className="dpa-related-links text-sm text-zinc-500">
             Related documents:{' '}
             <Link href="/privacy">Privacy Policy</Link>
             {' | '}
             <Link href="/terms">Terms of Service</Link>
             {' | '}
             <Link href="/security">Security</Link>
+            {' | '}
+            <Link href="/legal/subprocessors">Subprocessors</Link>
           </p>
         </article>
       </main>
