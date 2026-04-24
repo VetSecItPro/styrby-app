@@ -38,7 +38,7 @@ const PatchSchema = z.object({
  */
 /**
  * Verifies the request comes from an authenticated admin user.
- * Uses profiles.is_admin instead of email claim (A-001).
+ * Uses site_admins table / is_site_admin() RPC instead of email claim (A-001; migration 042 T3.5 cutover).
  *
  * @returns The authenticated user, or a NextResponse error
  */

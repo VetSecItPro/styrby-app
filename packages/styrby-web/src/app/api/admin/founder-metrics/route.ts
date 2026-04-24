@@ -19,11 +19,11 @@
  * to bypass RLS and aggregate at the database level. The API layer enforces
  * the access gate (is_admin check) before any data is returned.
  *
- * WHY is_admin gate: The metrics include cohort data, agent distribution,
+ * WHY site_admins gate: The metrics include cohort data, agent distribution,
  * and per-tier counts that are commercially sensitive. Only the founder
- * (vetsecitpro@gmail.com, is_admin = true) should access this endpoint.
+ * (vetsecitpro@gmail.com, in site_admins table) should access this endpoint.
  *
- * @auth Required - Supabase Auth JWT via cookie (is_admin = true)
+ * @auth Required - Supabase Auth JWT via cookie (must be in site_admins table; verified via is_site_admin() RPC; migration 042 T3.5 cutover)
  * @rateLimit 10 requests per minute
  *
  * @returns 200 {@link FounderMetrics}
@@ -176,10 +176,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Admin gate: must have is_admin = true in profiles.
+  // Admin gate: must be in site_admins table (A-001; migration 042 T3.5 cutover).
   // WHY createAdminClient() for the admin check: isAdmin() uses createAdminClient
-  // internally; the caller's RLS-scoped client would return null for other users'
-  // profiles. Service role bypasses RLS for the is_admin lookup only.
+  // internally; the caller's RLS-scoped client cannot see other users' rows.
+  // Service role bypasses RLS for the site_admins lookup only.
   const adminStatus = await isAdmin(user.id);
   if (!adminStatus) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });

@@ -9,3 +9,4 @@
 
 export * from './tier-logic.js';
 export * from './polar-products.js';
+export * from './manual-override.js';

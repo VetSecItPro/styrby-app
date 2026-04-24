@@ -41,7 +41,11 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({
     auth: { getUser: mockGetUser },
   })),
-  createAdminClient: vi.fn(async () => ({
+  // WHY sync (not async): createAdminClient() is synchronous — it returns the
+  // client directly. Mocking it as async would return a Promise, causing
+  // adminDb.from() to fail with "not a function" after the await was removed
+  // from the call site (Fix 1 of task-03.5).
+  createAdminClient: vi.fn(() => ({
     from: mockAdminFrom,
   })),
 }));

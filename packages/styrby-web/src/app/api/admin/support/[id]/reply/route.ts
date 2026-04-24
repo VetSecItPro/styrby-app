@@ -51,7 +51,7 @@ export async function POST(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // A-001: Use profiles.is_admin instead of email claim
+  // A-001: Use site_admins table / is_site_admin() RPC instead of email claim (migration 042 T3.5 cutover)
   if (!(await isAdmin(user.id))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }

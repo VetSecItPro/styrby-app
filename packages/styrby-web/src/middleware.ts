@@ -15,8 +15,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
+import { createServerClient } from '@supabase/ssr';
 import { updateSession } from '@/lib/supabase/middleware';
 import { getHttpsUrlEnv, getEnv } from '@/lib/env';
+import { requireSiteAdmin } from '@/lib/admin/guard';
 
 // ============================================================================
 // Real Client IP Resolution (Cloudflare Proxy Preparation)
@@ -327,33 +329,81 @@ export async function middleware(request: NextRequest) {
   // Update Supabase auth session
   const response = await updateSession(request);
 
-  // A-011: Defence-in-depth for admin API routes.
-  // WHY: Admin routes perform inline auth checks, but if someone accidentally
-  // removes the inline check in a future commit, this middleware gate ensures
-  // unauthenticated requests never reach admin logic.
+  // ── Admin route guard (/admin/* and /api/admin/*) ─────────────────────────
   //
-  // SEC-AUTH-001 FIX: The previous check only tested cookie *presence*, which
-  // is trivially bypassable - an attacker can send a request with an empty or
-  // expired cookie and the gate would pass. We now validate that the Supabase
-  // session is actually authenticated by checking whether updateSession()
-  // redirected to login (which it does when the JWT is invalid/expired).
-  // Cookie presence is still checked first as a fast path, but validity is
-  // confirmed via the session update result.
-  if (request.nextUrl.pathname.startsWith('/api/admin')) {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
-    const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1] ?? '';
-    const adminCookieName = `sb-${projectRef}-auth-token`;
+  // A-011 (enhanced): Protect all admin pages and admin API routes.
+  //
+  // WHY 404 instead of 401/403: Returning a 4xx that distinguishes
+  // "you're not allowed" from "not found" leaks the existence of the admin
+  // surface. A 404 is indistinguishable from the route not existing at all,
+  // which prevents unauthenticated scanners from mapping our admin attack
+  // surface. See guard.ts for full OWASP A01 + SOC 2 CC6.1 citations.
+  //
+  // WHY we create a new Supabase client here rather than reusing updateSession's
+  // internal client: updateSession returns a NextResponse (not the client), and
+  // the Supabase client needs to be created with the request cookies for RLS to
+  // evaluate against the correct user identity. We create a minimal anon-key
+  // client (same credentials as updateSession) — this is fine because the
+  // site_admins RLS policy allows self-SELECT only, so the user's own JWT is
+  // the correct credential to use for the admin check.
+  //
+  // WHY not createAdminClient(): The service-role client bypasses RLS entirely.
+  // Using it here would require us to manually compare user_id, introducing
+  // a risk of logic errors. The anon-key client lets RLS do the authorization
+  // work correctly and automatically.
+  // ── Lowercase-normalize once for all admin path checks below ────────────────
+  // WHY: HTTP path matching is case-sensitive by spec, but browsers (and some
+  // scanners) may send mixed-case paths like /Dashboard/Admin. Normalizing here
+  // prevents a bypass where the guard checks `/dashboard/admin` but a request
+  // for `/Dashboard/Admin` slips through. The original `pathname` is preserved
+  // for any downstream use (e.g. redirects, logging) — only the comparisons use `p`.
+  const { pathname } = request.nextUrl;
+  const p = pathname.toLowerCase();
 
-    // Fast path: if no cookie at all, reject immediately
-    if (!request.cookies.has(adminCookieName)) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // WHY exact-boundary check (=== or startsWith with trailing /):
+  // `startsWith('/dashboard/admin')` alone would also match `/dashboardfake` if
+  // we ever had such a route, or `/dashboard/adminfoo` — silently gating paths
+  // that do not belong to the admin surface. Requiring the path to equal the
+  // prefix exactly or begin with `<prefix>/` confines the gate precisely.
+  if (
+    p === '/dashboard/admin' ||
+    p.startsWith('/dashboard/admin/') ||
+    p === '/api/admin' ||
+    p.startsWith('/api/admin/')
+  ) {
+    // Build a minimal Supabase client backed by the request's cookies.
+    // This is the same pattern as updateSession() in lib/supabase/middleware.ts.
+    //
+    // WHY getHttpsUrlEnv: PR #153 production incident — a placeholder string in
+    // the Vercel env ("PLACEHOLDER_CREATE_UPSTASH_REDIS_DB") bypassed the old
+    // .includes('placeholder') guard and caused a build-time crash. getHttpsUrlEnv
+    // rejects any value that is not a valid https:// URL, so placeholders,
+    // typos, and bare hosts are all treated as "unset" without a manual guard.
+    const supabaseUrl = getHttpsUrlEnv('NEXT_PUBLIC_SUPABASE_URL');
+    const supabaseAnonKey = getEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      // WHY: If Supabase is not configured (CI / local dev without .env),
+      // fail-closed to avoid accidentally exposing admin routes.
+      // getHttpsUrlEnv already rejects placeholder / non-https values.
+      return new NextResponse(null, { status: 404 });
     }
 
-    // Deeper check: updateSession() will clear/redirect if the JWT is expired
-    // or tampered. A redirect to /login means the session is invalid.
-    const isInvalidSession = response.headers.get('location')?.includes('/login');
-    if (isInvalidSession) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const supabaseForAdmin = createServerClient(supabaseUrl, supabaseAnonKey, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        // Middleware cannot set cookies on the request (read-only after Edge
+        // runtime parses them). We provide a no-op setAll — cookie writes
+        // for session refresh are handled by updateSession() above.
+        setAll() {},
+      },
+    });
+
+    const denyResponse = await requireSiteAdmin(supabaseForAdmin, request);
+    if (denyResponse) {
+      return denyResponse;
     }
   }
 

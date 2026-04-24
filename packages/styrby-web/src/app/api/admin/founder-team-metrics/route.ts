@@ -19,14 +19,15 @@
  * WHY service-role for DB queries:
  *   Team metrics aggregate data across ALL teams and ALL users. Supabase RLS is
  *   user-scoped — it cannot cross user boundaries. We use createAdminClient()
- *   (service role) only after verifying the is_admin gate at the API layer.
+ *   (service role) only after verifying the site_admins gate at the API layer.
  *
- * WHY is_admin gate (not VITE_FOUNDER_USER_IDS):
- *   The is_admin column on profiles is set via service role only (no RLS UPDATE
- *   policy for users). This is the same pattern as founder-metrics and is more
- *   robust than environment-variable allowlists which can drift across deploys.
+ * WHY site_admins gate (not VITE_FOUNDER_USER_IDS):
+ *   Membership in the site_admins table is set via service role only (no RLS INSERT/UPDATE
+ *   policy for regular users; migration 042 T3.5 cutover). This is the same pattern as
+ *   founder-metrics and is more robust than environment-variable allowlists which can
+ *   drift across deploys.
  *
- * @auth Required - Supabase Auth JWT via cookie (is_admin = true)
+ * @auth Required - Supabase Auth JWT via cookie (must be in site_admins table; verified via is_site_admin() RPC; migration 042 T3.5 cutover)
  * @rateLimit 10 requests per minute (sensitive bucket)
  *
  * @returns 200 {@link FounderTeamMetrics}
@@ -90,7 +91,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Admin gate: must have is_admin = true in profiles.
+  // Admin gate: must be in site_admins table (verified via is_site_admin() RPC; A-001; migration 042 T3.5 cutover).
   const adminStatus = await isAdmin(user.id);
   if (!adminStatus) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });

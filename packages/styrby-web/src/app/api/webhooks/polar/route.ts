@@ -56,7 +56,7 @@ import {
   verifyPolarSignatureOrThrow,
   PolarSignatureError,
 } from '@/lib/polar-webhook-signature';
-import { validateSeatCount } from '@styrby/shared/billing';
+import { validateSeatCount, shouldHonorManualOverride } from '@styrby/shared/billing';
 
 // ============================================================================
 // Cold-start env validation (team-tier Polar product IDs + secrets)
@@ -914,6 +914,95 @@ export async function POST(request: Request) {
           console.error(`Unrecognized Polar product_id: ${productId} - skipping upsert to prevent tier corruption`);
           return NextResponse.json({ received: true });
         }
+
+        // ──────────────────────────────────────────────────────────────────
+        // Phase 4.1 T8: Manual tier-override honor logic (atomic path).
+        //
+        // Before applying any Polar tier change, consult the override gate via
+        // shouldHonorManualOverride(). This calls the atomic SECURITY DEFINER
+        // function apply_polar_subscription_with_override_check() (migration 045)
+        // which acquires a FOR UPDATE row lock and holds it across the full
+        // expiry transition (read before-state, UPDATE subscriptions, read
+        // after-state, INSERT admin_audit_log) in one transaction.
+        //
+        // WHY the atomic function instead of separate RPC + UPDATE + INSERT:
+        // The old four-call flow released the FOR UPDATE lock when the first
+        // RPC's transaction committed, leaving a TOCTOU window. Two concurrent
+        // Polar deliveries could both see override_source='manual', both
+        // attempt the expiry transition, and produce duplicate audit rows and
+        // non-deterministic subscription state. (SOC2 CC6.1 violation.)
+        //
+        // WHY check here (after profile + product resolution, before upsert):
+        // We need profileId to identify the subscriptions row and tier for the
+        // RPC's p_new_tier param. Both must be valid before we call the gate.
+        // ──────────────────────────────────────────────────────────────────
+        const polarEventId = (rawParsed as Record<string, unknown>).id as string | null ?? null;
+        const overrideDecision = await shouldHonorManualOverride(profileId, supabase, {
+          newTier: tier,
+          polarSubscriptionId: data.id,
+          billingCycle: getBillingCycleFromProductId(productId),
+          currentPeriodEnd: data.current_period_end ? new Date(data.current_period_end) : null,
+          polarEventId,
+        });
+
+        if (overrideDecision.honor) {
+          // Manual override is active - skip the tier update entirely.
+          // Do NOT modify override_source, override_expires_at, or override_reason.
+          //
+          // WHY log structurally (not just console.warn): structured fields allow
+          // Sentry's "search by subscription_id or polar_event_id" to surface
+          // these skips in the ops dashboard without grep. Callers who trace a
+          // "why hasn't my tier changed?" support ticket can find this log.
+          // SOC2 CC7.2: material billing decisions that are skipped must be
+          // logged so auditors can reconstruct the full event sequence.
+          console.info(
+            JSON.stringify({
+              level: 'info',
+              msg: 'polar webhook: honoring manual override - skipping tier update',
+              subscription_id: data.id,
+              user_id: profileId,
+              polar_event_id: polarEventId,
+              skipped_reason: overrideDecision.reason,
+              override_expires_at: overrideDecision.expiresAt,
+            })
+          );
+          return NextResponse.json({ received: true });
+        }
+
+        if (overrideDecision.reason === 'override_expired') {
+          // Manual override has expired. The atomic RPC (migration 045) has
+          // already applied the tier update, reset override_source='polar',
+          // override_expires_at=NULL, and inserted the admin_audit_log row -
+          // all within the same transaction that held the FOR UPDATE lock.
+          //
+          // This branch ONLY logs structurally. No further DB writes needed.
+          //
+          // WHY no additional upsert or audit INSERT here (vs. the old flow):
+          // The old four-call flow applied the update and audit in separate
+          // transactions after releasing the lock, creating a TOCTOU race.
+          // The new atomic RPC eliminates that window entirely. (SOC2 CC6.1.)
+          //
+          // SOC2 CC7.2: the audit row is already in admin_audit_log with
+          // action='manual_override_expired', written by the DB function.
+          console.info(
+            JSON.stringify({
+              level: 'info',
+              msg: 'polar webhook: manual override expired - tier updated and override reset (atomic)',
+              subscription_id: data.id,
+              user_id: profileId,
+              polar_event_id: polarEventId,
+              expired_at: overrideDecision.expiredAt,
+              previous_actor: overrideDecision.previousActor,
+              audit_id: overrideDecision.auditId,
+              new_tier: tier,
+            })
+          );
+
+          if (isDev) console.log('Override expired: atomic RPC applied tier update + audit INSERT, override reset to polar');
+          break;
+        }
+
+        // overrideDecision.reason === 'polar_source': proceed with normal tier update below.
 
         // FIX-007: Downgrade protection - don't silently downgrade paid users
         // WHY: If a user is on 'power' and this event says 'pro', it may be
