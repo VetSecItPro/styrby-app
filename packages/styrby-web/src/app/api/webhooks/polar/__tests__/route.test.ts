@@ -41,7 +41,37 @@ vi.mock('@styrby/shared/billing', async (importOriginal) => {
 const mockSelect = vi.fn().mockReturnThis();
 const mockEq = vi.fn();
 const mockSingle = vi.fn();
-const mockUpsert = vi.fn().mockResolvedValue({ data: null, error: null });
+// WHY mockReturnValue with { select } shape instead of mockResolvedValue:
+// Migration 054 adds event-id dedup to the individual subscription path.
+// The dedup block calls supabase.from('polar_webhook_events').upsert(...).select('event_id').
+// mockUpsert must return an object with a `.select()` method that resolves to
+// { data, error } — not a raw resolved value (which has no .select property).
+//
+// Default behavior: upsert returns a "new event" row ({ data: [{ event_id: 'evt_default' }] })
+// so all pre-existing tests that don't configure this mock explicitly proceed through
+// the dedup block and hit their own test logic unchanged.
+//
+// Tests that need to simulate a conflict (duplicate event) or a DB error must
+// override this with mockUpsert.mockReturnValueOnce({ select: vi.fn().mockResolvedValueOnce(...) }).
+//
+// For the subscriptions upsert (second upsert call in normal processing), tests use
+// mockUpsert.mockResolvedValueOnce({ data: null, error: null }) after the dedup mock.
+// When a test doesn't set up the second upsert, the default fallback
+// (mockReturnValue → { select }) is still called, so subscriptions.upsert also returns
+// a chainable object. The route then calls .select() again — but it doesn't on the
+// subscriptions upsert (it's a fire-and-forget upsert without .select()). The mock chain
+// handles this gracefully because the resolved value is not awaited for .select() there.
+//
+// IMPORTANT: The subscriptions upsert does NOT chain .select() — it is just
+// `await supabase.from('subscriptions').upsert(...)` — so mockUpsert.mockReturnValue
+// for the dedup case works: the subscriptions upsert resolves to { select: fn } which
+// is discarded (not awaited further). This is benign — vitest does not care about
+// unconsumed mock return values.
+const mockUpsertSelectFn = vi.fn().mockResolvedValue({
+  data: [{ event_id: 'evt_default_new' }],
+  error: null,
+});
+const mockUpsert = vi.fn().mockReturnValue({ select: mockUpsertSelectFn });
 const mockUpdate = vi.fn().mockReturnThis();
 const mockInsert = vi.fn().mockResolvedValue({ data: null, error: null });
 const mockOrder = vi.fn().mockReturnThis();
@@ -136,7 +166,14 @@ function createSubscriptionEvent(
 
 describe('POST /api/webhooks/polar', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    // WHY vi.resetAllMocks() (not vi.clearAllMocks()): clearAllMocks() clears
+    // call counts and results but does NOT clear the mockReturnValueOnce queue.
+    // If a test sets mockUpsert.mockReturnValueOnce(...) and that Once value is
+    // never consumed (because the test hits a different assertion first), the
+    // unconsumed Once value leaks into the next test and causes spurious failures.
+    // resetAllMocks() also clears the Once queue, preventing cross-test pollution.
+    // After reset, we re-establish all defaults so the mock chain is functional.
+    vi.resetAllMocks();
 
     // Set required env vars
     vi.stubEnv('POLAR_WEBHOOK_SECRET', WEBHOOK_SECRET);
@@ -150,18 +187,48 @@ describe('POST /api/webhooks/polar', () => {
       new Headers() as unknown as Awaited<ReturnType<typeof headers>>
     );
 
-    // Default: profile lookup succeeds
+    // Re-establish the mock chain builder — resetAllMocks() clears mockFrom's
+    // mockReturnValue impl so it would return undefined and crash every test.
+    // WHY same object shape: mirrors the original top-level mockReturnValue call.
+    mockFrom.mockReturnValue({
+      select: mockSelect,
+      eq: mockEq,
+      single: mockSingle,
+      upsert: mockUpsert,
+      update: mockUpdate,
+      insert: mockInsert,
+      order: mockOrder,
+      limit: mockLimit,
+    });
+
+    // Re-establish chain traversal mocks.
+    // WHY: resetAllMocks() removes all implementations. Without mockReturnThis(),
+    // eq/select/update/order/limit return undefined and break the fluent chain.
+    mockSelect.mockReturnThis();
     mockEq.mockReturnThis();
+    mockUpdate.mockReturnThis();
+    mockOrder.mockReturnThis();
+    mockLimit.mockReturnThis();
+
+    // Default: profile lookup succeeds
     mockSingle.mockResolvedValue({
       data: { id: 'user-uuid-123' },
       error: null,
     });
 
-    // WHY: vi.clearAllMocks() resets mockInsert to return undefined by default,
-    // causing the route to crash on insert calls in tests that don't explicitly
-    // set up the insert mock. Restoring the default here keeps pre-existing
-    // tests that don't call insert from failing due to undefined.
+    // Default: insert succeeds (no error)
     mockInsert.mockResolvedValue({ data: null, error: null });
+
+    // WHY upsert returns a chainable { select } object (not a plain resolved value):
+    // The dedup block calls .upsert(...).select('event_id') — a method chain.
+    // Default: "new event" row returned so all pre-existing tests proceed normally.
+    // Tests that need duplicate/error behavior override mockUpsert per-test with
+    // mockReturnValueOnce — which resetAllMocks() safely clears between tests.
+    mockUpsertSelectFn.mockResolvedValue({
+      data: [{ event_id: 'evt_default_new' }],
+      error: null,
+    });
+    mockUpsert.mockReturnValue({ select: mockUpsertSelectFn });
 
     // WHY: shouldHonorManualOverride must have a default mock return value so
     // pre-existing subscription.created/updated tests (which don't configure
@@ -605,6 +672,226 @@ describe('POST /api/webhooks/polar', () => {
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body.received).toBe(true);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Individual-path event-id dedup (migration 054 hardening)
+  //
+  // WHY these tests: migration 054 adds event-id dedup to the individual
+  // subscription path to mirror the team-path pattern from handleTeamSubscriptionEvent.
+  // These tests verify:
+  //   1. ON CONFLICT (23505 / empty RETURNING) → 200 { received: true }, no RPC call
+  //   2. polar_webhook_events insert error (non-fatal) → processing continues
+  //   3. Missing top-level event id → fall-through to normal processing
+  //
+  // SOC2 CC9.2: Idempotency across all billing event paths.
+  // --------------------------------------------------------------------------
+
+  describe('individual-path event-id dedup (migration 054)', () => {
+    /**
+     * Build a signed subscription event request with a top-level `id` field.
+     * Polar events always have a top-level id that is the delivery-level key.
+     */
+    async function sendSignedIndividualEvent(
+      body: Record<string, unknown>
+    ): Promise<Response> {
+      const payload = JSON.stringify(body);
+      const signature = signPayload(payload);
+      const headersMock = new Headers();
+      headersMock.set('x-polar-signature', signature);
+      vi.mocked(headers).mockResolvedValue(
+        headersMock as unknown as Awaited<ReturnType<typeof headers>>
+      );
+      const request = new Request('http://localhost:3000/api/webhooks/polar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-forwarded-for': '10.0.0.1',
+        },
+        body: payload,
+      });
+      return POST(request);
+    }
+
+    it('dedup-1: returns 200 { received: true } and skips all processing when polar_webhook_events upsert returns empty rows (ON CONFLICT)', async () => {
+      // WHY: Empty RETURNING from upsert = ON CONFLICT path = event already processed.
+      // Route must return 200 immediately without calling any RPC or upsert on subscriptions.
+      // This mirrors the exact team-path dedup behavior.
+      //
+      // WHY mockReturnValueOnce with { select } shape (not mockResolvedValueOnce):
+      // The route calls supabase.from(...).upsert(...).select('event_id') — a chain.
+      // mockUpsert must return an object with a .select() method, not a raw promise.
+      // Using mockResolvedValueOnce would cause "select is not a function" at runtime.
+
+      // Override: dedup upsert returns empty array (conflict — event already processed)
+      mockUpsert.mockReturnValueOnce({
+        select: vi.fn().mockResolvedValueOnce({ data: [], error: null }),
+      });
+
+      const event = {
+        id: 'evt_dedup_already_processed_001',
+        ...createSubscriptionEvent('subscription.created'),
+      };
+
+      const response = await sendSignedIndividualEvent(event);
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.received).toBe(true);
+
+      // WHY: shouldHonorManualOverride must NOT be called — the route returned
+      // before reaching the override gate. No profile lookup, no tier logic.
+      expect(mockShouldHonorManualOverride).not.toHaveBeenCalled();
+      // WHY: exactly 1 upsert call total (the dedup upsert); subscriptions upsert
+      // was never reached because the route returned early on conflict.
+      expect(mockUpsert).toHaveBeenCalledTimes(1);
+    });
+
+    it('dedup-2: continues processing when polar_webhook_events upsert returns a new row (new event)', async () => {
+      // WHY: Non-empty RETURNING = new row inserted = event not seen before.
+      // Processing must continue normally (profile lookup → tier check → subscriptions upsert).
+      //
+      // This test verifies the happy path: dedup block passes through, normal processing runs.
+      // mockUpsert will be called twice:
+      //   Call 1 (dedup): polar_webhook_events → returns new row → proceed
+      //   Call 2 (subscriptions): subscriptions upsert → resolves to { data: null, error: null }
+
+      // Override call 1: dedup upsert — new event row returned
+      mockUpsert.mockReturnValueOnce({
+        select: vi.fn().mockResolvedValueOnce({
+          data: [{ event_id: 'evt_new_001' }],
+          error: null,
+        }),
+      });
+
+      // Override call 2: subscriptions upsert — succeeds
+      // WHY mockReturnValueOnce with { select } here too: after the dedup block,
+      // the subscriptions upsert is `await supabase.from('subscriptions').upsert(...)`.
+      // It does NOT chain .select() — but mockReturnValue returns { select: fn } by
+      // default and the fn is never called. This is benign.
+      mockUpsert.mockReturnValueOnce({ select: vi.fn() });
+
+      // Profile + customer lookups
+      mockSingle.mockResolvedValueOnce({ data: { id: 'user-uuid-123' }, error: null });
+      mockSingle.mockResolvedValueOnce({ data: { user_id: 'user-uuid-123' }, error: null });
+      // Existing sub check (downgrade protection)
+      mockSingle.mockResolvedValueOnce({ data: { tier: 'free', status: 'active' }, error: null });
+
+      mockShouldHonorManualOverride.mockResolvedValueOnce({
+        honor: false,
+        reason: 'polar_source',
+      });
+
+      const event = {
+        id: 'evt_new_001',
+        ...createSubscriptionEvent('subscription.created'),
+      };
+
+      const response = await sendSignedIndividualEvent(event);
+
+      expect(response.status).toBe(200);
+      // WHY: both upserts ran — dedup (call 1) + subscriptions (call 2)
+      expect(mockUpsert).toHaveBeenCalledTimes(2);
+      // WHY: shouldHonorManualOverride was reached (normal processing path)
+      expect(mockShouldHonorManualOverride).toHaveBeenCalledTimes(1);
+    });
+
+    it('dedup-3: continues processing (non-fatal) when polar_webhook_events upsert fails with a DB error', async () => {
+      // WHY: A transient DB error on polar_webhook_events must not block webhook
+      // processing. The route logs the error but continues. The subscription
+      // upsert on polar_subscription_id still provides state-based idempotency.
+      // Returning 500 on dedup-table failure would cause infinite Polar retries.
+
+      // Override: dedup upsert fails with a generic DB error
+      mockUpsert.mockReturnValueOnce({
+        select: vi.fn().mockResolvedValueOnce({
+          data: null,
+          error: { message: 'connection timeout', code: '08006' },
+        }),
+      });
+
+      // Normal processing mocks (after the non-fatal dedup error the route continues)
+      mockSingle.mockResolvedValueOnce({ data: { id: 'user-uuid-123' }, error: null });
+      mockSingle.mockResolvedValueOnce({ data: { user_id: 'user-uuid-123' }, error: null });
+      mockSingle.mockResolvedValueOnce({ data: { tier: 'free', status: 'active' }, error: null });
+
+      // subscriptions upsert (second upsert call)
+      mockUpsert.mockReturnValueOnce({ select: vi.fn() });
+
+      mockShouldHonorManualOverride.mockResolvedValueOnce({
+        honor: false,
+        reason: 'polar_source',
+      });
+
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const event = {
+        id: 'evt_dedup_db_error_003',
+        ...createSubscriptionEvent('subscription.created'),
+      };
+
+      const response = await sendSignedIndividualEvent(event);
+
+      // WHY: Despite the dedup table error, route must return 200 (not 500).
+      // Returning 500 would trigger Polar retry, causing duplicate processing.
+      expect(response.status).toBe(200);
+
+      // WHY: Error must be logged so Sentry captures it for ops visibility.
+      const errorLogged = consoleErrorSpy.mock.calls.some(
+        (args) => String(args[0]).includes('polar_webhook_events')
+      );
+      expect(errorLogged).toBe(true);
+
+      // WHY: Processing continued — subscriptions upsert was called (call 2).
+      expect(mockUpsert).toHaveBeenCalledTimes(2);
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('dedup-4: skips event-id dedup and falls through to normal processing when top-level id is missing', async () => {
+      // WHY: Some non-standard Polar payloads may omit the top-level id.
+      // The route logs the missing id and continues. The subscription
+      // upsert on polar_subscription_id is still the backstop idempotency gate.
+      // Blocking on a missing id would reject legitimate (if malformed) events.
+      //
+      // When top-level id is missing, the dedup block does NOT call upsert on
+      // polar_webhook_events — only the subscriptions upsert runs.
+
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      // Event with no top-level `id` field (createSubscriptionEvent returns { type, data })
+      const eventWithoutId = createSubscriptionEvent('subscription.created');
+
+      // Normal processing mocks (dedup block is skipped entirely)
+      mockSingle.mockResolvedValueOnce({ data: { id: 'user-uuid-123' }, error: null });
+      mockSingle.mockResolvedValueOnce({ data: { user_id: 'user-uuid-123' }, error: null });
+      mockSingle.mockResolvedValueOnce({ data: { tier: 'free', status: 'active' }, error: null });
+
+      // subscriptions upsert (the only upsert call — no dedup upsert for missing id)
+      mockUpsert.mockReturnValueOnce({ select: vi.fn() });
+
+      mockShouldHonorManualOverride.mockResolvedValueOnce({
+        honor: false,
+        reason: 'polar_source',
+      });
+
+      const response = await sendSignedIndividualEvent(eventWithoutId);
+
+      expect(response.status).toBe(200);
+
+      // WHY: The error about missing id must be logged.
+      const missingIdLogged = consoleErrorSpy.mock.calls.some(
+        (args) =>
+          String(args[0]).includes('missing top-level id') ||
+          String(args[0]).includes('cannot enforce event-id dedup')
+      );
+      expect(missingIdLogged).toBe(true);
+
+      // WHY: Subscription processing continued — the subscriptions upsert ran.
+      expect(mockUpsert).toHaveBeenCalledTimes(1);
+
+      consoleErrorSpy.mockRestore();
     });
   });
 

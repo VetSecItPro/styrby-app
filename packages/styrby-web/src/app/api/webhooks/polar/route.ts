@@ -863,6 +863,85 @@ export async function POST(request: Request) {
         const { data } = event;
         const isDev = process.env.NODE_ENV === 'development';
 
+        // ──────────────────────────────────────────────────────────────────────
+        // Individual-path event-id dedup: mirrors the team-path pattern from
+        // handleTeamSubscriptionEvent() (migration 031 polar_webhook_events table).
+        //
+        // WHY: Polar has at-least-once delivery semantics — duplicate webhook
+        // deliveries reach the processing logic for any transient 5xx or network
+        // timeout. The team path has had explicit event-id dedup since migration 031.
+        // The individual path relied on state-based idempotency only (upsert ON
+        // CONFLICT polar_subscription_id). That is sound for duplicate-subscription
+        // state but does NOT prevent duplicate processing of the override-check RPC
+        // or the downgrade-protection SELECT that precede the upsert. Event-id dedup
+        // at the TOP of the case block is belt-and-suspenders that eliminates all
+        // redundant work on a replay, not just the final upsert.
+        //
+        // SQL equivalent (same as team path):
+        //   INSERT INTO polar_webhook_events (event_id, event_type, ...)
+        //   VALUES ($1, $2, ...)
+        //   ON CONFLICT (event_id) DO NOTHING
+        //   RETURNING event_id;
+        // If RETURNING is empty → duplicate → return 200 immediately.
+        //
+        // WHY ignoreDuplicates + select() (not raw insert):
+        // supabase-js v2 does not expose .onConflict().ignore() directly.
+        // upsert with ignoreDuplicates emits ON CONFLICT DO NOTHING. select()
+        // gives RETURNING semantics: empty array = conflict (already processed).
+        //
+        // SOC2 CC9.2: Idempotency across all billing event paths.
+        // ──────────────────────────────────────────────────────────────────────
+        {
+          const rawEventId = (rawParsed as Record<string, unknown>).id as string | undefined;
+          if (!rawEventId) {
+            // No top-level id — cannot enforce event-id idempotency.
+            // Log and fall through to state-based upsert idempotency.
+            console.error(
+              'polar/route: individual subscription event missing top-level id field — cannot enforce event-id dedup'
+            );
+          } else {
+            const indivPayloadHash = sha256Hex(payload);
+            const { data: dedupRows, error: dedupErr } = await supabase
+              .from('polar_webhook_events')
+              .upsert(
+                {
+                  event_id: rawEventId,
+                  event_type: event.type,
+                  // WHY data.id: the Polar subscription id is the subscription-level
+                  // identifier. The top-level event id (rawEventId) is the delivery-
+                  // level identifier. We store both for ops traceability.
+                  subscription_id: data.id,
+                  payload_hash: indivPayloadHash,
+                },
+                { onConflict: 'event_id', ignoreDuplicates: true }
+              )
+              .select('event_id');
+
+            if (dedupErr) {
+              // WHY non-fatal on DB error (not hard-stop): a failure to record the
+              // event in polar_webhook_events does not mean we should block processing.
+              // The upsert idempotency on polar_subscription_id further down still
+              // provides correctness. Returning 500 here would cause Polar to retry,
+              // potentially causing an infinite retry loop if the polar_webhook_events
+              // table itself has a transient issue.
+              // The dedup failure is captured in Sentry for ops visibility.
+              console.error(
+                'polar/route: individual path — failed to record event in polar_webhook_events (non-fatal):',
+                dedupErr.message
+              );
+            } else if (!dedupRows || dedupRows.length === 0) {
+              // ON CONFLICT path: this event was already processed. Return 200 so
+              // Polar does not retry. No further processing needed.
+              if (isDev) {
+                console.log(
+                  `polar/route: duplicate individual event ${rawEventId} (${event.type}), skipping`
+                );
+              }
+              return NextResponse.json({ received: true });
+            }
+          }
+        }
+
         // FIX-005 / PERF-009: Resolve profileId via user_id and customer_id lookups.
         //
         // WHY parallel strategy: when both identifiers are present we fire both
