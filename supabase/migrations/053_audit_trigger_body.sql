@@ -131,11 +131,15 @@ BEGIN
       v_audit_count_after - v_audit_count_before;
   END IF;
 
+  -- ORDER BY id DESC (monotonic bigserial) — not created_at, because
+  -- ON CONFLICT DO UPDATE above can fire the trigger twice in the same
+  -- microsecond (initial INSERT + follow-up UPDATE). created_at ties would
+  -- return the INSERT row; id is strictly increasing.
   SELECT action::text, metadata
   INTO v_last_action, v_last_metadata
   FROM public.audit_log
   WHERE resource_type = 'profiles' AND resource_id = v_test_user_id
-  ORDER BY created_at DESC LIMIT 1;
+  ORDER BY id DESC LIMIT 1;
 
   IF v_last_action <> 'record_mutated' THEN
     RAISE EXCEPTION 'MIGRATION 053 TEST FAILED: expected action=record_mutated, got %', v_last_action;
