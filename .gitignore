@@ -129,4 +129,8 @@ ARCHITECTURE.md
 .claude/
 .subagent-dev-reports/
 .clone/
+<<<<<<< Updated upstream
 .subagent-dev-reports/
+=======
+.claude/worktrees/
+>>>>>>> Stashed changes
