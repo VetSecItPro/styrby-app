@@ -130,12 +130,15 @@ $$;
 --   non-null. So no legitimate caller passes NULL today; the throw is
 --   strictly defensive.
 
+-- WHY parameter names match migration 056 verbatim: Postgres CREATE OR REPLACE
+-- FUNCTION allows changing the body but NOT parameter names (SQLSTATE 42P13).
+-- Names below mirror 056's signature exactly; only the body changes.
 CREATE OR REPLACE FUNCTION public.admin_idempotency_check_with_event(
-  p_actor_user_id uuid,
-  p_action_name text,
-  p_target_user_id uuid,
-  p_reason text,
-  p_event_id text
+  p_actor_id        uuid,
+  p_action          text,
+  p_target_user_id  uuid,
+  p_reason          text,
+  p_event_id        text
 )
 RETURNS bigint
 LANGUAGE plpgsql
@@ -156,7 +159,7 @@ BEGIN
   END IF;
 
   v_lock_key := hashtextextended(
-    p_actor_user_id::text || '|' || p_action_name || '|' ||
+    p_actor_id::text || '|' || p_action || '|' ||
     COALESCE(p_target_user_id::text, '') || '|' ||
     COALESCE(btrim(p_reason), '') || '|' || btrim(p_event_id),
     0
@@ -166,8 +169,8 @@ BEGIN
 
   SELECT id INTO v_existing
   FROM admin_audit_log
-  WHERE actor_user_id = p_actor_user_id
-    AND action = p_action_name
+  WHERE actor_user_id = p_actor_id
+    AND action = p_action
     AND COALESCE(target_user_id, '00000000-0000-0000-0000-000000000000'::uuid)
         = COALESCE(p_target_user_id, '00000000-0000-0000-0000-000000000000'::uuid)
     AND after_json->>'polar_event_id' = btrim(p_event_id)
