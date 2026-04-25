@@ -157,15 +157,56 @@ export async function DELETE(request: Request) {
     // Since the user is banned immediately, API access is blocked - but for
     // defense in depth, we remove sensitive data now rather than waiting.
     //
+    // SEC-ADV-003 FIX (2026-04-25): Phase 4 tables added. The most important
+    // is `support_access_grants` — admins could otherwise hold an APPROVED
+    // grant against a session whose owner is in the 30-day soft-delete grace
+    // window, allowing read access to a deleted account's session metadata.
+    // We REVOKE every non-terminal grant via the user_revoke_support_access
+    // RPC (migration 049) before purging the rows. The RPC drives the state
+    // machine to 'revoked' and writes a non-repudiable admin_audit_log row.
+    //
     // Tables verified to cascade from profiles ON DELETE CASCADE (handled by
     // the retention cron's hard delete of auth.users):
-    //   machines -> machine_keys, sessions -> session_messages/bookmarks,
-    //   agent_configs, cost_records, subscriptions, budget_alerts,
-    //   notification_preferences, prompt_templates, offline_command_queue,
-    //   audit_log, user_feedback, api_keys, webhooks -> webhook_deliveries
+    //   machines -> machine_keys, sessions -> session_messages/bookmarks
+    //   /session_state_snapshots/session_replay_tokens, agent_configs,
+    //   cost_records, subscriptions, budget_alerts, notification_preferences,
+    //   prompt_templates, offline_command_queue, audit_log (preserved as
+    //   legal-hold — see retention cron), user_feedback, api_keys,
+    //   webhooks -> webhook_deliveries, agent_session_groups ->
+    //   agent_context_memory, predictive_cost_alert_sends, budget_threshold_sends.
     //
-    // Tables that reference auth.users DIRECTLY (not profiles) - these must
-    // be handled explicitly here or they persist until auth.users hard-delete:
+    // Tables flagged as legal-hold (preserved on deletion):
+    //   audit_log, admin_audit_log, polar_refund_events, billing_events
+    //   (user_id ON DELETE SET NULL preserves the row sans link).
+    //   See docs/compliance/gdpr-table-inventory-2026-04-25.md.
+
+    // Step A: Revoke active support_access_grants before purging.
+    // WHY a separate step: we must read grant IDs first, then call the RPC per row.
+    // The RPC enforces state-machine + audit invariants that direct DELETE bypasses.
+    // SEC-ADV-003 P0: closes the 30-day grace-window admin-access vector.
+    const { data: activeGrants } = await supabase
+      .from('support_access_grants')
+      .select('id')
+      .eq('user_id', user.id)
+      .in('status', ['pending', 'approved'])
+      .limit(1000);
+
+    if (activeGrants && activeGrants.length > 0) {
+      // WHY Promise.allSettled: a single grant whose state changed concurrently
+      // (e.g. consumed by an admin a millisecond before we read) raises a
+      // 22023 from the RPC. We tolerate per-row failures because the row is
+      // about to be deleted anyway; the audit row from the consume call
+      // already exists. We do not let one rejection abort the whole flow.
+      await Promise.allSettled(
+        activeGrants.map((g: { id: number }) =>
+          supabase.rpc('user_revoke_support_access', { p_grant_id: g.id })
+        )
+      );
+    }
+
+    // Step B: Hard-delete the user_id-owned rows in tables that do NOT cascade
+    // automatically from profiles.deleted_at, plus tables that we want purged
+    // immediately rather than waiting for the 30-day retention cron.
     await Promise.allSettled([
       // context_templates: references auth.users ON DELETE CASCADE, but we
       // purge immediately since templates have no recovery value.
@@ -189,6 +230,72 @@ export async function DELETE(request: Request) {
       // share links remaining publicly accessible after account deletion.
       // SEC-LOGIC-004 FIX: was missing from deletion route.
       supabase.from('session_shared_links').delete().eq('shared_by', user.id),
+
+      // ── SEC-ADV-003 (2026-04-25): Phase 4 + earlier-phase gaps ────────────────
+
+      // passkeys (migration 020): WebAuthn credentials. Cascade-deletes from
+      // auth.users on hard delete, but explicit purge during the soft-delete
+      // grace window blocks WebAuthn re-auth on a banned-but-not-yet-deleted user.
+      supabase.from('passkeys').delete().eq('user_id', user.id),
+
+      // approvals (migration 021): rows where the user is the requester.
+      // resolver_user_id is SET NULL on cascade so we don't need to handle that side.
+      supabase.from('approvals').delete().eq('requester_user_id', user.id),
+
+      // sessions_shared (migration 021): share rows the user created (sender side).
+      // The recipient side cascades automatically via shared_with_user_id ON DELETE CASCADE.
+      supabase.from('sessions_shared').delete().eq('shared_by_user_id', user.id),
+
+      // exports (migration 021): historical export job records.
+      supabase.from('exports').delete().eq('user_id', user.id),
+
+      // data_export_requests (migration 025): the user's prior export-request history.
+      supabase.from('data_export_requests').delete().eq('user_id', user.id),
+
+      // notifications (migration 026): in-app + push notification history.
+      supabase.from('notifications').delete().eq('user_id', user.id),
+
+      // referral_events (migration 026): rows where the user is the referrer.
+      // referred_user_id is SET NULL on cascade for the referee side.
+      supabase.from('referral_events').delete().eq('referrer_user_id', user.id),
+
+      // user_feedback_prompts (migration 027): NPS scheduling state.
+      supabase.from('user_feedback_prompts').delete().eq('user_id', user.id),
+
+      // agent_session_groups (migration 035): user-created agent groupings.
+      // Deleting these cascade-deletes agent_context_memory rows automatically.
+      supabase.from('agent_session_groups').delete().eq('user_id', user.id),
+
+      // devices (migration 036): session-handoff device records.
+      supabase.from('devices').delete().eq('user_id', user.id),
+
+      // consent_flags (migration 040): GDPR Art. 7 consent record. WHY delete
+      // (not preserve): consent records are tied to the user's identity; once
+      // the account is being erased the consent record is no longer meaningful.
+      // The audit_log row for the deletion event records the erasure itself.
+      supabase.from('consent_flags').delete().eq('user_id', user.id),
+
+      // support_access_grants (migration 048): now safe to delete because we
+      // revoked all non-terminal grants in Step A above. Terminal-state rows
+      // (revoked / consumed / expired) are also deleted here — the audit trail
+      // lives in admin_audit_log which is preserved as legal-hold.
+      supabase.from('support_access_grants').delete().eq('user_id', user.id),
+
+      // churn_save_offers (migration 050): unaccepted/active offers. Accepted
+      // offers' financial impact is recorded in admin_audit_log (preserved).
+      supabase.from('churn_save_offers').delete().eq('user_id', user.id),
+
+      // billing_credits (migration 050): credits. WHY include here even though
+      // the FK is ON DELETE CASCADE: cascade fires on auth.users hard delete,
+      // not soft delete. Purging during the grace window prevents the user
+      // from accidentally seeing or applying a credit if recovery occurs.
+      // Applied credits' financial record is in admin_audit_log (legal-hold).
+      supabase.from('billing_credits').delete().eq('user_id', user.id),
+
+      // NOTE: billing_events is intentionally NOT deleted here. The FK is
+      // ON DELETE SET NULL, which preserves the financial event log under
+      // GDPR Art. 17(3)(b)(e) legal-hold while scrubbing the user link.
+      // The auth.users hard-delete (retention cron) triggers the SET NULL.
     ]);
 
     // Log deletion in audit_log (before signing out user)
