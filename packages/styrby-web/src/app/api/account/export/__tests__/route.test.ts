@@ -80,18 +80,30 @@ vi.mock('@/lib/rateLimit', () => ({
 }));
 
 /**
+ * Total parallel-fetch table count exported by the route.
+ *
+ * WHY a constant: the route's Promise.all has been extended multiple times
+ * (SEC-LOGIC-003/004 added 8; SEC-ADV-003 added 15). Centralising the count
+ * keeps the test mocks in lockstep with the route. If you add a new table to
+ * the export, bump this number and add the corresponding key in
+ * EXPECTED_EXPORT_TABLES below.
+ */
+const PARALLEL_TABLE_COUNT = 28 + 15;
+
+/**
  * Pushes standard queue entries for a successful export with sessions.
  *
- * The route performs 4 sequential pre-fetch queries before the 28-item
- * Promise.all, then 1 audit log insert:
+ * The route performs 4 sequential pre-fetch queries before the parallel
+ * Promise.all, then 1 audit_log insert + 1 data_export_requests insert:
  *   1. Session IDs (for session_messages IN query)
  *   2. Machine IDs (for machine_keys IN query)
  *   3. Webhook IDs (for webhook_deliveries IN query)
  *   4. Ticket IDs (for support_ticket_replies IN query)
- *   5-32. 28 parallel table fetches (Promise.all)
- *   33. Audit log insert
+ *   5..N. PARALLEL_TABLE_COUNT parallel table fetches (Promise.all)
+ *   N+1. audit_log insert
+ *   N+2. data_export_requests insert
  *
- * Total: 4 + 28 + 1 = 33 entries.
+ * Total: 4 + PARALLEL_TABLE_COUNT + 2 entries.
  */
 function pushStandardQueue() {
   // 1-4. Sequential pre-fetch queries
@@ -100,12 +112,14 @@ function pushStandardQueue() {
   fromCallQueue.push({ data: [{ id: 'webhook-1' }], error: null }); // webhook IDs
   fromCallQueue.push({ data: [{ id: 'ticket-1' }], error: null });  // ticket IDs
 
-  // 5-32. 28 parallel table fetches (order matches Promise.all in route)
-  for (let i = 0; i < 28; i++) {
+  // 5..N. parallel table fetches (order matches Promise.all in route)
+  for (let i = 0; i < PARALLEL_TABLE_COUNT; i++) {
     fromCallQueue.push({ data: [], error: null });
   }
 
-  // 33. Audit log insert
+  // N+1. audit_log insert
+  fromCallQueue.push({ data: null, error: null });
+  // N+2. data_export_requests insert
   fromCallQueue.push({ data: null, error: null });
 }
 
@@ -229,8 +243,8 @@ describe('POST /api/account/export', () => {
     expect(data).toHaveProperty('email');
     expect(data).toHaveProperty('exportedAt');
 
-    // All 28 table exports should be present (matching exact route keys)
-    // WHY: SEC-LOGIC-003/004 added 8 previously missing tables to the export.
+    // All 43 table exports should be present (matching exact route keys).
+    // WHY: SEC-LOGIC-003/004 added 8; SEC-ADV-003 (2026-04-25) added 15 more.
     const expectedTables = [
       'profile',
       'sessions',
@@ -261,11 +275,145 @@ describe('POST /api/account/export', () => {
       'machineKeys',
       'webhookDeliveries',
       'sessionSharedLinks',
+      // SEC-ADV-003 (2026-04-25): Phase 4 + earlier-phase gaps
+      'passkeys',
+      'approvals',
+      'sessionsSharedSent',
+      'sessionsSharedReceived',
+      'exports',
+      'billingEvents',
+      'dataExportRequests',
+      'notifications',
+      'referralEvents',
+      'userFeedbackPrompts',
+      'agentSessionGroups',
+      'devices',
+      'consentFlags',
+      'supportAccessGrants',
+      'billingCredits',
+      'churnSaveOffers',
     ];
 
     for (const table of expectedTables) {
       expect(data).toHaveProperty(table);
     }
+  });
+
+  /**
+   * SEC-ADV-003 Test: Export populates all newly-added Phase 4 tables when
+   * the user has rows in each.
+   *
+   * WHY this test: regression guard for the inventory work in
+   * docs/compliance/gdpr-table-inventory-2026-04-25.md. If a future refactor
+   * drops one of these tables from Promise.all the export would silently
+   * become incomplete; this test fails loudly.
+   */
+  it('exports rows from all SEC-ADV-003 newly-added tables', async () => {
+    // 4 pre-fetches (sessions / machines / webhooks / tickets) — all populated
+    // so every branch in Promise.all takes the .from() path (no Promise.resolve
+    // shortcuts) and the index alignment for the queue stays predictable.
+    fromCallQueue.push({ data: [{ id: 'session-1' }], error: null });
+    fromCallQueue.push({ data: [{ id: 'machine-1' }], error: null });
+    fromCallQueue.push({ data: [{ id: 'webhook-1' }], error: null });
+    fromCallQueue.push({ data: [{ id: 'ticket-1' }], error: null });
+
+    // Indices in Promise.all (order matches route literal exactly):
+    //   0  profiles
+    //   1  sessions
+    //   2  session_messages
+    //   3  cost_records
+    //   4  budget_alerts
+    //   5  agent_configs
+    //   6  device_tokens
+    //   7  user_feedback
+    //   8  machines
+    //   9  subscriptions
+    //   10 notification_preferences
+    //   11 session_bookmarks
+    //   12 teams
+    //   13 team_members
+    //   14 team_invitations
+    //   15 webhooks
+    //   16 api_keys
+    //   17 audit_log
+    //   18 prompt_templates
+    //   19 offline_command_queue
+    //   20 context_templates
+    //   21 notification_logs
+    //   22 support_tickets
+    //   23 support_ticket_replies (Promise.resolve when ticketIds empty)
+    //   24 session_checkpoints
+    //   25 machine_keys (Promise.resolve when machineIds empty)
+    //   26 webhook_deliveries (Promise.resolve when webhookIds empty)
+    //   27 session_shared_links
+    //   28 passkeys                ← SEC-ADV-003
+    //   29 approvals               ← SEC-ADV-003
+    //   30 sessions_shared (sent)  ← SEC-ADV-003
+    //   31 sessions_shared (recv)  ← SEC-ADV-003
+    //   32 exports                 ← SEC-ADV-003
+    //   33 billing_events          ← SEC-ADV-003
+    //   34 data_export_requests    ← SEC-ADV-003
+    //   35 notifications           ← SEC-ADV-003
+    //   36 referral_events         ← SEC-ADV-003
+    //   37 user_feedback_prompts   ← SEC-ADV-003
+    //   38 agent_session_groups    ← SEC-ADV-003
+    //   39 devices                 ← SEC-ADV-003
+    //   40 consent_flags           ← SEC-ADV-003
+    //   41 support_access_grants   ← SEC-ADV-003
+    //   42 billing_credits         ← SEC-ADV-003
+    //   43 churn_save_offers       ← SEC-ADV-003 (last index = PARALLEL_TABLE_COUNT - 1)
+
+    // Push placeholders for indices 0..27 (already-covered tables)
+    for (let i = 0; i < 28; i++) {
+      // Profile (index 0) is fetched via .single() — its result is
+      // shifted out of fromCallQueue regardless of array vs single shape.
+      fromCallQueue.push({ data: i === 0 ? { id: 'user-123' } : [], error: null });
+    }
+
+    // Indices 28..42: each new table returns one synthetic row so we can
+    // assert it actually flows through to the JSON body.
+    fromCallQueue.push({ data: [{ id: 'pk-1' }], error: null });               // 28 passkeys
+    fromCallQueue.push({ data: [{ id: 'ap-1' }], error: null });               // 29 approvals
+    fromCallQueue.push({ data: [{ id: 'sh-sent-1' }], error: null });          // 30 sessions_shared sent
+    fromCallQueue.push({ data: [{ id: 'sh-recv-1' }], error: null });          // 31 sessions_shared recv
+    fromCallQueue.push({ data: [{ id: 'ex-1' }], error: null });               // 32 exports
+    fromCallQueue.push({ data: [{ id: 'be-1' }], error: null });               // 33 billing_events
+    fromCallQueue.push({ data: [{ id: 'der-1' }], error: null });              // 34 data_export_requests
+    fromCallQueue.push({ data: [{ id: 'n-1' }], error: null });                // 35 notifications
+    fromCallQueue.push({ data: [{ id: 're-1' }], error: null });               // 36 referral_events
+    fromCallQueue.push({ data: [{ id: 'ufp-1' }], error: null });              // 37 user_feedback_prompts
+    fromCallQueue.push({ data: [{ id: 'asg-1' }], error: null });              // 38 agent_session_groups
+    fromCallQueue.push({ data: [{ id: 'dev-1' }], error: null });              // 39 devices
+    fromCallQueue.push({ data: [{ id: 'cf-1' }], error: null });               // 40 consent_flags
+    fromCallQueue.push({ data: [{ id: 1, status: 'pending' }], error: null }); // 41 support_access_grants
+    fromCallQueue.push({ data: [{ id: 1 }], error: null });                    // 42 billing_credits
+    fromCallQueue.push({ data: [{ id: 1 }], error: null });                    // 43 churn_save_offers
+
+    // Audit log + data_export_requests inserts
+    fromCallQueue.push({ data: null, error: null });
+    fromCallQueue.push({ data: null, error: null });
+
+    const request = createRequest();
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.passkeys).toEqual([{ id: 'pk-1' }]);
+    expect(data.approvals).toEqual([{ id: 'ap-1' }]);
+    expect(data.sessionsSharedSent).toEqual([{ id: 'sh-sent-1' }]);
+    expect(data.sessionsSharedReceived).toEqual([{ id: 'sh-recv-1' }]);
+    expect(data.exports).toEqual([{ id: 'ex-1' }]);
+    expect(data.billingEvents).toEqual([{ id: 'be-1' }]);
+    expect(data.dataExportRequests).toEqual([{ id: 'der-1' }]);
+    expect(data.notifications).toEqual([{ id: 'n-1' }]);
+    expect(data.referralEvents).toEqual([{ id: 're-1' }]);
+    expect(data.userFeedbackPrompts).toEqual([{ id: 'ufp-1' }]);
+    expect(data.agentSessionGroups).toEqual([{ id: 'asg-1' }]);
+    expect(data.devices).toEqual([{ id: 'dev-1' }]);
+    expect(data.consentFlags).toEqual([{ id: 'cf-1' }]);
+    expect(data.supportAccessGrants).toEqual([{ id: 1, status: 'pending' }]);
+    expect(data.billingCredits).toEqual([{ id: 1 }]);
+    expect(data.churnSaveOffers).toEqual([{ id: 1 }]);
   });
 
   /**
@@ -365,8 +513,8 @@ describe('POST /api/account/export', () => {
     // Pre-fetch #4: Ticket IDs (empty)
     fromCallQueue.push({ data: [], error: null });
 
-    // Queue 28 parallel table fetches — messages at index 2
-    for (let i = 0; i < 28; i++) {
+    // Queue parallel table fetches — messages at index 2
+    for (let i = 0; i < PARALLEL_TABLE_COUNT; i++) {
       if (i === 2) {
         // Messages is the 3rd entry in Promise.all (index 2)
         fromCallQueue.push({
@@ -381,7 +529,8 @@ describe('POST /api/account/export', () => {
       }
     }
 
-    // Queue audit log insert
+    // Queue audit log + data_export_requests inserts
+    fromCallQueue.push({ data: null, error: null });
     fromCallQueue.push({ data: null, error: null });
 
     const request = createRequest();
