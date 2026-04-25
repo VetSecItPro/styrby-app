@@ -81,8 +81,14 @@ vi.mock('@/lib/supabase/server', () => ({
 //   helper and uses the helper's return values correctly when calling the RPC.
 //   Mocking the helper avoids network calls and lets us control error codes.
 const mockCreatePolarRefund = vi.fn();
+const mockFindRefundableOrder = vi.fn();
 vi.mock('@/lib/billing/polar-refund', () => ({
   createPolarRefund: (...args: unknown[]) => mockCreatePolarRefund(...args),
+  // SEC-REFUND-001: actions.ts now resolves the real Polar order ID before
+  // calling createPolarRefund. The integration test mocks the resolver too so
+  // we can drive the full pipeline through both helpers without hitting Polar.
+  findRefundableOrderForSubscription: (...args: unknown[]) =>
+    mockFindRefundableOrder(...args),
   // WHY re-export RefundError class: issueRefundAction does `instanceof RefundError`
   // to branch on error type. The mock module must export the real class so that
   // `new RefundError(...)` constructions thrown in tests are recognized by the
@@ -139,7 +145,29 @@ describe('issueRefundAction — end-to-end refund flow', () => {
     // WHY restore createClient each beforeEach: clearAllMocks wipes mockResolvedValue.
     const serverModule = await import('@/lib/supabase/server');
     createClient = serverModule.createClient as Mock;
-    createClient.mockResolvedValue({ rpc: mockRpc });
+    // SEC-REFUND-001: client now needs both .rpc (audit RPC) and .from (subscription
+    // owner + polar_customer_id lookup before the refund). Default the lookup to a
+    // valid row owned by TARGET_UUID so happy-path tests don't re-stub the chain.
+    createClient.mockResolvedValue({
+      rpc: mockRpc,
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: { polar_customer_id: 'cus_integration_default', user_id: TARGET_UUID },
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    });
+    // SEC-REFUND-001: order resolver — default returns ample refundable balance
+    // so amount checks don't trip on the default. Tests that want the resolver
+    // to throw or return a tight balance override per-case.
+    mockFindRefundableOrder.mockResolvedValue({
+      orderId: 'ord_integration_default',
+      refundableCents: 100_000,
+    });
 
     const actionsModule = await import(
       '../../app/dashboard/admin/users/[userId]/billing/actions'
@@ -270,7 +298,24 @@ describe('issueRefundAction — end-to-end refund flow', () => {
     const key1 = (mockCreatePolarRefund.mock.calls[0]![0] as Record<string, unknown>).idempotencyKey as string;
 
     vi.clearAllMocks();
-    createClient.mockResolvedValue({ rpc: mockRpc });
+    // Re-stub the full client shape (rpc + from) since clearAllMocks wiped it.
+    createClient.mockResolvedValue({
+      rpc: mockRpc,
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: { polar_customer_id: 'cus_integration_default', user_id: TARGET_UUID },
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    });
+    mockFindRefundableOrder.mockResolvedValue({
+      orderId: 'ord_integration_default',
+      refundableCents: 100_000,
+    });
     mockCreatePolarRefund.mockResolvedValue({
       refundId: 'ref_idem',
       eventId:  'evt_idem',

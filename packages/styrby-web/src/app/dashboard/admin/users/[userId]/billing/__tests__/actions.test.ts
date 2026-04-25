@@ -92,6 +92,7 @@ vi.mock('@/lib/supabase/server', () => ({
  * `rawBody` properties that the action inspects.
  */
 const mockCreatePolarRefund = vi.fn();
+const mockFindRefundableOrder = vi.fn();
 
 vi.mock('@/lib/billing/polar-refund', () => {
   // WHY define RefundError in the factory: the action imports and instanceof-
@@ -110,6 +111,8 @@ vi.mock('@/lib/billing/polar-refund', () => {
   }
   return {
     createPolarRefund: (...args: unknown[]) => mockCreatePolarRefund(...args),
+    findRefundableOrderForSubscription: (...args: unknown[]) =>
+      mockFindRefundableOrder(...args),
     RefundError,
   };
 });
@@ -151,10 +154,34 @@ describe('issueRefundAction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // WHY restore after clearAllMocks: clearAllMocks wipes mockResolvedValue.
-    // createClient must return an object with rpc so actions can call it.
-    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
+    // createClient must return an object with .rpc and .from so the action can:
+    //   1. .from('subscriptions').select(...).eq(...).maybeSingle() for the
+    //      polar_customer_id + user_id lookup added in SEC-REFUND-001.
+    //   2. .rpc('admin_issue_refund', ...) to write the audit row.
+    // The .from() chain default resolves to a valid subscription row owned by
+    // the URL-bound test user; tests that need to override (no row, wrong owner,
+    // DB error) reassign the maybeSingle resolver per-case.
+    (createClient as Mock).mockResolvedValue({
+      rpc: mockRpc,
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: { polar_customer_id: 'cus_test_default', user_id: VALID_UUID },
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    });
     // Default Polar success
     mockCreatePolarRefund.mockResolvedValue(DEFAULT_POLAR_RESPONSE);
+    // Default Polar order resolver — returns a real-ish orderId with ample
+    // refundable balance so amount-checks don't trip on the default path.
+    mockFindRefundableOrder.mockResolvedValue({
+      orderId: 'ord_test_default',
+      refundableCents: 100_000,
+    });
     // Default RPC success — returns a non-zero audit ID
     mockRpc.mockResolvedValue({ data: 42, error: null });
   });
@@ -531,6 +558,157 @@ describe('issueRefundAction', () => {
 
     // Despite the orphan, redirect must still happen.
     expect(mockRedirect).toHaveBeenCalledWith(`/dashboard/admin/users/${VALID_UUID}/billing`);
+  });
+
+  // ── (h) SEC-REFUND-001: Polar order resolution ───────────────────────────
+
+  describe('(h) SEC-REFUND-001 — order resolution', () => {
+    /**
+     * Helper to override the maybeSingle resolver for the subscription lookup
+     * without rebuilding the entire from() chain. Each test case can stage
+     * one custom resolver value.
+     */
+    function setSubscriptionLookup(value: { data: unknown; error: unknown }) {
+      (createClient as Mock).mockResolvedValue({
+        rpc: mockRpc,
+        from: vi.fn().mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue(value),
+            }),
+          }),
+        }),
+      });
+    }
+
+    it('returns clear error when no subscription is found for the polar_subscription_id', async () => {
+      setSubscriptionLookup({ data: null, error: null });
+      const { issueRefundAction } = await import('../actions');
+
+      const result = await issueRefundAction(
+        VALID_UUID,
+        makeFormData({
+          targetUserId: VALID_UUID,
+          subscriptionId: 'sub_does_not_exist',
+          amount_cents: '4900',
+          reason: 'No subscription found',
+        }),
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        error: expect.stringContaining('No subscription found'),
+        field: 'subscription_id',
+      });
+      expect(mockFindRefundableOrder).not.toHaveBeenCalled();
+      expect(mockCreatePolarRefund).not.toHaveBeenCalled();
+      expect(mockRpc).not.toHaveBeenCalled();
+    });
+
+    it('rejects (IDOR defense) when subscription belongs to a different user than the URL-bound target', async () => {
+      setSubscriptionLookup({
+        data: { polar_customer_id: 'cus_other', user_id: VALID_UUID_2 },
+        error: null,
+      });
+      const { issueRefundAction } = await import('../actions');
+
+      const result = await issueRefundAction(
+        VALID_UUID,
+        makeFormData({
+          targetUserId: VALID_UUID,
+          subscriptionId: 'sub_belongs_to_other',
+          amount_cents: '4900',
+          reason: 'Cross-user subscription tampering attempt',
+        }),
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        error: 'Subscription does not belong to this user.',
+      });
+      expect(mockFindRefundableOrder).not.toHaveBeenCalled();
+      expect(mockCreatePolarRefund).not.toHaveBeenCalled();
+      expect(mockRpc).not.toHaveBeenCalled();
+    });
+
+    it('returns clear error when amount_cents exceeds the resolved order refundable balance', async () => {
+      mockFindRefundableOrder.mockResolvedValueOnce({
+        orderId: 'ord_partial',
+        refundableCents: 1000,
+      });
+      const { issueRefundAction } = await import('../actions');
+
+      const result = await issueRefundAction(
+        VALID_UUID,
+        makeFormData({
+          targetUserId: VALID_UUID,
+          subscriptionId: 'sub_polar_123',
+          amount_cents: '4900',
+          reason: 'Refund exceeds remaining',
+        }),
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        error: expect.stringMatching(/exceeds the 1000 cents remaining/),
+        field: 'amount_cents',
+      });
+      expect(mockCreatePolarRefund).not.toHaveBeenCalled();
+      expect(mockRpc).not.toHaveBeenCalled();
+    });
+
+    it('passes the resolved orderId (not the subscription_id) into createPolarRefund', async () => {
+      mockFindRefundableOrder.mockResolvedValueOnce({
+        orderId: 'ord_resolved_abc',
+        refundableCents: 100_000,
+      });
+      const { issueRefundAction } = await import('../actions');
+
+      await expect(
+        issueRefundAction(
+          VALID_UUID,
+          makeFormData({
+            targetUserId: VALID_UUID,
+            subscriptionId: 'sub_polar_xyz',
+            amount_cents: '4900',
+            reason: 'Verifies orderId is forwarded, not subscription id',
+          }),
+        ),
+      ).rejects.toThrow(/NEXT_REDIRECT/);
+
+      expect(mockCreatePolarRefund).toHaveBeenCalledOnce();
+      const [refundCall] = mockCreatePolarRefund.mock.calls[0] as [
+        { orderId: string; subscriptionId: string },
+      ];
+      expect(refundCall.orderId).toBe('ord_resolved_abc');
+      expect(refundCall.subscriptionId).toBe('sub_polar_xyz');
+    });
+
+    it('propagates RefundError from findRefundableOrderForSubscription as Polar-rejected', async () => {
+      // Order resolver throws 'invalid' — should surface as user-facing error,
+      // skip createPolarRefund and the audit RPC.
+      mockFindRefundableOrder.mockRejectedValueOnce(
+        new RefundError('invalid', 'No refundable orders found for sub_polar_123'),
+      );
+      const { issueRefundAction } = await import('../actions');
+
+      const result = await issueRefundAction(
+        VALID_UUID,
+        makeFormData({
+          targetUserId: VALID_UUID,
+          subscriptionId: 'sub_polar_123',
+          amount_cents: '4900',
+          reason: 'No refundable orders path',
+        }),
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        error: expect.stringContaining('Polar rejected'),
+      });
+      expect(mockCreatePolarRefund).not.toHaveBeenCalled();
+      expect(mockRpc).not.toHaveBeenCalled();
+    });
   });
 });
 
