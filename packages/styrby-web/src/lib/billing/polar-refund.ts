@@ -434,3 +434,118 @@ export async function createPolarRefund(params: {
     rawResponse: refund,
   };
 }
+
+// ============================================================================
+// Order lookup (SEC-REFUND-001 fix)
+// ============================================================================
+
+/**
+ * Resolves the most recent refundable Polar order for a given subscription.
+ *
+ * WHY this exists:
+ * Polar's refund API operates on orders, not subscriptions (see module-level
+ * JSDoc above). Callers historically passed `subscription_id` for both
+ * `subscriptionId` and `orderId` to `createPolarRefund` — Polar would reject
+ * the call with HTTPValidationError and no refund ever processed. This helper
+ * does the lookup correctly: list orders for the customer, filter to those
+ * tied to the target subscription, return the most-recent one with refundable
+ * remaining amount.
+ *
+ * WHY we filter by customerId (not subscriptionId):
+ * Polar SDK 0.29.3's `orders.list` does NOT accept a `subscriptionId` filter
+ * (verified against `node_modules/@polar-sh/sdk/src/models/operations/orderslist.ts`).
+ * The supported filter set is organization, product, billing-type, discount,
+ * customer. We pull `polar_customer_id` from our `subscriptions` table (stored
+ * since migration 001) and filter post-hoc by `subscription_id` on each order.
+ *
+ * WHY refundable-amount check:
+ * An order whose `refundedAmount` already equals `amount` is fully refunded
+ * and cannot be refunded again. We skip those rather than letting Polar reject
+ * the call.
+ *
+ * @param customerId - Polar customer ID (read from our `subscriptions.polar_customer_id`)
+ * @param subscriptionId - Polar subscription ID (used to filter orders)
+ * @returns the resolved orderId and the order's remaining refundable cents
+ *
+ * @throws {RefundError} code='invalid' when no refundable orders are found
+ * @throws {RefundError} code='network' on transport failure to Polar
+ * @throws {RefundError} code='polar-error' on Polar 5xx
+ *
+ * SOC2 CC7.2: this lookup is observable via Polar API logs; no audit row is
+ * written here (the audit row is created by `admin_issue_refund` after the
+ * refund itself succeeds).
+ */
+export async function findRefundableOrderForSubscription(
+  customerId: string,
+  subscriptionId: string,
+): Promise<{ orderId: string; refundableCents: number }> {
+  if (!customerId.trim()) {
+    throw new RefundError('invalid', 'customerId must not be empty.');
+  }
+  if (!subscriptionId.trim()) {
+    throw new RefundError('invalid', 'subscriptionId must not be empty.');
+  }
+
+  let pages: AsyncIterable<{ result: { items: Array<unknown> } }>;
+  try {
+    // WHY sorting -created_at: most-recent order is most likely the one the
+    // admin intends to refund. WHY limit 50: a subscription with > 50 charges
+    // since creation and no refundable order in the most-recent 50 is an edge
+    // case worth surfacing as "no refundable orders" rather than paginating
+    // indefinitely.
+    pages = (await polar.orders.list({
+      customerId,
+      sorting: ['-created_at'],
+      limit: 50,
+    })) as AsyncIterable<{ result: { items: Array<unknown> } }>;
+  } catch (err) {
+    const errMessage = err instanceof Error ? err.message : String(err);
+    // Distinguish 5xx vs transport. AbortError / network failure → 'network'.
+    if (
+      err instanceof Error &&
+      (err.name === 'AbortError' ||
+        err.name === 'TypeError' ||
+        err.message.includes('fetch failed'))
+    ) {
+      throw new RefundError(
+        'network',
+        `Network error reaching Polar orders.list for customer ${customerId}: ${errMessage}`,
+      );
+    }
+    throw new RefundError(
+      'polar-error',
+      `Polar orders.list failed for customer ${customerId}: ${errMessage}`,
+    );
+  }
+
+  // The SDK returns an async iterable of pages. We walk pages until we find
+  // the first refundable order for this subscription.
+  for await (const page of pages) {
+    for (const raw of page.result.items) {
+      // The Order shape (per @polar-sh/sdk components/order.ts):
+      //   { id, status, amount, refundedAmount, subscriptionId, createdAt, ... }
+      // subscription_id may be camel- or snake-cased depending on SDK serializer.
+      const order = raw as {
+        id: string;
+        status: string;
+        amount: number;
+        refundedAmount?: number;
+        refunded_amount?: number;
+        subscriptionId?: string | null;
+        subscription_id?: string | null;
+      };
+      const orderSubId = order.subscriptionId ?? order.subscription_id ?? null;
+      if (orderSubId !== subscriptionId) continue;
+      const refunded = order.refundedAmount ?? order.refunded_amount ?? 0;
+      const remaining = order.amount - refunded;
+      if (order.status !== 'paid') continue;
+      if (remaining <= 0) continue;
+      return { orderId: order.id, refundableCents: remaining };
+    }
+  }
+
+  throw new RefundError(
+    'invalid',
+    `No refundable orders found for subscription ${subscriptionId}. The subscription may have no paid charges, or all charges may already be fully refunded.`,
+  );
+}

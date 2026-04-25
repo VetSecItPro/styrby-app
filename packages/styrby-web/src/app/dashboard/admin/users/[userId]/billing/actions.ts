@@ -40,7 +40,11 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import * as Sentry from '@sentry/nextjs';
-import { createPolarRefund, RefundError } from '@/lib/billing/polar-refund';
+import {
+  createPolarRefund,
+  findRefundableOrderForSubscription,
+  RefundError,
+} from '@/lib/billing/polar-refund';
 import type { AdminActionResult } from '@/app/dashboard/admin/users/[userId]/actions';
 
 // Re-export AdminActionResult so sub-pages can import from this module too.
@@ -255,7 +259,60 @@ export async function issueRefundAction(
   const nowRoundedToMinute = Math.floor(Date.now() / 60_000) * 60_000;
   const idempotencyKey = `${targetUserId}:${subscription_id}:${amount_cents}:${nowRoundedToMinute}`;
 
-  // ── 3. Issue refund via Polar SDK ──────────────────────────────────────────
+  // ── 3. Resolve subscription owner + Polar customer + Polar order ───────────
+  // SEC-REFUND-001: The Polar SDK refund API requires a real order ID; the
+  // pass-through `orderId: subscription_id` it had before this PR caused Polar
+  // to reject every refund with HTTPValidationError. Two-step resolution now:
+  //
+  //   a. Look up `subscriptions.polar_customer_id` for this subscription AND
+  //      verify the row's `user_id` matches the URL-bound `targetUserId`. The
+  //      URL-binding (.bind(null, userId)) already prevents cross-user form
+  //      tampering, but this DB-side check is defense-in-depth — IDOR cannot
+  //      bypass an admin's URL boundary even if FormData is forged.
+  //   b. Call `polar.orders.list({ customerId, sorting: ['-created_at'] })`,
+  //      filter to orders for this subscription with refundable balance, take
+  //      the most recent. See `findRefundableOrderForSubscription` for why
+  //      we filter by customerId rather than subscriptionId (SDK 0.29.3 does
+  //      not accept a subscriptionId filter on orders.list).
+  //
+  // SOC 2 CC7.2: every read is observable in DB + Polar API logs.
+  const supabaseForLookup = await createClient();
+  const { data: subRow, error: subErr } = await supabaseForLookup
+    .from('subscriptions')
+    .select('polar_customer_id, user_id')
+    .eq('polar_subscription_id', subscription_id)
+    .maybeSingle();
+
+  if (subErr) {
+    Sentry.captureException(subErr, {
+      tags: { admin_action: 'issue_refund', target_user_id: targetUserId },
+    });
+    return { ok: false, error: 'Internal error' };
+  }
+  if (!subRow) {
+    return {
+      ok: false,
+      error: `No subscription found with that Polar subscription ID for this user.`,
+      field: 'subscription_id',
+    };
+  }
+  if (subRow.user_id !== targetUserId) {
+    // IDOR defense — the subscription does not belong to the URL-bound user.
+    // This should never happen via the admin UI; if it does, treat as forgery.
+    Sentry.captureException(
+      new Error('admin_issue_refund: subscription user_id mismatch'),
+      {
+        tags: {
+          admin_action: 'issue_refund',
+          target_user_id: targetUserId,
+          subscription_id,
+        },
+      },
+    );
+    return { ok: false, error: 'Subscription does not belong to this user.' };
+  }
+
+  // ── 4. Issue refund via Polar SDK ──────────────────────────────────────────
   // WHY createPolarRefund before RPC: Polar is the authoritative money-moving
   // system. We write to Supabase only after Polar confirms. SOC 2 CC7.2.
   let polarRefundId: string;
@@ -263,21 +320,26 @@ export async function issueRefundAction(
   let polarResponseJson: unknown;
 
   try {
-    // SEC-REFUND-001 (TODO): Polar's refund API requires an actual order ID,
-    // not a subscription ID. Verified against the SDK type at
-    // `@polar-sh/sdk/src/models/components/refundcreate.ts` — `orderId` is
-    // required and is NOT aliased to subscription_id. Passing subscription_id
-    // here will cause Polar to return HTTPValidationError (mapped to
-    // RefundError code='invalid' inside createPolarRefund). The correct fix
-    // is to call `polar.orders.list({ subscriptionId })` to find the most
-    // recent paid order for this subscription (or accept an orderId from the
-    // admin form) BEFORE calling createPolarRefund. This bundle leaves the
-    // existing fallback in place because production has not yet exercised
-    // the refund path; switching to a Polar-orders lookup is a separate PR
-    // (PR-D in the backlog) so the change is reviewable in isolation.
+    const { orderId, refundableCents } = await findRefundableOrderForSubscription(
+      subRow.polar_customer_id,
+      subscription_id,
+    );
+
+    // Belt-and-suspenders amount check — Polar will also enforce this server
+    // side, but a clear client-side error gives the admin immediate feedback
+    // ("$X requested exceeds the $Y refundable on the most recent order")
+    // rather than the generic Polar 4xx.
+    if (amount_cents > refundableCents) {
+      return {
+        ok: false,
+        error: `Requested refund of ${amount_cents} cents exceeds the ${refundableCents} cents remaining on the most recent paid order.`,
+        field: 'amount_cents',
+      };
+    }
+
     const refundResult = await createPolarRefund({
       subscriptionId: subscription_id,
-      orderId: subscription_id,
+      orderId,
       amountCents: amount_cents,
       reason,
       idempotencyKey,
@@ -348,11 +410,11 @@ export async function issueRefundAction(
     }
   }
 
-  // ── 4. Write audit row via SECURITY DEFINER RPC ───────────────────────────
-  // WHY createClient() (user-scoped): see module JSDoc. SOC 2 CC6.1.
-  const supabase = await createClient();
-
-  const { data: auditId, error: rpcErr } = await supabase.rpc('admin_issue_refund', {
+  // ── 5. Write audit row via SECURITY DEFINER RPC ───────────────────────────
+  // WHY reuse supabaseForLookup (user-scoped): the same client used for the
+  // subscription lookup carries the admin's auth.uid() context required by
+  // the SECURITY DEFINER RPC's `is_site_admin(auth.uid())` check. SOC 2 CC6.1.
+  const { data: auditId, error: rpcErr } = await supabaseForLookup.rpc('admin_issue_refund', {
     p_target_user_id: targetUserId,
     p_amount_cents: amount_cents,
     p_currency: 'usd',

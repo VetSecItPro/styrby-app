@@ -45,8 +45,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // factory runs, causing a ReferenceError. vi.hoisted() runs its callback in
 // the same hoisted position as vi.mock(), so the returned refs are valid when
 // the factories execute.
-const { mockRefundsCreate, mockRequireEnv } = vi.hoisted(() => ({
+const { mockRefundsCreate, mockOrdersList, mockRequireEnv } = vi.hoisted(() => ({
   mockRefundsCreate: vi.fn(),
+  mockOrdersList: vi.fn(),
   mockRequireEnv: vi.fn().mockReturnValue('test-token'),
 }));
 
@@ -54,6 +55,9 @@ vi.mock('../../polar', () => ({
   polar: {
     refunds: {
       create: mockRefundsCreate,
+    },
+    orders: {
+      list: mockOrdersList,
     },
   },
 }));
@@ -70,7 +74,11 @@ vi.mock('../../env', () => ({
 }));
 
 // ── Import SUT after mocks ───────────────────────────────────────────────────
-import { createPolarRefund, RefundError } from '../polar-refund';
+import {
+  createPolarRefund,
+  findRefundableOrderForSubscription,
+  RefundError,
+} from '../polar-refund';
 import { RefundReason } from '@polar-sh/sdk/models/components/refundreason';
 
 // ── Shared test fixtures ─────────────────────────────────────────────────────
@@ -533,5 +541,194 @@ describe('createPolarRefund', () => {
       const err = new RefundError('config', 'missing token');
       expect(err.rawBody).toBeUndefined();
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// findRefundableOrderForSubscription (SEC-REFUND-001)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Builds a fake async-iterable page result mirroring Polar SDK 0.29.3's
+ * `orders.list` return shape. The SDK returns an async iterable of pages,
+ * each `{ result: { items: Order[] } }`. We provide one page per call here;
+ * tests that need pagination can override.
+ */
+function makeOrdersPage(items: Array<Record<string, unknown>>) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      yield { result: { items } };
+    },
+  };
+}
+
+describe('findRefundableOrderForSubscription', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns the first paid order matching the subscription with refundable balance', async () => {
+    mockOrdersList.mockResolvedValue(
+      makeOrdersPage([
+        // Most-recent first per `-created_at` sort
+        {
+          id: 'ord_recent',
+          status: 'paid',
+          amount: 4900,
+          refundedAmount: 0,
+          subscriptionId: 'sub_abc',
+        },
+        {
+          id: 'ord_older',
+          status: 'paid',
+          amount: 4900,
+          refundedAmount: 0,
+          subscriptionId: 'sub_abc',
+        },
+      ]),
+    );
+
+    const result = await findRefundableOrderForSubscription('cus_123', 'sub_abc');
+
+    expect(result.orderId).toBe('ord_recent');
+    expect(result.refundableCents).toBe(4900);
+    expect(mockOrdersList).toHaveBeenCalledWith({
+      customerId: 'cus_123',
+      sorting: ['-created_at'],
+      limit: 50,
+    });
+  });
+
+  it('returns refundableCents as amount minus refundedAmount', async () => {
+    mockOrdersList.mockResolvedValue(
+      makeOrdersPage([
+        { id: 'ord_partial', status: 'paid', amount: 10_000, refundedAmount: 3_000, subscriptionId: 'sub_abc' },
+      ]),
+    );
+
+    const result = await findRefundableOrderForSubscription('cus_123', 'sub_abc');
+    expect(result.refundableCents).toBe(7_000);
+  });
+
+  it('skips orders for a different subscription_id', async () => {
+    mockOrdersList.mockResolvedValue(
+      makeOrdersPage([
+        { id: 'ord_other_sub', status: 'paid', amount: 4900, refundedAmount: 0, subscriptionId: 'sub_OTHER' },
+        { id: 'ord_match', status: 'paid', amount: 4900, refundedAmount: 0, subscriptionId: 'sub_abc' },
+      ]),
+    );
+
+    const result = await findRefundableOrderForSubscription('cus_123', 'sub_abc');
+    expect(result.orderId).toBe('ord_match');
+  });
+
+  it('skips fully-refunded orders (remaining = 0)', async () => {
+    mockOrdersList.mockResolvedValue(
+      makeOrdersPage([
+        { id: 'ord_fully_refunded', status: 'paid', amount: 4900, refundedAmount: 4900, subscriptionId: 'sub_abc' },
+        { id: 'ord_partial', status: 'paid', amount: 4900, refundedAmount: 1000, subscriptionId: 'sub_abc' },
+      ]),
+    );
+
+    const result = await findRefundableOrderForSubscription('cus_123', 'sub_abc');
+    expect(result.orderId).toBe('ord_partial');
+    expect(result.refundableCents).toBe(3900);
+  });
+
+  it('skips non-paid orders (e.g., pending, failed)', async () => {
+    mockOrdersList.mockResolvedValue(
+      makeOrdersPage([
+        { id: 'ord_pending', status: 'pending', amount: 4900, refundedAmount: 0, subscriptionId: 'sub_abc' },
+        { id: 'ord_failed', status: 'failed', amount: 4900, refundedAmount: 0, subscriptionId: 'sub_abc' },
+        { id: 'ord_paid', status: 'paid', amount: 4900, refundedAmount: 0, subscriptionId: 'sub_abc' },
+      ]),
+    );
+
+    const result = await findRefundableOrderForSubscription('cus_123', 'sub_abc');
+    expect(result.orderId).toBe('ord_paid');
+  });
+
+  it('accepts snake_case subscription_id from SDK serializer (defensive)', async () => {
+    mockOrdersList.mockResolvedValue(
+      makeOrdersPage([
+        { id: 'ord_snake', status: 'paid', amount: 4900, refunded_amount: 0, subscription_id: 'sub_abc' },
+      ]),
+    );
+
+    const result = await findRefundableOrderForSubscription('cus_123', 'sub_abc');
+    expect(result.orderId).toBe('ord_snake');
+  });
+
+  it('throws RefundError(invalid) when no matching orders exist', async () => {
+    mockOrdersList.mockResolvedValue(makeOrdersPage([]));
+
+    await expect(
+      findRefundableOrderForSubscription('cus_123', 'sub_abc'),
+    ).rejects.toThrow(RefundError);
+    await expect(
+      findRefundableOrderForSubscription('cus_123', 'sub_abc'),
+    ).rejects.toMatchObject({
+      code: 'invalid',
+      message: expect.stringContaining('No refundable orders'),
+    });
+  });
+
+  it('throws RefundError(invalid) when all matching orders are fully refunded', async () => {
+    mockOrdersList.mockResolvedValue(
+      makeOrdersPage([
+        { id: 'ord_a', status: 'paid', amount: 4900, refundedAmount: 4900, subscriptionId: 'sub_abc' },
+        { id: 'ord_b', status: 'paid', amount: 4900, refundedAmount: 4900, subscriptionId: 'sub_abc' },
+      ]),
+    );
+
+    await expect(
+      findRefundableOrderForSubscription('cus_123', 'sub_abc'),
+    ).rejects.toMatchObject({ code: 'invalid' });
+  });
+
+  it('throws RefundError(network) on AbortError from SDK', async () => {
+    const abortErr = new Error('aborted');
+    abortErr.name = 'AbortError';
+    mockOrdersList.mockRejectedValue(abortErr);
+
+    await expect(
+      findRefundableOrderForSubscription('cus_123', 'sub_abc'),
+    ).rejects.toMatchObject({ code: 'network' });
+  });
+
+  it('throws RefundError(network) on TypeError ("fetch failed") from SDK', async () => {
+    mockOrdersList.mockRejectedValue(new TypeError('fetch failed'));
+
+    await expect(
+      findRefundableOrderForSubscription('cus_123', 'sub_abc'),
+    ).rejects.toMatchObject({ code: 'network' });
+  });
+
+  it('throws RefundError(polar-error) on generic SDK error', async () => {
+    mockOrdersList.mockRejectedValue(new Error('Polar 503 service unavailable'));
+
+    await expect(
+      findRefundableOrderForSubscription('cus_123', 'sub_abc'),
+    ).rejects.toMatchObject({ code: 'polar-error' });
+  });
+
+  it('throws RefundError(invalid) on empty customerId', async () => {
+    await expect(
+      findRefundableOrderForSubscription('', 'sub_abc'),
+    ).rejects.toMatchObject({
+      code: 'invalid',
+      message: expect.stringContaining('customerId'),
+    });
+    expect(mockOrdersList).not.toHaveBeenCalled();
+  });
+
+  it('throws RefundError(invalid) on empty subscriptionId', async () => {
+    await expect(
+      findRefundableOrderForSubscription('cus_123', ''),
+    ).rejects.toMatchObject({
+      code: 'invalid',
+      message: expect.stringContaining('subscriptionId'),
+    });
+    expect(mockOrdersList).not.toHaveBeenCalled();
   });
 });
