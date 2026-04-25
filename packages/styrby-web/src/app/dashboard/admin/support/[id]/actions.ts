@@ -252,15 +252,27 @@ export async function requestSupportAccessAction(
   if (error) return mapRpcError(error, 'request_support_access');
 
   // ── 5. Flash raw token via short-lived cookie ──────────────────────────────
-  // WHY non-HttpOnly: the success page JS needs to clear this cookie after
-  // displaying the token. HttpOnly cookies cannot be cleared by client-side JS.
-  // WHY maxAge: 60 (1 minute): tight window ensures the token self-destructs
+  // SEC-COOKIE-001: Hardened from sameSite='lax' to 'strict'.
+  //
+  // WHY 'strict' is correct here (correcting the prior 'lax' rationale):
+  // The redirect target (/dashboard/admin/support/[id]/request-access/success)
+  // is same-site as the form-submission origin. SameSite=Strict ONLY drops
+  // cookies on cross-site navigations — same-site server-action redirects
+  // preserve the cookie. The previous comment claimed Strict would drop the
+  // cookie on the redirect; that was factually incorrect for this flow. Strict
+  // gives maximum CSRF protection for a 60-second read-once token without
+  // breaking the redirect.
+  //
+  // WHY non-HttpOnly: the success page JS reads + clears this cookie after
+  // displaying the raw token. HttpOnly cookies cannot be cleared from JS, and
+  // we want the token gone the instant the admin sees it (defense-in-depth
+  // against shoulder-surfing or stale tabs).
+  //
+  // WHY maxAge=60 (1 minute): tight window ensures the token self-destructs
   // even if the admin doesn't navigate to the success page immediately. We do
   // NOT use sessionStorage here because the redirect creates a new navigation
   // which would clear sessionStorage in some browsers.
-  // WHY sameSite: 'lax': prevents CSRF while allowing the redirect to carry
-  // the cookie. 'strict' would drop the cookie on the redirect from the form
-  // submission response.
+  //
   // SECURITY: the raw token is the ONLY sensitive value in this cookie. The
   // grant ID in the redirect URL is not sensitive (it's a bigint primary key
   // visible only to admins).
@@ -268,7 +280,7 @@ export async function requestSupportAccessAction(
   cookieStore.set('support_grant_token_once', raw, {
     httpOnly: false,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: 'strict',
     maxAge: 60,
     path: '/',
   });

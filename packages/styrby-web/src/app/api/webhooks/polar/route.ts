@@ -391,19 +391,33 @@ async function handleTeamSubscriptionEvent(
     )
     .select('event_id');
 
+  // SEC-WEBHOOK-001: Mirror the individual-path posture on dedup table errors.
+  //
+  // WHY non-fatal on DB error (not 500): the team-tier downstream UPDATE on the
+  // teams table is also idempotent — the same final billing_tier / seat_cap /
+  // billing_status state results regardless of how many times we apply it for
+  // a given Polar payload. Returning 500 here would cause Polar to retry
+  // indefinitely if the polar_webhook_events table itself has a transient
+  // issue (lock contention, brief unavailability), creating a retry storm.
+  // Falling through and letting the downstream UPDATE provide correctness
+  // matches the individual path's tradeoff. The dedup failure is captured in
+  // logs (and Sentry via console.error wrapping) for ops visibility.
+  // SOC2 CC9.2: idempotency is still enforced in aggregate by the deterministic
+  // state writes; the dedup table is an optimization, not the only guarantor.
+  let dedupRecorded = true;
   if (insertError) {
-    // A DB error here (not a conflict) means we cannot safely enforce idempotency.
-    // Return 500 so Polar retries — the retry will either succeed or hit the
-    // duplicate key (if the first attempt actually committed before the error).
-    console.error('polar/route: failed to record team webhook event:', insertError.message);
-    return NextResponse.json({ error: 'Processing failed' }, { status: 500 });
-  }
-
-  if (!insertedRows || insertedRows.length === 0) {
+    console.error(
+      'polar/route: team path — failed to record event in polar_webhook_events (non-fatal):',
+      insertError.message,
+    );
+    dedupRecorded = false;
+  } else if (!insertedRows || insertedRows.length === 0) {
     // Conflict — this event was already processed. Acknowledge and return.
     if (isDev) console.log(`polar/route: duplicate team event ${eventId}, skipping`);
     return NextResponse.json({ received: true });
   }
+  // dedupRecorded is informational only; the function continues either way.
+  void dedupRecorded;
 
   // --------------------------------------------------------------------------
   // 2. Product ID resolution (subscription.updated only)
