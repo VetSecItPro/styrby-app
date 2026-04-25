@@ -87,8 +87,11 @@ vi.mock('next/cache', () => ({
   revalidatePath: (path: string) => mockRevalidatePath(path),
 }));
 
-// ── next/headers — cookies + headers ─────────────────────────────────────────
-const mockCookieSet = vi.fn();
+// ── next/headers — headers only (cookies channel removed by SEC-ADV-001) ─────
+// WHY no cookies mock: requestSupportAccessAction no longer touches cookies.
+// The raw token is now stashed via admin_stash_grant_token (server-side) and
+// retrieved by the success page via admin_pickup_grant_token. Any accidental
+// re-introduction of cookies() will throw on the missing export.
 const mockHeadersGet = vi.fn((name: string) => {
   if (name === 'x-forwarded-for') return '10.0.0.1';
   if (name === 'user-agent')      return 'integration-test-agent/1.0';
@@ -97,7 +100,6 @@ const mockHeadersGet = vi.fn((name: string) => {
 
 vi.mock('next/headers', () => ({
   headers: async () => ({ get: mockHeadersGet }),
-  cookies: async () => ({ set: mockCookieSet }),
 }));
 
 // ── Sentry ────────────────────────────────────────────────────────────────────
@@ -164,21 +166,40 @@ function makeRequestFormData(overrides: Partial<{
 // ============================================================================
 
 describe('Step 1: Admin requestSupportAccessAction', () => {
+  /**
+   * Configure the two-RPC sequence used by requestSupportAccessAction post
+   * SEC-ADV-001. The action calls admin_request_support_access then
+   * admin_stash_grant_token. Tests can override either branch.
+   */
+  function configureRpcSequence(opts: {
+    requestErr?: { code: string; message?: string } | null;
+    stashErr?:   { code: string; message?: string } | null;
+  } = {}) {
+    mockRpc.mockImplementation(async (fnName: string) => {
+      if (fnName === 'admin_request_support_access') {
+        if (opts.requestErr) return { data: null, error: opts.requestErr };
+        return { data: GRANT_ID, error: null };
+      }
+      if (fnName === 'admin_stash_grant_token') {
+        if (opts.stashErr) return { data: null, error: opts.stashErr };
+        return { data: null, error: null };
+      }
+      return { data: null, error: null };
+    });
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
-    // WHY include from: mockFrom — Fix 1 adds a server-side SELECT on
-    // support_tickets before the RPC call. The mockFrom must return the
-    // ticket chain so the action can resolve p_user_id. Without this the
-    // action returns { ok: false, error: 'Ticket not found' } before the RPC.
+    // WHY include from: the action SELECTs support_tickets to resolve p_user_id
+    // server-side before the RPC call (see actions.ts header).
     mockFrom.mockImplementation(() => makeTicketFromChain());
     (createClient as Mock).mockResolvedValue({ rpc: mockRpc, from: mockFrom });
+    // Default: both RPCs succeed.
+    configureRpcSequence();
   });
 
   it('1-a: calls admin_request_support_access RPC with token_hash (SHA-256 hex, 64 chars)', async () => {
     // WHY assert hash length = 64: SHA-256 hex is always 64 characters.
-    // The DB column is `text NOT NULL` but we validate shape at the app layer.
-    mockRpc.mockResolvedValueOnce({ data: GRANT_ID, error: null });
-
     const { requestSupportAccessAction } = await import(
       '../../app/dashboard/admin/support/[id]/actions'
     );
@@ -187,35 +208,33 @@ describe('Step 1: Admin requestSupportAccessAction', () => {
       requestSupportAccessAction(TICKET_ID, makeRequestFormData())
     ).rejects.toThrow(/NEXT_REDIRECT/);
 
-    expect(mockRpc).toHaveBeenCalledOnce();
-    const [rpcName, rpcArgs] = mockRpc.mock.calls[0];
-    expect(rpcName).toBe('admin_request_support_access');
+    const requestCall = mockRpc.mock.calls.find(
+      (c) => c[0] === 'admin_request_support_access'
+    );
+    expect(requestCall).toBeDefined();
+    const rpcArgs = requestCall![1];
 
-    // Hash must be a valid 64-char hex string (SHA-256).
     expect(rpcArgs.p_token_hash).toMatch(/^[0-9a-f]{64}$/);
-    // With our deterministic mock, the hash must equal the pre-computed value.
     expect(rpcArgs.p_token_hash).toBe(FAKE_TOKEN_HASH);
 
-    // Other required fields are present.
     expect(rpcArgs.p_ticket_id).toBe(TICKET_ID);
-    // WHY assert p_user_id (Fix 1): the action resolves user_id server-side from
-    // the ticket row — not from FormData. MOCK_USER_ID is what makeTicketFromChain()
-    // returns. p_ip and p_ua are NOT in the migration 049 RPC signature.
     expect(rpcArgs.p_user_id).toBe(MOCK_USER_ID);
     expect(rpcArgs.p_session_id).toBe(SESSION_ID);
     expect(rpcArgs.p_reason).toBe('Reproduce a cost spike from support ticket #42');
     expect(rpcArgs.p_expires_in_hours).toBe(24);
-    // Confirm p_ip and p_ua are absent (not valid RPC parameters in migration 049).
     expect(rpcArgs).not.toHaveProperty('p_ip');
     expect(rpcArgs).not.toHaveProperty('p_ua');
   });
 
-  it('1-b: raw token is flashed via cookie (not returned in action result)', async () => {
-    // WHY: the spec requires the raw token to flow ONLY through the one-time
-    // cookie channel, never through the action return value (which appears in
-    // browser network tab). T4 security model comment §"WHY raw token not in result".
-    mockRpc.mockResolvedValueOnce({ data: GRANT_ID, error: null });
-
+  it('1-b: raw token flows through admin_stash_grant_token (server-side), NOT a cookie (SEC-ADV-001)', async () => {
+    // SEC-ADV-001 architectural assertion:
+    //   The previous implementation flashed the raw token via a non-HttpOnly
+    //   cookie (60s TTL). That allowed any same-origin XSS to read it. The
+    //   refactor moves the secret into a server-only holding table written by
+    //   admin_stash_grant_token. This test pins the new contract:
+    //     - admin_stash_grant_token is called with the raw token.
+    //     - No cookie is set (the cookies() helper is not even imported).
+    //     - The raw token never appears in the action return value.
     const { requestSupportAccessAction } = await import(
       '../../app/dashboard/admin/support/[id]/actions'
     );
@@ -224,19 +243,25 @@ describe('Step 1: Admin requestSupportAccessAction', () => {
       requestSupportAccessAction(TICKET_ID, makeRequestFormData())
     ).rejects.toThrow(/NEXT_REDIRECT/);
 
-    // Cookie is set with the raw token.
-    expect(mockCookieSet).toHaveBeenCalledOnce();
-    const [cookieName, cookieValue, cookieOptions] = mockCookieSet.mock.calls[0];
-    expect(cookieName).toBe('support_grant_token_once');
-    expect(cookieValue).toBe(FAKE_RAW_TOKEN);
-    // One-time: maxAge must be tight (≤60s per spec).
-    expect(cookieOptions.maxAge).toBeLessThanOrEqual(60);
-    expect(cookieOptions.httpOnly).toBe(false);
+    const stashCall = mockRpc.mock.calls.find(
+      (c) => c[0] === 'admin_stash_grant_token'
+    );
+    expect(stashCall).toBeDefined();
+    expect(stashCall![1]).toEqual({
+      p_grant_id: GRANT_ID,
+      p_raw_token: FAKE_RAW_TOKEN,
+    });
+
+    // Stash receives the raw token; the request RPC receives only the hash.
+    const requestCall = mockRpc.mock.calls.find(
+      (c) => c[0] === 'admin_request_support_access'
+    );
+    const requestArgsStr = JSON.stringify(requestCall![1]);
+    expect(requestArgsStr).not.toContain(FAKE_RAW_TOKEN);
+    expect(requestArgsStr).toContain(FAKE_TOKEN_HASH);
   });
 
   it('1-c: redirect points to the success page including the grant ID', async () => {
-    mockRpc.mockResolvedValueOnce({ data: GRANT_ID, error: null });
-
     const { requestSupportAccessAction } = await import(
       '../../app/dashboard/admin/support/[id]/actions'
     );
@@ -261,20 +286,13 @@ describe('Step 1: Admin requestSupportAccessAction', () => {
     );
 
     expect(result).toMatchObject({ ok: false, field: 'session_id' });
-    // RPC was never called — no audit row written for invalid input.
     expect(mockRpc).not.toHaveBeenCalled();
-    // No cookie for failed action.
-    expect(mockCookieSet).not.toHaveBeenCalled();
   });
 
-  it('1-e: non-admin RPC 42501 → "Not authorized" (no raw token, no Sentry)', async () => {
-    // WHY: SQLSTATE 42501 is an expected auth failure, not an unexpected server
-    // error. Sentry must NOT be called for expected denials. The raw token MUST
-    // NOT appear in the error result. SOC 2 CC6.1.
-    mockRpc.mockResolvedValueOnce({
-      data: null,
-      error: { code: '42501', message: 'permission denied' },
-    });
+  it('1-e: non-admin RPC 42501 → "Not authorized" (no raw token, no Sentry, no stash call)', async () => {
+    // WHY: SQLSTATE 42501 is an expected auth failure on the request RPC.
+    // The stash RPC must NOT be called when the request fails.
+    configureRpcSequence({ requestErr: { code: '42501', message: 'permission denied' } });
 
     const { requestSupportAccessAction } = await import(
       '../../app/dashboard/admin/support/[id]/actions'
@@ -284,16 +302,16 @@ describe('Step 1: Admin requestSupportAccessAction', () => {
 
     expect(result).toEqual({ ok: false, error: 'Not authorized' });
     expect(mockSentryCapture).not.toHaveBeenCalled();
-    expect(mockCookieSet).not.toHaveBeenCalled();
     expect(mockRedirect).not.toHaveBeenCalled();
 
-    // The raw token MUST NOT appear anywhere in the result string.
+    // No stash call once the request RPC has failed.
+    const stashCalls = mockRpc.mock.calls.filter((c) => c[0] === 'admin_stash_grant_token');
+    expect(stashCalls.length).toBe(0);
+
     expect(JSON.stringify(result)).not.toContain(FAKE_RAW_TOKEN);
   });
 
-  it('1-f: raw token never appears in RPC call args (hash only)', async () => {
-    mockRpc.mockResolvedValueOnce({ data: GRANT_ID, error: null });
-
+  it('1-f: raw token appears ONLY in the stash call args (never in the request RPC)', async () => {
     const { requestSupportAccessAction } = await import(
       '../../app/dashboard/admin/support/[id]/actions'
     );
@@ -302,11 +320,41 @@ describe('Step 1: Admin requestSupportAccessAction', () => {
       requestSupportAccessAction(TICKET_ID, makeRequestFormData())
     ).rejects.toThrow(/NEXT_REDIRECT/);
 
-    // Serialize all RPC call args to a string and assert the raw token is absent.
-    const rpcCallStr = JSON.stringify(mockRpc.mock.calls);
-    expect(rpcCallStr).not.toContain(FAKE_RAW_TOKEN);
-    // Hash IS present (it should be persisted).
-    expect(rpcCallStr).toContain(FAKE_TOKEN_HASH);
+    const requestCall = mockRpc.mock.calls.find(
+      (c) => c[0] === 'admin_request_support_access'
+    );
+    const stashCall = mockRpc.mock.calls.find(
+      (c) => c[0] === 'admin_stash_grant_token'
+    );
+
+    // Request RPC: hash present, raw token absent.
+    expect(JSON.stringify(requestCall![1])).not.toContain(FAKE_RAW_TOKEN);
+    expect(JSON.stringify(requestCall![1])).toContain(FAKE_TOKEN_HASH);
+
+    // Stash RPC: raw token present (this is the server-only channel).
+    expect(JSON.stringify(stashCall![1])).toContain(FAKE_RAW_TOKEN);
+  });
+
+  it('1-g: stash RPC failure surfaces a user-facing error and skips redirect (SEC-ADV-001)', async () => {
+    // WHY: defends against silent regression where the stash RPC fails but the
+    // action redirects anyway. Without this guard the success page would render
+    // the "expired" fallback and the admin would be confused. Action must fail
+    // loudly so the admin sees the error and revokes the orphan grant.
+    configureRpcSequence({
+      stashErr: { code: 'P0001', message: 'unique violation or auth error' },
+    });
+
+    const { requestSupportAccessAction } = await import(
+      '../../app/dashboard/admin/support/[id]/actions'
+    );
+
+    const result = await requestSupportAccessAction(TICKET_ID, makeRequestFormData());
+
+    expect(result).toMatchObject({ ok: false });
+    expect((result as { ok: false; error: string }).error).toContain('Token could not be stored');
+    expect(mockRedirect).not.toHaveBeenCalled();
+    // Sentry captures the stash failure for ops.
+    expect(mockSentryCapture).toHaveBeenCalled();
   });
 });
 
@@ -494,7 +542,15 @@ describe('Audit side effects — RPC is the sole audit channel', () => {
       rpc:  mockRpc,
       from: mockFrom,
     });
-    mockRpc.mockResolvedValueOnce({ data: GRANT_ID, error: null });
+    // WHY two RPC calls now (post SEC-ADV-001):
+    //   1. admin_request_support_access — writes grant row + audit entry
+    //   2. admin_stash_grant_token      — writes raw token to pickup table
+    // Both are SECURITY DEFINER named RPCs. Neither is direct DML.
+    mockRpc.mockImplementation(async (fnName: string) => {
+      if (fnName === 'admin_request_support_access') return { data: GRANT_ID, error: null };
+      if (fnName === 'admin_stash_grant_token')      return { data: null, error: null };
+      return { data: null, error: null };
+    });
 
     const { requestSupportAccessAction } = await import(
       '../../app/dashboard/admin/support/[id]/actions'
@@ -504,8 +560,12 @@ describe('Audit side effects — RPC is the sole audit channel', () => {
       requestSupportAccessAction(TICKET_ID, makeRequestFormData())
     ).rejects.toThrow(/NEXT_REDIRECT/);
 
-    // The action called rpc() once (the SECURITY DEFINER mutation path).
-    expect(mockRpc).toHaveBeenCalledOnce();
+    // Both calls flow through .rpc() — no direct DML.
+    const rpcNames = mockRpc.mock.calls.map((c) => c[0]);
+    expect(rpcNames).toEqual([
+      'admin_request_support_access',
+      'admin_stash_grant_token',
+    ]);
     // The action called from() once — for the read-only support_tickets SELECT.
     expect(mockFrom).toHaveBeenCalledWith('support_tickets');
     // No direct DML — insert and update must never be called.

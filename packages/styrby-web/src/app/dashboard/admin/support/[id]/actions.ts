@@ -4,31 +4,51 @@
  * Server actions for admin support ticket session-access requests.
  *
  * Phase 4.2 — Support Tooling T4
+ * Updated 2026-04-25 — SEC-ADV-001 remediation (server-side token pickup).
  *
  * Action exposed:
  *   requestSupportAccessAction(trustedTicketId, formData) — creates a
- *   `support_access_grant` row via the `admin_request_support_access` SECURITY
- *   DEFINER RPC, then flashes the raw token as a short-lived cookie for the
- *   success page to surface once.
+ *   `support_access_grants` row via the `admin_request_support_access` SECURITY
+ *   DEFINER RPC, stashes the raw token in `support_grant_token_pickup` via
+ *   `admin_stash_grant_token`, then redirects to the success page (no cookie).
  *
- * Security model (3 layers):
+ * Security model (4 layers):
  *   1. Next.js 15 server actions enforce `Action-Origin` same-origin — no manual
  *      CSRF token required.
  *   2. Middleware (T3) — returns 404 for non-site-admins before the action runs.
  *   3. `admin_request_support_access` RPC (SECURITY DEFINER) — calls
  *      `is_site_admin(auth.uid())` inside Postgres and raises 42501 on failure.
+ *   4. `admin_stash_grant_token` RPC (SECURITY DEFINER, migration 057) —
+ *      requires both is_site_admin AND that auth.uid() = grant.granted_by, so
+ *      only the admin who just created the grant can lodge its raw token.
  *
- * Token safety:
- *   The raw token is NEVER logged, included in Sentry extras, or returned in
- *   the action result. It flows ONLY through the `support_grant_token_once`
- *   cookie with `maxAge: 60` so the success page can surface it once.
+ * Token safety (SEC-ADV-001 — eliminates XSS extraction window):
+ *   The previous implementation flashed the raw token through a non-HttpOnly
+ *   cookie with maxAge=60. Because the success page had to clear the cookie
+ *   from JS, httpOnly could not be set; any same-origin XSS within 60s could
+ *   read `document.cookie`, exfiltrate the raw token, and call
+ *   `admin_consume_support_access` from an attacker-controlled browser to read
+ *   victim session metadata. PR #164 hardened sameSite to 'strict' which closes
+ *   cross-site CSRF leaks but did NOT close the intra-origin XSS window.
+ *
+ *   This implementation removes the cookie channel entirely. The raw token
+ *   exists only:
+ *     (a) briefly in this process's memory (one statement after stash),
+ *     (b) in `support_grant_token_pickup` for ≤60s (RLS-locked, no SELECT
+ *         policy — only readable via admin_pickup_grant_token RPC),
+ *     (c) in the HTML response body of the success page server component for
+ *         exactly one render. No client-readable cookie or storage.
+ *
+ *   See migration 057 header for the full threat-model delta.
  *
  * SOC 2 CC6.1: admin operations require authenticated site admin session.
  * SOC 2 CC7.2: every grant is audited via the SECURITY DEFINER RPC.
+ * OWASP A02:2021 / A04:2021: token never reaches client storage; pickup is
+ *   atomic via FOR UPDATE in the pickup RPC.
  */
 
 import { z } from 'zod';
-import { headers, cookies } from 'next/headers';
+import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
@@ -142,15 +162,22 @@ function mapRpcError(
 /**
  * Server action: create a support access grant for a specific session.
  *
- * Flow:
+ * Flow (post SEC-ADV-001 remediation):
  *   1. Validate FormData with Zod — reject early with field-level errors.
- *   2. Extract IP + UA from request headers.
+ *   2. Extract IP + UA from request headers (reserved for future logging).
  *   3. Generate a cryptographically random token and its SHA-256 hash.
- *   4. Call `admin_request_support_access` RPC (SECURITY DEFINER — enforces
- *      is_site_admin, scopes session to ticket's user_id, writes grant row).
- *   5. Flash the raw token as a non-HttpOnly cookie with maxAge: 60 (1 min).
- *      The success page reads it once, then deletes it.
- *   6. Redirect to the success page with the grant ID in the URL.
+ *   4. Resolve the ticket's user_id from `support_tickets` (server-side, never
+ *      from FormData — see Fix B pattern below).
+ *   5. Call `admin_request_support_access` RPC: writes the grant row with the
+ *      token hash and audit entry. Returns the grant_id.
+ *   6. Call `admin_stash_grant_token` RPC: persists the raw token in the
+ *      server-only `support_grant_token_pickup` table for ≤60s.
+ *      WHY the same client (user-scoped): the SECURITY DEFINER body of
+ *      admin_stash_grant_token requires auth.uid() to resolve to the admin's
+ *      UUID and to match grant.granted_by — see migration 057.
+ *   7. Redirect to /…/success?grant=<id>. The success-page server component
+ *      will call admin_pickup_grant_token to fetch+delete the raw token in
+ *      a single atomic operation, render it once, and never re-render it.
  *
  * WHY trustedTicketId parameter (Fix B pattern from Phase 4.1 T6):
  *   The URL param is the authoritative reference. The action is bound to
@@ -160,17 +187,19 @@ function mapRpcError(
  *   that the session belongs to the ticket's user_id (22023 if not).
  *
  * WHY user-scoped client (not service-role):
- *   The SECURITY DEFINER RPC body calls `is_site_admin(auth.uid())`. With the
+ *   Both SECURITY DEFINER RPCs (admin_request_support_access and
+ *   admin_stash_grant_token) call `is_site_admin(auth.uid())`. With the
  *   service-role client there is no JWT context, so auth.uid() = NULL → 42501.
  *   The user-scoped client forwards the admin's session cookie so auth.uid()
  *   resolves correctly. Same pattern as all Phase 4.1 admin RPCs.
  *
- * WHY the raw token is NOT in the action return value:
- *   Server action return values can appear in the browser's network tab. We
- *   exclusively use the short-lived cookie channel to pass the token to the
- *   success page. The cookie is non-HttpOnly (the success page needs to read
- *   it on the client to clear it after display), but has maxAge: 60 so it
- *   self-destructs within 1 minute.
+ * WHY the raw token is NOT in the action return value, FormData, cookies, or
+ *   any client-readable channel:
+ *   The raw token is the credential that authorises admin_consume_support_access.
+ *   Any channel readable by the browser is reachable by XSS. By keeping the
+ *   token strictly server-side (DB pickup table → server-component HTML render
+ *   → DELETEd row) the XSS extraction window is eliminated entirely.
+ *   SEC-ADV-001 (closed by this change).
  *
  * @param trustedTicketId - UUID from the URL param, bound server-side (unforgeable).
  * @param formData        - FormData submitted by RequestSupportAccessForm.
@@ -213,14 +242,14 @@ export async function requestSupportAccessAction(
 
   // ── 3. Generate token and hash ─────────────────────────────────────────────
   // WHY generate here, before the RPC: the hash is passed to the RPC which
-  // stores it. The raw token is displayed ONCE on the success page via cookie.
-  // The raw token MUST NOT be logged, included in Sentry, or returned to the
-  // client through any channel other than the one-time cookie.
+  // stores it. The raw token is then stashed in support_grant_token_pickup via
+  // admin_stash_grant_token (step 6) so the success page server component can
+  // pick it up exactly once. The raw token MUST NOT be logged, included in
+  // Sentry, returned to the caller, or written to any client-readable cookie
+  // or storage. SEC-ADV-001.
   const { raw, hash } = generateSupportToken();
 
-  // ── 4. Call SECURITY DEFINER RPC ──────────────────────────────────────────
-  // WHY createClient() (user-scoped): auth.uid() must resolve to the admin's
-  // UUID inside the RPC for is_site_admin() to pass. SOC 2 CC6.1, CC7.2.
+  // ── 4. Resolve user_id from the ticket (server-side, unforgeable) ──────────
   const supabase = await createClient();
 
   // WHY resolve p_user_id from the ticket server-side (not from FormData):
@@ -240,6 +269,7 @@ export async function requestSupportAccessAction(
     return { ok: false, error: 'Ticket not found' };
   }
 
+  // ── 5. Create grant + write hash via SECURITY DEFINER RPC ──────────────────
   const { data: grantId, error } = await supabase.rpc('admin_request_support_access', {
     p_ticket_id: trustedTicketId,
     p_user_id: ticket.user_id,
@@ -251,29 +281,42 @@ export async function requestSupportAccessAction(
 
   if (error) return mapRpcError(error, 'request_support_access');
 
-  // ── 5. Flash raw token via short-lived cookie ──────────────────────────────
-  // WHY non-HttpOnly: the success page JS needs to clear this cookie after
-  // displaying the token. HttpOnly cookies cannot be cleared by client-side JS.
-  // WHY maxAge: 60 (1 minute): tight window ensures the token self-destructs
-  // even if the admin doesn't navigate to the success page immediately. We do
-  // NOT use sessionStorage here because the redirect creates a new navigation
-  // which would clear sessionStorage in some browsers.
-  // WHY sameSite: 'lax': prevents CSRF while allowing the redirect to carry
-  // the cookie. 'strict' would drop the cookie on the redirect from the form
-  // submission response.
-  // SECURITY: the raw token is the ONLY sensitive value in this cookie. The
-  // grant ID in the redirect URL is not sensitive (it's a bigint primary key
-  // visible only to admins).
-  const cookieStore = await cookies();
-  cookieStore.set('support_grant_token_once', raw, {
-    httpOnly: false,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 60,
-    path: '/',
+  // ── 6. Stash raw token server-side (replaces the cookie channel) ───────────
+  // WHY this RPC (admin_stash_grant_token, migration 057):
+  //   It performs is_site_admin(auth.uid()) AND verifies auth.uid() ==
+  //   grant.granted_by, then INSERTs the raw token into the RLS-locked
+  //   support_grant_token_pickup table. The success-page server component
+  //   pulls it exactly once via admin_pickup_grant_token, which atomically
+  //   DELETEs the row. Token never crosses to a client-readable surface.
+  //
+  // WHY we do not roll back the grant on stash failure:
+  //   The grant exists and the audit trail records its creation — that is a
+  //   SOC2 CC7.2 invariant we do not want to undo. If stash fails (extremely
+  //   unlikely; the RPC has minimal failure modes apart from auth and
+  //   uniqueness), the admin sees an error, the row in support_access_grants
+  //   stays in 'pending' status, and the admin can revoke it from the ticket
+  //   page. Re-issuing requires creating a fresh grant (new hash). This is
+  //   safer than synthesising a compensating revoke that itself could fail.
+  const { error: stashError } = await supabase.rpc('admin_stash_grant_token', {
+    p_grant_id: grantId,
+    p_raw_token: raw,
   });
 
-  // ── 6. Revalidate + redirect ───────────────────────────────────────────────
+  if (stashError) {
+    // Capture in Sentry — this should never happen in steady state.
+    // WHY explicitly omit p_raw_token from Sentry: the raw token must not
+    // appear in external systems even on error paths.
+    Sentry.captureException(new Error('admin support stash failed'), {
+      tags: { admin_action: 'stash_grant_token', sqlstate: stashError.code ?? 'unknown' },
+      extra: { rpc_message: stashError.message, grant_id: String(grantId) },
+    });
+    return {
+      ok: false,
+      error: 'Token could not be stored for retrieval. Revoke this grant from the ticket page and try again.',
+    };
+  }
+
+  // ── 7. Revalidate + redirect ───────────────────────────────────────────────
   revalidatePath(`/dashboard/admin/support/${trustedTicketId}`);
   redirect(
     `/dashboard/admin/support/${trustedTicketId}/request-access/success?grant=${grantId}`

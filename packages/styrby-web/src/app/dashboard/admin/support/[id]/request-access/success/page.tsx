@@ -1,125 +1,119 @@
-'use client';
-
 /**
- * Support Access Grant Success Page
+ * Support Access Grant Success Page (Server Component)
  * `/dashboard/admin/support/[id]/request-access/success?grant=<id>`
  *
+ * Phase 4.2 — Support Tooling T4
+ * Updated 2026-04-25 — SEC-ADV-001 remediation (server-side token pickup).
+ *
  * Purpose:
- *   Reads the one-time raw token from the `support_grant_token_once` cookie,
- *   displays it ONCE to the admin, then immediately deletes the cookie so the
- *   token cannot be retrieved again from this page on reload.
+ *   Renders the raw support-grant token exactly once, on the server, by
+ *   pulling it from the `support_grant_token_pickup` table via the
+ *   `admin_pickup_grant_token` SECURITY DEFINER RPC. The RPC returns the raw
+ *   token AND deletes the holding row in a single atomic transaction, so a
+ *   subsequent request (page reload, second tab) sees nothing.
  *
- * Security model:
- *   - The raw token arrives via a server-set cookie (maxAge: 60, not HttpOnly)
- *     set during the requestSupportAccessAction redirect.
- *   - WHY not HttpOnly: the client JS on this page must read the cookie to
- *     display it and then delete it. HttpOnly cookies are inaccessible to JS.
- *   - The cookie is deleted immediately after the component first reads it.
- *     On a reload, the token will be gone and the page shows a "token already
- *     shown" fallback message.
- *   - The raw token is NEVER sent to the server from this page. It lives only
- *     in the component's local state after being read from the cookie once.
- *   - No sessionStorage or localStorage usage — cookie-only per spec.
+ * Why this is a server component (was a client component before):
+ *   The previous implementation was `"use client"` and read the token from a
+ *   non-HttpOnly cookie via `document.cookie`, then cleared it. That meant the
+ *   cookie had to be readable by client JS, which is also reachable by any
+ *   same-origin XSS payload during the 60-second window. SEC-ADV-001.
  *
- * WHY "use client":
- *   - document.cookie access requires client-side execution.
- *   - useEffect for one-time cookie read + delete on mount.
- *   - copy-to-clipboard button requires client-side JS.
+ *   By moving the read to a server component:
+ *     - The token never crosses to client-readable cookies / storage.
+ *     - The RPC validates is_site_admin(auth.uid()) AND that auth.uid() ==
+ *       grant.granted_by — only the admin who issued the grant can render it.
+ *     - After first render the holding row is gone; reload yields the fallback.
+ *     - The token enters the browser only via the rendered HTML body (visible
+ *       to the legitimate admin's eyes) — never via a JS-readable surface.
  *
- * @param params       - Next.js 15 async route params (id = ticket UUID).
- * @param searchParams - grant=<grantId> from the redirect URL.
+ *   See migration 057 + actions.ts header for the full architectural rationale.
+ *
+ * Interactive UI:
+ *   The reveal-toggle and copy-to-clipboard controls live in
+ *   `TokenDisplay.tsx` (client component) which receives the rawToken as a
+ *   prop. That subtree is the only place the token lives in client memory,
+ *   and only for the lifetime of the page render. No localStorage,
+ *   sessionStorage, cookies, or window globals are used.
+ *
+ * @param params       Next.js 15 async route params (id = ticket UUID).
+ * @param searchParams grant=<grantId> from the redirect URL.
  */
 
-import { useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, CheckCircle, Copy, Eye, EyeOff } from 'lucide-react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { ArrowLeft, CheckCircle } from 'lucide-react';
+import { createClient } from '@/lib/supabase/server';
+import { TokenDisplay } from './TokenDisplay';
 
-// ─── Cookie utilities ─────────────────────────────────────────────────────────
+// WHY force-dynamic: the page calls a SECURITY DEFINER RPC that mutates state
+// (DELETE on the pickup row). Static rendering or any caching would either
+// cause the RPC to never fire or to fire at build time — wrong both ways.
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-const COOKIE_NAME = 'support_grant_token_once';
+interface PageProps {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ grant?: string }>;
+}
 
 /**
- * Reads the one-time token cookie value.
+ * Server component: pickup the raw token once, render it once, never cache.
  *
- * WHY parse manually: document.cookie is a semicolon-separated string of
- * key=value pairs. We split and find the matching key rather than using a
- * library to keep this dependency-free in the client component.
- *
- * @returns The raw token string, or null if the cookie is absent.
+ * Failure modes:
+ *   - No grantId in URL → fallback "no grant id" message.
+ *   - RPC raises 22023  → expired / already consumed (most common case on
+ *                         page reload; the row is gone after first render).
+ *   - RPC raises 42501  → caller is not the granting admin (or not a site
+ *                         admin). Should be unreachable in normal flow because
+ *                         middleware gates the route to site admins, but kept
+ *                         as a safety branch.
+ *   - Any other error   → generic fallback. Specific SQLSTATEs are mapped to
+ *                         user-facing strings without leaking RPC internals.
  */
-function readTokenCookie(): string | null {
-  if (typeof document === 'undefined') return null;
-  const pairs = document.cookie.split(';');
-  for (const pair of pairs) {
-    const [key, ...valueParts] = pair.trim().split('=');
-    if (key === COOKIE_NAME) {
-      return decodeURIComponent(valueParts.join('='));
+export default async function RequestAccessSuccessPage({
+  params,
+  searchParams,
+}: PageProps) {
+  const { id: ticketId } = await params;
+  const { grant: grantIdStr } = await searchParams;
+
+  // ── Fetch raw token from the pickup table (one-time, atomic) ───────────────
+  let rawToken: string | null = null;
+  let pickupError: 'no-grant' | 'expired' | 'unauthorized' | 'unknown' | null = null;
+
+  // Parse the grant id. The query string is admin-supplied (from the action
+  // redirect) but we still validate to fail fast on a malformed or absent value.
+  // WHY bigint conversion: support_access_grants.id is bigserial. The RPC
+  // expects a bigint; we pass a string, and Postgres coerces. We just check
+  // it parses as a positive integer to avoid sending '12abc' to the DB.
+  const grantIdParsed = grantIdStr ? Number(grantIdStr) : NaN;
+  if (!grantIdStr || !Number.isFinite(grantIdParsed) || grantIdParsed <= 0) {
+    pickupError = 'no-grant';
+  } else {
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc('admin_pickup_grant_token', {
+      p_grant_id: grantIdParsed,
+    });
+
+    if (error) {
+      // WHY map by SQLSTATE: admin_pickup_grant_token raises 22023 for "expired
+      // or already consumed" (fold-collapsed in the RPC body to prevent oracle
+      // attacks) and 42501 for "not the granting admin or not a site admin".
+      // We surface these as separate user-facing branches so the admin gets a
+      // meaningful "you've already viewed this" vs "you can't view this" hint
+      // without leaking grant existence (the RPC already collapsed the
+      // non-existent / wrong-owner cases inside 42501).
+      if (error.code === '22023') pickupError = 'expired';
+      else if (error.code === '42501') pickupError = 'unauthorized';
+      else pickupError = 'unknown';
+    } else if (typeof data === 'string' && data.length > 0) {
+      rawToken = data;
+    } else {
+      // RPC returned without an error but produced no string — should not
+      // happen given the function signature (RETURNS text, raises on miss).
+      // Treat as expired to be safe.
+      pickupError = 'expired';
     }
   }
-  return null;
-}
-
-/**
- * Deletes the one-time token cookie by setting an expired date.
- *
- * WHY overwrite with past expiry: the browser removes cookies when their
- * expiry is in the past. We must match the path='/' used when setting.
- */
-function deleteTokenCookie(): void {
-  if (typeof document === 'undefined') return;
-  document.cookie = `${COOKIE_NAME}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/`;
-}
-
-// ─── Component ────────────────────────────────────────────────────────────────
-
-/**
- * Success page after a support access grant is created.
- *
- * Reads the raw token from the one-time cookie on mount, displays it, then
- * immediately deletes the cookie so it cannot be read again on reload.
- *
- * If the cookie is absent (page was reloaded, or token expired before arriving),
- * a fallback message is shown instead of the token.
- */
-export default function RequestAccessSuccessPage() {
-  const params = useParams<{ id: string }>();
-  const searchParams = useSearchParams();
-  const ticketId = params.id;
-  const grantId = searchParams.get('grant');
-
-  // WHY useState lazy initializer (not useEffect + setState): React 19's purity
-  // lint flags setState calls inside useEffect as potential cascade triggers.
-  // Using useState's lazy initializer form runs the function exactly once on
-  // mount (client-side only), avoids a second render cycle, and reads/deletes
-  // the cookie before the first paint — satisfying both the lint rule and the
-  // one-time read requirement. The guard `typeof document === 'undefined'` makes
-  // this SSR-safe (initializer returns null during server render). SOC 2 CC6.1.
-  const [rawToken] = useState<string | null>(() => {
-    const token = readTokenCookie();
-    // Delete immediately — cookie is consumed on first read. A page reload
-    // will no longer find the cookie, showing the "token gone" fallback.
-    deleteTokenCookie();
-    return token;
-  });
-
-  const [copied, setCopied] = useState(false);
-  const [revealed, setRevealed] = useState(false);
-
-  /**
-   * Copies the raw token to the clipboard.
-   * Shows a brief "Copied!" confirmation for 2 seconds.
-   */
-  const handleCopy = async () => {
-    if (!rawToken) return;
-    try {
-      await navigator.clipboard.writeText(rawToken);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard API may be denied (e.g., insecure context) — fail silently.
-    }
-  };
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -140,9 +134,9 @@ export default function RequestAccessSuccessPage() {
           <p className="mt-1 text-sm text-zinc-400">
             The user will be notified and must approve before you can view session metadata.
           </p>
-          {grantId && (
+          {grantIdStr && (
             <p className="mt-1 font-mono text-xs text-zinc-500">
-              Grant ID: {grantId}
+              Grant ID: {grantIdStr}
             </p>
           )}
         </div>
@@ -159,115 +153,26 @@ export default function RequestAccessSuccessPage() {
         </p>
 
         {rawToken ? (
-          <div className="space-y-3">
-            {/* Token value display */}
-            <div
-              className="flex items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3"
-              data-testid="token-display-wrapper"
-            >
-              <code
-                className="flex-1 break-all font-mono text-sm text-zinc-100"
-                data-testid="token-value"
-              >
-                {/* WHY conditional reveal: allow admin to hide token if someone
-                    is looking at their screen. Default is revealed since the
-                    admin immediately needs to copy it. */}
-                {revealed
-                  ? rawToken
-                  : '•'.repeat(Math.min(rawToken.length, 43))}
-              </code>
-              <div className="flex shrink-0 gap-2">
-                <button
-                  onClick={() => setRevealed((v) => !v)}
-                  className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
-                  aria-label={revealed ? 'Hide token' : 'Show token'}
-                  data-testid="toggle-reveal-button"
-                >
-                  {revealed ? (
-                    <EyeOff className="h-4 w-4" />
-                  ) : (
-                    <Eye className="h-4 w-4" />
-                  )}
-                </button>
-                <button
-                  onClick={handleCopy}
-                  className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
-                  aria-label="Copy token to clipboard"
-                  data-testid="copy-button"
-                >
-                  <Copy className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-
-            {copied && (
-              <p className="text-xs text-green-400" data-testid="copied-confirmation">
-                Copied to clipboard.
-              </p>
-            )}
-
-            {/* User-facing approval link
-                WHY this URL requires NO token in the query string:
-                  - The user must be authenticated via their own session cookie.
-                  - RLS on support_access_grants enforces ownership — a logged-in
-                    user can only see grants that belong to them.
-                  - The grantId in the URL is already persisted in the DB; the page
-                    reads it via RLS-protected SELECT, not via a query-param token.
-                  - Embedding rawToken in the URL was removed because:
-                    (a) /api/support-access/[grantId]/approve does not exist and
-                        would produce a broken link for the admin,
-                    (b) GDPR Art. 7 forbids query-param auto-approval (no affirmative
-                        POST action), and
-                    (c) exposing the token in the DOM extends the blast radius beyond
-                        the short-lived non-HttpOnly cookie.
-                  SOC2 CC6.1 / OWASP A01:2021 / GDPR Art. 7. */}
-            {grantId && (
-              <div className="rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3">
-                <p className="mb-1 text-xs font-medium text-zinc-400">
-                  User approval link
-                </p>
-                <p
-                  className="break-all font-mono text-xs text-zinc-300"
-                  data-testid="approval-link"
-                >
-                  {typeof window !== 'undefined'
-                    ? `${window.location.origin}/support/access/${grantId}`
-                    : `/support/access/${grantId}`}
-                </p>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const origin =
-                      typeof window !== 'undefined' ? window.location.origin : '';
-                    try {
-                      await navigator.clipboard.writeText(
-                        `${origin}/support/access/${grantId}`,
-                      );
-                    } catch {
-                      // Clipboard API may be denied — fail silently.
-                    }
-                  }}
-                  className="mt-2 inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
-                  data-testid="copy-approval-link-button"
-                >
-                  <Copy className="h-3 w-3" />
-                  Copy link
-                </button>
-                <p className="mt-1 text-xs text-zinc-500">
-                  Share this link with the user via the ticket reply form. The user
-                  must be signed in to approve - no token is embedded in the URL.
-                </p>
-              </div>
-            )}
-          </div>
+          // Client component receives the token as a prop only for this render.
+          // No persistence, no global state — props die with the React tree.
+          <TokenDisplay rawToken={rawToken} ticketId={ticketId} grantId={grantIdStr ?? null} />
         ) : (
-          /* Fallback when cookie is gone (reload / expired) */
           <div
             className="rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm text-zinc-400"
             data-testid="token-gone-message"
           >
-            Token is no longer available. It was displayed when the grant was first created.
-            If you need to regenerate access, create a new grant from the ticket page.
+            {pickupError === 'no-grant' && (
+              <>Missing grant id in URL. Return to the ticket page and create a new grant.</>
+            )}
+            {pickupError === 'expired' && (
+              <>Token is no longer available. It is displayed once when the grant is created and is consumed on first view. If you need to regenerate access, create a new grant from the ticket page.</>
+            )}
+            {pickupError === 'unauthorized' && (
+              <>You do not have permission to view this token. Only the admin who created the grant can retrieve it, and only once.</>
+            )}
+            {pickupError === 'unknown' && (
+              <>Token could not be retrieved. Try creating a new grant from the ticket page.</>
+            )}
           </div>
         )}
       </div>
