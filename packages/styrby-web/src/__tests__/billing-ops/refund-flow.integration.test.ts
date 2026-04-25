@@ -244,11 +244,19 @@ describe('issueRefundAction — end-to-end refund flow', () => {
 
     // WHY not throw: 'invalid' is a user-recoverable condition — action returns { ok: false }.
     expect(result.ok).toBe(false);
-    expect(result.error).toContain('Polar rejected');
+    // SEC-R2-S2-002: error message is now static; assert the stable prefix and
+    // verify the SDK error message is NOT leaked to the user-facing response.
+    expect(result.error).toContain('Polar rejected the refund request');
+    expect(result.error).not.toMatch(/amount exceeds/i);
     // RPC must NOT be called — no audit row for a failed refund.
     expect(mockRpc).not.toHaveBeenCalled();
-    // WHY no Sentry: 'invalid' is a 4xx (expected failure) — not an ops alert.
-    expect(mockSentryCapture).not.toHaveBeenCalled();
+    // SEC-R2-S2-002 changed posture: 'invalid' now captures Sentry at 'info'
+    // level so ops can correlate Polar API rejections without surfacing the
+    // SDK message to admins. Was previously asserted absent.
+    expect(mockSentryCapture).toHaveBeenCalledOnce();
+    const [, ctx] = mockSentryCapture.mock.calls[0];
+    expect(ctx.level).toBe('info');
+    expect(ctx.tags.refund_error_code).toBe('invalid');
   });
 
   // ── (3) Polar 'idempotent-replay' (409 from Polar) → success, RPC proceeds ─

@@ -429,9 +429,11 @@ describe('issueRefundAction', () => {
 
   // ── (r2) Polar invalid ────────────────────────────────────────────────────
 
-  it('(r2) Polar invalid: returns { ok: false, error: Polar rejected: ... }, no Sentry', async () => {
-    // WHY no Sentry: 'invalid' is a 4xx — the request was malformed. Expected
-    // failure condition, not an infrastructure issue.
+  it('(r2) Polar invalid: returns static error + captures Sentry at info level (SEC-R2-S2-002)', async () => {
+    // SEC-R2-S2-002: 'invalid' previously surfaced `Polar rejected: ${err.message}`
+    // verbatim, leaking Polar SDK internal field names and validation context.
+    // The fix replaces the dynamic message with a static one and captures the
+    // full error in Sentry at 'info' level (expected-failure, not server error).
     mockCreatePolarRefund.mockRejectedValueOnce(
       new RefundError('invalid', 'Amount exceeds original charge'),
     );
@@ -449,9 +451,17 @@ describe('issueRefundAction', () => {
     );
 
     expect(result).toMatchObject({ ok: false });
-    expect((result as { ok: false; error: string }).error).toMatch(/Polar rejected/);
+    expect((result as { ok: false; error: string }).error).toBe(
+      'Polar rejected the refund request. Verify the order, amount, and subscription status.',
+    );
+    // Should NOT leak the SDK error message:
+    expect((result as { ok: false; error: string }).error).not.toMatch(/Amount exceeds/);
     expect(mockRpc).not.toHaveBeenCalled();
-    expect(mockSentryCapture).not.toHaveBeenCalled();
+    // Now expects ONE Sentry call at 'info' severity (was previously asserted absent).
+    expect(mockSentryCapture).toHaveBeenCalledOnce();
+    const [, ctx] = mockSentryCapture.mock.calls[0];
+    expect(ctx.level).toBe('info');
+    expect(ctx.tags.refund_error_code).toBe('invalid');
   });
 
   // ── (r3) Polar polar-error ────────────────────────────────────────────────
@@ -702,9 +712,12 @@ describe('issueRefundAction', () => {
         }),
       );
 
+      // SEC-R2-S2-002: error message is now static, not dynamic. Just assert
+      // it contains the stable prefix, since "Polar rejected" appears at the
+      // start of the static message.
       expect(result).toEqual({
         ok: false,
-        error: expect.stringContaining('Polar rejected'),
+        error: expect.stringContaining('Polar rejected the refund request'),
       });
       expect(mockCreatePolarRefund).not.toHaveBeenCalled();
       expect(mockRpc).not.toHaveBeenCalled();

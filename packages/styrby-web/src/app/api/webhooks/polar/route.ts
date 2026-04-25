@@ -1167,6 +1167,54 @@ export async function POST(request: Request) {
         const { data } = event;
         const isDev = process.env.NODE_ENV === 'development';
 
+        // SEC-R2-S2-003 — event_id dedup parity with subscription.created /
+        // subscription.updated. Without this guard, a Polar retry of a cancel
+        // event (e.g., after a transient 5xx response from us) re-runs the
+        // .update() and overwrites canceled_at on each replay. More
+        // dangerously, if Polar ever delivers a corrective re-activation
+        // followed by a delayed-replay of the cancel, the subscription would
+        // be silently re-canceled. Mirror the dedup pattern from the
+        // created/updated cases above (lines ~894–942).
+        {
+          const rawEventId = (rawParsed as Record<string, unknown>).id as string | undefined;
+          if (!rawEventId) {
+            console.error(
+              'polar/route: subscription.canceled event missing top-level id field — cannot enforce event-id dedup'
+            );
+          } else {
+            const cancelPayloadHash = sha256Hex(payload);
+            const { data: dedupRows, error: dedupErr } = await supabase
+              .from('polar_webhook_events')
+              .upsert(
+                {
+                  event_id: rawEventId,
+                  event_type: event.type,
+                  subscription_id: data.id,
+                  payload_hash: cancelPayloadHash,
+                },
+                { onConflict: 'event_id', ignoreDuplicates: true }
+              )
+              .select('event_id');
+
+            if (dedupErr) {
+              // Non-fatal — same rationale as created/updated. State-based
+              // idempotency below (the .update() is naturally idempotent for
+              // already-canceled rows) provides the correctness floor.
+              console.error(
+                'polar/route: subscription.canceled — failed to record event in polar_webhook_events (non-fatal):',
+                dedupErr.message
+              );
+            } else if (!dedupRows || dedupRows.length === 0) {
+              if (isDev) {
+                console.log(
+                  `polar/route: duplicate canceled event ${rawEventId}, skipping`
+                );
+              }
+              return NextResponse.json({ received: true });
+            }
+          }
+        }
+
         // WHY: When a subscription is canceled, access should continue until the
         // end of the paid billing period - not cut off immediately. We record
         // current_period_end (or ended_at as a fallback) so the scheduled cron
