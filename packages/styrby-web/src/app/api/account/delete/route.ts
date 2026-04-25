@@ -306,7 +306,11 @@ export async function DELETE(request: Request) {
       user_id: user.id,
       action: 'settings_updated',
       resource_type: 'account_deletion',
-      ip_address: request.headers.get('x-forwarded-for') || 'unknown',
+      // SEC-R2-S2-004: take only the first hop. x-forwarded-for is a comma-
+      // separated chain; a malicious client can append arbitrary text after
+      // the first comma to pollute the audit_log's ip_address column. The
+      // export route already does this split; the delete route was inconsistent.
+      ip_address: (request.headers.get('x-forwarded-for') || 'unknown').split(',')[0].trim(),
       metadata: {
         soft_delete: true,
         reason: validation.data.reason || 'Not provided',

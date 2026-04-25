@@ -312,6 +312,21 @@ export async function issueRefundAction(
     return { ok: false, error: 'Subscription does not belong to this user.' };
   }
 
+  // SEC-R2-S2-001: Null polar_customer_id guard. The subscriptions table
+  // declares polar_customer_id as NOT NULL but historical / migrated rows
+  // may have it set to '' or — more dangerously — TypeScript types it as
+  // `string` while the runtime value can be null on data anomalies. Without
+  // this guard, findRefundableOrderForSubscription's customerId.trim() throws
+  // a non-RefundError TypeError, which falls through to the generic
+  // "Internal error" branch with no actionable signal to the admin.
+  if (!subRow.polar_customer_id || !subRow.polar_customer_id.trim()) {
+    return {
+      ok: false,
+      error: 'No Polar customer ID linked to this subscription — cannot resolve order.',
+      field: 'subscription_id',
+    };
+  }
+
   // ── 4. Issue refund via Polar SDK ──────────────────────────────────────────
   // WHY createPolarRefund before RPC: Polar is the authoritative money-moving
   // system. We write to Supabase only after Polar confirms. SOC 2 CC7.2.
@@ -362,9 +377,25 @@ export async function issueRefundAction(
           break;
 
         case 'invalid':
-          // WHY not Sentry: 'invalid' means Polar rejected a bad request (4xx).
-          // This is an expected failure condition — no server error to track.
-          return { ok: false, error: `Polar rejected: ${err.message}` };
+          // WHY static message (SEC-R2-S2-002): Polar SDK error strings can
+          // include internal field names, raw schema validation context, and
+          // upstream order/charge identifiers — useful for an attacker who
+          // wants to map Polar's API surface or correlate internal IDs with
+          // user accounts. We capture the full err to Sentry for ops triage
+          // and surface a stable user-facing message to the admin UI.
+          Sentry.captureException(err, {
+            level: 'info', // expected failure, not a server error — info severity
+            tags: {
+              admin_action: 'issue_refund',
+              target_user_id: targetUserId,
+              refund_error_code: err.code,
+            },
+          });
+          return {
+            ok: false,
+            error:
+              'Polar rejected the refund request. Verify the order, amount, and subscription status.',
+          };
 
         case 'polar-error':
           // WHY Sentry: Polar 5xx indicates a transient platform issue.

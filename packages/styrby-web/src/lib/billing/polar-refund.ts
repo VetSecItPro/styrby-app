@@ -518,10 +518,18 @@ export async function findRefundableOrderForSubscription(
     );
   }
 
-  // The SDK returns an async iterable of pages. We walk pages until we find
-  // the first refundable order for this subscription.
-  for await (const page of pages) {
-    for (const raw of page.result.items) {
+  // SEC-ADV-R2-006 — cap iteration at the first page (50 most-recent orders).
+  // The SDK's async iterator auto-paginates by default; for a high-volume
+  // customer with all-refunded older orders this can fan out to many sequential
+  // Polar API calls and breach Vercel's serverless function timeout. The
+  // 50-most-recent window covers the realistic admin-refund use case (the
+  // intended target is almost always within recent billing cycles); on the
+  // rare older-order edge case the helper throws 'invalid' and the admin
+  // currently has no override path. A future enhancement is an explicit
+  // orderIdOverride parameter; for now, fail-fast on the bounded scan.
+  const firstPage = await pages[Symbol.asyncIterator]().next();
+  if (firstPage.value) {
+    for (const raw of firstPage.value.result.items) {
       // The Order shape (per @polar-sh/sdk components/order.ts):
       //   { id, status, amount, refundedAmount, subscriptionId, createdAt, ... }
       // subscription_id may be camel- or snake-cased depending on SDK serializer.
@@ -546,6 +554,6 @@ export async function findRefundableOrderForSubscription(
 
   throw new RefundError(
     'invalid',
-    `No refundable orders found for subscription ${subscriptionId}. The subscription may have no paid charges, or all charges may already be fully refunded.`,
+    `No refundable orders found for subscription ${subscriptionId} in the most-recent 50 orders. The subscription may have no paid charges, or all charges may already be fully refunded.`,
   );
 }
