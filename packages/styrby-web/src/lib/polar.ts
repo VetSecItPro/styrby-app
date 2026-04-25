@@ -1,181 +1,38 @@
 /**
- * Polar Integration
+ * Polar Integration — server-side SDK client + checkout / subscription helpers.
  *
- * Client for Polar billing and subscription management.
+ * WHY this file is server-only territory:
+ *   The `new Polar({ accessToken: process.env.POLAR_ACCESS_TOKEN })` call below
+ *   is a side-effect at module load. If this module is pulled into a `'use
+ *   client'` import chain, the SDK class is bundled client-side (the env var
+ *   resolves to undefined in the browser, but the SDK weight ships anyway).
+ *
+ *   The pure-data tier configuration (TIERS, types, helpers) was extracted to
+ *   `@/lib/billing/tier-config` so client components can import tier
+ *   constants without dragging in the SDK. This module re-exports those for
+ *   backward compatibility with existing server-side callers.
+ *
+ *   Surfaced by /perf focused-delta scan (BUNDLE-001, 2026-04-25).
+ *
+ *   Future hardening: add `import 'server-only'` to make a client-side import
+ *   fail at build time. Requires `pnpm add server-only` first.
  */
 
 import { Polar } from '@polar-sh/sdk';
 
+// Re-export tier configuration for backward compatibility with server-side
+// callers that import from '@/lib/polar' (13 server files as of 2026-04-25).
+// Client-side callers should import directly from '@/lib/billing/tier-config'.
+export { TIERS, getTier, getProductId, getDisplayPrice } from './billing/tier-config';
+export type { TierId, BillingCycle } from './billing/tier-config';
+
 /**
- * Polar client instance.
+ * Polar SDK client instance.
  * Uses server-side access token for API operations.
  */
 export const polar = new Polar({
   accessToken: process.env.POLAR_ACCESS_TOKEN,
 });
-
-/**
- * Subscription tier configuration.
- *
- * Limits are enforced to prevent abuse:
- * - Machines: Supabase Realtime connections
- * - Messages: Relay bandwidth
- * - History: Database storage
- * - Bookmarks: saved sessions per user
- * - PromptTemplates: user-created context templates (-1 = unlimited)
- */
-export const TIERS = {
-  free: {
-    id: 'free',
-    name: 'Free',
-    price: {
-      monthly: 0,
-      annual: 0,
-    },
-    polarProductId: {
-      monthly: undefined as string | undefined,
-      annual: undefined as string | undefined,
-    },
-    features: [
-      '1 connected machine',
-      '7-day session history',
-      '1,000 messages/month',
-      '3 agents: Claude Code, Codex, Gemini CLI',
-      'Cost dashboard',
-      '1 budget alert',
-      'E2E encryption',
-      'Push notifications',
-      'Offline queue',
-      'Device pairing',
-    ],
-    limits: {
-      machines: 1,
-      historyDays: 7,
-      messagesPerMonth: 1_000,
-      budgetAlerts: 1,
-      webhooks: 0,
-      teamMembers: 1,
-      apiKeys: 0,
-      /** Maximum saved session bookmarks. */
-      bookmarks: 5,
-      /** Maximum user-created prompt templates. */
-      promptTemplates: 3,
-    },
-  },
-  pro: {
-    id: 'pro',
-    name: 'Pro',
-    price: {
-      monthly: 24,
-      annual: 240,
-    },
-    polarProductId: {
-      monthly: process.env.POLAR_PRO_MONTHLY_PRODUCT_ID,
-      annual: process.env.POLAR_PRO_ANNUAL_PRODUCT_ID,
-    },
-    features: [
-      '3 connected machines',
-      '90-day session history',
-      '25,000 messages/month',
-      'All 9 agents (adds OpenCode, Aider, Goose, Amp, Crush, Kilo)',
-      'All push notifications',
-      '3 budget alerts',
-      'Export and import',
-      'Full cost analytics',
-      'Email support',
-    ],
-    limits: {
-      machines: 3,
-      historyDays: 90,
-      messagesPerMonth: 25_000,
-      budgetAlerts: 3,
-      webhooks: 3,
-      teamMembers: 1,
-      apiKeys: 0,
-      /** Maximum saved session bookmarks. */
-      bookmarks: 50,
-      /** Maximum user-created prompt templates. */
-      promptTemplates: 20,
-    },
-  },
-  power: {
-    id: 'power',
-    name: 'Power',
-    price: {
-      monthly: 59,
-      annual: 590,
-    },
-    polarProductId: {
-      monthly: process.env.POLAR_POWER_MONTHLY_PRODUCT_ID,
-      annual: process.env.POLAR_POWER_ANNUAL_PRODUCT_ID,
-    },
-    features: [
-      '9 connected machines',
-      '1-year session history',
-      '100,000 messages/month',
-      'All 11 agents (adds Kiro and Droid)',
-      'Custom notification rules',
-      '5 budget alerts',
-      'Per-message cost tracking',
-      'Session checkpoints',
-      'Session sharing',
-      'Per-file context breakdown',
-      'Activity graph',
-      'Team management (up to 3 members)',
-      'OTEL export (Grafana, Datadog, and more)',
-      'Voice commands',
-      'Cloud monitoring',
-      'Code review from mobile',
-      '10 webhooks',
-      'API access (read-only)',
-      'CSV + JSON export',
-      'Email support',
-    ],
-    limits: {
-      machines: 9,
-      historyDays: 365,
-      messagesPerMonth: 100_000,
-      budgetAlerts: 5,
-      webhooks: 10,
-      teamMembers: 3,
-      apiKeys: 5,
-      /** Maximum saved session bookmarks. -1 means unlimited. */
-      bookmarks: -1,
-      /** Maximum user-created prompt templates. -1 means unlimited. */
-      promptTemplates: -1,
-    },
-  },
-} as const;
-
-export type TierId = keyof typeof TIERS;
-export type BillingCycle = 'monthly' | 'annual';
-
-/**
- * Get tier configuration by ID.
- */
-export function getTier(tierId: TierId) {
-  return TIERS[tierId] || TIERS.free;
-}
-
-/**
- * Get product ID for a tier and billing cycle.
- */
-export function getProductId(tierId: TierId, cycle: BillingCycle): string | undefined {
-  const tier = TIERS[tierId];
-  if (!tier || tierId === 'free') return undefined;
-  return tier.polarProductId[cycle];
-}
-
-/**
- * Get display price for a tier and billing cycle.
- */
-export function getDisplayPrice(tierId: TierId, cycle: BillingCycle): { amount: number; period: string } {
-  const tier = TIERS[tierId];
-  if (cycle === 'annual') {
-    return { amount: tier.price.annual, period: '/year' };
-  }
-  return { amount: tier.price.monthly, period: '/month' };
-}
 
 /**
  * Create a checkout session for subscription.
@@ -271,3 +128,4 @@ export async function getSubscription(subscriptionId: string) {
 
   return subscription;
 }
+

@@ -1,7 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { TIERS, type TierId, type BillingCycle } from '@/lib/polar';
+// PERF-BUNDLE-001: Import from @/lib/billing/tier-config (pure data, no SDK)
+// rather than @/lib/polar, which instantiates the Polar SDK at module load.
+// The pricing page is public-facing — every visitor would otherwise pull
+// @polar-sh/sdk into the client bundle (~8-20 KB gzip) for no functional
+// reason. tier-config has zero SDK dependencies.
+import { TIERS, type TierId, type BillingCycle } from '@/lib/billing/tier-config';
 import { UpgradeButton } from './upgrade-button';
 
 interface PricingCardsProps {
