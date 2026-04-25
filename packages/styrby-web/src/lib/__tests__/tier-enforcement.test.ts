@@ -15,8 +15,19 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { checkTierLimit } from '../tier-enforcement';
-import type { TierLimitResult, TierLimitAllowed, TierLimitBlocked } from '../tier-enforcement';
+import {
+  checkTierLimit,
+  resolveEffectiveTier,
+  rankTier,
+  maxTier,
+  normalizeEffectiveTier,
+} from '../tier-enforcement';
+import type {
+  TierLimitResult,
+  TierLimitAllowed,
+  TierLimitBlocked,
+  EffectiveTierId,
+} from '../tier-enforcement';
 import { TIER_LIMITS } from '@styrby/shared';
 
 // ---------------------------------------------------------------------------
@@ -38,10 +49,20 @@ function buildSupabaseMock({
   tier,
   sessionCount = 0,
   agentCount = 0,
+  teamBillingTiers = [],
+  teamMembersError = false,
 }: {
   tier: string | null | Error;
   sessionCount?: number | Error;
   agentCount?: number | Error;
+  /**
+   * Active team memberships for the user. Each entry yields one row from
+   * `team_members` with a joined `teams.billing_tier` value. Default empty
+   * (user is on no team).
+   */
+  teamBillingTiers?: Array<string | null>;
+  /** When true, the team_members query resolves with an error. */
+  teamMembersError?: boolean;
 }) {
   const subscriptionResult =
     tier instanceof Error
@@ -50,14 +71,27 @@ function buildSupabaseMock({
       ? { data: null, error: { message: 'No rows found' } }
       : { data: { tier }, error: null };
 
-  // We need to support two different .from() calls: 'subscriptions' and either
-  // 'sessions' or 'agent_configs'. We track the table name via the mock.
+  // We need to support multiple .from() calls: 'subscriptions', 'team_members',
+  // 'sessions', 'agent_configs'. We track the table name via the mock.
   const fromMock = vi.fn((table: string) => {
     if (table === 'subscriptions') {
       return {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
         single: vi.fn().mockResolvedValue(subscriptionResult),
+      };
+    }
+    if (table === 'team_members') {
+      // The resolver runs `.from('team_members').select('teams!inner(billing_tier)').eq('user_id', userId)`
+      // which terminates on the .eq() call.
+      const teamRows = teamBillingTiers.map((bt) => ({ teams: { billing_tier: bt } }));
+      const res = teamMembersError
+        ? { data: null, error: { message: 'team_members unavailable' } }
+        : { data: teamRows, error: null };
+      const eqMock = vi.fn().mockResolvedValue(res);
+      return {
+        select: vi.fn().mockReturnThis(),
+        eq: eqMock,
       };
     }
     if (table === 'sessions') {
@@ -381,14 +415,13 @@ describe('checkTierLimit — fail-closed: Supabase tier lookup failure', () => {
 // ---------------------------------------------------------------------------
 
 describe('checkTierLimit — fail-closed: unknown or malformed tier', () => {
-  it('defaults to free when tier is an unknown string', async () => {
-    // Future DB tier values or typos should not grant unexpected access
-    // WHY: We build an "allowed" mock (sessionCount: 0) first only to verify that
-    // the unknown tier doesn't crash — the real assertion is on `blockedResult`.
-    // enterprise is unknown → falls back to free
+  it('defaults to free when tier is a typo / unknown string', async () => {
+    // Post SEC-ADV-004 the resolver recognises all 6 canonical tier ids
+    // (free / pro / power / team / business / enterprise) — anything else
+    // (typos, future values, escalation attempts) MUST fall back to free.
     const freeLimit = TIER_LIMITS.free.maxSessionsPerDay as number;
     const blockedSupabase = buildSupabaseMock({
-      tier: 'enterprise',
+      tier: 'super-admin',
       sessionCount: freeLimit,
     });
     const blockedResult = await checkTierLimit(USER_ID, 'maxSessionsPerDay', blockedSupabase);
@@ -655,5 +688,210 @@ describe('TIER_LIMITS constants — shape validation', () => {
 
   it('pro maxAgents is less than power maxAgents', () => {
     expect(TIER_LIMITS.pro.maxAgents).toBeLessThan(TIER_LIMITS.power.maxAgents);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SEC-ADV-004 — Tier ordering helpers
+// ---------------------------------------------------------------------------
+
+describe('rankTier — canonical tier ordering', () => {
+  it('ranks all 6 known tiers monotonically', () => {
+    expect(rankTier('free')).toBe(0);
+    expect(rankTier('pro')).toBe(1);
+    expect(rankTier('power')).toBe(2);
+    expect(rankTier('team')).toBe(3);
+    expect(rankTier('business')).toBe(4);
+    expect(rankTier('enterprise')).toBe(5);
+  });
+
+  it('returns 0 (free) for an unknown tier — fail-closed', () => {
+    // @ts-expect-error — feeding an invalid string on purpose to exercise
+    // the fail-closed branch. Production callers always pass a typed value.
+    expect(rankTier('hacker-tier')).toBe(0);
+  });
+});
+
+describe('maxTier — picks the higher-ranked tier', () => {
+  it('returns the higher of two tiers', () => {
+    expect(maxTier('free', 'business')).toBe('business');
+    expect(maxTier('power', 'team')).toBe('team');
+    expect(maxTier('enterprise', 'free')).toBe('enterprise');
+  });
+
+  it('returns either when tiers are equal', () => {
+    expect(maxTier('team', 'team')).toBe('team');
+  });
+
+  it('handles power vs pro correctly (power > pro)', () => {
+    expect(maxTier('pro', 'power')).toBe('power');
+  });
+});
+
+describe('normalizeEffectiveTier — input sanitisation', () => {
+  it('preserves known tier ids', () => {
+    const all: EffectiveTierId[] = ['free', 'pro', 'power', 'team', 'business', 'enterprise'];
+    for (const t of all) {
+      expect(normalizeEffectiveTier(t)).toBe(t);
+    }
+  });
+
+  it('falls back to free for null / undefined / unknown', () => {
+    expect(normalizeEffectiveTier(null)).toBe('free');
+    expect(normalizeEffectiveTier(undefined)).toBe('free');
+    expect(normalizeEffectiveTier('')).toBe('free');
+    expect(normalizeEffectiveTier('admin')).toBe('free');
+    expect(normalizeEffectiveTier("'; DROP TABLE --")).toBe('free');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SEC-ADV-004 — resolveEffectiveTier cross-read
+// ---------------------------------------------------------------------------
+
+describe('resolveEffectiveTier — personal vs team cross-read', () => {
+  it('user with no team and free personal sub → free', async () => {
+    const supabase = buildSupabaseMock({ tier: 'free', teamBillingTiers: [] });
+    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('free');
+  });
+
+  it('user with no team but power personal sub → power (preserves current behaviour)', async () => {
+    const supabase = buildSupabaseMock({ tier: 'power', teamBillingTiers: [] });
+    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('power');
+  });
+
+  it('user with personal=free + team=business → business (THE BUG FIX)', async () => {
+    // SEC-ADV-004 happy path: a team admin whose team pays for business but
+    // who has no personal subscription must receive business-tier access.
+    const supabase = buildSupabaseMock({
+      tier: null,
+      teamBillingTiers: ['business'],
+    });
+    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('business');
+  });
+
+  it('user with personal=enterprise (admin override) + team=team → enterprise (personal outranks team)', async () => {
+    // Admin-overridden personal tier must be honored when above the team tier.
+    // Canonical TIER_ORDER: free < pro < power < team < business < enterprise.
+    const supabase = buildSupabaseMock({
+      tier: 'enterprise',
+      teamBillingTiers: ['team'],
+    });
+    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('enterprise');
+  });
+
+  it('user with personal=power + team=team → team (team outranks power per canonical order)', async () => {
+    // Pins the documented ordering: team-family always >= solo tiers.
+    const supabase = buildSupabaseMock({
+      tier: 'power',
+      teamBillingTiers: ['team'],
+    });
+    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('team');
+  });
+
+  it('user on multiple teams → max team tier wins', async () => {
+    const supabase = buildSupabaseMock({
+      tier: 'free',
+      teamBillingTiers: ['team', 'enterprise', 'business'],
+    });
+    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('enterprise');
+  });
+
+  it('team_members query error → falls back to personal tier (fail-closed for team component)', async () => {
+    const supabase = buildSupabaseMock({
+      tier: 'power',
+      teamMembersError: true,
+    });
+    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('power');
+  });
+
+  it('both reads fail → free (fail-closed end-to-end)', async () => {
+    const supabase = buildSupabaseMock({
+      tier: new Error('subs down'),
+      teamMembersError: true,
+    });
+    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('free');
+  });
+
+  it('team billing_tier with unknown value is normalised to free, does not poison max', async () => {
+    const supabase = buildSupabaseMock({
+      tier: 'pro',
+      teamBillingTiers: ['??? rogue value', null],
+    });
+    // pro outranks normalised free → effective is pro
+    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('pro');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SEC-ADV-004 — checkTierLimit honors team billing
+// ---------------------------------------------------------------------------
+
+describe('checkTierLimit — team-tier elevation via teams.billing_tier', () => {
+  it('free personal + business team → maxSessionsPerDay is unlimited', async () => {
+    // Without the cross-read, this user would be blocked at the free 5/day cap.
+    // With the fix, business has Infinity sessions so they pass without a count.
+    const supabase = buildSupabaseMock({
+      tier: null,
+      teamBillingTiers: ['business'],
+      sessionCount: 9999,
+    });
+    const result = await checkTierLimit(USER_ID, 'maxSessionsPerDay', supabase);
+    expect(isAllowed(result)).toBe(true);
+  });
+
+  it('free personal + enterprise team → maxAgents follows enterprise caps', async () => {
+    const enterpriseAgents = TIER_LIMITS.enterprise.maxAgents as number;
+    const supabase = buildSupabaseMock({
+      tier: null,
+      teamBillingTiers: ['enterprise'],
+      agentCount: enterpriseAgents - 1,
+    });
+    const result = await checkTierLimit(USER_ID, 'maxAgents', supabase);
+    expect(isAllowed(result)).toBe(true);
+  });
+
+  it('free personal + enterprise team at agent cap → blocked, tier="enterprise"', async () => {
+    const enterpriseAgents = TIER_LIMITS.enterprise.maxAgents as number;
+    const supabase = buildSupabaseMock({
+      tier: null,
+      teamBillingTiers: ['enterprise'],
+      agentCount: enterpriseAgents,
+    });
+    const result = await checkTierLimit(USER_ID, 'maxAgents', supabase);
+    expect(isBlocked(result)).toBe(true);
+    if (isBlocked(result)) {
+      expect(result.tier).toBe('enterprise');
+      expect(result.limit).toBe(enterpriseAgents);
+    }
+  });
+
+  it('admin override (personal=power) above team=team is honored', async () => {
+    // Admin set personal to power; team is on the team plan. Power outranks
+    // team in the canonical ordering only if personal is the max — but here
+    // team (rank 3) > power (rank 2), so team wins. This test pins the
+    // ordering documented in TIER_ORDER.
+    const supabase = buildSupabaseMock({
+      tier: 'power',
+      teamBillingTiers: ['team'],
+      sessionCount: 0,
+    });
+    const result = await checkTierLimit(USER_ID, 'maxSessionsPerDay', supabase);
+    // Both power and team have Infinity sessions → allowed without a count query.
+    expect(isAllowed(result)).toBe(true);
+  });
+
+  it('user on no team behaves identically to pre-SEC-ADV-004 (regression guard)', async () => {
+    const freeLimit = TIER_LIMITS.free.maxSessionsPerDay as number;
+    const supabase = buildSupabaseMock({
+      tier: 'free',
+      teamBillingTiers: [],
+      sessionCount: freeLimit,
+    });
+    const result = await checkTierLimit(USER_ID, 'maxSessionsPerDay', supabase);
+    expect(isBlocked(result)).toBe(true);
+    if (isBlocked(result)) {
+      expect(result.tier).toBe('free');
+    }
   });
 });
