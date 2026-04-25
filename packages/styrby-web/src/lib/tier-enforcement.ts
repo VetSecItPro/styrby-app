@@ -177,12 +177,17 @@ async function readPersonalTier(
   supabase: SupabaseClient,
   userId: string
 ): Promise<EffectiveTierId> {
+  // PERF-DELTA-005: .maybeSingle() not .single(). PostgREST .single() throws
+  // PGRST116 when zero rows match (legitimate case for new users with no
+  // subscription row yet). The error then leaks into Sentry as noise. With
+  // .maybeSingle(), zero rows returns { data: null, error: null } and we
+  // cleanly fall through to 'free' tier without an error roundtrip.
   const { data, error } = await supabase
     .from('subscriptions')
     .select('tier')
     .eq('user_id', userId)
     .eq('status', 'active')
-    .single();
+    .maybeSingle();
 
   if (error || !data?.tier) {
     return 'free';

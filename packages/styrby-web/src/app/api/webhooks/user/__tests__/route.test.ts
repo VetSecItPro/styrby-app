@@ -46,6 +46,7 @@ function createChainMock() {
 
   // Terminal methods resolve with the queued result
   chain['single'] = vi.fn().mockResolvedValue(result);
+  chain['maybeSingle'] = vi.fn().mockResolvedValue(result);
   // Make the chain thenable for await without .single()
   chain['then'] = (resolve: (v: unknown) => void) => resolve(result);
 

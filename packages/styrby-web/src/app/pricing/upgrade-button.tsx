@@ -1,7 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { type TierId, type BillingCycle } from '@/lib/polar';
+// PERF-BUNDLE-001: type-only imports are erased at compile time, but pointing
+// this client component at the SDK-free tier-config keeps the import surface
+// consistent with pricing-cards.tsx and prevents an accidental value import
+// from drifting back to @/lib/polar.
+import { type TierId, type BillingCycle } from '@/lib/billing/tier-config';
 
 interface UpgradeButtonProps {
   tierId: TierId;

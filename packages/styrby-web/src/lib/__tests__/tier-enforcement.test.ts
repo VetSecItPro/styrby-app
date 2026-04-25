@@ -75,10 +75,12 @@ function buildSupabaseMock({
   // 'sessions', 'agent_configs'. We track the table name via the mock.
   const fromMock = vi.fn((table: string) => {
     if (table === 'subscriptions') {
+      // PERF-DELTA-005: tier-enforcement now uses .maybeSingle() to avoid
+      // PGRST116 errors on the legitimate "no subscription row yet" case.
       return {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue(subscriptionResult),
+        maybeSingle: vi.fn().mockResolvedValue(subscriptionResult),
       };
     }
     if (table === 'team_members') {
@@ -122,7 +124,7 @@ function buildSupabaseMock({
     return {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: null, error: { message: 'Unknown table' } }),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: { message: 'Unknown table' } }),
       gte: vi.fn().mockResolvedValue({ count: null, error: { message: 'Unknown table' } }),
     };
   });

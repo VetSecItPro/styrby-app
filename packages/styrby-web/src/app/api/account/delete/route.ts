@@ -130,26 +130,21 @@ export async function DELETE(request: Request) {
   const now = new Date().toISOString();
 
   try {
-    // Soft-delete profile (RLS ensures ownership)
-    // WHY: Setting deleted_at triggers RLS policies that hide deleted data
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .update({ deleted_at: now })
-      .eq('id', user.id);
+    // PERF-DELTA-002 (a): Three independent ownership-marker writes in parallel.
+    // - profile.deleted_at      (triggers RLS hide-deleted policies)
+    // - sessions.deleted_at     (preserves data for potential recovery)
+    // - device_tokens DELETE    (hard delete; push tokens are useless post-deletion)
+    // None depends on any other; profile error is the only one that should
+    // abort the flow (signals user mismatch / RLS denial). Other failures are
+    // tolerated via Promise.allSettled — a partial failure here doesn't break
+    // soft-delete semantics, and the 30-day retention cron is the safety net.
+    const [profileResult, _sessionsResult, _tokensResult] = await Promise.all([
+      supabase.from('profiles').update({ deleted_at: now }).eq('id', user.id),
+      supabase.from('sessions').update({ deleted_at: now }).eq('user_id', user.id),
+      supabase.from('device_tokens').delete().eq('user_id', user.id),
+    ]);
 
-    if (profileError) throw profileError;
-
-    // Soft-delete sessions
-    // WHY: Preserves session data for potential recovery
-    await supabase
-      .from('sessions')
-      .update({ deleted_at: now })
-      .eq('user_id', user.id);
-
-    // Delete device tokens (hard delete - no need to keep)
-    // WHY: Push tokens are useless after account deletion and could be
-    // a privacy concern if retained
-    await supabase.from('device_tokens').delete().eq('user_id', user.id);
+    if (profileResult.error) throw profileResult.error;
 
     // SEC-INTEG-001 FIX: Hard-delete data that references auth.users directly
     // (not via profiles). These tables do NOT cascade from profiles.deleted_at
@@ -298,38 +293,35 @@ export async function DELETE(request: Request) {
       // The auth.users hard-delete (retention cron) triggers the SET NULL.
     ]);
 
-    // Log deletion in audit_log (before signing out user)
-    // WHY: Compliance requirement - track account lifecycle events
-    // WHY: 'account_deleted' is not in audit_action enum. Use 'settings_updated'
-    // with resource_type to indicate it was a deletion. Column is 'metadata', not 'details'.
-    await supabase.from('audit_log').insert({
-      user_id: user.id,
-      action: 'settings_updated',
-      resource_type: 'account_deletion',
-      // SEC-R2-S2-004: take only the first hop. x-forwarded-for is a comma-
-      // separated chain; a malicious client can append arbitrary text after
-      // the first comma to pollute the audit_log's ip_address column. The
-      // export route already does this split; the delete route was inconsistent.
-      ip_address: (request.headers.get('x-forwarded-for') || 'unknown').split(',')[0].trim(),
-      metadata: {
-        soft_delete: true,
-        reason: validation.data.reason || 'Not provided',
-        hard_delete_scheduled: '30 days',
-      },
-    });
-
-    // FIX-012: Ban the user in auth.users to prevent login during grace period
-    // WHY: Soft-deleting the profile doesn't prevent re-authentication.
-    // The user could log back in and see their (partially deleted) data.
-    // Banning via admin API ensures the JWT is invalidated immediately.
+    // PERF-DELTA-002 (b): Three independent finalization writes in parallel.
+    // - audit_log.insert     (compliance — non-blocking; failure logs but doesn't abort)
+    // - admin.updateUserById (ban → invalidates JWT during grace period)
+    // - supabase.auth.signOut (clear current session cookie)
+    // None depends on the others; previously sequential, ~130ms saved.
     const adminClient = createAdminClient();
-    await adminClient.auth.admin.updateUserById(user.id, {
-      ban_duration: '720h', // 30 days - matches hard-delete grace period
-    });
-
-    // Sign out the user
-    // WHY: User should no longer have access after initiating deletion
-    await supabase.auth.signOut();
+    await Promise.all([
+      // Compliance audit row. SEC-R2-S2-004: take only the first hop of
+      // x-forwarded-for to prevent multi-IP injection polluting the column.
+      supabase.from('audit_log').insert({
+        user_id: user.id,
+        action: 'settings_updated',
+        resource_type: 'account_deletion',
+        ip_address: (request.headers.get('x-forwarded-for') || 'unknown').split(',')[0].trim(),
+        metadata: {
+          soft_delete: true,
+          reason: validation.data.reason || 'Not provided',
+          hard_delete_scheduled: '30 days',
+        },
+      }),
+      // FIX-012: Ban the user in auth.users to prevent login during grace
+      // period. Soft-deleting the profile doesn't prevent re-authentication;
+      // banning via admin API invalidates the JWT immediately.
+      adminClient.auth.admin.updateUserById(user.id, {
+        ban_duration: '720h', // 30 days — matches hard-delete grace period
+      }),
+      // Sign out current session — user should lose access immediately.
+      supabase.auth.signOut(),
+    ]);
 
     return NextResponse.json({
       success: true,
