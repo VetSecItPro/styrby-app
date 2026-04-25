@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { TIERS, type TierId } from '@/lib/polar';
+import { resolveEffectiveTier, toLegacyTierId } from '@/lib/tier-enforcement';
 import { z } from 'zod';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 
@@ -56,14 +57,11 @@ async function getUserTier(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string
 ): Promise<TierId> {
-  const { data: subscription } = await supabase
-    .from('subscriptions')
-    .select('tier')
-    .eq('user_id', userId)
-    .eq('status', 'active')
-    .single();
-
-  return (subscription?.tier as TierId) || 'free';
+  // SEC-ADV-004: cross-read personal subscription + team memberships and
+  // pick the higher-ranked tier. team-family results are collapsed to
+  // 'power' for compatibility with the legacy TIERS table.
+  const effective = await resolveEffectiveTier(supabase, userId);
+  return toLegacyTierId(effective) as TierId;
 }
 
 /**

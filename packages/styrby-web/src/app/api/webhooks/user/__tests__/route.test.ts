@@ -160,6 +160,7 @@ describe('User Webhooks API', () => {
       });
       // 2. subscriptions.select().eq().eq().single() — getUserTier → pro
       fromCallQueue.push({ data: { tier: 'pro' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       const response = await GET();
       expect(response.status).toBe(200);
@@ -205,6 +206,7 @@ describe('User Webhooks API', () => {
 
       fromCallQueue.push({ data: [], error: null });
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       const response = await GET();
       const body = await response.json();
@@ -409,6 +411,7 @@ describe('User Webhooks API', () => {
       // POST calls Promise.all with 2 parallel queries:
       // 1. getUserTier → subscriptions.select().eq().eq().single()
       fromCallQueue.push({ data: null, error: null }); // free tier
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
       // 2. count query → webhooks.select('id', { count: 'exact', head: true }).eq().is()
       fromCallQueue.push({ count: 0, error: null });
 
@@ -425,6 +428,7 @@ describe('User Webhooks API', () => {
 
       // 1. getUserTier → pro
       fromCallQueue.push({ data: { tier: 'pro' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
       // 2. count → 3 (at limit)
       fromCallQueue.push({ count: 3, error: null });
 
@@ -442,6 +446,7 @@ describe('User Webhooks API', () => {
 
       // 1. getUserTier → pro
       fromCallQueue.push({ data: { tier: 'pro' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
       // 2. count → 1 (under limit of 3)
       fromCallQueue.push({ count: 1, error: null });
       // 3. insert().select().single()
