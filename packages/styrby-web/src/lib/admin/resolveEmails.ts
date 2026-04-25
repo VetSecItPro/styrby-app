@@ -39,10 +39,64 @@ interface ResolveEmailRow {
   email: string | null;
 }
 
+/**
+ * SEC-ADV-007: Typed error thrown when resolveAdminEmails is invoked with a
+ * non-service-role client. Distinct class so callers can catch this specifically
+ * (e.g. to render a forensic-degraded UI) without swallowing other RPC errors.
+ *
+ * WHY a typed error (not a generic Error): the previous behavior silently
+ * returned `{}` when called with a user-scoped client, causing the admin
+ * forensic UI to show UUIDs everywhere with no log signal that anything was
+ * wrong. A typed throw makes the failure loud and traceable.
+ */
+export class AdminEmailResolverMisuseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AdminEmailResolverMisuseError';
+  }
+}
+
+/**
+ * SEC-ADV-007: Asserts the supplied Supabase client carries the service-role
+ * key. The `resolve_user_emails_for_admin` RPC is GRANT EXECUTE TO service_role
+ * only; calling with a user-scoped client returns permission-denied that this
+ * helper used to swallow into an empty map. Throwing at the boundary surfaces
+ * the misuse loudly during dev/test, before it manifests as a degraded admin UI
+ * in production. SOC 2 CC6.1 (logical access control assertions).
+ *
+ * WHY runtime check (not just types): SupabaseClient is the same TypeScript
+ * type for both user and service-role clients. The only runtime distinguisher
+ * is `client.supabaseKey === process.env.SUPABASE_SERVICE_ROLE_KEY`.
+ *
+ * WHY skip the check when the env var is unset: in test environments (vitest)
+ * the service-role key may be absent. We only enforce when both sides exist;
+ * when either is missing we fall back to letting the RPC's own permission
+ * check decide. This avoids breaking tests that mock the client without
+ * setting env vars.
+ */
+function assertServiceRoleClient(supabase: SupabaseClient): void {
+  const expected = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  // Accessing the private supabaseKey field via a typed cast — the property
+  // exists at runtime on every supabase-js v2 client (verified in
+  // node_modules/@supabase/supabase-js dist).
+  const actual = (supabase as unknown as { supabaseKey?: string }).supabaseKey;
+  if (!expected || !actual) return;
+  if (actual !== expected) {
+    throw new AdminEmailResolverMisuseError(
+      'resolveAdminEmails requires a service-role client (createAdminClient()). ' +
+        'Got a client with a different supabaseKey — likely a user-scoped client. ' +
+        'See SEC-ADV-007 in styrby-backlog.md.',
+    );
+  }
+}
+
 export async function resolveAdminEmails(
   supabase: SupabaseClient,
   userIds: string[],
 ): Promise<Record<string, string>> {
+  // SEC-ADV-007: Loud misuse detection — see assertServiceRoleClient above.
+  assertServiceRoleClient(supabase);
+
   // Short-circuit: avoid an unnecessary DB round-trip for empty input.
   if (userIds.length === 0) return {};
 

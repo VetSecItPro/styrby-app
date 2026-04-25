@@ -9,19 +9,28 @@
  *   unknown>` — any object is accepted at compile time.
  *
  * This test parses:
- *   1. All `supabase/migrations/*.sql` files to extract SECURITY DEFINER function
- *      signatures (parameter names starting with `p_`).
- *   2. All production TypeScript files under `src/app/` and `src/lib/` (excluding
- *      test files) for `.rpc('function_name', { ... })` invocations.
+ *   1. All `supabase/migrations/*.sql` files to extract function signatures
+ *      (parameter names starting with `p_`). Both `CREATE FUNCTION public.<name>`
+ *      and unqualified `CREATE FUNCTION <name>` are recognised since unqualified
+ *      definitions resolve to the public schema by default.
+ *      Block comments (`/* ... *\/`) and line comments (`-- ...`) are stripped
+ *      before parsing so that commented-out signatures cannot shadow live ones.
+ *      DEFAULT-valued parameters are tagged optional — call sites may legally omit
+ *      them.
+ *   2. All production TypeScript files under `src/app/`, `src/lib/`,
+ *      `src/middleware/`, `src/hooks/`, and `src/components/` (excluding test
+ *      files) for `.rpc('function_name', { ... })` invocations. Coverage was
+ *      expanded in SEC-ADV-002 (2026-04-25) after the audit found api-key auth
+ *      RPCs in `src/middleware/api-auth.ts` were unscanned.
  *
  * For each RPC call-site it asserts:
- *   - callKeys ⊆ migrationKeys   (no extra keys sent that migration doesn't know)
- *   - migrationKeys ⊆ callKeys   (no missing keys the migration requires)
+ *   - callKeys ⊆ migrationKeys              (no unknown keys sent)
+ *   - migrationRequiredKeys ⊆ callKeys      (every required (non-DEFAULT) key
+ *                                            is supplied; DEFAULT keys are optional)
  *
- * LIMITATION: This treats all migration params as required (no DEFAULT tracking).
- *   Optional params with DB defaults may produce false-positive failures for
- *   zero-param or partial RPC calls. Such call sites must add a comment
- *   `// rpc-contract-sync: skip` on the .rpc() line to suppress the check.
+ * Escape hatch: a call site may add a `// rpc-contract-sync: skip` comment on or
+ *   immediately above the `.rpc()` line to suppress the check (used only when
+ *   the call site genuinely needs runtime-conditional shapes).
  *
  * SOC 2 CC7.2: ensures every admin audit RPC is called with the full expected
  *   param set so no audit row is silently dropped due to a missing parameter.
@@ -42,15 +51,89 @@ const MIGRATIONS_DIR = resolve(__dirname, '../../../../../supabase/migrations');
 // ─── Migration parser ─────────────────────────────────────────────────────────
 
 /**
- * Represents one parsed SECURITY DEFINER function from migrations.
+ * Represents one parsed function signature from migrations.
  */
 interface MigrationFn {
   /** Postgres function name (without schema prefix). */
   name: string;
   /** Ordered list of parameter names (p_ prefix retained). */
   params: string[];
+  /**
+   * Subset of `params` that have a DEFAULT clause in the migration signature.
+   * Callers MAY omit these keys without violating the contract.
+   */
+  optionalParams: Set<string>;
   /** Path of the migration file that defines this function (last one wins). */
   definedIn: string;
+}
+
+/**
+ * Parses one migration file's text and accumulates discovered function
+ * signatures into `result`. Invoked by `parseMigrationFunctions()` over real
+ * migrations and directly by unit tests in this file against synthetic
+ * fixtures so the parser behaviour can be exercised without touching disk.
+ *
+ * @param rawContent - Raw `.sql` file contents.
+ * @param file       - Identifier (path or fixture name) used for `definedIn`.
+ * @param result     - Accumulator map; later definitions overwrite earlier ones.
+ */
+function parseMigrationContent(
+  rawContent: string,
+  file: string,
+  result: Map<string, MigrationFn>,
+): void {
+  // Strip block comments first so a commented-out old signature can't shadow
+  // the live one. Replace with same-length whitespace to keep file offsets
+  // stable for any downstream debugging.
+  // WHY (SEC-ADV-002 finding #2): a stale `/* CREATE FUNCTION public.foo(p_x) */`
+  // block left in a migration would otherwise be parsed as the canonical
+  // signature, masking real drift.
+  let content = rawContent.replace(/\/\*[\s\S]*?\*\//g, (match) =>
+    match.replace(/[^\n]/g, ' '),
+  );
+  // Strip line comments next (-- through end of line). We do this AFTER block
+  // stripping so a `--` inside a (now-removed) block comment isn't applied to
+  // the wrong column.
+  content = content.replace(/--[^\n]*/g, '');
+
+  // Match: CREATE [OR REPLACE] FUNCTION [public.]<name>(...)
+  const fnHeaderRe =
+    /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?(\w+)\s*\(/gi;
+
+  let match: RegExpExecArray | null;
+  while ((match = fnHeaderRe.exec(content)) !== null) {
+    const fnName = match[1]!.toLowerCase();
+    const openParenPos = match.index + match[0].length - 1;
+
+    let depth = 0;
+    let paramBlock = '';
+    for (let i = openParenPos; i < content.length; i++) {
+      const ch = content[i]!;
+      if (ch === '(') depth++;
+      else if (ch === ')') {
+        depth--;
+        if (depth === 0) break;
+      }
+      if (i > openParenPos) paramBlock += ch;
+    }
+
+    const params: string[] = [];
+    const optionalParams = new Set<string>();
+    for (const segment of paramBlock.split(',')) {
+      const clean = segment.trim();
+      if (!clean) continue;
+      const firstToken = clean.split(/\s+/)[0];
+      if (firstToken && firstToken.toLowerCase().startsWith('p_')) {
+        const name = firstToken.toLowerCase();
+        params.push(name);
+        if (/\bDEFAULT\b/i.test(clean) || /[^=!<>]=(?!=)/.test(clean)) {
+          optionalParams.add(name);
+        }
+      }
+    }
+
+    result.set(fnName, { name: fnName, params, optionalParams, definedIn: file });
+  }
 }
 
 /**
@@ -71,55 +154,9 @@ function parseMigrationFunctions(): Map<string, MigrationFn> {
 
   for (const file of files) {
     const filePath = join(MIGRATIONS_DIR, file);
-    const content = readFileSync(filePath, 'utf-8');
-
-    // Match: CREATE [OR REPLACE] FUNCTION public.<name>(...)
-    // Capture the function name and the raw parameter block.
-    // WHY non-greedy (.+?) for param block: the params end at ')' followed by
-    // RETURNS or LANGUAGE — we stop at the first ')' that is likely the end
-    // of the param list. We extract the block between '(' and the matching ')'
-    // using a line-by-line scan rather than a single regex to handle multi-line
-    // parameter lists robustly.
-    const fnHeaderRe =
-      /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+public\.(\w+)\s*\(/gi;
-
-    let match: RegExpExecArray | null;
-    while ((match = fnHeaderRe.exec(content)) !== null) {
-      const fnName = match[1]!.toLowerCase();
-      const openParenPos = match.index + match[0].length - 1; // position of '('
-
-      // Extract everything from '(' to the matching ')'.
-      let depth = 0;
-      let paramBlock = '';
-      for (let i = openParenPos; i < content.length; i++) {
-        const ch = content[i]!;
-        if (ch === '(') depth++;
-        else if (ch === ')') {
-          depth--;
-          if (depth === 0) break;
-        }
-        if (i > openParenPos) paramBlock += ch;
-      }
-
-      // Extract parameter names: tokens that start with p_
-      // Each param line looks like: p_some_name   type  [DEFAULT ...]
-      // We split by comma and pick the first word of each segment if it starts with p_.
-      const params: string[] = [];
-      for (const segment of paramBlock.split(',')) {
-        // strip SQL comments
-        const clean = segment.replace(/--[^\n]*/g, '').trim();
-        const firstToken = clean.split(/\s+/)[0];
-        if (firstToken && firstToken.toLowerCase().startsWith('p_')) {
-          params.push(firstToken.toLowerCase());
-        }
-      }
-
-      // Only record functions that have at least one p_ param OR are zero-param
-      // functions we might call with no args (those are fine either way).
-      result.set(fnName, { name: fnName, params, definedIn: file });
-    }
+    const rawContent = readFileSync(filePath, 'utf-8');
+    parseMigrationContent(rawContent, file, result);
   }
-
   return result;
 }
 
@@ -279,11 +316,25 @@ describe('RPC contract sync — call-site params must match migration signatures
   // Parse migrations once for all tests.
   const migrationFns = parseMigrationFunctions();
 
-  // Collect all production source files under src/app/ and src/lib/.
-  const sourceFiles = [
-    ...collectSourceFiles(resolve(WEB_SRC, 'app')),
-    ...collectSourceFiles(resolve(WEB_SRC, 'lib')),
-  ];
+  // Collect all production source files. Coverage was widened in SEC-ADV-002
+  // (2026-04-25) — previously we only walked app/ and lib/, which silently
+  // missed `src/middleware/api-auth.ts` (lookup_api_key, update_api_key_usage)
+  // and any future RPC calls placed in hooks or components. If a directory does
+  // not exist (older checkouts) collectSourceFiles handles the missing-dir case
+  // gracefully via the wrapper below.
+  const INCLUDE_DIRS = ['app', 'lib', 'middleware', 'hooks', 'components'];
+  const sourceFiles: string[] = [];
+  for (const dirName of INCLUDE_DIRS) {
+    const abs = resolve(WEB_SRC, dirName);
+    try {
+      // Throws if missing. We catch and skip so the suite remains portable
+      // across packages that don't have every directory.
+      statSync(abs);
+    } catch {
+      continue;
+    }
+    sourceFiles.push(...collectSourceFiles(abs));
+  }
 
   // Gather all call sites.
   const allCallSites: RpcCallSite[] = [];
@@ -314,10 +365,15 @@ describe('RPC contract sync — call-site params must match migration signatures
       const migrationKeys = new Set(mfn.params);
       const callKeys = new Set(cs.keys);
 
-      // Check for missing keys (migration requires them, call site omits them).
-      const missing = mfn.params.filter(k => !callKeys.has(k));
+      // Required keys = migration params that do NOT have a DEFAULT clause.
+      // Optional (DEFAULT-valued) keys may legally be omitted by the caller
+      // (SEC-ADV-002 finding #3) — Postgres will substitute the default value.
+      const requiredKeys = mfn.params.filter(k => !mfn.optionalParams.has(k));
 
-      // Check for extra keys (call site sends keys migration doesn't know).
+      // Missing = required key that the call site failed to supply.
+      const missing = requiredKeys.filter(k => !callKeys.has(k));
+
+      // Extra = key the call site sends that the migration has no slot for.
       const extra = cs.keys.filter(k => !migrationKeys.has(k));
 
       if (missing.length > 0 || extra.length > 0) {
@@ -362,5 +418,76 @@ describe('RPC contract sync — call-site params must match migration signatures
     for (const cs of refundCalls) {
       expect(cs.keys).toContain('p_polar_subscription_id');
     }
+  });
+});
+
+// ─── Parser unit tests (SEC-ADV-002) ──────────────────────────────────────────
+//
+// These exercise `parseMigrationContent` against synthetic SQL fixtures so we
+// can lock in:
+//   1. Block comments cannot shadow live signatures.
+//   2. DEFAULT-valued parameters are recognised as optional, and a caller that
+//      omits a DEFAULT param is NOT flagged as missing.
+//   3. Unqualified `CREATE FUNCTION` (no `public.`) is parsed.
+describe('parseMigrationContent — fixture-level behaviour (SEC-ADV-002)', () => {
+  it('strips block comments so a commented-out old signature does not shadow the live one', () => {
+    const fixture = `
+      /*
+       * Historical signature, kept here for reference only:
+       * CREATE FUNCTION public.fixture_fn(p_old_only_param uuid)
+       */
+      CREATE OR REPLACE FUNCTION public.fixture_fn(p_real_param uuid)
+      RETURNS void LANGUAGE sql AS $$ SELECT 1 $$;
+    `;
+    const map = new Map<string, MigrationFn>();
+    parseMigrationContent(fixture, 'fixture_block_comment.sql', map);
+    const fn = map.get('fixture_fn');
+    expect(fn).toBeDefined();
+    // Only the live signature's param should be picked up; the commented-out
+    // ghost param must not appear.
+    expect(fn!.params).toEqual(['p_real_param']);
+    expect(fn!.params).not.toContain('p_old_only_param');
+  });
+
+  it('recognises DEFAULT-valued params as optional and treats omission as non-missing', () => {
+    const fixture = `
+      CREATE OR REPLACE FUNCTION public.fixture_default_fn(
+        p_required_id uuid,
+        p_optional_ip inet DEFAULT NULL,
+        p_optional_note text DEFAULT 'n/a'
+      ) RETURNS void LANGUAGE sql AS $$ SELECT 1 $$;
+    `;
+    const map = new Map<string, MigrationFn>();
+    parseMigrationContent(fixture, 'fixture_default.sql', map);
+    const fn = map.get('fixture_default_fn');
+    expect(fn).toBeDefined();
+    expect(fn!.params).toEqual([
+      'p_required_id',
+      'p_optional_ip',
+      'p_optional_note',
+    ]);
+    expect(fn!.optionalParams.has('p_optional_ip')).toBe(true);
+    expect(fn!.optionalParams.has('p_optional_note')).toBe(true);
+    expect(fn!.optionalParams.has('p_required_id')).toBe(false);
+
+    // Simulate a caller that supplies only the required param. The required
+    // set must be just `p_required_id`, so a callKeys=[p_required_id] must
+    // produce an empty `missing` list (mirrors the contract check above).
+    const required = fn!.params.filter(k => !fn!.optionalParams.has(k));
+    const callKeys = new Set(['p_required_id']);
+    const missing = required.filter(k => !callKeys.has(k));
+    expect(missing).toEqual([]);
+  });
+
+  it('parses unqualified CREATE FUNCTION (no public. prefix) — covers 007_api_keys.sql style', () => {
+    const fixture = `
+      CREATE OR REPLACE FUNCTION fixture_unqualified(p_prefix text)
+      RETURNS void LANGUAGE sql AS $$ SELECT 1 $$;
+    `;
+    const map = new Map<string, MigrationFn>();
+    parseMigrationContent(fixture, 'fixture_unqualified.sql', map);
+    const fn = map.get('fixture_unqualified');
+    expect(fn).toBeDefined();
+    expect(fn!.params).toEqual(['p_prefix']);
   });
 });

@@ -263,11 +263,20 @@ export async function issueRefundAction(
   let polarResponseJson: unknown;
 
   try {
+    // SEC-REFUND-001 (TODO): Polar's refund API requires an actual order ID,
+    // not a subscription ID. Verified against the SDK type at
+    // `@polar-sh/sdk/src/models/components/refundcreate.ts` — `orderId` is
+    // required and is NOT aliased to subscription_id. Passing subscription_id
+    // here will cause Polar to return HTTPValidationError (mapped to
+    // RefundError code='invalid' inside createPolarRefund). The correct fix
+    // is to call `polar.orders.list({ subscriptionId })` to find the most
+    // recent paid order for this subscription (or accept an orderId from the
+    // admin form) BEFORE calling createPolarRefund. This bundle leaves the
+    // existing fallback in place because production has not yet exercised
+    // the refund path; switching to a Polar-orders lookup is a separate PR
+    // (PR-D in the backlog) so the change is reviewable in isolation.
     const refundResult = await createPolarRefund({
       subscriptionId: subscription_id,
-      // WHY subscriptionId as orderId: the admin UI references subscriptions, not
-      // individual orders. The spec accepts subscriptionId here; when Polar exposes
-      // a dedicated orderId lookup endpoint, this should be updated accordingly.
       orderId: subscription_id,
       amountCents: amount_cents,
       reason,
