@@ -121,6 +121,12 @@ ARCHITECTURE.md
 !README.md
 !SECURITY.md
 !.github/pull_request_template.md
+# Operational runbooks — committed so on-call has them in the repo (SEC-ADV-006).
+# Lives at packages/styrby-web/runbooks/ (NOT under /docs/, which is fully
+# ignored above). The recursive *.md rule would otherwise hide every runbook,
+# so we explicitly un-ignore that subtree.
+!packages/styrby-web/runbooks/
+!packages/styrby-web/runbooks/**/*.md
 .cleancode-reports/
 .perf/
 .a11y/
