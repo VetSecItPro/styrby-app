@@ -166,6 +166,7 @@ describe('Teams API — /api/teams', () => {
 
       // getUserTier: subscriptions.select().eq().eq().single()
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       // teams.select('id, created_at').in('id', teamIds)
       fromCallQueue.push({
@@ -214,6 +215,7 @@ describe('Teams API — /api/teams', () => {
 
       // getUserTier: pro tier
       fromCallQueue.push({ data: { tier: 'pro' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       const response = await GET();
       expect(response.status).toBe(200);
@@ -300,6 +302,7 @@ describe('Teams API — /api/teams', () => {
 
       // WHY: Pro is single-user — team management is Power-only.
       fromCallQueue.push({ data: { tier: 'pro' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       const req = createNextRequest({ name: 'My Team' });
       const response = await POST(req);
@@ -314,6 +317,7 @@ describe('Teams API — /api/teams', () => {
 
       // getUserTier: power tier
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       // insert().select().single()
       fromCallQueue.push({
@@ -345,6 +349,7 @@ describe('Teams API — /api/teams', () => {
 
       // getUserTier: power tier
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       // insert().select().single()
       fromCallQueue.push({
@@ -371,6 +376,7 @@ describe('Teams API — /api/teams', () => {
 
       // getUserTier: power tier
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       // insert fails
       fromCallQueue.push({

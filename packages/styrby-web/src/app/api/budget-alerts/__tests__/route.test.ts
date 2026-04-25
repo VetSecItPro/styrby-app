@@ -165,6 +165,7 @@ describe('Budget Alerts API', () => {
       });
       // 2. subscriptions.select().eq().eq().single() — getUserTier
       fromCallQueue.push({ data: null, error: null }); // free tier
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
       // 3. cost_records.select().eq().gte().limit() — spend calc
       fromCallQueue.push({ data: [{ cost_usd: 3.5 }, { cost_usd: 1.2 }], error: null });
 
@@ -248,6 +249,7 @@ describe('Budget Alerts API', () => {
       // POST calls Promise.all with 2 parallel queries:
       // 1. getUserTier → subscriptions.select().eq().eq().single()
       fromCallQueue.push({ data: null, error: null }); // free tier
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
       // 2. count query → budget_alerts.select('id', { count: 'exact', head: true }).eq()
       // Free tier limit is 1, so having count=1 puts user at their limit.
       fromCallQueue.push({ count: 1, error: null });
@@ -265,6 +267,7 @@ describe('Budget Alerts API', () => {
 
       // 1. getUserTier → pro
       fromCallQueue.push({ data: { tier: 'pro' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
       // 2. count → 3 (at limit)
       fromCallQueue.push({ count: 3, error: null });
 
@@ -281,6 +284,7 @@ describe('Budget Alerts API', () => {
 
       // 1. getUserTier → pro
       fromCallQueue.push({ data: { tier: 'pro' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
       // 2. count → 1 (under limit of 3)
       fromCallQueue.push({ count: 1, error: null });
       // 3. insert().select().single()

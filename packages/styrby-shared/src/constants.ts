@@ -106,4 +106,29 @@ export const TIER_LIMITS = {
     apiAccess: true,
     teamFeatures: true,
   },
+  // WHY business / enterprise mirror team caps for enforcement (SEC-ADV-004):
+  // Migration 055 extended `subscriptions.tier` enum to include the team-family
+  // values (team / business / enterprise). The cross-read tier resolver in
+  // `tier-enforcement.ts` may now legitimately resolve a user to any of these
+  // values when their team's `teams.billing_tier` outranks their personal sub.
+  // Without entries here, `TIER_LIMITS[tier]` would be undefined and the
+  // enforcement check would crash. We give them the same enforcement caps as
+  // 'team' (most permissive existing entry); separate marketing/feature caps
+  // still live in `tiers/utils.ts` `TIER_NUMERIC_LIMITS` for the broader matrix.
+  business: {
+    maxAgents: 3,
+    maxSessionsPerDay: Infinity,
+    costDashboard: 'full',
+    budgetAlerts: true,
+    apiAccess: true,
+    teamFeatures: true,
+  },
+  enterprise: {
+    maxAgents: 3,
+    maxSessionsPerDay: Infinity,
+    costDashboard: 'full',
+    budgetAlerts: true,
+    apiAccess: true,
+    teamFeatures: true,
+  },
 } as const;
