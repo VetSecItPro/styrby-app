@@ -141,6 +141,7 @@ describe('GET /api/keys', () => {
 
     // Second query: getUserTier → subscriptions.select('tier').eq().eq().single()
     fromCallQueue.push({ data: { tier: 'power' }, error: null });
+    fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
     const response = await GET(new Request('http://localhost/api/keys'));
     const data = await response.json();
@@ -198,6 +199,7 @@ describe('GET /api/keys', () => {
 
     // Second query: getUserTier
     fromCallQueue.push({ data: { tier: 'power' }, error: null });
+    fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
     const response = await GET(new Request('http://localhost/api/keys'));
     const data = await response.json();
@@ -338,6 +340,7 @@ describe('POST /api/keys', () => {
 
     // getUserTier → power tier
     fromCallQueue.push({ data: { tier: 'power' }, error: null });
+    fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
     // Count query returns at/over limit (999 exceeds any tier limit)
     fromCallQueue.push({ count: 999, error: null });
@@ -367,6 +370,7 @@ describe('POST /api/keys', () => {
 
     // getUserTier → power tier
     fromCallQueue.push({ data: { tier: 'power' }, error: null });
+    fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
     // Count query → under limit
     fromCallQueue.push({ count: 2, error: null });
@@ -416,6 +420,7 @@ describe('POST /api/keys', () => {
 
     // getUserTier → power tier
     fromCallQueue.push({ data: { tier: 'power' }, error: null });
+    fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
     // Count query
     fromCallQueue.push({ count: 2, error: null });

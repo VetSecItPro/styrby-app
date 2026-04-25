@@ -24,18 +24,17 @@
  * WHY orderId is the refund target (not subscriptionId):
  * Polar's refund API operates on *orders* (individual charges), not subscriptions
  * (recurring billing agreements). A subscription generates one or more orders
- * (one per billing cycle). The admin UI passes the Polar subscription ID as a
- * human-readable reference, but the actual refund must target a specific order
- * ID. The `subscriptionId` param here is stored as metadata on the refund for
- * the audit trail; callers must separately resolve the orderId from Polar's
- * order list before calling this function. The param is named `subscriptionId`
- * (not `orderId`) to match the admin panel's data model where admins look up
- * by subscription, not by charge.
+ * (one per billing cycle). Verified against the SDK type definition at
+ * `node_modules/@polar-sh/sdk/src/models/components/refundcreate.ts`:
+ * `RefundCreate` has a required `orderId: string` field and NO `subscriptionId`
+ * field. The two identifiers are NOT aliased by the SDK — passing a
+ * subscription ID where the SDK expects an order ID will produce a 4xx from
+ * Polar (HTTPValidationError → mapped to RefundError code='invalid' below).
  *
- * NOTE: If the admin panel stores both orderId and subscriptionId, replace the
- * subscriptionId param with orderId and adjust callers accordingly. The function
- * signature uses `subscriptionId` to match the T3 spec contract; the orderId
- * passed to Polar's SDK is provided separately via `params.orderId`.
+ * The `subscriptionId` param on this function exists only as metadata for the
+ * audit trail and dashboard cross-reference. Callers MUST resolve the actual
+ * Polar order ID separately (e.g., via `polar.orders.list({ subscriptionId })`)
+ * before calling this function. SEC-REFUND-001 tracks the upstream caller fix.
  *
  * SOC2 CC7.2: All external service interactions that affect customer billing are
  * logged with full request metadata (idempotencyKey, refundId, rawResponse) so

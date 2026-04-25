@@ -134,6 +134,7 @@ describe('Bookmarks API', () => {
       fromCallQueue.push({ data: [{ id: 'bm-1', session_id: VALID_SESSION_ID, note: null, created_at: '2026-01-01T00:00:00Z' }], error: null });
       // 2. subscriptions lookup (getUserTier)
       fromCallQueue.push({ data: { tier: 'pro' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       const res = await GET();
       expect(res.status).toBe(200);
@@ -148,6 +149,7 @@ describe('Bookmarks API', () => {
       mockAuthenticated();
       fromCallQueue.push({ data: [], error: null });
       fromCallQueue.push({ data: null, error: null }); // no subscription → free
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       const res = await GET();
       expect(res.status).toBe(200);
@@ -195,6 +197,7 @@ describe('Bookmarks API', () => {
       mockAuthenticated();
       // getUserTier → free
       fromCallQueue.push({ data: null, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
       // count → 5 (at limit)
       fromCallQueue.push({ count: 5, error: null });
 
@@ -207,6 +210,7 @@ describe('Bookmarks API', () => {
     it('returns 403 when pro user is at bookmark limit (50/50)', async () => {
       mockAuthenticated();
       fromCallQueue.push({ data: { tier: 'pro' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
       fromCallQueue.push({ count: 50, error: null });
 
       const res = await POST(makeRequest('POST', { session_id: VALID_SESSION_ID }));
@@ -216,6 +220,7 @@ describe('Bookmarks API', () => {
     it('allows power user to exceed 50 bookmarks (unlimited)', async () => {
       mockAuthenticated();
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
       fromCallQueue.push({ count: 999, error: null }); // -1 = unlimited
       fromCallQueue.push({ data: { id: 'bm-new', session_id: VALID_SESSION_ID }, error: null });
 
@@ -228,6 +233,7 @@ describe('Bookmarks API', () => {
     it('creates bookmark and returns 201', async () => {
       mockAuthenticated();
       fromCallQueue.push({ data: { tier: 'pro' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
       fromCallQueue.push({ count: 1, error: null });
       fromCallQueue.push({ data: { id: 'bm-created', session_id: VALID_SESSION_ID, note: 'key session' }, error: null });
 
@@ -240,6 +246,7 @@ describe('Bookmarks API', () => {
     it('returns 409 when session is already bookmarked', async () => {
       mockAuthenticated();
       fromCallQueue.push({ data: { tier: 'pro' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
       fromCallQueue.push({ count: 1, error: null });
       fromCallQueue.push({ data: null, error: { code: '23505', message: 'unique violation' } });
 

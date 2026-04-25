@@ -270,6 +270,7 @@ describe('Team Members Invitation API — /api/teams/[id]/members', () => {
 
       // 3. getUserTier => power (limit: 3)
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       // 4. member count => 2 existing members
       fromCallQueue.push({ count: 2, error: null });
@@ -302,6 +303,7 @@ describe('Team Members Invitation API — /api/teams/[id]/members', () => {
 
       // 3. getUserTier => power
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       // 4. member count => 2
       fromCallQueue.push({ count: 2, error: null });
@@ -340,6 +342,7 @@ describe('Team Members Invitation API — /api/teams/[id]/members', () => {
 
       // 3. getUserTier => power
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       // 4. member count => 1
       fromCallQueue.push({ count: 1, error: null });
@@ -381,6 +384,7 @@ describe('Team Members Invitation API — /api/teams/[id]/members', () => {
 
       // 3. getUserTier => power
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       // 4. member count => 2
       fromCallQueue.push({ count: 2, error: null });
@@ -443,6 +447,7 @@ describe('Team Members Invitation API — /api/teams/[id]/members', () => {
 
       // 3. getUserTier => power (uses team owner's tier)
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       // 4. member count => 2
       fromCallQueue.push({ count: 2, error: null });
@@ -505,6 +510,7 @@ describe('Team Members Invitation API — /api/teams/[id]/members', () => {
 
       // 3. getUserTier => power
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       // 4. member count => 1
       fromCallQueue.push({ count: 1, error: null });
@@ -558,6 +564,7 @@ describe('Team Members Invitation API — /api/teams/[id]/members', () => {
 
       // 3. getUserTier => power
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       // 4. member count => 1
       fromCallQueue.push({ count: 1, error: null });
@@ -606,6 +613,7 @@ describe('Team Members Invitation API — /api/teams/[id]/members', () => {
 
       // 3. power tier
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
+      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
       // 4. member count => 2
       fromCallQueue.push({ count: 2, error: null });

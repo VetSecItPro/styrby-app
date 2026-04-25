@@ -289,6 +289,12 @@ export async function requestSupportAccessAction(
   //   pulls it exactly once via admin_pickup_grant_token, which atomically
   //   DELETEs the row. Token never crosses to a client-readable surface.
   //
+  //   This replaces the prior cookie-flash channel (PR-C / SEC-COOKIE-001
+  //   tightened sameSite to 'strict'); SEC-ADV-001 eliminates the channel
+  //   entirely so an XSS within the 60-second window cannot read the token
+  //   from document.cookie. The token now lives only in the RLS-locked
+  //   pickup table for ≤60s and in the success page's HTML response.
+  //
   // WHY we do not roll back the grant on stash failure:
   //   The grant exists and the audit trail records its creation — that is a
   //   SOC2 CC7.2 invariant we do not want to undo. If stash fails (extremely
