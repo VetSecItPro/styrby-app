@@ -16,10 +16,10 @@ export default function NotFound() {
         </div>
 
         <h1 className="text-2xl font-bold text-zinc-100 mb-2">
-          Page Not Found
+          Nothing here.
         </h1>
         <p className="text-zinc-400 mb-8">
-          The page you&apos;re looking for doesn&apos;t exist or has been moved.
+          This URL has moved, been deleted, or never existed. Pick the surface you actually wanted below.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
@@ -27,13 +27,13 @@ export default function NotFound() {
             href="/dashboard"
             className="rounded-lg bg-orange-500 px-6 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
           >
-            Go to Dashboard
+            Open my dashboard
           </Link>
           <Link
             href="/"
             className="rounded-lg border border-zinc-700 bg-zinc-800 px-6 py-2.5 text-sm font-medium text-zinc-100 hover:bg-zinc-700 transition-colors"
           >
-            Back to Home
+            Back to the homepage
           </Link>
         </div>
       </div>

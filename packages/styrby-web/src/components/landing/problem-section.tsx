@@ -18,23 +18,23 @@ import { Layers, SmartphoneNfc, AlertTriangle } from "lucide-react"
 const problems = [
   {
     icon: Layers,
-    title: "No Unified View",
+    title: "Five terminals, zero unified view",
     description:
-      "Running 5+ agents across projects with no single place to see what is active, what is stuck, and what is burning tokens on a loop. You are context-switching between terminals to figure out basic status.",
+      "Claude Code in one window. Codex in another. Aider in a third. No single place shows what is active, what is stuck, or which session is burning tokens on a loop. You context-switch between terminals to answer 'what is happening right now.'",
     primary: true,
   },
   {
     icon: AlertTriangle,
-    title: "Surprise Bills",
+    title: "Bills you find out about on the 1st",
     description:
-      "Getting paged at 2am because an agent ran up $400 in tokens overnight. By the time the invoice arrives, the damage is done and there was no way to stop it remotely.",
+      "A runaway loop overnight. A context window blown out at 3am. An unattended Aider session that recompiled its prompt 400 times. The API invoice arrives weeks later. Nothing on your dashboard could have stopped it.",
     primary: false,
   },
   {
     icon: SmartphoneNfc,
-    title: "Laptop-Tethered Approvals",
+    title: "Approvals stuck behind a closed laptop",
     description:
-      "No way to approve risky permissions without being at your desk. Your agent sits idle for hours, or proceeds without approval, while you are away from your machine.",
+      "Your agent pauses for permission. You are in a meeting, on a flight, walking the dog. The agent waits for hours, or you preemptively grant blanket approval and lose the safety net entirely.",
     primary: false,
   },
 ]
@@ -47,8 +47,8 @@ export function ProblemSection() {
     <section className="py-16">
       <div className="mx-auto max-w-7xl px-6">
         <h2 className="mx-auto max-w-3xl text-balance text-center text-3xl font-semibold tracking-tighter text-foreground md:text-4xl">
-          Running AI Agents at Scale{" "}
-          <span className="text-amber-500">Is Harder Than It Should Be.</span>
+          Three problems the API dashboard{" "}
+          <span className="text-amber-500">does not solve.</span>
         </h2>
 
         <div className="mx-auto mt-16 max-w-5xl space-y-6">

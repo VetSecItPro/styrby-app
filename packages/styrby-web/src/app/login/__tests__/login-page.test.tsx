@@ -241,7 +241,7 @@ describe('LoginPage — OTP step', () => {
     await user.type(screen.getByLabelText('6-digit code'), '000000');
     await user.click(screen.getByRole('button', { name: /sign in/i }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/invalid or expired code/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/that code did not match/i);
   });
 
   it('respects the ?redirect= query param on success', async () => {

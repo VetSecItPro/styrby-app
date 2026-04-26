@@ -142,7 +142,7 @@ function SignUpPageInner() {
     e.preventDefault();
 
     if (otpCode.length !== 6) {
-      setMessage({ type: 'error', text: 'Please enter the full 6-digit code.' });
+      setMessage({ type: 'error', text: 'Enter all 6 digits to verify your email.' });
       return;
     }
 
@@ -156,7 +156,7 @@ function SignUpPageInner() {
     });
 
     if (error) {
-      setMessage({ type: 'error', text: 'Invalid or expired code. Please try again.' });
+      setMessage({ type: 'error', text: 'That code did not match. Check the latest email or tap "Resend code".' });
       setLoading(false);
     } else {
       // Attribute the referral if a referral code was present in the URL.
@@ -292,8 +292,8 @@ function SignUpPageInner() {
                 {step === 'otp'
                   ? `We sent a 6-digit code to ${email}`
                   : plan
-                  ? 'Verify your email, then complete checkout'
-                  : 'You can upgrade to Pro or Power anytime'}
+                  ? 'Verify your email, then complete checkout.'
+                  : 'Free on one machine. Upgrade to a paid tier whenever you outgrow it.'}
               </p>
               {plan && step === 'info' && (
                 <span className="mt-2 inline-flex items-center rounded-full bg-amber-500/10 border border-amber-500/20 px-3 py-0.5 text-xs font-medium text-amber-500">
@@ -322,7 +322,7 @@ function SignUpPageInner() {
                     {decodeURIComponent(invitedBy)} invited you to Styrby
                   </p>
                   <p className="mt-0.5 text-xs text-amber-500/70">
-                    Create your free account and get started today.
+                    Create your free account and pair your first agent in under a minute.
                   </p>
                 </div>
               </div>

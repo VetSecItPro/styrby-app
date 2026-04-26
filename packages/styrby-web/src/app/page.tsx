@@ -140,7 +140,7 @@ const faqPageJsonLd = {
       name: 'Which AI agents are supported?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Eleven CLI coding agents: Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. The Free plan includes the first three. Pro unlocks eight agents. Power unlocks all eleven.',
+        text: 'Eleven CLI coding agents: Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. The Free tier includes the first three. Solo, Team, Business, and Enterprise tiers unlock all eleven.',
       },
     },
     {
@@ -156,7 +156,7 @@ const faqPageJsonLd = {
       name: 'Can I use it with my team?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'The Pro plan ($24/mo) and Power plan ($59/mo) both support up to 3 team members with shared dashboards and per-developer cost attribution. Power adds team-level budget alerts and OTEL export.',
+        text: 'Yes. Team plans start at $19 per seat per month with a 3-seat minimum. Business plans add priority support and advanced governance at $39 per seat per month with a 10-seat minimum. Solo accounts run up to 9 connected machines with a 1-year session history if you are a single developer.',
       },
     },
     {

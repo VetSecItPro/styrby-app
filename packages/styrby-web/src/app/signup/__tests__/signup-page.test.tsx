@@ -291,7 +291,7 @@ describe('SignUpPage — OTP step', () => {
     await user.type(screen.getByLabelText('6-digit code'), '000000');
     await user.click(screen.getByRole('button', { name: /create account/i }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/invalid or expired code/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/that code did not match/i);
   });
 
   it('"Use a different email" returns to the info step', async () => {

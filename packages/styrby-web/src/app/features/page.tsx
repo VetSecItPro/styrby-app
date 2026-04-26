@@ -70,218 +70,218 @@ export const metadata: Metadata = {
 const featureCategories = [
   {
     name: 'Security and Encryption',
-    description: 'Your code never touches our servers. Zero-knowledge by design.',
+    description: 'Your code never leaves your machine in plaintext. Even if our database were stolen tonight.',
     features: [
       {
         icon: Lock,
         title: 'End-to-End Encryption',
         description:
-          'Every session message is encrypted with TweetNaCl before it leaves your machine. Styrby relays ciphertext. We cannot read your prompts, responses, or code.',
+          'Your prompts and your code get encrypted on your machine, with TweetNaCl, before anything leaves. Styrby only ever sees ciphertext. So your IP stays your IP, even when our servers are doing the relay.',
         detail: 'Public/private keypair generated locally. Keys never leave the device.',
       },
       {
         icon: Fingerprint,
         title: 'Zero-Knowledge Architecture',
         description:
-          'We process metadata only: timestamps, token counts, cost calculations, and connection status. Your intellectual property stays where it belongs.',
-        detail: 'Even if our database were breached, your code is unreadable ciphertext.',
+          'Our servers process metadata only: timestamps, token counts, cost calculations, connection status. We genuinely cannot read your data, even if a court compelled us to. The architecture forecloses the question.',
+        detail: 'Even if our database were stolen tonight, your code is unreadable ciphertext.',
       },
       {
         icon: KeyRound,
         title: 'API Key Hashing',
         description:
-          'API keys are hashed with bcrypt before storage. We never store plaintext credentials. Rate limiting on all endpoints prevents brute-force attempts.',
+          'Your API keys are hashed with bcrypt at rest. We never store the plaintext credential. Rate limiting on every endpoint kills brute-force attempts before they get traction.',
         detail: 'Per-endpoint rate limits with graduated backoff.',
       },
       {
         icon: FileSearch,
         title: 'Audit Trail',
         description:
-          'Every permission approval, budget change, team action, and security event is logged with timestamp and actor. Exportable for compliance reviews.',
+          'Every permission approval, budget change, team action, and security event lands in a tamper-evident log with timestamp and actor. Export it directly for SOC2, ISO 27001, or internal compliance reviews.',
         detail: 'Tamper-evident logging with row-level security.',
       },
     ],
   },
   {
     name: 'Remote Agent Control',
-    description: 'Approve, deny, and configure your AI agents from your phone or browser.',
+    description: 'Approve commands, set guardrails, and revoke access from anywhere with cell signal.',
     features: [
       {
         icon: Shield,
         title: 'Permission Approval',
         description:
-          'Agents request permission before risky actions. You get a push notification with a risk badge (Low, Medium, High, Critical). Approve or deny in one tap.',
+          'When the agent wants to write a file, run a shell command, or hit an API, it pauses and pings your phone. The push includes the diff, the command, and a risk badge (Low to Critical). One tap to approve or deny.',
         detail: 'Works from your phone, tablet, or any browser.',
       },
       {
         icon: MonitorSmartphone,
         title: 'Control From Anywhere',
         description:
-          'Leave your desk. Go to lunch. Walk the dog. Your AI agents keep working, and you stay in control from your phone. No more babysitting a terminal.',
-        detail: 'Mobile app (iOS launching soon) plus responsive web dashboard.',
+          'Leave your desk for a meeting. Go to lunch. Walk the dog. Catch a flight. Your agents keep working, and the dashboard, the approvals, and the cost panel all follow you in your pocket.',
+        detail: 'iOS app launching soon. Responsive web dashboard works on any browser today.',
       },
       {
         icon: Zap,
         title: 'Auto-Approve Rules',
         description:
-          'Configure rules for low-risk actions so agents proceed without waiting. Keep the approval gate on file deletions, shell commands, and network access.',
+          'Whitelist the low-risk actions you trust the agent to handle (read-only file ops, package installs, test runs). Keep the approval gate on the dangerous ones (file deletions, shell commands, network calls). Per-agent, per-tool.',
         detail: 'Per-agent, per-tool granularity.',
       },
       {
         icon: AlertTriangle,
         title: 'Blocked Tool Lists',
         description:
-          'Explicitly block dangerous tools per agent. Prevent rm -rf, database drops, or any command you define. The agent gets a clear denial instead of access.',
+          'Explicitly forbid the agent from touching certain tools or commands. rm -rf, database drops, production deploys, anything. The agent gets a clear denial and moves on instead of finding a creative workaround.',
         detail: 'Configurable per agent type.',
       },
       {
         icon: WifiOff,
         title: 'Offline Command Queue',
         description:
-          'Lose connection? Commands queue locally and sync automatically when you reconnect. Your laptop can sleep. Styrby remembers.',
+          'Drop into a tunnel, board a plane, lose Wi-Fi at the cafe. Approvals and commands queue locally and sync the moment you reconnect. Nothing is lost. The agent does not silently miss your tap.',
         detail: 'Local queue with automatic sync on reconnection.',
       },
     ],
   },
   {
     name: 'Cost Management',
-    description: 'Know where every dollar goes. Set limits before you overspend.',
+    description: 'See the rogue session before the invoice. Cap the spend before it lands.',
     features: [
       {
         icon: BarChart3,
         title: 'Cost Tracking Across Every Agent',
         description:
-          'See spending per agent, per session, per model, and per tag. Daily trend charts, per-model breakdowns, and cost attribution across all eleven agents. Tag sessions by client or project to get a cost-by-tag breakdown for invoicing.',
+          'Spending broken down per agent, per session, per model, per tag. Tag a session by client or project and the dashboard rolls up totals automatically, ready to drop straight into an invoice. Daily trend charts surface the days you would otherwise have missed.',
         detail: 'Materialized views for sub-second dashboard loads. Cost by Tag section shows total spend and session count per tag.',
       },
       {
         icon: LineChart,
         title: 'Per-Message Cost Tracking',
         description:
-          'See the cost of every individual message in a session, not just session totals. Know exactly which prompts drove your spend and optimize accordingly.',
+          'Drill into a single session and see what each individual prompt cost. The expensive ones are now visible. Rewrite the prompt template, switch the model, or tighten the system message before the next thousand requests.',
         detail: 'Available on Power tier only.',
       },
       {
         icon: FileSearch,
         title: 'Per-File Context Breakdown',
         description:
-          'See which files were included in the agent context window and their relative size contribution. Understand why a session cost more than expected.',
+          'See which files the agent loaded into context and how much each one contributed to the token bill. The 200-line file you forgot to .gitignore stops costing you $0.50 every prompt.',
         detail: 'Available on Power tier only.',
       },
       {
         icon: ActivitySquare,
         title: 'Activity Graph',
         description:
-          'GitHub-style contribution graph showing your daily agent activity over time. See usage patterns, identify heavy-use days, and track productivity trends.',
+          'A GitHub-style heatmap of your agent activity. The pattern surfaces things you would not catch in a session list: the Friday afternoon spikes, the agent you only run on Tuesdays, the dead weeks where you forgot the tool exists.',
         detail: 'Available on Power tier only.',
       },
       {
         icon: Eye,
         title: 'Model-Level Breakdown',
         description:
-          'Compare costs across Claude Opus, Sonnet, Haiku, GPT-4o, Gemini Pro, and every model your agents use. Input tokens, output tokens, cache hits.',
+          'Compare what you are spending on Claude Opus vs Sonnet vs Haiku, GPT-4o vs o3-mini, Gemini Pro vs Flash. Input, output, and cache token totals side by side. Decide which model to default to per agent based on your actual usage.',
         detail: 'Pricing reference table with last-verified dates.',
       },
       {
         icon: ShieldAlert,
         title: 'Budget Alerts',
         description:
-          'Set daily, weekly, or monthly spend limits. Choose what happens when a threshold is hit: get notified, slow the agent down, or stop it entirely.',
-        detail: 'Free gets 1 alert. Pro gets 3 alerts. Power gets 5.',
+          'Set a daily, weekly, or monthly cap. Choose the response: just notify you, throttle the agent, or kill the session outright. The choice is yours, but the runaway loop you forgot about no longer becomes a $400 invoice.',
+        detail: 'Free: 1 alert. Solo: 5 alerts. Team and above: unlimited.',
       },
     ],
   },
   {
     name: 'Multi-Agent Dashboard',
-    description: 'Claude Code, Codex, Gemini CLI, OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid in one view.',
+    description: 'All 11 agents in one live view. No more grepping the API dashboard for which session broke.',
     features: [
       {
         icon: LayoutDashboard,
         title: 'Unified Agent View',
         description:
-          'All eleven supported agents in a single dashboard. Color-coded status cards show active, idle, stuck, or failing states at a glance.',
+          'All eleven agents on one screen. Color-coded status cards (active, idle, stuck, failing) tell you at a glance which ones need attention and which ones are doing their job. No more terminal tab roulette.',
         detail: 'Real-time updates via Supabase Realtime subscriptions.',
       },
       {
         icon: AlertTriangle,
         title: 'Error Attribution',
         description:
-          'When something breaks, know exactly what caused it. Color-coded sources: Orange (Styrby), Red (agent), Blue (build tools), Yellow (network).',
+          'When something breaks, the dashboard tells you whose fault it is. Color-coded by source: Styrby (orange), the agent itself (red), your build tools (blue), or the network (yellow). No more debugging the wrong layer.',
         detail: 'Drill into error details from the dashboard.',
       },
       {
         icon: Wifi,
         title: 'Live Connection Status',
         description:
-          'Real-time heartbeat monitoring for every connected machine. Know instantly when a device goes offline or an agent stops responding.',
+          'Heartbeat monitoring for every connected machine, updated in real time. The moment a device drops offline or an agent stops responding, you see it. Reconnects happen automatically when the network comes back.',
         detail: 'WebSocket-based with automatic reconnection.',
       },
     ],
   },
   {
     name: 'Session History',
-    description: 'Full record of every agent conversation and action.',
+    description: 'Every prompt, every response, every tool call. Encrypted on your device. Searchable and resumable.',
     features: [
       {
         icon: History,
         title: 'Searchable History',
         description:
-          'Filter sessions by agent type, tags, date range, or cost. Full-text search across session metadata. Bookmark important sessions for quick access.',
-        detail: 'Free: 7 days. Pro: 90 days. Power: 1 year.',
+          'Filter your full session archive by agent, tag, date range, cost band, or full-text query against the metadata. Bookmark the sessions you want to come back to. Find the prompt that worked three weeks ago in seconds.',
+        detail: 'Free: 7 days. Solo: 1 year. Team and above: unlimited.',
       },
       {
         icon: Smartphone,
         title: 'Session Replay',
         description:
-          'Step through the full conversation between you and the agent. Every prompt, response, tool call, and permission request in chronological order.',
+          'Step through the conversation in chronological order. Every prompt, every response, every tool call, every permission request. Decryption happens on your device. Use it for debugging, code review, or training a teammate on a workflow.',
         detail: 'End-to-end encrypted. Decrypted only on your device.',
       },
       {
         icon: BookmarkCheck,
         title: 'Session Checkpoints',
         description:
-          'Mark named save points within a long session. Return to a checkpoint later, compare progress between checkpoints, or share a specific moment in a conversation.',
+          'Drop a named bookmark inside a long session. Come back to that exact moment later, compare two checkpoints to see what changed, or share the specific point in the conversation where things went sideways.',
         detail: 'Available on Power tier only.',
       },
       {
         icon: Share2,
         title: 'Session Sharing',
         description:
-          'Generate a share link for any session replay. Session data stays end-to-end encrypted and recipients need a separate decryption key you provide. Styrby never has access to the plaintext content.',
+          'Generate a share link for any replay. The data stays end-to-end encrypted and the recipient needs a separate key that you give them out of band. Styrby itself never sees plaintext, even on shared sessions.',
         detail: 'Available on Power tier only.',
       },
       {
         icon: BarChart3,
         title: 'Per-Session Cost Breakdown',
         description:
-          'See exactly how much each session cost. Input tokens, output tokens, cache utilization, and total cost broken down by model used.',
+          'Drill into any session and see the cost broken down by input tokens, output tokens, cache hits, and model. Export to CSV when finance asks for the receipts.',
         detail: 'CSV export available on Power tier.',
       },
     ],
   },
   {
     name: 'Notifications',
-    description: 'Stay informed without being overwhelmed.',
+    description: 'Get the page when it matters. Stay quiet when it does not.',
     features: [
       {
         icon: Bell,
         title: 'Push Notifications',
         description:
-          'Permission requests, budget alerts, error notifications, and session events delivered to your phone. React in seconds from anywhere.',
+          'Permission requests, budget alerts, errors, and session events land on your phone the moment they happen. Tap and respond in seconds. Beats refreshing a terminal every five minutes from the couch.',
         detail: 'APNs (iOS) and FCM (Android) supported.',
       },
       {
         icon: SlidersHorizontal,
         title: 'Quiet Hours',
         description:
-          'Set time windows when notifications are silenced. Critical alerts like budget exceeded can optionally bypass quiet hours.',
+          'Define when you do not want to be paged. Critical alerts (budget breached, agent stuck) can punch through the quiet window if you want them to. Configurable per notification type.',
         detail: 'Per-notification-type granularity.',
       },
       {
         icon: Globe,
         title: 'Weekly Summary Emails',
         description:
-          'Digest of your agent usage: total spend, active sessions, most-used agents, and budget status. Delivered every Monday.',
+          'A Monday-morning digest of last week: total spend, active sessions, most-used agents, budget status. Read it in 60 seconds and know whether to be worried.',
         detail: 'Powered by Resend. Unsubscribe anytime.',
       },
     ],
@@ -289,41 +289,41 @@ const featureCategories = [
   {
     name: 'Power Features',
     badge: 'Power',
-    description: 'Advanced capabilities for serious agent workflows.',
+    description: 'What you wire in once your team depends on agents in production.',
     features: [
       {
         icon: Mic,
         title: 'Voice Commands',
         description:
-          'Dictate approvals, queries, or commands hands-free from your phone or browser. Approve a permission request while your hands are full.',
+          'Talk to the agent when your hands are on the wheel, holding the kid, or carrying groceries up three flights. Approve, deny, dictate a prompt, kill a session. Voice transcript is logged alongside the rest of the session.',
         detail: 'Available on Power tier only.',
       },
       {
         icon: Cloud,
         title: 'Cloud Monitoring',
         description:
-          'Submit a cloud monitoring job, track its progress in real time, and receive a push notification when it finishes or encounters an error.',
+          'Kick off a long-running cloud job from the dashboard, watch its progress live, and get pushed when it finishes or fails. Stop opening five tabs to check whether the build is done.',
         detail: 'Available on Power tier only.',
       },
       {
         icon: Code2,
         title: 'Code Review From Mobile',
         description:
-          'Submit a code review request from your phone. Monitor progress, see inline comments, and get notified when the review completes.',
+          'Submit a review request, monitor it on your phone, leave inline comments, and get pushed the moment it finishes. The same review you would do at a desk, just without the desk.',
         detail: 'Available on Power tier only.',
       },
       {
         icon: Database,
         title: 'OTEL Export',
         description:
-          'Send agent session metrics, cost data, and trace events to any OpenTelemetry-compatible observability platform: Grafana, Datadog, Honeycomb, and others.',
+          'Stream session metrics, cost data, and trace events to whatever observability stack your platform team already runs: Grafana, Datadog, Honeycomb, New Relic. The agent activity becomes another service you can graph and alert on.',
         detail: 'Available on Power tier only.',
       },
       {
         icon: Zap,
         title: 'Rust Parser',
         description:
-          'High-performance Rust-based parser for session data processing. Handles large session files faster than the default parser with lower memory overhead.',
+          'A Rust-backed parser for session data, faster than the default JS parser and with a much lower memory footprint. The win shows up on long sessions and high-token replays. Available everywhere.',
         detail: 'Available on all tiers.',
       },
     ],
@@ -331,27 +331,27 @@ const featureCategories = [
   {
     name: 'Team Collaboration',
     badge: 'Power',
-    description: 'Share visibility across your engineering team.',
+    description: 'Engineering managers see the cost. Developers keep the autonomy.',
     features: [
       {
         icon: Users,
         title: 'Team Members',
         description:
-          'Invite up to 3 team members via email. Each gets their own login with role-based access: Owner, Admin, or Member. No shared credentials.',
-        detail: 'Available on Power tier only. Invite flow with email verification.',
+          'Invite teammates by email. Each one gets their own login and role-based access: Owner, Admin, or Member. No shared credentials, no Slack-passed passwords, no audit gaps.',
+        detail: 'Team plan: 3-seat minimum. Invite flow with email verification.',
       },
       {
         icon: LayoutDashboard,
         title: 'Shared Dashboards',
         description:
-          'Team members see the same cost analytics, session history, and agent status. Engineering managers get visibility. Developers keep autonomy.',
+          'Everyone on the team sees the same cost analytics, session history, and live agent status, scoped to their role. Managers get the visibility they need. Developers keep the autonomy they want.',
         detail: 'Row-level security ensures data isolation between teams.',
       },
       {
         icon: Zap,
         title: 'REST API',
         description:
-          'Programmatic access to your session and cost data. Build custom integrations, internal dashboards, or CI/CD automations.',
+          'Programmatic access to your session and cost data. Pipe it into a custom internal dashboard, a Slack daily summary, a CI gate that fails when an agent runs over budget. Whatever you can write a script for.',
         detail: 'Authenticated with hashed API keys. Rate-limited.',
       },
     ],
@@ -367,21 +367,20 @@ export default function FeaturesPage() {
       <section className="pt-32 pb-8">
         <div className="mx-auto max-w-7xl px-6 text-center">
           <h1 className="text-balance text-4xl font-semibold tracking-tighter text-foreground md:text-5xl">
-            Built for developers who ship with AI
+            Every feature, mapped to a workflow you actually have.
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-muted-foreground leading-relaxed">
-            End-to-end encrypted remote control for your AI coding agents.
-            Cost tracking, permission approval, session history, and team collaboration.
+            End-to-end encrypted remote control across 11 CLI agents. Cost attribution that names the rogue session. Session memory that survives a closed laptop. Team governance for orgs that need it.
           </p>
           <div className="mt-8 flex items-center justify-center gap-3">
             <Button asChild size="sm" className="bg-amber-500 text-background hover:bg-amber-600 font-medium px-6">
               <Link href="/signup">
-                Get Started Free
+                Pair my first agent
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>
             <Button asChild variant="outline" size="sm" className="border-border/60 text-muted-foreground hover:text-foreground bg-transparent px-6">
-              <Link href="/pricing">View Pricing</Link>
+              <Link href="/pricing">See pricing</Link>
             </Button>
           </div>
         </div>
@@ -495,20 +494,20 @@ export default function FeaturesPage() {
             <div className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent" />
             <div className="relative">
               <h2 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
-                Ready to take control?
+                Pair your first agent in under a minute.
               </h2>
               <p className="mx-auto mt-3 max-w-md text-sm text-muted-foreground">
-                Free tier available. No credit card required. Connect your first agent in under two minutes.
+                Free on one machine. No credit card. No expiring trial.
               </p>
               <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
                 <Button asChild size="sm" className="bg-amber-500 text-background hover:bg-amber-600 font-medium px-6">
                   <Link href="/signup">
-                    Get Started Free
+                    Pair my first agent
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>
                 <Button asChild variant="outline" size="sm" className="border-border/60 text-muted-foreground hover:text-foreground bg-transparent px-6">
-                  <Link href="/pricing">Compare Plans</Link>
+                  <Link href="/pricing">Compare plans</Link>
                 </Button>
               </div>
             </div>

@@ -115,7 +115,7 @@ describe('SoloTierCard', () => {
 
     it('CTA links to /signup?plan=power (monthly)', () => {
       render(<SoloTierCard annual={false} />);
-      const link = screen.getByRole('link', { name: /start free trial/i });
+      const link = screen.getByRole('link', { name: /start my solo trial/i });
       expect(link.getAttribute('href')).toBe('/signup?plan=power');
     });
 
@@ -129,7 +129,7 @@ describe('SoloTierCard', () => {
   describe('annual billing', () => {
     it('CTA links to /signup?plan=power&billing=annual', () => {
       render(<SoloTierCard annual={true} />);
-      const link = screen.getByRole('link', { name: /start free trial/i });
+      const link = screen.getByRole('link', { name: /start my solo trial/i });
       expect(link.getAttribute('href')).toBe('/signup?plan=power&billing=annual');
     });
 
@@ -166,13 +166,13 @@ describe('TeamTierCard', () => {
 
   it('CTA links to /signup?plan=team with seat count (monthly)', () => {
     render(<TeamTierCard {...defaultProps} seatCount={7} />);
-    const link = screen.getByRole('link', { name: /start team trial/i });
+    const link = screen.getByRole('link', { name: /start my team trial/i });
     expect(link.getAttribute('href')).toBe('/signup?plan=team&seats=7');
   });
 
   it('CTA includes billing=annual when annual is true', () => {
     render(<TeamTierCard {...defaultProps} annual={true} seatCount={10} />);
-    const link = screen.getByRole('link', { name: /start team trial/i });
+    const link = screen.getByRole('link', { name: /start my team trial/i });
     expect(link.getAttribute('href')).toBe('/signup?plan=team&seats=10&billing=annual');
   });
 
@@ -212,13 +212,13 @@ describe('BusinessTierCard', () => {
 
   it('CTA links to /signup?plan=business with seat count (monthly)', () => {
     render(<BusinessTierCard {...defaultProps} seatCount={15} />);
-    const link = screen.getByRole('link', { name: /start business trial/i });
+    const link = screen.getByRole('link', { name: /start my business trial/i });
     expect(link.getAttribute('href')).toBe('/signup?plan=business&seats=15');
   });
 
   it('CTA includes billing=annual when annual is true', () => {
     render(<BusinessTierCard {...defaultProps} annual={true} seatCount={20} />);
-    const link = screen.getByRole('link', { name: /start business trial/i });
+    const link = screen.getByRole('link', { name: /start my business trial/i });
     expect(link.getAttribute('href')).toBe('/signup?plan=business&seats=20&billing=annual');
   });
 
@@ -254,14 +254,14 @@ describe('EnterpriseTierCard', () => {
     expect(screen.getByText(/\$15K\/year/i)).toBeTruthy();
   });
 
-  it('CTA is "Talk to Us"', () => {
+  it('CTA is "Talk to the founders"', () => {
     render(<EnterpriseTierCard />);
-    expect(screen.getByText('Talk to Us')).toBeTruthy();
+    expect(screen.getByText('Talk to the founders')).toBeTruthy();
   });
 
   it('CTA link opens in new tab (target=_blank)', () => {
     render(<EnterpriseTierCard />);
-    const link = screen.getByRole('link', { name: /talk to us/i });
+    const link = screen.getByRole('link', { name: /talk to the founders/i });
     expect(link.getAttribute('target')).toBe('_blank');
     expect(link.getAttribute('rel')).toBe('noopener noreferrer');
   });

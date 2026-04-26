@@ -147,7 +147,7 @@ export default function PricingPage() {
             <EnterpriseTierCard />
           </div>
           <p className="mt-8 text-center text-xs text-muted-foreground/60">
-            14-day free trial on Solo, Team, and Business. No credit card required. Cancel anytime.
+            14-day free trial on Solo, Team, and Business. No credit card. Upgrade or downgrade in one click.
           </p>
         </div>
       </section>
@@ -263,13 +263,13 @@ export default function PricingPage() {
               onClick={() => trackPricingEvent('cta_click', { location: 'bottom', variant: 'v2' })}
             >
               <Link href="/signup">
-                Get Started Free
+                Pair my first agent
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>
           </div>
           <p className="mt-4 text-sm text-muted-foreground/60">
-            Free plan available. No credit card required.
+            Free on one machine. No credit card. Cancel anytime.
           </p>
         </div>
       </section>

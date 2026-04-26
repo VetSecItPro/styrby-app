@@ -168,23 +168,23 @@ const steps: Step[] = [
     number: "01",
     title: "Install the CLI",
     description:
-      "One command alongside your existing agent setup. Zero config changes required. Styrby wraps your agents without touching them.",
+      "One npm command alongside your existing setup. No agent reconfiguration. Styrby wraps your CLI tools without touching their config files.",
     illustrationSide: "right",
     illustration: <TerminalMockup />,
   },
   {
     number: "02",
-    title: "Sign In and Pair Your Phone",
+    title: "Sign in and pair your phone",
     description:
-      "Sign in with GitHub or email, then scan the QR code to link your phone. The CLI walks you through the E2E key exchange in under 60 seconds.",
+      "GitHub, Google, or email. Then scan a QR code. The CLI walks you through the end-to-end key exchange in under sixty seconds.",
     illustrationSide: "left",
     illustration: <PairingMockup />,
   },
   {
     number: "03",
-    title: "Control Everything From Anywhere",
+    title: "Run from your phone",
     description:
-      "Live agent status, real-time cost tracking, permission approvals, and code review diffs. All encrypted and available from your phone or web dashboard.",
+      "Live session status, real-time costs, permission approvals, and code review diffs. All encrypted on your device. All available wherever you have a phone.",
     illustrationSide: "right",
     illustration: <DashboardMockup />,
   },
@@ -198,7 +198,7 @@ export function HowItWorks() {
           Three Steps. Ninety Seconds. Done.
         </h2>
         <p className="mx-auto mt-4 max-w-lg text-center text-sm text-muted-foreground">
-          Install once. Pair your phone. Your agents are under control from that moment forward.
+          Install one CLI alongside the agents you already use. Pair your phone. Start controlling everything from anywhere.
         </p>
 
         {/* Vertical timeline */}

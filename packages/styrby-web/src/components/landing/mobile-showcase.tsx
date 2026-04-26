@@ -219,17 +219,17 @@ const showcaseItems = [
   {
     mockup: <PermissionApprovalMockup />,
     label: "Permission Approval",
-    caption: "Approve or deny risky actions with full diff context. No laptop needed.",
+    caption: "Full diff plus risk badge before you tap. Not a blind yes or no.",
   },
   {
     mockup: <VoiceCommandMockup />,
     label: "Voice Commands",
-    caption: "Stop sessions, trigger builds, or send prompts hands-free.",
+    caption: "Stop a session, kick a build, dictate a prompt. Hands stay on the wheel.",
   },
   {
     mockup: <CodeReviewMockup />,
     label: "Code Review",
-    caption: "Syntax-highlighted diffs and one-tap approval from your phone.",
+    caption: "Inline diff, syntax highlighting, one-tap approve. Same review you would do at your desk.",
   },
 ]
 
@@ -240,11 +240,10 @@ export function MobileShowcase() {
         {/* Section header */}
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="text-balance text-3xl font-semibold tracking-tighter text-foreground md:text-4xl">
-            Control Your Agents From Anywhere
+            Approve, dictate, review. From your phone, with full diff context.
           </h2>
           <p className="mx-auto mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground">
-            The full power of your development workflow, distilled to three taps. Approve
-            permissions, review diffs, and issue voice commands without touching your laptop.
+            Three workflows that disappear when you can do them on a 6-inch screen instead of a 16-inch one.
           </p>
         </div>
 
@@ -272,10 +271,10 @@ export function MobileShowcase() {
         {/* Bottom CTA callout */}
         <div className="mx-auto mt-16 max-w-xl rounded-xl border border-white/[0.06] bg-zinc-950/80 p-6 text-center shadow-[inset_0_1px_1px_rgba(255,255,255,0.06)]">
           <p className="text-sm font-semibold text-foreground">
-            Your agents work around the clock. Now you can too, without being desk-bound.
+            Your agents work around the clock. You do not have to.
           </p>
           <p className="mt-2 text-xs text-muted-foreground">
-            E2E encrypted. Zero-knowledge architecture. Your code never leaves your machine unencrypted.
+            Sessions stay end-to-end encrypted on your device, even when you are reviewing them from a phone.
           </p>
         </div>
       </div>

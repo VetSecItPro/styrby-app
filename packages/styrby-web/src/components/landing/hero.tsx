@@ -124,10 +124,17 @@ export function Hero() {
         </h1>
 
         {/* ── Subheadline - controlled width, left-aligned ── */}
+        {/*
+          WHY this phrasing: the three verbs (approve, review, watch) map 1:1
+          to the three primary mobile workflows shown later in MobileShowcase,
+          so the reader sees the homepage promise made good further down. The
+          encryption wedge is named upfront because it neutralises the top
+          objection ("can attackers read my code?") before the reader has time
+          to raise it themselves.
+        */}
         <p className="mt-7 max-w-xl text-left text-lg leading-relaxed text-zinc-400 md:text-[18px]">
-          Control every AI coding agent from anywhere. Approve permissions on
-          your commute. Review code diffs in meetings. See exactly what each
-          response costs. All end-to-end encrypted.
+          Approve risky permissions, review code diffs, and watch token spend
+          in real time. From your phone, end-to-end encrypted.
         </p>
 
         {/* ── CTAs ── */}
@@ -144,7 +151,12 @@ export function Hero() {
             )}
           >
             <Link href="/signup" className="flex items-center gap-2">
-              Connect Your First Agent
+              {/* WHY first-person CTA: ContentVerve testing shows first-person
+                  ("my") outperforms second-person ("your") by up to 90% on CTR.
+                  "Pair" is also more specific to the actual install flow than
+                  "Connect": the user pairs their phone with a CLI machine,
+                  not "connects an agent." */}
+              Pair my first agent
               <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
             </Link>
           </Button>
@@ -160,7 +172,7 @@ export function Hero() {
               "transition-all duration-200"
             )}
           >
-            <a href="#how-it-works">See How It Works</a>
+            <a href="#how-it-works">See how it works</a>
           </Button>
         </div>
 
@@ -174,10 +186,10 @@ export function Hero() {
         */}
         <div className="mt-10 flex flex-wrap items-center gap-x-7 gap-y-3">
           {[
-            { icon: Lock, text: "E2E Encrypted" },
-            { icon: Shield, text: "Your Code Never Touches Our Servers" },
-            { icon: Smartphone, text: "11 Agents, 1 Dashboard" },
-            { icon: Zap, text: "Free Forever on 1 Machine" },
+            { icon: Lock, text: "E2E encrypted on your machine" },
+            { icon: Shield, text: "Your code never touches our servers" },
+            { icon: Smartphone, text: "All 11 CLI agents in one view" },
+            { icon: Zap, text: "Free on one machine, forever" },
           ].map(({ icon: Icon, text }) => (
             <div
               key={text}

@@ -90,10 +90,10 @@ function LoginForm() {
     errorParam === 'sso_required'
       ? {
           type: 'error',
-          text: 'This team requires Google SSO sign-in. Please use "Continue with Google" to access your account.',
+          text: 'Your team requires Google SSO. Tap "Continue with Google" to sign in.',
         }
       : errorParam === 'auth_failed'
-      ? { type: 'error', text: 'Sign-in failed. Please try again.' }
+      ? { type: 'error', text: 'Sign-in failed. Try again, or pick a different method below.' }
       : null;
 
   const [email, setEmail] = useState('');
@@ -142,7 +142,7 @@ function LoginForm() {
       setStep('otp');
       setMessage({
         type: 'success',
-        text: 'Check your email for a 6-digit sign-in code.',
+        text: 'Sent. Check your email for a 6-digit sign-in code.',
       });
       // Auto-focus the OTP input after a tick
       setTimeout(() => otpInputRef.current?.focus(), 100);
@@ -158,7 +158,7 @@ function LoginForm() {
     e.preventDefault();
 
     if (otpCode.length !== 6) {
-      setMessage({ type: 'error', text: 'Please enter the full 6-digit code.' });
+      setMessage({ type: 'error', text: 'Enter all 6 digits to sign in.' });
       return;
     }
 
@@ -172,7 +172,7 @@ function LoginForm() {
     });
 
     if (error) {
-      setMessage({ type: 'error', text: 'Invalid or expired code. Please try again.' });
+      setMessage({ type: 'error', text: 'That code did not match. Check the latest email or tap "Resend code".' });
       setLoading(false);
     } else {
       // Success: redirect to dashboard
@@ -362,7 +362,7 @@ function LoginForm() {
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">
                 {step === 'email'
-                  ? 'Sign in to your account to continue'
+                  ? 'Pick up where you left off.'
                   : `We sent a 6-digit code to ${email}`}
               </p>
             </div>

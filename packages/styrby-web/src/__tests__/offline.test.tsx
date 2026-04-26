@@ -81,7 +81,7 @@ describe('Offline fallback page', () => {
     render(<OfflinePage />);
 
     expect(
-      screen.getByRole('heading', { name: /you.re offline/i })
+      screen.getByRole('heading', { name: /you are offline/i })
     ).toBeInTheDocument();
   });
 
@@ -99,7 +99,7 @@ describe('Offline fallback page', () => {
 
     render(<OfflinePage />);
 
-    const link = screen.getByRole('link', { name: /back to dashboard/i });
+    const link = screen.getByRole('link', { name: /back to my dashboard/i });
     expect(link).toHaveAttribute('href', '/dashboard');
   });
 
@@ -117,7 +117,7 @@ describe('Offline fallback page', () => {
     render(<OfflinePage />);
 
     expect(
-      screen.getByText(/queued commands will sync automatically/i)
+      screen.getByText(/queued actions sync automatically/i)
     ).toBeInTheDocument();
   });
 });

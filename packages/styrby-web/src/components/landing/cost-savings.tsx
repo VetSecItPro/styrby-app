@@ -21,21 +21,21 @@ import { Eye, ShieldAlert, BarChart3 } from "lucide-react"
 const valueProps = [
   {
     icon: Eye,
-    title: "Per-agent, per-session, per-message costs",
+    title: "Per-agent, per-session, per-message",
     description:
-      "Spend tracking across all eleven agents, updated on every page load. Tag sessions by client or project. See exactly which session is eating your budget today, not at the end of the month.",
+      "Tag sessions by client or project. See exactly which session ate $40 today, not which day of the month it happened. Sort, filter, and group across all 11 agents in one view.",
   },
   {
     icon: ShieldAlert,
-    title: "Budget limits that enforce themselves",
+    title: "Budget caps that pull the plug",
     description:
-      "Set daily or monthly caps per agent. Styrby warns you at your threshold, throttles the agent if you want, or kills the session automatically. No more 2am surprises on your invoice.",
+      "Set daily or monthly limits per agent. Styrby warns at your threshold, throttles the model, or terminates the session automatically. The 2am invoice problem stops being your problem.",
   },
   {
     icon: BarChart3,
-    title: "Dynamic pricing for 300+ models",
+    title: "300+ models, current pricing",
     description:
-      "Token-level breakdowns with input, output, and cache costs. Model pricing updates automatically. Find the $40 session hiding in a $200 month, then set a budget alert so it never happens again.",
+      "Token-level breakdowns with input, output, and cache costs. Pricing tables update as providers change them. Find the rogue $40 session inside a $200 month, then set a guardrail so it never happens twice.",
   },
 ]
 
@@ -46,11 +46,10 @@ export function CostSavings() {
       <div className="relative mx-auto max-w-7xl px-6">
         {/* Reframed heading - cost as a supporting benefit, not the lead */}
         <h2 className="mx-auto max-w-2xl text-balance text-center text-3xl font-semibold tracking-tighter text-foreground md:text-4xl">
-          Oh, and It Tracks Every Dollar Too
+          Cost visibility before the invoice arrives.
         </h2>
         <p className="mx-auto mt-4 max-w-xl text-center leading-relaxed text-muted-foreground">
-          Real-time cost visibility across all agents, with budget controls that actually work.
-          Because knowing is only useful if you can act on it.
+          Per-agent, per-session, per-message spend across all 11 agents. Updated on every page load, not at the end of the month.
         </p>
 
         {/* Alternating zig-zag rows - varied widths, offset positions */}

@@ -18,7 +18,7 @@ const faqs = [
   },
   {
     q: "What agents does Styrby support?",
-    a: "Eleven CLI coding agents: Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. The Free plan includes the first three. Pro unlocks eight agents. Power unlocks all eleven.",
+    a: "Eleven CLI coding agents: Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. The Free tier includes the first three. Solo, Team, Business, and Enterprise tiers unlock all eleven.",
   },
   {
     q: "Can I use my own API keys?",
@@ -54,7 +54,7 @@ const faqs = [
   },
   {
     q: "Can I use it with my team?",
-    a: "The Pro plan ($24/mo) supports up to 3 team members with shared dashboards and per-developer cost attribution. The Power plan ($59/mo) adds team-level budget alerts and OTEL export for full observability across your team.",
+    a: "Yes. Team plans start at $19 per seat per month with a 3-seat minimum. Business plans add priority support and advanced governance at $39 per seat per month with a 10-seat minimum. Solo accounts run up to 9 connected machines with a 1-year session history if you are a single developer.",
   },
   {
     q: "How is this different from checking my API dashboard?",
