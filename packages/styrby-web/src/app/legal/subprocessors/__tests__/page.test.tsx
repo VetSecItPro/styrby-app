@@ -131,7 +131,7 @@ describe('/legal/subprocessors page', () => {
   it('renders footer contact note', () => {
     render(<SubprocessorsPage />);
 
-    expect(screen.getByText(/legal@styrbyapp\.com/)).toBeInTheDocument();
+    expect(screen.getByText(/support@styrby\.dev/)).toBeInTheDocument();
     expect(screen.getByText(/This list is kept current/)).toBeInTheDocument();
   });
 

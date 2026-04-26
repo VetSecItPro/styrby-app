@@ -35,6 +35,7 @@ export type SubprocessorCategory =
   | 'error-tracking'
   | 'email'
   | 'cache'
+  | 'push'
   | 'analytics';
 
 /**
@@ -85,7 +86,7 @@ export type Subprocessor = {
  * WHY hardcoded vs. git log: git log is unavailable in edge runtimes and
  * CDN-cached pages. A hardcoded date is reliable and forces intentional bumps.
  */
-export const SUBPROCESSORS_LAST_UPDATED = '2026-04-24';
+export const SUBPROCESSORS_LAST_UPDATED = '2026-04-25';
 
 /**
  * Canonical list of all Styrby sub-processors.
@@ -118,7 +119,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     dpf_certified: true,
     categories: ['database', 'auth'],
     data_shared:
-      'User accounts, session metadata, encrypted message ciphertext (zero-knowledge — Styrby cannot decrypt), subscription state, audit logs, push notification tokens.',
+      'User accounts, session metadata, encrypted message ciphertext (zero-knowledge; Styrby cannot decrypt), subscription state, audit logs, push notification tokens.',
   },
 
   // ── Payments ────────────────────────────────────────────────────────────────
@@ -130,7 +131,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     dpf_certified: false,
     categories: ['payment'],
     data_shared:
-      'Email address, billing address, subscription state. Payment method metadata is stored by Polar — Styrby never receives raw card numbers. Polar is incorporated in the EU; payment data does not leave the EU.',
+      'Email address, billing address, subscription state. Payment method metadata is stored by Polar (Styrby never receives raw card numbers). Polar is incorporated in the EU; payment data does not leave the EU.',
   },
 
   // ── Error Tracking ──────────────────────────────────────────────────────────
@@ -167,5 +168,17 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     categories: ['cache'],
     data_shared:
       'Ephemeral rate-limit keys containing hashed user IDs and IP addresses. Maximum TTL is 60 minutes. No persistent personal data is stored in Upstash.',
+  },
+
+  // ── Push Notifications ──────────────────────────────────────────────────────
+  {
+    name: 'Expo',
+    purpose: 'Push notification delivery for the Styrby iOS and Android mobile apps',
+    location: 'United States (EU-US DPF certified)',
+    website: 'https://expo.dev/privacy',
+    dpf_certified: true,
+    categories: ['push'],
+    data_shared:
+      'Device push tokens (APNs / FCM identifiers) and the notification payload (title and short body text). No session message content, plaintext code, or AI prompts are included in push payloads.',
   },
 ] as const;

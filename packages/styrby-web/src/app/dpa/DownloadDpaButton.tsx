@@ -34,15 +34,19 @@ import { Printer } from 'lucide-react';
  */
 export function DownloadDpaButton() {
   return (
-    <button
-      type="button"
-      aria-label="Download this DPA as PDF"
-      data-print-hide
-      onClick={() => window.print()}
-      className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-orange-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-600 transition-colors"
-    >
-      <Printer className="h-4 w-4" aria-hidden="true" />
-      Download PDF
-    </button>
+    <div data-print-hide className="flex flex-col items-end">
+      <button
+        type="button"
+        aria-label="Open print dialog to save this DPA as a PDF"
+        onClick={() => window.print()}
+        className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-orange-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-600 transition-colors"
+      >
+        <Printer className="h-4 w-4" aria-hidden="true" />
+        Print or Save as PDF
+      </button>
+      <p className="text-xs text-muted-foreground mt-2">
+        Opens your browser&apos;s print dialog. Choose &quot;Save as PDF&quot; as the destination.
+      </p>
+    </div>
   );
 }

@@ -19,7 +19,7 @@ export default function PricingError({
   reset: () => void;
 }) {
   return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4">
+    <div className="min-h-[100dvh] bg-zinc-950 flex items-center justify-center px-4">
       <div className="max-w-md w-full text-center">
         <div className="mx-auto h-16 w-16 rounded-full bg-red-500/10 flex items-center justify-center mb-6">
           <svg

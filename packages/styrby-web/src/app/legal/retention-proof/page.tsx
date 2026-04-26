@@ -32,14 +32,15 @@
 
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { CheckCircle2, Clock } from 'lucide-react';
 import type { RetentionProofResponse } from '@/app/api/legal/retention-proof/route';
 
 export const metadata: Metadata = {
-  title: 'Data Retention — Target Policy and Live Proof — Styrby',
+  title: 'Data Retention: Target Policy and Live Proof | Styrby',
   description:
     "Styrby's data retention policy: target windows for all data types, plus live proof for rules backed by automated enforcement. GDPR Article 5(1)(e) storage limitation compliance.",
   openGraph: {
-    title: 'Styrby Data Retention - Target Policy and Live Proof',
+    title: 'Styrby Data Retention: Target Policy and Live Proof',
     description:
       'Retention windows for sessions, audit logs, and account data. Clearly marks which rules are enforced by automated jobs vs. committed targets in progress.',
     type: 'website',
@@ -133,7 +134,7 @@ const RETENTION_POLICY: RetentionPolicyRow[] = [
     dataType: 'Account (profile)',
     retentionWindow: '30-day grace window after deletion request',
     mechanism:
-      'Soft-delete on request (deleted_at set immediately). Hard-delete via edge function purge-deleted-accounts after 30 days — deployment in progress.',
+      'Soft-delete on request (deleted_at set immediately). Hard-delete via edge function purge-deleted-accounts after 30 days (deployment in progress).',
     gdprBasis: 'Art. 17 right to erasure (30-day grace period per Art. 17(3)(e))',
     enforcement: 'target',
     enforcementLabel: 'Target (edge function pending)',
@@ -215,7 +216,7 @@ function EnforcementBadge({
         aria-label={`Enforcement status: ${label}`}
       >
         {/* WHY checkmark icon as text: avoids an icon dependency; accessible via aria-label */}
-        <span aria-hidden="true">✅</span>
+        <CheckCircle2 className="h-4 w-4 text-emerald-400" aria-hidden="true" />
         {label}
       </span>
     );
@@ -227,7 +228,7 @@ function EnforcementBadge({
       data-enforcement="target"
       aria-label={`Enforcement status: ${label}`}
     >
-      <span aria-hidden="true">📋</span>
+      <Clock className="h-4 w-4 text-amber-400" aria-hidden="true" />
       {label}
     </span>
   );
@@ -244,7 +245,7 @@ export default async function RetentionProofPage() {
   const liveCounts = await fetchRetentionCounts();
 
   return (
-    <div className="min-h-screen bg-zinc-950">
+    <div className="min-h-[100dvh] bg-zinc-950">
       {/* Navigation header */}
       <header className="border-b border-zinc-800 bg-zinc-900/50">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
@@ -288,12 +289,12 @@ export default async function RetentionProofPage() {
           {/* Enforcement legend */}
           <div className="mt-4 flex flex-wrap gap-4 rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-3">
             <div className="flex items-center gap-2 text-sm">
-              <span aria-hidden="true">✅</span>
+              <CheckCircle2 className="h-4 w-4 text-emerald-400" aria-hidden="true" />
               <span className="text-emerald-400 font-medium">Enforced</span>
               <span className="text-zinc-400">- backed by an active automated cron or scheduled job</span>
             </div>
             <div className="flex items-center gap-2 text-sm">
-              <span aria-hidden="true">📋</span>
+              <Clock className="h-4 w-4 text-amber-400" aria-hidden="true" />
               <span className="text-amber-400 font-medium">Target</span>
               <span className="text-zinc-400">- policy we are committed to; automated enforcement in progress</span>
             </div>
@@ -414,7 +415,7 @@ export default async function RetentionProofPage() {
                   Source: sessions WHERE deleted_at IS NOT NULL AND deleted_at &gt; now() - 30 days
                 </p>
                 <p className="mt-1 text-xs text-emerald-500">
-                  ✅ Enforced by styrby_delete_expired_sessions (nightly, 03:00 CT)
+                  Enforced by styrby_delete_expired_sessions (nightly, 03:00 CT)
                 </p>
               </div>
 
@@ -449,10 +450,10 @@ export default async function RetentionProofPage() {
           <p>
             Questions about our retention policy?{' '}
             <a
-              href="mailto:legal@styrbyapp.com"
+              href="mailto:support@styrby.dev"
               className="text-zinc-400 hover:text-zinc-200 transition-colors"
             >
-              legal@styrbyapp.com
+              support@styrby.dev
             </a>
           </p>
           <p className="mt-3">

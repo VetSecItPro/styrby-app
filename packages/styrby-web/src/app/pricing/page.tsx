@@ -67,7 +67,7 @@ export default function PricingPage() {
   const [activeFaq, setActiveFaq] = useState(0);
 
   return (
-    <main className="min-h-screen">
+    <main className="min-h-[100dvh]">
       {/* A/B tracking - fires page_view once on mount, no DOM output */}
       <PricingPageTracker variant="v2" />
 
@@ -80,10 +80,10 @@ export default function PricingPage() {
             Pricing
           </p>
           <h1 className="mt-3 text-balance text-4xl font-bold tracking-tight text-foreground md:text-5xl">
-            Simple, transparent pricing
+            Pricing built for the way you actually run AI agents
           </h1>
           <p className="mx-auto mt-4 max-w-xl text-lg text-muted-foreground leading-relaxed">
-            Start free, scale as you grow. No hidden fees, no surprises. Cancel anytime.
+            From one machine on Solo to a fleet on Business. Annual billing saves about 17%. Cancel anytime, no seat fees on monthly.
           </p>
         </div>
       </section>

@@ -27,7 +27,7 @@ export const metadata: Metadata = {
  */
 export default function TermsOfServicePage() {
   return (
-    <div className="min-h-screen bg-zinc-950">
+    <div className="min-h-[100dvh] bg-zinc-950">
       {/* Navigation header */}
       <header className="border-b border-zinc-800 bg-zinc-900/50">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
@@ -49,8 +49,8 @@ export default function TermsOfServicePage() {
       </header>
 
       {/* Content */}
-      <main className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-12">
-        <article className="prose prose-invert prose-zinc max-w-none prose-headings:text-zinc-100 prose-p:text-zinc-300 prose-li:text-zinc-300 prose-a:text-orange-500 prose-a:no-underline hover:prose-a:underline prose-strong:text-zinc-100">
+      <main className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-12">
+        <article className="prose prose-lg prose-invert prose-zinc max-w-none prose-headings:text-zinc-100 prose-p:text-zinc-300 prose-li:text-zinc-300 prose-a:text-orange-500 prose-a:no-underline hover:prose-a:underline prose-strong:text-zinc-100">
           <h1>Terms of Service</h1>
 
           <p className="text-sm text-zinc-500">
@@ -160,15 +160,15 @@ export default function TermsOfServicePage() {
           <h3>Subscription Tiers</h3>
           <ul>
             <li>
-              <strong>Free</strong> -- basic session monitoring with 7 days of
+              <strong>Free</strong>: basic session monitoring with 7 days of
               session history
             </li>
             <li>
-              <strong>Pro</strong> -- full feature access with 90 days of
+              <strong>Pro</strong>: full feature access with 90 days of
               session history
             </li>
             <li>
-              <strong>Power</strong> -- maximum limits with 1 year of session
+              <strong>Power</strong>: maximum limits with 1 year of session
               history
             </li>
           </ul>

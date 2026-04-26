@@ -30,7 +30,7 @@ export const metadata: Metadata = {
  */
 export default function SecurityPage() {
   return (
-    <div className="min-h-screen bg-zinc-950">
+    <div className="min-h-[100dvh] bg-zinc-950">
       {/* Navigation header */}
       <header className="border-b border-zinc-800 bg-zinc-900/50">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
@@ -52,11 +52,11 @@ export default function SecurityPage() {
       </header>
 
       {/* Security content */}
-      <main className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
-        <article className="prose prose-invert max-w-none prose-headings:text-zinc-100 prose-p:text-zinc-300 prose-li:text-zinc-300 prose-a:text-orange-400 prose-a:no-underline hover:prose-a:text-orange-300 prose-strong:text-zinc-200">
+      <main className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
+        <article className="prose prose-lg prose-invert max-w-none prose-headings:text-zinc-100 prose-p:text-zinc-300 prose-li:text-zinc-300 prose-a:text-orange-400 prose-a:no-underline hover:prose-a:text-orange-300 prose-strong:text-zinc-200">
           <h1>Security</h1>
           <p className="text-sm text-zinc-500">
-            Last updated: February 6, 2026
+            Last updated: April 25, 2026
           </p>
 
           <p>

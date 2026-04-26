@@ -26,7 +26,7 @@ export const metadata: Metadata = {
  */
 export default function PrivacyPolicyPage() {
   return (
-    <div className="min-h-screen bg-zinc-950">
+    <div className="min-h-[100dvh] bg-zinc-950">
       {/* Navigation header */}
       <header className="border-b border-zinc-800 bg-zinc-900/50">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
@@ -48,8 +48,8 @@ export default function PrivacyPolicyPage() {
       </header>
 
       {/* Content */}
-      <main className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-12">
-        <article className="prose prose-invert prose-zinc max-w-none prose-headings:text-zinc-100 prose-p:text-zinc-300 prose-li:text-zinc-300 prose-a:text-orange-500 prose-a:no-underline hover:prose-a:underline prose-strong:text-zinc-100">
+      <main className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-12">
+        <article className="prose prose-lg prose-invert prose-zinc max-w-none prose-headings:text-zinc-100 prose-p:text-zinc-300 prose-li:text-zinc-300 prose-a:text-orange-500 prose-a:no-underline hover:prose-a:underline prose-strong:text-zinc-100">
           <h1>Privacy Policy</h1>
 
           <p className="text-sm text-zinc-500">
@@ -99,14 +99,14 @@ export default function PrivacyPolicyPage() {
           </p>
           <ul>
             <li>
-              <strong>Email address</strong> -- used for authentication, account
+              <strong>Email address</strong>: used for authentication, account
               recovery, and essential service notifications
             </li>
             <li>
-              <strong>Display name</strong> -- an optional name you choose
+              <strong>Display name</strong>: an optional name you choose
             </li>
             <li>
-              <strong>GitHub OAuth data</strong> -- if you sign in via GitHub,
+              <strong>GitHub OAuth data</strong>: if you sign in via GitHub,
               we receive your GitHub username, email, and avatar URL as
               authorized by you during the OAuth flow
             </li>
@@ -120,17 +120,17 @@ export default function PrivacyPolicyPage() {
           </p>
           <ul>
             <li>
-              <strong>Session records</strong> -- agent type (Claude, Codex,
+              <strong>Session records</strong>: agent type (Claude, Codex,
               Gemini), session start and end times, status, and any tags or
               summaries you create
             </li>
             <li>
-              <strong>Token usage and costs</strong> -- input tokens, output
+              <strong>Token usage and costs</strong>: input tokens, output
               tokens, cache tokens, and calculated cost in USD, used to power
               your cost dashboard and budget alerts
             </li>
             <li>
-              <strong>Encrypted message ciphertext</strong> -- stored only to
+              <strong>Encrypted message ciphertext</strong>: stored only to
               relay to your authorized devices. We cannot read this content.
             </li>
           </ul>
@@ -138,15 +138,15 @@ export default function PrivacyPolicyPage() {
           <h3>Device and Machine Information</h3>
           <ul>
             <li>
-              <strong>Machine identifiers</strong> -- an anonymized identifier
+              <strong>Machine identifiers</strong>: an anonymized identifier
               and display name for each CLI instance you register
             </li>
             <li>
-              <strong>Public keys</strong> -- cryptographic public keys used for
+              <strong>Public keys</strong>: cryptographic public keys used for
               end-to-end encryption. Private keys never leave your devices.
             </li>
             <li>
-              <strong>Push notification tokens</strong> -- APNs (iOS) or FCM
+              <strong>Push notification tokens</strong>: APNs (iOS) or FCM
               (Android) tokens used to deliver real-time alerts to your mobile
               device
             </li>
@@ -155,15 +155,15 @@ export default function PrivacyPolicyPage() {
           <h3>Configuration Data</h3>
           <ul>
             <li>
-              <strong>Agent configurations</strong> -- your per-agent settings,
+              <strong>Agent configurations</strong>: your per-agent settings,
               auto-approve rules, and blocked tool lists
             </li>
             <li>
-              <strong>Budget alerts</strong> -- your spending thresholds and
+              <strong>Budget alerts</strong>: your spending thresholds and
               chosen actions
             </li>
             <li>
-              <strong>Notification preferences</strong> -- your push and email
+              <strong>Notification preferences</strong>: your push and email
               notification settings
             </li>
           </ul>
@@ -189,26 +189,26 @@ export default function PrivacyPolicyPage() {
 
           <ul>
             <li>
-              <strong>Providing the Service</strong> -- authenticating your
+              <strong>Providing the Service</strong>: authenticating your
               account, connecting your mobile device to CLI instances, relaying
               encrypted messages, and enabling session management
             </li>
             <li>
-              <strong>Cost tracking and billing</strong> -- calculating and
+              <strong>Cost tracking and billing</strong>: calculating and
               displaying your AI token usage costs, managing your subscription
               tier, and processing payments through Polar
             </li>
             <li>
-              <strong>Notifications</strong> -- sending push notifications when
+              <strong>Notifications</strong>: sending push notifications when
               your AI agents need attention, approval, or when budget thresholds
               are reached
             </li>
             <li>
-              <strong>Security</strong> -- detecting and preventing unauthorized
+              <strong>Security</strong>: detecting and preventing unauthorized
               access, fraud, and abuse
             </li>
             <li>
-              <strong>Service communications</strong> -- sending essential
+              <strong>Service communications</strong>: sending essential
               updates, security alerts, and (only with your consent) product
               announcements
             </li>
@@ -231,13 +231,13 @@ export default function PrivacyPolicyPage() {
           <ul>
             <li>
               <strong>Authentication cookie</strong>{' '}
-              (<code>sb-[ref]-auth-token</code>) -- set by Supabase Auth when
+              (<code>sb-[ref]-auth-token</code>): set by Supabase Auth when
               you log in. Required for the Service to work. Contains your
               session token, stored as an httpOnly cookie.
             </li>
             <li>
               <strong>Sidebar preference cookie</strong>{' '}
-              (<code>sidebar:state</code>) -- remembers whether your sidebar
+              (<code>sidebar:state</code>): remembers whether your sidebar
               is open or closed. Expires after 7 days. Not required; the Service
               works without it.
             </li>
@@ -254,20 +254,20 @@ export default function PrivacyPolicyPage() {
 
           <ul>
             <li>
-              <strong>End-to-end encryption</strong> -- session message content
+              <strong>End-to-end encryption</strong>: session message content
               is encrypted on your device before it reaches our servers. We
               relay ciphertext only.
             </li>
             <li>
-              <strong>Encryption at rest</strong> -- all data stored in our
+              <strong>Encryption at rest</strong>: all data stored in our
               database is encrypted at rest (AES-256)
             </li>
             <li>
-              <strong>Encryption in transit</strong> -- all connections use TLS
+              <strong>Encryption in transit</strong>: all connections use TLS
               1.2 or higher. HTTP is redirected to HTTPS.
             </li>
             <li>
-              <strong>Row Level Security</strong> -- database access is
+              <strong>Row Level Security</strong>: database access is
               restricted so each user can only read and write their own data
             </li>
           </ul>
@@ -299,7 +299,7 @@ export default function PrivacyPolicyPage() {
                   Supabase
                 </a>
               </strong>{' '}
-              (United States) -- database, authentication, and real-time
+              (United States): database, authentication, and real-time
               infrastructure. Stores your account data, session metadata, and
               encrypted message ciphertext.
             </li>
@@ -313,7 +313,7 @@ export default function PrivacyPolicyPage() {
                   Vercel
                 </a>
               </strong>{' '}
-              (United States) -- web application hosting. Receives your IP
+              (United States): web application hosting. Receives your IP
               address and standard HTTP request metadata as part of serving
               web requests. Vercel does not use this for advertising.
             </li>
@@ -327,7 +327,7 @@ export default function PrivacyPolicyPage() {
                   Polar
                 </a>
               </strong>{' '}
-              (European Union) -- payment processing and subscription
+              (European Union): payment processing and subscription
               management. Polar is our merchant of record. They handle all
               payment card data. We never store your payment card information.
             </li>
@@ -341,7 +341,7 @@ export default function PrivacyPolicyPage() {
                   Resend
                 </a>
               </strong>{' '}
-              (United States) -- transactional email delivery. Receives your
+              (United States): transactional email delivery. Receives your
               email address to send service notifications and account emails.
             </li>
             <li>
@@ -354,10 +354,45 @@ export default function PrivacyPolicyPage() {
                   Expo
                 </a>
               </strong>{' '}
-              (United States) -- push notification delivery for the iOS and
+              (United States): push notification delivery for the iOS and
               Android apps. Receives your device push token to deliver alerts.
             </li>
+            <li>
+              <strong>
+                <a
+                  href="https://sentry.io/privacy/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Sentry
+                </a>
+              </strong>{' '}
+              (United States): error monitoring and performance tracing.
+              Receives error stack traces, hashed user IDs, and request
+              metadata. Session message content and API keys are explicitly
+              scrubbed before transmission.
+            </li>
+            <li>
+              <strong>
+                <a
+                  href="https://upstash.com/trust/privacy.pdf"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Upstash
+                </a>
+              </strong>{' '}
+              (United States): Redis cache for rate limiting and ephemeral
+              session state. Stores hashed user IDs and IP addresses for at
+              most 60 minutes. No persistent personal data.
+            </li>
           </ul>
+
+          <p>
+            For the canonical, machine-readable list with DPF certification
+            status and data categories, see our{' '}
+            <Link href="/legal/subprocessors">Subprocessors page</Link>.
+          </p>
 
           {/* ── Data Retention ────────────────────────────────── */}
           <h2>6. Data Retention</h2>
@@ -369,20 +404,20 @@ export default function PrivacyPolicyPage() {
 
           <ul>
             <li>
-              <strong>Session history</strong> -- retained based on your
+              <strong>Session history</strong>: retained based on your
               subscription tier: 7 days on Free, 90 days on Pro, 1 year on
               Power. Older sessions are automatically deleted.
             </li>
             <li>
-              <strong>Cost records</strong> -- retained for the lifetime of
+              <strong>Cost records</strong>: retained for the lifetime of
               your account for billing accuracy and dispute resolution
             </li>
             <li>
-              <strong>Account data</strong> -- retained until you delete your
+              <strong>Account data</strong>: retained until you delete your
               account
             </li>
             <li>
-              <strong>Audit logs</strong> -- retained for 90 days for security
+              <strong>Audit logs</strong>: retained for 90 days for security
               monitoring, then deleted
             </li>
           </ul>
@@ -404,28 +439,28 @@ export default function PrivacyPolicyPage() {
 
           <ul>
             <li>
-              <strong>Access</strong> -- request a copy of all personal data we
+              <strong>Access</strong>: request a copy of all personal data we
               hold about you
             </li>
             <li>
-              <strong>Portability</strong> -- export a machine-readable (JSON)
+              <strong>Portability</strong>: export a machine-readable (JSON)
               copy of your data via Settings
             </li>
             <li>
-              <strong>Correction</strong> -- update your profile information at
+              <strong>Correction</strong>: update your profile information at
               any time via Settings
             </li>
             <li>
-              <strong>Deletion (right to be forgotten)</strong> -- delete your
+              <strong>Deletion (right to be forgotten)</strong>: delete your
               account and all associated data via Settings, or by emailing us.
               Data is permanently deleted within 30 days.
             </li>
             <li>
-              <strong>Restrict processing</strong> -- request that we limit how
+              <strong>Restrict processing</strong>: request that we limit how
               we use your data by contacting us
             </li>
             <li>
-              <strong>Opt-out of marketing</strong> -- unsubscribe from
+              <strong>Opt-out of marketing</strong>: unsubscribe from
               non-essential emails at any time. Essential service notifications
               cannot be disabled while your account is active.
             </li>
