@@ -2,42 +2,174 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── shadcn/ui CSS variable design tokens ── */
+/*
+ * ==========================================================================
+ *  Styrby OKLCH Token System (Wave 3)
+ * ==========================================================================
+ *
+ * Three-layer architecture:
+ *   1. PRIMITIVES — named raw OKLCH ramps (steel-blue, amber). Hue-locked
+ *      so every shade in a family shares the same chromatic identity.
+ *   2. SEMANTIC   — meaning-bearing aliases (--background, --primary, etc.)
+ *      that components reference. Dark theme is the default.
+ *   3. LIGHT      — explicit overrides under :root.light / [data-theme=light]
+ *      for printing, accessibility, future toggle.
+ *
+ * WHY OKLCH: perceptually uniform — moving through L (lightness) keeps the
+ * apparent brightness step constant, so a 100/200/300/... ramp actually
+ * reads as evenly-spaced, unlike HSL ramps which clip in saturated regions.
+ *
+ * WHY hue 220 for surfaces: the previous shadcn defaults used 240
+ * (violet-leaning). 220 is steel-blue — cool, technical, "made by people
+ * who ship". Pairs with the amber accent for the Industrial Dark identity.
+ *
+ * WHY hue 60 for amber (vs Tailwind's 30): the default Tailwind orange/amber
+ * scale at hue ~30 is the single most overused brand palette in 2024-2026
+ * SaaS. Shifting to ~60 (slightly cooler, more "burnt amber") gives the
+ * brand a distinct fingerprint — still warm, still amber, but no longer
+ * a literal Tailwind clone.
+ *
+ * Component code references the semantic tokens (bg-background,
+ * text-foreground, bg-primary, border-border, etc.). The primitive
+ * ramps are exposed as Tailwind utilities (bg-steel-900, bg-amber-500)
+ * for the rare cases that need direct ramp access.
+ */
 @layer base {
   :root {
-    --background: 240 6% 3.5%;
-    --foreground: 0 0% 98%;
-    --card: 240 5% 7%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 5% 7%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 38 92% 50%;
-    --primary-foreground: 0 0% 3.9%;
-    --secondary: 240 4% 10%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 4% 10%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 4% 16%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 4% 16%;
-    --input: 240 4% 16%;
-    --ring: 38 92% 50%;
-    --chart-1: 24 95% 53%;
-    --chart-2: 142 71% 45%;
-    --chart-3: 217 91% 60%;
-    --chart-4: 38 92% 50%;
-    --chart-5: 0 84% 60%;
-    --radius: 0.625rem;
-    --sidebar-background: 240 5% 7%;
-    --sidebar-foreground: 0 0% 98%;
-    --sidebar-primary: 38 92% 50%;
-    --sidebar-primary-foreground: 0 0% 3.9%;
-    --sidebar-accent: 240 4% 16%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 240 4% 16%;
-    --sidebar-ring: 38 92% 50%;
+    /* ── Layer 1: Primitives ── */
+
+    /* Steel-blue near-black scale — surfaces & neutrals (hue 220) */
+    --color-steel-50: 0.97 0.005 220;
+    --color-steel-100: 0.94 0.008 220;
+    --color-steel-200: 0.88 0.012 220;
+    --color-steel-300: 0.78 0.015 220;
+    --color-steel-400: 0.65 0.018 220;
+    --color-steel-500: 0.50 0.020 220;
+    --color-steel-600: 0.38 0.018 220;
+    --color-steel-700: 0.27 0.015 220;
+    --color-steel-800: 0.18 0.012 220;
+    --color-steel-900: 0.13 0.010 220;
+    --color-steel-950: 0.09 0.008 220;
+    --color-steel-1000: 0.05 0.005 220;
+
+    /* Amber brand scale — accent (hue ~55-60, distinct from Tailwind orange) */
+    --color-amber-50: 0.98 0.025 60;
+    --color-amber-100: 0.94 0.060 60;
+    --color-amber-200: 0.88 0.110 60;
+    --color-amber-300: 0.82 0.150 60;
+    --color-amber-400: 0.76 0.170 58;
+    --color-amber-500: 0.70 0.180 56;
+    --color-amber-600: 0.62 0.170 54;
+    --color-amber-700: 0.52 0.150 52;
+    --color-amber-800: 0.42 0.120 50;
+    --color-amber-900: 0.32 0.090 48;
+    --color-amber-950: 0.22 0.060 46;
+
+    /* ── Layer 2: Semantic mappings (DARK is default — app is dark-first) ── */
+
+    /* Surface hierarchy — 5 elevation levels */
+    --background: var(--color-steel-950);
+    --surface-1: var(--color-steel-900);
+    --surface-2: var(--color-steel-800);
+    --surface-3: var(--color-steel-700);
+    --surface-4: var(--color-steel-600);
+
+    /* Foreground (text) */
+    --foreground: 0.95 0.005 220;
+    --foreground-secondary: 0.70 0.010 220;
+    --foreground-tertiary: 0.50 0.012 220;
+
+    /* Borders */
+    --border: 0.22 0.010 220;
+    --border-strong: 0.30 0.012 220;
+
+    /* Brand */
+    --primary: var(--color-amber-500);
+    --primary-foreground: var(--color-steel-950);
+    --primary-muted: 0.40 0.060 56;
+
+    /* Status */
+    --destructive: 0.62 0.18 25;
+    --destructive-foreground: var(--color-steel-50);
+    --success: 0.62 0.15 145;
+    --warning: 0.72 0.15 80;
+
+    /* shadcn/ui token aliases — components reference these names directly */
+    --card: var(--surface-1);
+    --card-foreground: var(--foreground);
+    --popover: var(--surface-3);
+    --popover-foreground: var(--foreground);
+    --secondary: var(--surface-2);
+    --secondary-foreground: var(--foreground);
+    --muted: var(--surface-2);
+    --muted-foreground: var(--foreground-secondary);
+    --accent: var(--surface-2);
+    --accent-foreground: var(--foreground);
+    --input: var(--border);
+    --ring: var(--color-amber-500);
+
+    /* Chart palette — derived from token primitives */
+    --chart-1: var(--color-amber-500);
+    --chart-2: 0.62 0.15 145;
+    --chart-3: 0.65 0.18 250;
+    --chart-4: 0.72 0.15 80;
+    --chart-5: 0.62 0.18 25;
+
+    /* Sidebar — same surface hierarchy */
+    --sidebar-background: var(--surface-1);
+    --sidebar-foreground: var(--foreground);
+    --sidebar-primary: var(--color-amber-500);
+    --sidebar-primary-foreground: var(--color-steel-950);
+    --sidebar-accent: var(--surface-2);
+    --sidebar-accent-foreground: var(--foreground);
+    --sidebar-border: var(--border);
+    --sidebar-ring: var(--color-amber-500);
+
+    /* Radius — slightly tighter than the prior 0.625rem for technical feel */
+    --radius: 0.5rem;
+  }
+
+  /* ── Layer 3: Light mode (supplementary — dark stays default) ── */
+  :root.light,
+  :root[data-theme='light'] {
+    --background: var(--color-steel-50);
+    --surface-1: 1.0 0 0;
+    --surface-2: var(--color-steel-100);
+    --surface-3: var(--color-steel-200);
+    --surface-4: 1.0 0 0;
+
+    --foreground: var(--color-steel-950);
+    --foreground-secondary: var(--color-steel-700);
+    --foreground-tertiary: var(--color-steel-500);
+
+    --border: var(--color-steel-200);
+    --border-strong: var(--color-steel-300);
+
+    --primary: var(--color-amber-600);
+    --primary-foreground: var(--color-steel-50);
+    --primary-muted: var(--color-amber-100);
+
+    --destructive: 0.55 0.18 25;
+    --destructive-foreground: var(--color-steel-50);
+
+    --card: var(--surface-1);
+    --popover: var(--surface-1);
+    --secondary: var(--surface-2);
+    --muted: var(--surface-2);
+    --muted-foreground: var(--foreground-secondary);
+    --accent: var(--surface-2);
+    --accent-foreground: var(--foreground);
+    --input: var(--border);
+    --ring: var(--color-amber-600);
+
+    --sidebar-background: var(--surface-1);
+    --sidebar-foreground: var(--foreground);
+    --sidebar-primary: var(--color-amber-600);
+    --sidebar-primary-foreground: var(--color-steel-50);
+    --sidebar-accent: var(--surface-2);
+    --sidebar-accent-foreground: var(--foreground);
+    --sidebar-border: var(--border);
+    --sidebar-ring: var(--color-amber-600);
   }
 }
 
@@ -72,14 +204,14 @@
   background-size: 256px 256px;
 }
 
-/* ── Glass-morphism ── */
+/* ── Glass-morphism — token-derived ── */
 .glass {
-  background: rgba(24, 24, 27, 0.92);
+  background: color-mix(in oklch, oklch(var(--surface-1)) 92%, transparent);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
 }
 
-/* ── Gradient border effect ── */
+/* ── Gradient border effect — token-derived ── */
 .gradient-border {
   position: relative;
 }
@@ -89,17 +221,24 @@
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), transparent 50%, rgba(39, 39, 42, 0.3));
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklch, oklch(var(--primary)) 30%, transparent),
+    transparent 50%,
+    color-mix(in oklch, oklch(var(--border-strong)) 30%, transparent)
+  );
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
 }
 
-/* ── Amber glow ── */
-/* Used on the Pro pricing card and other highlighted elements */
+/* ── Amber glow — token-derived ── */
+/* WHY token-derived: keeps glow tied to brand primary so theming flows through. */
 .amber-glow {
-  box-shadow: 0 0 60px rgba(245, 158, 11, 0.12), 0 0 120px rgba(245, 158, 11, 0.06);
+  box-shadow:
+    0 0 60px color-mix(in oklch, oklch(var(--primary)) 12%, transparent),
+    0 0 120px color-mix(in oklch, oklch(var(--primary)) 6%, transparent);
 }
 
 /* ── Pulse animation for live indicators ── */
@@ -111,24 +250,33 @@
   animation: live-pulse 2s ease-in-out infinite;
 }
 
-/* ── Shimmer loading effect ── */
+/* ── Shimmer loading effect — token-derived ── */
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
 .shimmer {
-  background: linear-gradient(90deg, hsl(240 4% 10%) 25%, hsl(240 4% 16%) 50%, hsl(240 4% 10%) 75%);
+  background: linear-gradient(
+    90deg,
+    oklch(var(--surface-2)) 25%,
+    oklch(var(--surface-3)) 50%,
+    oklch(var(--surface-2)) 75%
+  );
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
 
-/* ── Dot grid pattern ── */
+/* ── Dot grid pattern — token-derived ── */
 .dot-grid {
-  background-image: radial-gradient(circle, rgba(113, 113, 122, 0.15) 1px, transparent 1px);
+  background-image: radial-gradient(
+    circle,
+    color-mix(in oklch, oklch(var(--foreground-tertiary)) 15%, transparent) 1px,
+    transparent 1px
+  );
   background-size: 24px 24px;
 }
 
-/* ── Smooth scrollbar ── */
+/* ── Smooth scrollbar — token-derived ── */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -137,9 +285,9 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(240 4% 16%);
+  background: oklch(var(--border));
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(240 5% 26%);
+  background: oklch(var(--border-strong));
 }

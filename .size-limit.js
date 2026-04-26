@@ -152,6 +152,12 @@ module.exports = [
     // IntersectionObserver-driven section highlighting on docs pages) + CopyButton
     // (per-CodeBlock copy-to-clipboard). Shiki itself is build-time, zero runtime
     // JS. Measured 775.51 KB gzip — 0.51 KB over. Smallest ratchet to date.
+    //
+    // /design Wave 3 (no ratchet): OKLCH token system rework adds ZERO new JS.
+    // Tailwind's color utilities are CSS only and the new ramps (steel-*, amber-*)
+    // are JIT-purged based on usage — components reference semantic tokens
+    // (bg-background, text-foreground, bg-primary) which existed before. Measured
+    // 775.64 KB gzip — within budget without bumping the limit.
     limit: '776 KB',
     gzip: true,
     // WHY import is omitted: We cannot import directly from Next.js output —
