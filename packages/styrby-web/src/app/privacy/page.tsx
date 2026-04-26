@@ -71,7 +71,7 @@ export default function PrivacyPolicyPage() {
           </p>
 
           {/* ── Zero-Knowledge Architecture ─────────────────────── */}
-          <h2>Our Zero-Knowledge Architecture</h2>
+          <h2 className="scroll-mt-20" id="our-zero-knowledge-architecture">Our Zero-Knowledge Architecture</h2>
 
           <p>
             Styrby is designed so that we never see the content of your work.
@@ -91,9 +91,9 @@ export default function PrivacyPolicyPage() {
           </p>
 
           {/* ── Information We Collect ─────────────────────────── */}
-          <h2>1. Information We Collect</h2>
+          <h2 className="scroll-mt-20" id="1-information-we-collect">1. Information We Collect</h2>
 
-          <h3>Account Information</h3>
+          <h3 className="scroll-mt-20" id="account-information">Account Information</h3>
           <p>
             When you create an account, we collect:
           </p>
@@ -112,7 +112,7 @@ export default function PrivacyPolicyPage() {
             </li>
           </ul>
 
-          <h3>Session Metadata</h3>
+          <h3 className="scroll-mt-20" id="session-metadata">Session Metadata</h3>
           <p>
             We collect metadata about your AI agent sessions. We do not collect
             the content of your sessions (see Zero-Knowledge Architecture
@@ -135,7 +135,7 @@ export default function PrivacyPolicyPage() {
             </li>
           </ul>
 
-          <h3>Device and Machine Information</h3>
+          <h3 className="scroll-mt-20" id="device-and-machine-information">Device and Machine Information</h3>
           <ul>
             <li>
               <strong>Machine identifiers</strong>: an anonymized identifier
@@ -152,7 +152,7 @@ export default function PrivacyPolicyPage() {
             </li>
           </ul>
 
-          <h3>Configuration Data</h3>
+          <h3 className="scroll-mt-20" id="configuration-data">Configuration Data</h3>
           <ul>
             <li>
               <strong>Agent configurations</strong>: your per-agent settings,
@@ -168,7 +168,7 @@ export default function PrivacyPolicyPage() {
             </li>
           </ul>
 
-          <h3>What We Do Not Collect</h3>
+          <h3 className="scroll-mt-20" id="what-we-do-not-collect">What We Do Not Collect</h3>
           <ul>
             <li>
               We do not use analytics services (no Mixpanel, Amplitude,
@@ -185,7 +185,7 @@ export default function PrivacyPolicyPage() {
           </ul>
 
           {/* ── How We Use Your Information ────────────────────── */}
-          <h2>2. How We Use Your Information</h2>
+          <h2 className="scroll-mt-20" id="2-how-we-use-your-information">2. How We Use Your Information</h2>
 
           <ul>
             <li>
@@ -221,7 +221,7 @@ export default function PrivacyPolicyPage() {
           </p>
 
           {/* ── Cookies ───────────────────────────────────────── */}
-          <h2>3. Cookies</h2>
+          <h2 className="scroll-mt-20" id="3-cookies">3. Cookies</h2>
 
           <p>
             Styrby uses only two cookies. No tracking cookies. No analytics
@@ -250,7 +250,7 @@ export default function PrivacyPolicyPage() {
           </p>
 
           {/* ── Data Storage and Security ─────────────────────── */}
-          <h2>4. Data Storage and Security</h2>
+          <h2 className="scroll-mt-20" id="4-data-storage-and-security">4. Data Storage and Security</h2>
 
           <ul>
             <li>
@@ -280,7 +280,7 @@ export default function PrivacyPolicyPage() {
           </p>
 
           {/* ── Third-Party Services ──────────────────────────── */}
-          <h2>5. Sub-processors (Third-Party Services)</h2>
+          <h2 className="scroll-mt-20" id="5-sub-processors-third-party-services">5. Sub-processors (Third-Party Services)</h2>
 
           <p>
             We use the following third-party services to operate Styrby. Each
@@ -395,7 +395,7 @@ export default function PrivacyPolicyPage() {
           </p>
 
           {/* ── Data Retention ────────────────────────────────── */}
-          <h2>6. Data Retention</h2>
+          <h2 className="scroll-mt-20" id="6-data-retention">6. Data Retention</h2>
 
           <p>
             We retain data for as long as your account is active, subject to
@@ -430,7 +430,7 @@ export default function PrivacyPolicyPage() {
           </p>
 
           {/* ── Your Rights ───────────────────────────────────── */}
-          <h2>7. Your Rights</h2>
+          <h2 className="scroll-mt-20" id="7-your-rights">7. Your Rights</h2>
 
           <p>
             You have the following rights over your personal data. Most can be
@@ -466,7 +466,7 @@ export default function PrivacyPolicyPage() {
             </li>
           </ul>
 
-          <h3>California Residents (CCPA)</h3>
+          <h3 className="scroll-mt-20" id="california-residents-ccpa">California Residents (CCPA)</h3>
           <p>
             California residents have additional rights under the CCPA,
             including the right to know what personal information we sell
@@ -474,7 +474,7 @@ export default function PrivacyPolicyPage() {
             non-discrimination for exercising privacy rights.
           </p>
 
-          <h3>EU and UK Residents (GDPR)</h3>
+          <h3 className="scroll-mt-20" id="eu-and-uk-residents-gdpr">EU and UK Residents (GDPR)</h3>
           <p>
             If you are in the EU or UK, our legal basis for processing your
             data is performance of the contract (providing the Service you
@@ -490,7 +490,7 @@ export default function PrivacyPolicyPage() {
           </p>
 
           {/* ── Children's Privacy ────────────────────────────── */}
-          <h2>8. Children&apos;s Privacy</h2>
+          <h2 className="scroll-mt-20" id="8-children-s-privacy">8. Children&apos;s Privacy</h2>
 
           <p>
             Styrby is not intended for anyone under the age of 13. We do not
@@ -499,7 +499,7 @@ export default function PrivacyPolicyPage() {
           </p>
 
           {/* ── Changes to This Policy ────────────────────────── */}
-          <h2>9. Changes to This Policy</h2>
+          <h2 className="scroll-mt-20" id="9-changes-to-this-policy">9. Changes to This Policy</h2>
 
           <p>
             We may update this policy. For material changes, we will notify
@@ -514,7 +514,7 @@ export default function PrivacyPolicyPage() {
           </p>
 
           {/* ── Contact Information ───────────────────────────── */}
-          <h2>10. Contact</h2>
+          <h2 className="scroll-mt-20" id="10-contact">10. Contact</h2>
 
           <ul>
             <li>

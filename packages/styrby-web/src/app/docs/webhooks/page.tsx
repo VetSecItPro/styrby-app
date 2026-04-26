@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { PrevNext } from "../prev-next";
 import { getPrevNext } from "../nav";
+import { CodeBlock } from "@/components/docs/CodeBlock";
 
 export const metadata: Metadata = {
   title: "Webhooks",
@@ -10,47 +11,47 @@ export const metadata: Metadata = {
 /**
  * Webhooks documentation page.
  */
-export default function WebhooksPage() {
+export default async function WebhooksPage() {
   const { prev, next } = getPrevNext("/docs/webhooks");
 
   return (
     <article>
-      <h1 className="text-3xl font-bold tracking-tight text-zinc-50">
+      <h1 className="text-3xl font-bold tracking-tight text-foreground">
         Webhooks
       </h1>
-      <p className="mt-3 text-zinc-400">
+      <p className="mt-3 text-muted-foreground">
         Get HTTP event callbacks when events happen in your Styrby account.
         Available on Pro (3 webhooks) and Power (10 webhooks) tiers. Not
         available on Free.
       </p>
 
       {/* Available Events */}
-      <h2 className="mt-10 text-xl font-semibold text-zinc-100">
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="available-events">
         Available Events
       </h2>
       <div className="mt-3 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-zinc-800 text-left">
-              <th className="pb-2 pr-4 font-medium text-zinc-300">Event</th>
-              <th className="pb-2 font-medium text-zinc-300">Fired when</th>
+            <tr className="border-b border-border text-left">
+              <th className="pb-2 pr-4 font-medium text-foreground/75">Event</th>
+              <th className="pb-2 font-medium text-foreground/75">Fired when</th>
             </tr>
           </thead>
-          <tbody className="text-zinc-400">
-            <tr className="border-b border-zinc-800/50">
-              <td className="py-2 pr-4 font-mono text-xs text-zinc-300">session.started</td>
+          <tbody className="text-muted-foreground">
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">session.started</td>
               <td className="py-2 text-xs">An agent session begins.</td>
             </tr>
-            <tr className="border-b border-zinc-800/50">
-              <td className="py-2 pr-4 font-mono text-xs text-zinc-300">session.completed</td>
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">session.completed</td>
               <td className="py-2 text-xs">An agent session transitions to stopped, error, or expired.</td>
             </tr>
-            <tr className="border-b border-zinc-800/50">
-              <td className="py-2 pr-4 font-mono text-xs text-zinc-300">budget.exceeded</td>
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">budget.exceeded</td>
               <td className="py-2 text-xs">A budget alert threshold is crossed.</td>
             </tr>
             <tr>
-              <td className="py-2 pr-4 font-mono text-xs text-zinc-300">permission.requested</td>
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">permission.requested</td>
               <td className="py-2 text-xs">An agent requests a tool call that needs approval.</td>
             </tr>
           </tbody>
@@ -58,45 +59,46 @@ export default function WebhooksPage() {
       </div>
 
       {/* Setup */}
-      <h2 className="mt-10 text-xl font-semibold text-zinc-100">
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="setting-up-a-webhook">
         Setting Up a Webhook
       </h2>
-      <p className="mt-2 text-sm text-zinc-400">
+      <p className="mt-2 text-sm text-muted-foreground">
         Go to Settings &gt; Webhooks in the dashboard. Click &quot;Add
         Endpoint&quot; and provide:
       </p>
-      <ul className="mt-2 list-disc space-y-1 pl-6 text-sm text-zinc-400">
+      <ul className="mt-2 list-disc space-y-1 pl-6 text-sm text-muted-foreground">
         <li>
-          <strong className="text-zinc-300">Name:</strong> A label for this
+          <strong className="text-foreground/75">Name:</strong> A label for this
           webhook (max 100 characters).
         </li>
         <li>
-          <strong className="text-zinc-300">URL:</strong> Your HTTPS endpoint.
+          <strong className="text-foreground/75">URL:</strong> Your HTTPS endpoint.
           Must return 2xx within 10 seconds. Internal IPs and localhost are
           blocked.
         </li>
         <li>
-          <strong className="text-zinc-300">Events:</strong> Select which events
+          <strong className="text-foreground/75">Events:</strong> Select which events
           to subscribe to (at least one required).
         </li>
       </ul>
-      <p className="mt-2 text-sm text-zinc-400">
+      <p className="mt-2 text-sm text-muted-foreground">
         After creation, the signing secret is shown once. Store it securely; it
         cannot be retrieved again. If lost, delete and recreate the webhook.
       </p>
 
       {/* Payload Format */}
-      <h2 className="mt-10 text-xl font-semibold text-zinc-100">
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="payload-format">
         Payload Format
       </h2>
-      <p className="mt-2 text-sm text-zinc-400">
+      <p className="mt-2 text-sm text-muted-foreground">
         All webhook payloads are JSON. The shape of the{" "}
-        <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-300">data</code>{" "}
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">data</code>{" "}
         object varies by event type.
       </p>
-      <h3 className="mt-4 text-base font-medium text-zinc-200">session.started</h3>
-      <pre className="mt-3 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm font-mono text-zinc-300 ring-1 ring-zinc-800">
-        <code>{`{
+      <h3 className="mt-4 text-base font-medium text-foreground/90 scroll-mt-20" id="session-started">session.started</h3>
+      <CodeBlock
+        lang="json"
+        code={`{
   "event": "session.started",
   "timestamp": "2026-03-22T14:30:00Z",
   "data": {
@@ -107,11 +109,12 @@ export default function WebhooksPage() {
     "machine_id": "mch_abc123",
     "started_at": "2026-03-22T14:30:00Z"
   }
-}`}</code>
-      </pre>
-      <h3 className="mt-4 text-base font-medium text-zinc-200">session.completed</h3>
-      <pre className="mt-3 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm font-mono text-zinc-300 ring-1 ring-zinc-800">
-        <code>{`{
+}`}
+      />
+      <h3 className="mt-4 text-base font-medium text-foreground/90 scroll-mt-20" id="session-completed">session.completed</h3>
+      <CodeBlock
+        lang="json"
+        code={`{
   "event": "session.completed",
   "timestamp": "2026-03-22T14:45:12Z",
   "data": {
@@ -126,11 +129,12 @@ export default function WebhooksPage() {
     "total_output_tokens": 3210,
     "message_count": 24
   }
-}`}</code>
-      </pre>
-      <h3 className="mt-4 text-base font-medium text-zinc-200">budget.exceeded</h3>
-      <pre className="mt-3 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm font-mono text-zinc-300 ring-1 ring-zinc-800">
-        <code>{`{
+}`}
+      />
+      <h3 className="mt-4 text-base font-medium text-foreground/90 scroll-mt-20" id="budget-exceeded">budget.exceeded</h3>
+      <CodeBlock
+        lang="json"
+        code={`{
   "event": "budget.exceeded",
   "timestamp": "2026-03-22T14:45:12Z",
   "data": {
@@ -142,11 +146,12 @@ export default function WebhooksPage() {
     "action": "notify",
     "percentage_used": 102.3
   }
-}`}</code>
-      </pre>
-      <h3 className="mt-4 text-base font-medium text-zinc-200">permission.requested</h3>
-      <pre className="mt-3 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm font-mono text-zinc-300 ring-1 ring-zinc-800">
-        <code>{`{
+}`}
+      />
+      <h3 className="mt-4 text-base font-medium text-foreground/90 scroll-mt-20" id="permission-requested">permission.requested</h3>
+      <CodeBlock
+        lang="json"
+        code={`{
   "event": "permission.requested",
   "timestamp": "2026-03-22T14:32:00Z",
   "data": {
@@ -159,22 +164,23 @@ export default function WebhooksPage() {
     "tool_name": "Bash",
     "created_at": "2026-03-22T14:32:00Z"
   }
-}`}</code>
-      </pre>
+}`}
+      />
 
       {/* Signature Verification */}
-      <h2 className="mt-10 text-xl font-semibold text-zinc-100">
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="signature-verification">
         Signature Verification
       </h2>
-      <p className="mt-2 text-sm text-zinc-400">
+      <p className="mt-2 text-sm text-muted-foreground">
         Every webhook request includes a{" "}
-        <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-300">
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">
           X-Styrby-Signature
         </code>{" "}
         header. Verify it using HMAC-SHA256 with your signing secret.
       </p>
-      <pre className="mt-3 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm font-mono text-zinc-300 ring-1 ring-zinc-800">
-        <code>{`import crypto from "crypto";
+      <CodeBlock
+        lang="typescript"
+        code={`import crypto from "crypto";
 
 function verifyWebhook(
   payload: string,
@@ -203,23 +209,23 @@ const isValid = verifyWebhook(
 
 if (!isValid) {
   return res.status(401).json({ error: "Invalid signature" });
-}`}</code>
-      </pre>
+}`}
+      />
 
       {/* Retry Policy */}
-      <h2 className="mt-10 text-xl font-semibold text-zinc-100">
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="retry-policy">
         Retry Policy
       </h2>
-      <p className="mt-2 text-sm text-zinc-400">
+      <p className="mt-2 text-sm text-muted-foreground">
         If your endpoint returns a non-2xx status or times out (30 seconds),
         Styrby retries with exponential backoff (3 total attempts):
       </p>
-      <ul className="mt-2 list-disc space-y-1 pl-6 text-sm text-zinc-400">
+      <ul className="mt-2 list-disc space-y-1 pl-6 text-sm text-muted-foreground">
         <li>Attempt 1: immediate</li>
         <li>Retry 1: after 1 minute</li>
         <li>Retry 2: after 2 minutes (final attempt)</li>
       </ul>
-      <p className="mt-2 text-sm text-zinc-400">
+      <p className="mt-2 text-sm text-muted-foreground">
         After 3 total failed attempts, the delivery is marked as failed. You
         can view delivery history and retry failed events from the webhook
         detail page in Settings &gt; Webhooks.

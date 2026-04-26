@@ -15,88 +15,88 @@ export default function APIReferencePage() {
 
   return (
     <article>
-      <h1 className="text-3xl font-bold tracking-tight text-zinc-50">
+      <h1 className="text-3xl font-bold tracking-tight text-foreground">
         API Reference
       </h1>
-      <p className="mt-3 text-zinc-400">
+      <p className="mt-3 text-muted-foreground">
         Programmatic access to your Styrby data. Available on the Power tier.
       </p>
 
       {/* Auth */}
-      <h2 className="mt-10 text-xl font-semibold text-zinc-100">
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="authentication">
         Authentication
       </h2>
-      <p className="mt-2 text-sm text-zinc-400">
+      <p className="mt-2 text-sm text-muted-foreground">
         Generate an API key in the dashboard under Settings &gt; API Keys. Pass
         it as a Bearer token in the{" "}
-        <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-300">Authorization</code>{" "}
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">Authorization</code>{" "}
         header.
       </p>
-      <pre className="mt-3 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm font-mono text-zinc-300 ring-1 ring-zinc-800">
+      <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
         <code>{`Authorization: Bearer styrby_abc123...`}</code>
       </pre>
-      <p className="mt-2 text-sm text-zinc-500">
+      <p className="mt-2 text-sm text-muted-foreground/70">
         API keys are prefixed with{" "}
-        <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-300">styrby_</code>.
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">styrby_</code>.
         They are hashed with bcrypt (cost factor 12) before storage. Styrby
         cannot retrieve your key after creation. Store it securely. Keys can
         optionally expire; set an expiration in days when creating the key.
       </p>
 
       {/* Base URL */}
-      <h2 className="mt-10 text-xl font-semibold text-zinc-100">Base URL</h2>
-      <pre className="mt-3 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm font-mono text-zinc-300 ring-1 ring-zinc-800">
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="base-url">Base URL</h2>
+      <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
         <code>https://styrbyapp.com/api/v1</code>
       </pre>
 
       {/* GET /sessions */}
-      <h2 className="mt-10 text-xl font-semibold text-zinc-100">
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="get-sessions">
         GET /sessions
       </h2>
-      <p className="mt-2 text-sm text-zinc-400">
+      <p className="mt-2 text-sm text-muted-foreground">
         Returns a paginated list of your sessions, newest first. Archived
         sessions are excluded by default.
       </p>
-      <h3 className="mt-4 text-base font-medium text-zinc-200">Query Parameters</h3>
+      <h3 className="mt-4 text-base font-medium text-foreground/90 scroll-mt-20" id="query-parameters">Query Parameters</h3>
       <div className="mt-2 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-zinc-800 text-left">
-              <th className="pb-2 pr-4 font-medium text-zinc-300">Param</th>
-              <th className="pb-2 pr-4 font-medium text-zinc-300">Type</th>
-              <th className="pb-2 font-medium text-zinc-300">Description</th>
+            <tr className="border-b border-border text-left">
+              <th className="pb-2 pr-4 font-medium text-foreground/75">Param</th>
+              <th className="pb-2 pr-4 font-medium text-foreground/75">Type</th>
+              <th className="pb-2 font-medium text-foreground/75">Description</th>
             </tr>
           </thead>
-          <tbody className="text-zinc-400">
-            <tr className="border-b border-zinc-800/50">
-              <td className="py-2 pr-4 font-mono text-xs text-zinc-300">agent_type</td>
+          <tbody className="text-muted-foreground">
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">agent_type</td>
               <td className="py-2 pr-4 text-xs">string</td>
               <td className="py-2 text-xs">Filter by agent type: claude, codex, gemini, opencode, or aider.</td>
             </tr>
-            <tr className="border-b border-zinc-800/50">
-              <td className="py-2 pr-4 font-mono text-xs text-zinc-300">status</td>
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">status</td>
               <td className="py-2 pr-4 text-xs">string</td>
               <td className="py-2 text-xs">Filter by status: starting, running, idle, paused, stopped, error, expired.</td>
             </tr>
-            <tr className="border-b border-zinc-800/50">
-              <td className="py-2 pr-4 font-mono text-xs text-zinc-300">limit</td>
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">limit</td>
               <td className="py-2 pr-4 text-xs">number</td>
               <td className="py-2 text-xs">Results per page. Default 20, max 100.</td>
             </tr>
-            <tr className="border-b border-zinc-800/50">
-              <td className="py-2 pr-4 font-mono text-xs text-zinc-300">offset</td>
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">offset</td>
               <td className="py-2 pr-4 text-xs">number</td>
               <td className="py-2 text-xs">Pagination offset. Default 0.</td>
             </tr>
             <tr>
-              <td className="py-2 pr-4 font-mono text-xs text-zinc-300">archived</td>
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">archived</td>
               <td className="py-2 pr-4 text-xs">boolean</td>
               <td className="py-2 text-xs">Include archived sessions. Default false.</td>
             </tr>
           </tbody>
         </table>
       </div>
-      <pre className="mt-4 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm font-mono text-zinc-300 ring-1 ring-zinc-800">
+      <pre className="mt-4 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
         <code>{`curl -H "Authorization: Bearer styrby_abc123" \\
   "https://styrbyapp.com/api/v1/sessions?agent_type=claude&limit=5"
 
@@ -128,33 +128,33 @@ export default function APIReferencePage() {
       </pre>
 
       {/* GET /costs */}
-      <h2 className="mt-10 text-xl font-semibold text-zinc-100">
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="get-costs">
         GET /costs
       </h2>
-      <p className="mt-2 text-sm text-zinc-400">
+      <p className="mt-2 text-sm text-muted-foreground">
         Returns aggregated cost data for a time period. Choose daily (last 30
         days), weekly (last 12 weeks), or monthly (last 12 months) aggregation.
       </p>
-      <h3 className="mt-4 text-base font-medium text-zinc-200">Query Parameters</h3>
+      <h3 className="mt-4 text-base font-medium text-foreground/90 scroll-mt-20" id="query-parameters-2">Query Parameters</h3>
       <div className="mt-2 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-zinc-800 text-left">
-              <th className="pb-2 pr-4 font-medium text-zinc-300">Param</th>
-              <th className="pb-2 pr-4 font-medium text-zinc-300">Type</th>
-              <th className="pb-2 font-medium text-zinc-300">Description</th>
+            <tr className="border-b border-border text-left">
+              <th className="pb-2 pr-4 font-medium text-foreground/75">Param</th>
+              <th className="pb-2 pr-4 font-medium text-foreground/75">Type</th>
+              <th className="pb-2 font-medium text-foreground/75">Description</th>
             </tr>
           </thead>
-          <tbody className="text-zinc-400">
+          <tbody className="text-muted-foreground">
             <tr>
-              <td className="py-2 pr-4 font-mono text-xs text-zinc-300">period</td>
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">period</td>
               <td className="py-2 pr-4 text-xs">string</td>
               <td className="py-2 text-xs">Aggregation period: daily, weekly, or monthly. Default monthly.</td>
             </tr>
           </tbody>
         </table>
       </div>
-      <pre className="mt-3 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm font-mono text-zinc-300 ring-1 ring-zinc-800">
+      <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
         <code>{`curl -H "Authorization: Bearer styrby_abc123" \\
   "https://styrbyapp.com/api/v1/costs?period=daily"
 
@@ -181,32 +181,32 @@ export default function APIReferencePage() {
       </pre>
 
       {/* GET /costs/breakdown */}
-      <h2 className="mt-10 text-xl font-semibold text-zinc-100">
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="get-costs-breakdown">
         GET /costs/breakdown
       </h2>
-      <p className="mt-2 text-sm text-zinc-400">
+      <p className="mt-2 text-sm text-muted-foreground">
         Returns cost breakdown grouped by agent type for a trailing window.
       </p>
-      <h3 className="mt-4 text-base font-medium text-zinc-200">Query Parameters</h3>
+      <h3 className="mt-4 text-base font-medium text-foreground/90 scroll-mt-20" id="query-parameters-3">Query Parameters</h3>
       <div className="mt-2 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-zinc-800 text-left">
-              <th className="pb-2 pr-4 font-medium text-zinc-300">Param</th>
-              <th className="pb-2 pr-4 font-medium text-zinc-300">Type</th>
-              <th className="pb-2 font-medium text-zinc-300">Description</th>
+            <tr className="border-b border-border text-left">
+              <th className="pb-2 pr-4 font-medium text-foreground/75">Param</th>
+              <th className="pb-2 pr-4 font-medium text-foreground/75">Type</th>
+              <th className="pb-2 font-medium text-foreground/75">Description</th>
             </tr>
           </thead>
-          <tbody className="text-zinc-400">
+          <tbody className="text-muted-foreground">
             <tr>
-              <td className="py-2 pr-4 font-mono text-xs text-zinc-300">days</td>
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">days</td>
               <td className="py-2 pr-4 text-xs">number</td>
               <td className="py-2 text-xs">Trailing days to include. Default 30, max 365.</td>
             </tr>
           </tbody>
         </table>
       </div>
-      <pre className="mt-3 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm font-mono text-zinc-300 ring-1 ring-zinc-800">
+      <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
         <code>{`curl -H "Authorization: Bearer styrby_abc123" \\
   "https://styrbyapp.com/api/v1/costs/breakdown?days=30"
 
@@ -243,32 +243,32 @@ export default function APIReferencePage() {
       </pre>
 
       {/* GET /machines */}
-      <h2 className="mt-10 text-xl font-semibold text-zinc-100">
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="get-machines">
         GET /machines
       </h2>
-      <p className="mt-2 text-sm text-zinc-400">
+      <p className="mt-2 text-sm text-muted-foreground">
         Returns all paired machines for your account.
       </p>
-      <h3 className="mt-4 text-base font-medium text-zinc-200">Query Parameters</h3>
+      <h3 className="mt-4 text-base font-medium text-foreground/90 scroll-mt-20" id="query-parameters-4">Query Parameters</h3>
       <div className="mt-2 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-zinc-800 text-left">
-              <th className="pb-2 pr-4 font-medium text-zinc-300">Param</th>
-              <th className="pb-2 pr-4 font-medium text-zinc-300">Type</th>
-              <th className="pb-2 font-medium text-zinc-300">Description</th>
+            <tr className="border-b border-border text-left">
+              <th className="pb-2 pr-4 font-medium text-foreground/75">Param</th>
+              <th className="pb-2 pr-4 font-medium text-foreground/75">Type</th>
+              <th className="pb-2 font-medium text-foreground/75">Description</th>
             </tr>
           </thead>
-          <tbody className="text-zinc-400">
+          <tbody className="text-muted-foreground">
             <tr>
-              <td className="py-2 pr-4 font-mono text-xs text-zinc-300">online_only</td>
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">online_only</td>
               <td className="py-2 pr-4 text-xs">boolean</td>
               <td className="py-2 text-xs">Filter to only currently online machines. Default false.</td>
             </tr>
           </tbody>
         </table>
       </div>
-      <pre className="mt-3 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm font-mono text-zinc-300 ring-1 ring-zinc-800">
+      <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
         <code>{`curl -H "Authorization: Bearer styrby_abc123" \\
   "https://styrbyapp.com/api/v1/machines"
 
@@ -291,19 +291,19 @@ export default function APIReferencePage() {
       </pre>
 
       {/* Rate Limits */}
-      <h2 className="mt-10 text-xl font-semibold text-zinc-100">
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="rate-limits">
         Rate Limits
       </h2>
       <div className="mt-3 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-zinc-800 text-left">
-              <th className="pb-2 pr-4 font-medium text-zinc-300">Endpoint group</th>
-              <th className="pb-2 pr-4 font-medium text-zinc-300">Limit</th>
-              <th className="pb-2 font-medium text-zinc-300">Window</th>
+            <tr className="border-b border-border text-left">
+              <th className="pb-2 pr-4 font-medium text-foreground/75">Endpoint group</th>
+              <th className="pb-2 pr-4 font-medium text-foreground/75">Limit</th>
+              <th className="pb-2 font-medium text-foreground/75">Window</th>
             </tr>
           </thead>
-          <tbody className="text-zinc-400">
+          <tbody className="text-muted-foreground">
             <tr>
               <td className="py-2 pr-4 text-xs">All v1 endpoints</td>
               <td className="py-2 pr-4 text-xs">100 requests</td>
@@ -314,31 +314,31 @@ export default function APIReferencePage() {
       </div>
 
       {/* Error Codes */}
-      <h2 className="mt-10 text-xl font-semibold text-zinc-100">
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="error-codes">
         Error Codes
       </h2>
       <div className="mt-3 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-zinc-800 text-left">
-              <th className="pb-2 pr-4 font-medium text-zinc-300">HTTP</th>
-              <th className="pb-2 pr-4 font-medium text-zinc-300">Description</th>
+            <tr className="border-b border-border text-left">
+              <th className="pb-2 pr-4 font-medium text-foreground/75">HTTP</th>
+              <th className="pb-2 pr-4 font-medium text-foreground/75">Description</th>
             </tr>
           </thead>
-          <tbody className="text-zinc-400">
-            <tr className="border-b border-zinc-800/50">
+          <tbody className="text-muted-foreground">
+            <tr className="border-b border-border/50">
               <td className="py-2 pr-4 text-xs">400</td>
               <td className="py-2 text-xs">Missing or malformed query parameters.</td>
             </tr>
-            <tr className="border-b border-zinc-800/50">
+            <tr className="border-b border-border/50">
               <td className="py-2 pr-4 text-xs">401</td>
               <td className="py-2 text-xs">Missing or invalid API key.</td>
             </tr>
-            <tr className="border-b border-zinc-800/50">
+            <tr className="border-b border-border/50">
               <td className="py-2 pr-4 text-xs">403</td>
               <td className="py-2 text-xs">API access requires Power tier.</td>
             </tr>
-            <tr className="border-b border-zinc-800/50">
+            <tr className="border-b border-border/50">
               <td className="py-2 pr-4 text-xs">429</td>
               <td className="py-2 text-xs">Too many requests. Retry after the indicated delay.</td>
             </tr>
@@ -349,10 +349,10 @@ export default function APIReferencePage() {
           </tbody>
         </table>
       </div>
-      <p className="mt-3 text-sm text-zinc-400">
+      <p className="mt-3 text-sm text-muted-foreground">
         All error responses use the same shape:
       </p>
-      <pre className="mt-3 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm font-mono text-zinc-300 ring-1 ring-zinc-800">
+      <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
         <code>{`{
   "error": "Rate limit exceeded. Try again in 42 seconds."
 }`}</code>

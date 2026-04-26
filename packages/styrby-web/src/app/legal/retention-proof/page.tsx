@@ -305,7 +305,7 @@ export default async function RetentionProofPage() {
         <section aria-labelledby="policy-heading" className="mb-12">
           <h2
             id="policy-heading"
-            className="mb-4 text-xl font-semibold text-zinc-100"
+            className="mb-4 text-xl font-semibold text-zinc-100 scroll-mt-20"
           >
             Retention Policy at a Glance
           </h2>
@@ -379,7 +379,7 @@ export default async function RetentionProofPage() {
         <section aria-labelledby="live-proof-heading" className="mb-12">
           <h2
             id="live-proof-heading"
-            className="mb-2 text-xl font-semibold text-zinc-100"
+            className="mb-2 text-xl font-semibold text-zinc-100 scroll-mt-20"
           >
             Live Proof - Records Purged in Last 30 Days
           </h2>

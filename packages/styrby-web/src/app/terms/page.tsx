@@ -58,7 +58,7 @@ export default function TermsOfServicePage() {
           </p>
 
           {/* ── 1. Acceptance of Terms ────────────────────────── */}
-          <h2>1. Acceptance of Terms</h2>
+          <h2 className="scroll-mt-20" id="1-acceptance-of-terms">1. Acceptance of Terms</h2>
 
           <p>
             These Terms of Service (&quot;Terms&quot;) are a binding agreement
@@ -77,7 +77,7 @@ export default function TermsOfServicePage() {
           </p>
 
           {/* ── 2. Description of Service ─────────────────────── */}
-          <h2>2. What Styrby Does</h2>
+          <h2 className="scroll-mt-20" id="2-what-styrby-does">2. What Styrby Does</h2>
 
           <p>
             Styrby is a remote monitoring and control platform for AI coding
@@ -111,7 +111,7 @@ export default function TermsOfServicePage() {
           </p>
 
           {/* ── 3. Account Registration ───────────────────────── */}
-          <h2>3. Your Account</h2>
+          <h2 className="scroll-mt-20" id="3-your-account">3. Your Account</h2>
 
           <p>To use Styrby, you must create an account. You agree to:</p>
           <ul>
@@ -141,7 +141,7 @@ export default function TermsOfServicePage() {
           </p>
 
           {/* ── 4. Subscription and Billing ───────────────────── */}
-          <h2>4. Subscriptions and Billing</h2>
+          <h2 className="scroll-mt-20" id="4-subscriptions-and-billing">4. Subscriptions and Billing</h2>
 
           <p>
             Styrby offers free and paid subscription tiers. Payments are
@@ -157,7 +157,7 @@ export default function TermsOfServicePage() {
             <a href="https://styrbyapp.com/#pricing">styrbyapp.com</a>.
           </p>
 
-          <h3>Subscription Tiers</h3>
+          <h3 className="scroll-mt-20" id="subscription-tiers">Subscription Tiers</h3>
           <ul>
             <li>
               <strong>Free</strong>: basic session monitoring with 7 days of
@@ -173,7 +173,7 @@ export default function TermsOfServicePage() {
             </li>
           </ul>
 
-          <h3>Billing Terms</h3>
+          <h3 className="scroll-mt-20" id="billing-terms">Billing Terms</h3>
           <ul>
             <li>
               Paid subscriptions are billed monthly or annually, as selected
@@ -198,7 +198,7 @@ export default function TermsOfServicePage() {
             </li>
           </ul>
 
-          <h3>AI Provider Costs</h3>
+          <h3 className="scroll-mt-20" id="ai-provider-costs">AI Provider Costs</h3>
           <p>
             Styrby tracks your AI token usage so you can monitor your spending.
             <strong> The actual costs of AI model usage are charged directly
@@ -210,7 +210,7 @@ export default function TermsOfServicePage() {
           </p>
 
           {/* ── 5. Acceptable Use ─────────────────────────────── */}
-          <h2>5. Acceptable Use</h2>
+          <h2 className="scroll-mt-20" id="5-acceptable-use">5. Acceptable Use</h2>
 
           <p>You agree not to use the Service to:</p>
           <ul>
@@ -255,16 +255,16 @@ export default function TermsOfServicePage() {
           </p>
 
           {/* ── 6. Intellectual Property ──────────────────────── */}
-          <h2>6. Intellectual Property</h2>
+          <h2 className="scroll-mt-20" id="6-intellectual-property">6. Intellectual Property</h2>
 
-          <h3>Our Property</h3>
+          <h3 className="scroll-mt-20" id="our-property">Our Property</h3>
           <p>
             The Service, including its software, design, branding, and
             documentation, is owned by Steel Motion LLC. All rights not
             expressly granted in these Terms are reserved.
           </p>
 
-          <h3>Your Content</h3>
+          <h3 className="scroll-mt-20" id="your-content">Your Content</h3>
           <p>
             You retain ownership of all code, data, and content you work with
             through the Service. Because session messages are end-to-end
@@ -273,7 +273,7 @@ export default function TermsOfServicePage() {
             ciphertext on your behalf.
           </p>
 
-          <h3>Feedback</h3>
+          <h3 className="scroll-mt-20" id="feedback">Feedback</h3>
           <p>
             If you send us feedback or suggestions, you grant us an
             unrestricted, perpetual license to use that feedback for any
@@ -282,7 +282,7 @@ export default function TermsOfServicePage() {
           </p>
 
           {/* ── 7. Limitation of Liability ────────────────────── */}
-          <h2>7. Limitation of Liability</h2>
+          <h2 className="scroll-mt-20" id="7-limitation-of-liability">7. Limitation of Liability</h2>
 
           <p>
             <strong>Plain English summary:</strong> Styrby is a monitoring and
@@ -347,7 +347,7 @@ export default function TermsOfServicePage() {
           </ul>
 
           {/* ── 8. Indemnification ────────────────────────────── */}
-          <h2>8. Indemnification</h2>
+          <h2 className="scroll-mt-20" id="8-indemnification">8. Indemnification</h2>
 
           <p>
             You agree to defend, indemnify, and hold harmless Steel Motion LLC
@@ -358,9 +358,9 @@ export default function TermsOfServicePage() {
           </p>
 
           {/* ── 9. Termination ────────────────────────────────── */}
-          <h2>9. Termination</h2>
+          <h2 className="scroll-mt-20" id="9-termination">9. Termination</h2>
 
-          <h3>By You</h3>
+          <h3 className="scroll-mt-20" id="by-you">By You</h3>
           <p>
             You may delete your account at any time via Settings or by
             contacting us at{' '}
@@ -379,7 +379,7 @@ export default function TermsOfServicePage() {
             </li>
           </ul>
 
-          <h3>By Us</h3>
+          <h3 className="scroll-mt-20" id="by-us">By Us</h3>
           <p>
             We may suspend or terminate your account for the following reasons:
           </p>
@@ -404,7 +404,7 @@ export default function TermsOfServicePage() {
           </p>
 
           {/* ── 10. Governing Law ─────────────────────────────── */}
-          <h2>10. Governing Law</h2>
+          <h2 className="scroll-mt-20" id="10-governing-law">10. Governing Law</h2>
 
           <p>
             These Terms are governed by the laws of the State of Texas, United
@@ -414,7 +414,7 @@ export default function TermsOfServicePage() {
           </p>
 
           {/* ── 11. Changes to Terms ──────────────────────────── */}
-          <h2>11. Changes to These Terms</h2>
+          <h2 className="scroll-mt-20" id="11-changes-to-these-terms">11. Changes to These Terms</h2>
 
           <p>
             We may update these Terms. For material changes, we will:
@@ -436,7 +436,7 @@ export default function TermsOfServicePage() {
           </p>
 
           {/* ── 12. Contact Information ───────────────────────── */}
-          <h2>12. Contact</h2>
+          <h2 className="scroll-mt-20" id="12-contact">12. Contact</h2>
 
           <p>
             Questions about these Terms:

@@ -176,14 +176,14 @@ export function Navbar() {
               <Button
                 variant="outline"
                 asChild
-                className="border-white/[0.10] bg-transparent text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-100 rounded-xl"
+                className="border-white/[0.10] bg-transparent text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-100 rounded-lg"
               >
                 <Link href="/login">Sign In</Link>
               </Button>
               <Button
                 asChild
                 className={cn(
-                  "rounded-xl font-medium",
+                  "rounded-lg font-medium",
                   "bg-amber-500 text-zinc-950 hover:bg-amber-400",
                   "shadow-[inset_0_1px_1px_rgba(255,255,255,0.25)]"
                 )}
