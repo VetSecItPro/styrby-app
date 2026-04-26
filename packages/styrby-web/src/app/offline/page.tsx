@@ -37,13 +37,11 @@ export default function OfflinePage() {
         </div>
 
         <h1 className="text-3xl font-bold tracking-tight text-foreground">
-          You&apos;re offline
+          You are offline.
         </h1>
 
         <p className="text-lg text-muted-foreground">
-          It looks like you&apos;ve lost your internet connection.
-          Any actions you took while online are saved. Reconnect to
-          pick up where you left off.
+          Connection dropped. Anything you did while online is already saved on the server. Approvals and commands you tap from here queue locally and sync the moment the network comes back.
         </p>
 
         <div className="flex flex-col gap-3 pt-2">
@@ -51,13 +49,13 @@ export default function OfflinePage() {
             href="/dashboard"
             className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
-            Back to Dashboard
+            Back to my dashboard
           </a>
           <RefreshButton />
         </div>
 
         <p className="text-xs text-muted-foreground/60">
-          Queued commands will sync automatically when you reconnect.
+          Queued actions sync automatically the moment you reconnect.
         </p>
       </div>
     </main>

@@ -53,14 +53,14 @@ export function CTABanner() {
             className="h-13 bg-amber-500 px-10 text-base font-semibold text-zinc-950 shadow-lg shadow-amber-500/20 hover:bg-amber-400 active:bg-amber-600 transition-colors"
           >
             <Link href="/signup">
-              Connect Your First Agent
+              Pair my first agent
               <ArrowRight className="ml-2 h-4 w-4" />
             </Link>
           </Button>
         </div>
 
         <p className="mt-4 text-sm text-muted-foreground/60">
-          Free plan available. No credit card required.
+          Free on one machine. No credit card.
         </p>
       </div>
     </section>

@@ -136,7 +136,11 @@ export function SocialProof() {
 
       <div className="mx-auto max-w-7xl px-6 py-10">
         <p className="mb-6 text-center text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground/60">
-          Works with 11 CLI coding agents you already use
+          {/* WHY this eyebrow over "Trusted by N developers": real customer
+              counts are still being instrumented (see notes.md placeholder #1).
+              Until that number is verifiable, the agent compatibility framing
+              is the strongest honest claim. */}
+          Pairs with the 11 CLI agents already in your terminal
         </p>
         <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-4 lg:flex-nowrap lg:gap-x-6">
           {agents.map((agent) => (
@@ -151,9 +155,9 @@ export function SocialProof() {
         {/* Trust badges */}
         <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
           {[
-            "11 CLI agents supported",
-            "E2E encrypted",
-            "Cross-platform: CLI + Web + Mobile",
+            "E2E encrypted (TweetNaCl)",
+            "Zero-knowledge architecture",
+            "CLI + Web + iOS",
           ].map((badge) => (
             <span
               key={badge}

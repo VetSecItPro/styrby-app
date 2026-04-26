@@ -89,7 +89,7 @@ export const faqs = [
   },
   {
     q: 'How does per-seat pricing work for Team and Business?',
-    a: 'You pay per developer seat per month. Team starts at $19/seat with a minimum of 3 seats ($57/mo floor). Business starts at $39/seat with a minimum of 10 seats ($390/mo floor). Use the seat-count slider on this page to calculate your exact monthly cost.',
+    a: 'You pay per developer seat per month, with a minimum-seat floor enforced at checkout. Team starts at $19 per seat with a 3-seat minimum (so a $57 per month floor). Business starts at $39 per seat with a 10-seat minimum (so a $390 per month floor). Use the seat slider on this page to see your exact monthly cost before signing up.',
   },
   {
     q: 'Can I use my own API keys?',
@@ -113,7 +113,7 @@ export const faqs = [
   },
   {
     q: 'How does Enterprise pricing work?',
-    a: 'Enterprise pricing is custom, starting from around $15K annually depending on seat count, custom data residency needs, SLA requirements, and contract terms. Book a 30-minute call and we will send a proposal within 2 business days.',
+    a: 'Enterprise contracts start at around $15,000 per year. Final pricing depends on seat count, data residency, SLA, and contract length. Book a 30-minute call with a founder and a written proposal lands in your inbox within two business days.',
   },
   {
     q: 'Does it work offline?',

@@ -44,65 +44,65 @@ interface BentoFeature {
 const features: BentoFeature[] = [
   {
     icon: LayoutDashboard,
-    title: "Multi-Agent Dashboard",
+    title: "11 agents, one live view",
     description:
-      "Monitor all 11 CLI coding agents from one place. Claude Code, Codex, Gemini CLI, OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. Live status, session history, error attribution, and per-agent metrics, all in a single encrypted view.",
+      "Watch every CLI agent at once. Live status across Claude Code, Codex, Gemini CLI, OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. Per-session error attribution, token spend, and machine health, all in one encrypted view.",
     colSpan: "col-span-2",
     rowSpan: "row-span-2",
   },
   {
     icon: Smartphone,
-    title: "Mobile Remote Control",
+    title: "Phone in your pocket, agent on your desk",
     description:
-      "Approve permissions, review code diffs, and send voice commands from your phone. Your agents never sit idle waiting for you.",
+      "Approve permissions in three taps. Send voice commands hands-free. Review diffs from a coffee shop. Your agents stop waiting on you.",
     colSpan: "col-span-1",
     rowSpan: "row-span-1",
   },
   {
     icon: FolderOpen,
-    title: "Session Management",
+    title: "Pick up any session, on any machine",
     description:
-      "Checkpoints, sharing, export, and replay. All encrypted end-to-end with TweetNaCl.",
+      "Checkpoint, resume, share, replay. Every message encrypted with TweetNaCl on your device before it leaves.",
     colSpan: "col-span-1",
     rowSpan: "row-span-1",
   },
   {
     icon: BarChart3,
-    title: "Smart Cost Tracking",
+    title: "Token-level cost, not month-end surprise",
     description:
-      "Per-message costs, dynamic pricing for 300+ models, and budget alerts that enforce themselves.",
+      "Per-message cost across 300+ models. Budget caps that throttle or kill the agent before the damage is done.",
     colSpan: "col-span-1",
     rowSpan: "row-span-1",
   },
   {
     icon: Activity,
-    title: "Activity Graph",
+    title: "See what your fleet did this week",
     description:
-      "GitHub-style contribution heatmap across all your agent sessions.",
+      "GitHub-style heatmap across every session. Find your heavy days, your idle days, and the agent burning the most cycles.",
     colSpan: "col-span-1",
     rowSpan: "row-span-1",
   },
   {
     icon: Bell,
-    title: "Cloud Monitoring",
+    title: "Notified the moment a session lands",
     description:
-      "Async task tracking with push notifications. Know the moment a session completes or errors.",
+      "Push when a job completes, errors, or stalls. No more refreshing the terminal from the kitchen.",
     colSpan: "col-span-1",
     rowSpan: "row-span-1",
   },
   {
     icon: GitBranch,
-    title: "OTEL Export",
+    title: "Send traces where your team already looks",
     description:
-      "Send traces to Grafana, Datadog, Honeycomb, or New Relic. Enterprise observability out of the box.",
+      "Stream session metrics to Grafana, Datadog, Honeycomb, or New Relic. The same observability stack your platform team is already paying for.",
     colSpan: "col-span-1",
     rowSpan: "row-span-1",
   },
   {
     icon: Code2,
-    title: "Code Review",
+    title: "Approve a diff without your laptop open",
     description:
-      "Diff viewer with syntax highlighting. Review what your agent changed before it commits, from mobile.",
+      "Syntax-highlighted diffs, inline. Approve, comment, or kick back from your phone.",
     colSpan: "col-span-1",
     rowSpan: "row-span-1",
   },
@@ -136,10 +136,10 @@ export function FeaturesSection() {
       <div className="absolute inset-0 dot-grid opacity-50" />
       <div className="relative mx-auto max-w-7xl px-6">
         <h2 className="mx-auto max-w-3xl text-balance text-center text-3xl font-semibold tracking-tighter text-foreground md:text-4xl">
-          Everything You Need to Run Agents in Production
+          Built for the way developers actually run AI agents.
         </h2>
         <p className="mx-auto mt-4 max-w-xl text-center text-sm leading-relaxed text-muted-foreground">
-          Remote control, session management, and full observability for all 11 agents at once.
+          Remote control, session memory, and full cost attribution for all 11 agents in one encrypted view.
         </p>
 
         {/*
@@ -254,7 +254,7 @@ export function FeaturesSection() {
             href="/features"
             className="inline-flex items-center gap-1.5 text-sm font-medium text-amber-500 transition-colors hover:text-amber-400"
           >
-            See all features
+            See every feature
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
