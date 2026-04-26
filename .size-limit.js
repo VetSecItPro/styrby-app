@@ -158,7 +158,13 @@ module.exports = [
     // are JIT-purged based on usage — components reference semantic tokens
     // (bg-background, text-foreground, bg-primary) which existed before. Measured
     // 775.64 KB gzip — within budget without bumping the limit.
-    limit: '776 KB',
+    //
+    // /copy + cert-claim cleanup ratchet 776 → 778 (2026-04-26): /copy shipped
+    // multi-page rewrite (homepage components, features, pricing, auth) and a
+    // follow-up cert-claim removal added a 1-line vendor-trust note on security/
+    // page.tsx. Net measurement: 776.003 KB gzip — 3 bytes over 776 KB limit.
+    // 2 KB headroom now for /a11y + /launch passes that follow.
+    limit: '778 KB',
     gzip: true,
     // WHY import is omitted: We cannot import directly from Next.js output —
     // these are already-built assets. size-limit stats the files and sums sizes.
