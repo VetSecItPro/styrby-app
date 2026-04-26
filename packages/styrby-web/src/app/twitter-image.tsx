@@ -13,7 +13,7 @@
 import { ImageResponse } from 'next/og';
 
 export const runtime = 'edge';
-export const alt = 'Styrby — AI Agent Dashboard';
+export const alt = 'Styrby: AI Agent Dashboard';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
@@ -98,7 +98,7 @@ export default function TwitterImage() {
               fontWeight: 400,
             }}
           >
-            Monitor costs, approve permissions, and stay in control — anywhere.
+            Monitor costs, approve permissions, and stay in control, anywhere.
           </p>
         </div>
 

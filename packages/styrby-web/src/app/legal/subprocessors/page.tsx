@@ -30,7 +30,7 @@ import Link from 'next/link';
 import { SUBPROCESSORS, SUBPROCESSORS_LAST_UPDATED } from '@/lib/legal/subprocessors';
 
 export const metadata: Metadata = {
-  title: 'Subprocessors — Styrby',
+  title: 'Subprocessors | Styrby',
   description:
     'List of third-party subprocessors used by Styrby (Steel Motion LLC) to deliver the service. Maintained for GDPR Article 28 transparency and enterprise due diligence.',
   openGraph: {
@@ -75,7 +75,7 @@ function DpfBadge({ certified }: { certified: boolean }) {
  */
 export default function SubprocessorsPage() {
   return (
-    <div className="min-h-screen bg-zinc-950">
+    <div className="min-h-[100dvh] bg-zinc-950">
       {/* Navigation header */}
       <header className="border-b border-zinc-800 bg-zinc-900/50">
         <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
@@ -227,13 +227,12 @@ export default function SubprocessorsPage() {
             This list is kept current. For questions about sub-processor changes, data
             processing activities, or to request notification of future updates, email{' '}
             <a
-              href="mailto:legal@styrbyapp.com"
+              href="mailto:support@styrby.dev"
               className="text-zinc-400 hover:text-zinc-200 transition-colors"
             >
-              legal@styrbyapp.com
+              support@styrby.dev
             </a>
-            {' '}
-            <span className="text-zinc-500 italic">(placeholder - replace before launch)</span>.
+            .
           </p>
           <p className="mt-3">
             Related:{' '}

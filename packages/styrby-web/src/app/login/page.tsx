@@ -343,7 +343,7 @@ function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-[100dvh] flex-col">
       <div className="flex flex-1 items-center justify-center px-4">
         {/* Background effects */}
         <div className="fixed inset-0 -z-10" />
@@ -394,6 +394,7 @@ function LoginForm() {
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="you@example.com"
                       required
+                      autoFocus
                       autoComplete="email"
                       className="bg-secondary/60 border-border/60 text-foreground placeholder:text-muted-foreground focus-visible:ring-amber-500"
                     />
@@ -540,7 +541,7 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center">
+        <div className="flex min-h-[100dvh] items-center justify-center">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
         </div>
       }

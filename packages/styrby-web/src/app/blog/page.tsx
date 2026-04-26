@@ -94,7 +94,7 @@ export default function BlogPage() {
                 {article.readTime} min read
               </span>
             </div>
-            <h2 className="mb-2 text-lg font-semibold text-foreground group-hover:text-amber-400 transition-colors">
+            <h2 className="text-balance mb-2 text-lg font-semibold text-foreground group-hover:text-amber-400 transition-colors">
               {article.title}
             </h2>
             <p className="mb-4 text-sm text-muted-foreground leading-relaxed">
@@ -102,7 +102,7 @@ export default function BlogPage() {
             </p>
             <time
               dateTime={article.date}
-              className="text-xs text-muted-foreground"
+              className="text-xs text-muted-foreground tabular-nums"
             >
               {new Date(article.date).toLocaleDateString("en-US", {
                 year: "numeric",

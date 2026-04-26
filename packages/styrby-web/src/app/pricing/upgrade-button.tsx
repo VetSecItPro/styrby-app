@@ -53,6 +53,17 @@ export function UpgradeButton({ tierId, billingCycle, isPopular }: UpgradeButton
     }
   };
 
+  // WHY tier-specific copy: generic "Upgrade" forces the user to look back at
+  // the card title to confirm what they're buying. Naming the destination tier
+  // (Pro / Power) inside the button is the standard pricing-page conversion
+  // pattern and complies with the project copy ban on generic CTAs.
+  const tierLabels: Record<TierId, string> = {
+    free: 'Start Free',
+    pro: 'Upgrade to Pro',
+    power: 'Upgrade to Power',
+  };
+  const ctaLabel = tierLabels[tierId] ?? 'Upgrade to Pro';
+
   return (
     <div>
       <button
@@ -64,7 +75,7 @@ export function UpgradeButton({ tierId, billingCycle, isPopular }: UpgradeButton
             : 'bg-zinc-800 text-zinc-100 hover:bg-zinc-700'
         } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
-        {loading ? 'Loading...' : 'Upgrade'}
+        {loading ? 'Loading...' : ctaLabel}
       </button>
       {error && (
         <p className="mt-2 text-sm text-red-400 text-center">{error}</p>

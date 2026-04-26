@@ -214,7 +214,7 @@ function ComparisonCategoryRows({ category }: { category: ComparisonCategory }) 
 
 export default function SecurityComparePage() {
   return (
-    <main className="min-h-screen">
+    <main className="min-h-[100dvh]">
       <Navbar />
 
       {/* Hero */}

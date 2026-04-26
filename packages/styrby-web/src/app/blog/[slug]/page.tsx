@@ -166,12 +166,12 @@ export default async function BlogPostPage({
             {article.readTime} min read
           </span>
         </div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+        <h1 className="text-balance text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
           {article.title}
         </h1>
         <time
           dateTime={article.date}
-          className="mt-4 block text-sm text-muted-foreground"
+          className="mt-4 block text-sm text-muted-foreground tabular-nums"
         >
           {new Date(article.date).toLocaleDateString("en-US", {
             year: "numeric",
@@ -182,7 +182,7 @@ export default async function BlogPostPage({
       </header>
 
       {/* Article body */}
-      <div className="prose prose-invert prose-zinc max-w-none prose-headings:font-semibold prose-headings:tracking-tight prose-h2:text-2xl prose-h2:mt-10 prose-h2:mb-4 prose-h3:text-xl prose-h3:mt-8 prose-h3:mb-3 prose-p:text-muted-foreground prose-p:leading-relaxed prose-a:text-amber-400 prose-a:no-underline hover:prose-a:underline prose-strong:text-foreground prose-code:text-amber-400 prose-code:before:content-none prose-code:after:content-none prose-pre:bg-zinc-900 prose-pre:border prose-pre:border-border/50 prose-li:text-muted-foreground prose-table:text-sm prose-th:text-foreground prose-td:text-muted-foreground prose-th:border-border prose-td:border-border prose-thead:border-border">
+      <div className="prose prose-lg prose-invert prose-zinc max-w-prose prose-headings:font-semibold prose-headings:tracking-tight prose-h2:text-2xl prose-h2:mt-10 prose-h2:mb-4 prose-h3:text-xl prose-h3:mt-8 prose-h3:mb-3 prose-p:text-muted-foreground prose-p:leading-relaxed prose-a:text-amber-400 prose-a:no-underline hover:prose-a:underline prose-strong:text-foreground prose-code:text-amber-400 prose-code:before:content-none prose-code:after:content-none prose-pre:bg-zinc-900 prose-pre:border prose-pre:border-border/50 prose-li:text-muted-foreground prose-table:text-sm prose-th:text-foreground prose-td:text-muted-foreground prose-th:border-border prose-td:border-border prose-thead:border-border">
         <Content />
       </div>
 

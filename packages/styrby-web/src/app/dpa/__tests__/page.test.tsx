@@ -75,23 +75,25 @@ describe('/dpa page', () => {
   it('renders the Download PDF button', () => {
     render(<DpaPage />);
 
-    const btn = screen.getByRole('button', { name: 'Download this DPA as PDF' });
+    const btn = screen.getByRole('button', { name: 'Open print dialog to save this DPA as a PDF' });
     expect(btn).toBeInTheDocument();
   });
 
-  it('button has data-print-hide attribute', () => {
+  it('button is wrapped in a data-print-hide container (hidden in printed PDF)', () => {
     render(<DpaPage />);
 
-    const btn = screen.getByRole('button', { name: 'Download this DPA as PDF' });
-    // data-print-hide is a boolean attribute — presence (any truthy value) is sufficient
-    expect(btn).toHaveAttribute('data-print-hide');
+    const btn = screen.getByRole('button', { name: 'Open print dialog to save this DPA as a PDF' });
+    // WHY closest: the wrapper div carries data-print-hide so the button AND
+    // its helper text are both suppressed in the printed PDF output.
+    const hiddenContainer = btn.closest('[data-print-hide]');
+    expect(hiddenContainer).not.toBeNull();
   });
 
   it('button click calls window.print()', async () => {
     const user = userEvent.setup();
     render(<DpaPage />);
 
-    const btn = screen.getByRole('button', { name: 'Download this DPA as PDF' });
+    const btn = screen.getByRole('button', { name: 'Open print dialog to save this DPA as a PDF' });
     await user.click(btn);
 
     expect(mockPrint).toHaveBeenCalledTimes(1);

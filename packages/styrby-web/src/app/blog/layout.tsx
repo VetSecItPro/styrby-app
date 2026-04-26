@@ -36,7 +36,7 @@ export default function BlogLayout({
   return (
     <>
       <Navbar />
-      <main id="main-content" className="min-h-screen pt-24 pb-16">
+      <main id="main-content" className="min-h-[100dvh] pt-24 pb-16">
         {children}
       </main>
       <Footer />

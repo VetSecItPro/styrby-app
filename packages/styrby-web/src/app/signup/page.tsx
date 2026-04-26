@@ -40,7 +40,7 @@ import { isDisposableEmail, DISPOSABLE_EMAIL_ERROR } from '@/lib/disposable-emai
 export default function SignUpPage() {
   return (
     <Suspense fallback={
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-[100dvh] items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
       </div>
     }>
@@ -266,7 +266,7 @@ function SignUpPageInner() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-[100dvh] flex-col">
       <div className="flex flex-1 items-center justify-center px-4">
         <div className="fixed inset-0 -z-10" />
         <div className="fixed left-1/2 top-1/3 -z-10 h-[400px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-500/5 blur-[120px]" />
@@ -355,6 +355,7 @@ function SignUpPageInner() {
                       onChange={(e) => setName(e.target.value)}
                       placeholder="Alex Morgan"
                       required
+                      autoFocus
                       autoComplete="name"
                       className="bg-secondary/60 border-border/60 text-foreground placeholder:text-muted-foreground focus-visible:ring-amber-500"
                     />
@@ -396,6 +397,9 @@ function SignUpPageInner() {
                     <Mail className="h-4 w-4" />
                     {loading ? 'Sending...' : 'Continue with Email'}
                   </Button>
+                  <p className="text-center text-xs text-muted-foreground mt-2">
+                    No credit card required
+                  </p>
                 </form>
 
                 {/* Divider */}

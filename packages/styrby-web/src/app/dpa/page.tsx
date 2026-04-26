@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { DownloadDpaButton } from './DownloadDpaButton';
+import { SUBPROCESSORS } from '@/lib/legal/subprocessors';
 
 export const metadata: Metadata = {
   title: 'Data Processing Agreement',
@@ -43,7 +44,7 @@ export const metadata: Metadata = {
  */
 export default function DpaPage() {
   return (
-    <div className="min-h-screen bg-zinc-950">
+    <div className="min-h-[100dvh] bg-zinc-950">
       {/*
        * Print styles — hide non-content chrome when printing to PDF.
        *
@@ -71,7 +72,7 @@ export default function DpaPage() {
             color: black !important;
             background: white !important;
           }
-          .min-h-screen {
+          .min-h-[100dvh] {
             background: white !important;
           }
           article {
@@ -106,13 +107,13 @@ export default function DpaPage() {
       </header>
 
       {/* DPA content */}
-      <main className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
+      <main className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
         {/* Download PDF button — hidden in print output via data-print-hide */}
         <div className="mb-6 flex justify-end">
           <DownloadDpaButton />
         </div>
 
-        <article className="prose prose-invert max-w-none prose-headings:text-zinc-100 prose-p:text-zinc-300 prose-li:text-zinc-300 prose-a:text-orange-400 prose-a:no-underline hover:prose-a:text-orange-300 prose-strong:text-zinc-200">
+        <article className="prose prose-lg prose-invert max-w-none prose-headings:text-zinc-100 prose-p:text-zinc-300 prose-li:text-zinc-300 prose-a:text-orange-400 prose-a:no-underline hover:prose-a:text-orange-300 prose-strong:text-zinc-200">
           <h1>Data Processing Agreement</h1>
           <p className="text-sm text-zinc-500">
             Effective date: March 22, 2026. Last updated: March 22, 2026.
@@ -306,71 +307,26 @@ export default function DpaPage() {
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td>
-                  <a
-                    href="https://supabase.com/privacy"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Supabase
-                  </a>
-                </td>
-                <td>Database, authentication, real-time infrastructure</td>
-                <td>United States</td>
-              </tr>
-              <tr>
-                <td>
-                  <a
-                    href="https://vercel.com/legal/privacy-policy"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Vercel
-                  </a>
-                </td>
-                <td>Web application hosting and serverless compute</td>
-                <td>United States</td>
-              </tr>
-              <tr>
-                <td>
-                  <a
-                    href="https://polar.sh/legal/privacy"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Polar
-                  </a>
-                </td>
-                <td>Payment processing and subscription management</td>
-                <td>European Union</td>
-              </tr>
-              <tr>
-                <td>
-                  <a
-                    href="https://resend.com/legal/privacy-policy"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Resend
-                  </a>
-                </td>
-                <td>Transactional email delivery</td>
-                <td>United States</td>
-              </tr>
-              <tr>
-                <td>
-                  <a
-                    href="https://expo.dev/privacy"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Expo
-                  </a>
-                </td>
-                <td>Push notification delivery (mobile app)</td>
-                <td>United States</td>
-              </tr>
+              {/*
+                WHY canonical source: SUBPROCESSORS in lib/legal/subprocessors.ts
+                is the single source of truth. /legal/subprocessors and this DPA
+                table render from the same array so the lists never drift.
+              */}
+              {SUBPROCESSORS.map((sp) => (
+                <tr key={sp.name}>
+                  <td>
+                    <a
+                      href={sp.website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {sp.name}
+                    </a>
+                  </td>
+                  <td>{sp.purpose}</td>
+                  <td>{sp.location}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
 
