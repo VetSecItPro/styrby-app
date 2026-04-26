@@ -60,6 +60,9 @@ notes/
 # Dependency audit reports
 .deps-reports/
 
+# Documentation accuracy audit reports
+.docs-audit/
+
 # Claude Code project memory
 CLAUDE.md
 

@@ -89,12 +89,19 @@ export default function GettingStartedPage() {
         begins streaming session data.
       </p>
       <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
-        <code>{`# Use agent shorthand to start a session:
-styrby claude     # or: styrby codex, styrby gemini, styrby opencode, styrby aider
+        <code>{`# Use agent shorthand to start a session.
+# All 11 agents are accepted: claude, codex, gemini, opencode, aider,
+# goose, amp, crush, kilo, kiro, droid.
+styrby claude
 
-# Or let Styrby use your default agent:
+# Or let Styrby use your default agent (set via ~/.styrby/config.json):
 styrby`}</code>
       </pre>
+      <p className="mt-2 text-sm text-muted-foreground/70">
+        Tier note: Free includes Claude Code, Codex, and Gemini CLI. Pro adds
+        OpenCode, Aider, Goose, Amp, Crush, and Kilo. Power adds Kiro and Droid.
+        See <a href="/docs/agents" className="text-amber-500 underline underline-offset-2 hover:text-amber-400">Agent Setup</a> for the full matrix.
+      </p>
       <p className="mt-2 text-sm text-muted-foreground">
         Within seconds, the session appears in your dashboard and mobile app.
         You can see token usage, approve permission requests, and review the
