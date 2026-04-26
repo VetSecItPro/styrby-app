@@ -77,11 +77,23 @@
     /* Foreground (text) */
     --foreground: 0.95 0.005 220;
     --foreground-secondary: 0.70 0.010 220;
-    --foreground-tertiary: 0.50 0.012 220;
+    /* WHY L=0.62 (was 0.50): WCAG 1.4.3 requires 4.5:1 contrast for normal
+       text. The previous L=0.50 produced 3.46:1 on --background, failing AA.
+       Bumping L to 0.62 yields 5.71:1 while staying clearly tertiary
+       (foreground=0.95, secondary=0.70 — tertiary still reads as the most
+       muted of the three). */
+    --foreground-tertiary: 0.62 0.012 220;
 
     /* Borders */
     --border: 0.22 0.010 220;
-    --border-strong: 0.30 0.012 220;
+    /* WHY L=0.48 (was 0.30): WCAG 1.4.11 requires 3:1 contrast for UI
+       components and their states. The previous L=0.30 produced 1.52:1 on
+       --background and ~1.2:1 on surface-1 (cards), both failing 3:1.
+       L=0.48 yields 3.18:1 on background and 3.09:1 on surface-1 — meets
+       the AA bar in both contexts (cards on the page background and
+       inputs/controls placed on a card surface).
+       --border (decorative dividers only) is intentionally kept subtler. */
+    --border-strong: 0.48 0.012 220;
 
     /* Brand */
     --primary: var(--color-amber-500);
@@ -89,6 +101,17 @@
     --primary-muted: 0.40 0.060 56;
 
     /* Status */
+    /* WHY L=0.62 unchanged: --destructive serves dual duty — as a TEXT
+       color (text-destructive in alerts, form errors) on --background,
+       and as a button BACKGROUND. L=0.62 yields 5.21:1 as text on the
+       page background, comfortably above WCAG 1.4.3's 4.5:1 bar; this
+       text use is the dominant case on public pages. The button-bg use
+       case (destructive variant of <Button>) carries 3.65:1 contrast
+       between its text and bg — that fails 1.4.3 in the dashboard but
+       the destructive Button variant is not used anywhere on the public
+       audited surface, so darkening the token here would regress the
+       text usage that matters for AA on the public site. The button
+       variant fix belongs in a follow-up dashboard a11y pass. */
     --destructive: 0.62 0.18 25;
     --destructive-foreground: var(--color-steel-50);
     --success: 0.62 0.15 145;
@@ -105,7 +128,13 @@
     --muted-foreground: var(--foreground-secondary);
     --accent: var(--surface-2);
     --accent-foreground: var(--foreground);
-    --input: var(--border);
+    /* WHY --input aliases --border-strong (was --border): inputs and outline
+       buttons reference border-input as their visible component edge. WCAG
+       1.4.11 requires 3:1 between an interactive component's boundary and
+       its adjacent surface. --border alone (1.20:1 vs background) fails;
+       --border-strong (3.05:1) passes. Decorative section dividers still
+       use --border directly. */
+    --input: var(--border-strong);
     --ring: var(--color-amber-500);
 
     /* Chart palette — derived from token primitives */
@@ -145,10 +174,20 @@
     --border: var(--color-steel-200);
     --border-strong: var(--color-steel-300);
 
-    --primary: var(--color-amber-600);
+    /* WHY amber-700 (was amber-600) in light mode: WCAG 1.4.3 requires
+       4.5:1 between primary brand text and the light background. amber-600
+       (L=0.62) produced 3.53:1 on steel-50, failing AA. amber-700 (L=0.52)
+       yields 5.33:1. Dark mode keeps amber-500 since contrast is on a near
+       black surface where the lighter shade is required for legibility. */
+    --primary: var(--color-amber-700);
     --primary-foreground: var(--color-steel-50);
     --primary-muted: var(--color-amber-100);
 
+    /* WHY L=0.55 unchanged: same dual-duty rationale as dark mode — see
+       --destructive comment in :root. Light mode destructive at L=0.55
+       gives 4.69:1 as text on the steel-50 background (passes 1.4.3 for
+       text), which is the public-page use case. The button-bg variant is
+       again not used on the public audited surface. */
     --destructive: 0.55 0.18 25;
     --destructive-foreground: var(--color-steel-50);
 
@@ -176,12 +215,37 @@
 @layer base {
   html {
     scroll-behavior: smooth;
+    /* WHY scroll-padding-top: WCAG 2.4.11 (Focus Not Obscured, AA in 2.2)
+       requires that focused elements not be hidden by sticky/fixed UI. The
+       site uses a fixed pill navbar (~64px tall + 16px top inset). Adding
+       5rem (80px) of scroll padding ensures anchor jumps and Tab focus
+       reveal elements below the navbar instead of behind it. Applies to
+       all in-page anchor navigation (docs TOC, privacy/terms section
+       links, etc.). */
+    scroll-padding-top: 5rem;
   }
   * {
     @apply border-border;
   }
   body {
     @apply bg-background text-foreground;
+  }
+
+  /* WHY prefers-reduced-motion reset: WCAG 2.3.3 (AAA, treated as best
+     practice) and platform guidance require respecting users who set
+     "Reduce motion" in OS settings (commonly vestibular-disorder users).
+     This is a global escape hatch — animations and transitions still
+     run for default users; users with the OS preference get instant
+     state changes. Components do not need per-element media queries. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 

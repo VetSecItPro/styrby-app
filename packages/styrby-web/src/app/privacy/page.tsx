@@ -48,7 +48,7 @@ export default function PrivacyPolicyPage() {
       </header>
 
       {/* Content */}
-      <main className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-12">
+      <main id="main-content" tabIndex={-1} className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-12">
         <article className="prose prose-lg prose-invert prose-zinc max-w-none prose-headings:text-zinc-100 prose-p:text-zinc-300 prose-li:text-zinc-300 prose-a:text-orange-500 prose-a:no-underline hover:prose-a:underline prose-strong:text-zinc-100">
           <h1>Privacy Policy</h1>
 

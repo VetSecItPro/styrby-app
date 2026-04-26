@@ -266,7 +266,7 @@ export default async function RetentionProofPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
+      <main id="main-content" tabIndex={-1} className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
         {/* Page header */}
         <div className="mb-10">
           <h1 className="text-3xl font-bold text-zinc-100">

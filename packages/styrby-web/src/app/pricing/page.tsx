@@ -62,8 +62,8 @@ export default function PricingPage() {
   const [activeFaq, setActiveFaq] = useState(0);
 
   return (
-    <main className="min-h-[100dvh]">
-      {/* A/B tracking — fires page_view once on mount, no DOM output */}
+    <main id="main-content" tabIndex={-1} className="min-h-[100dvh]">
+      {/* A/B tracking - fires page_view once on mount, no DOM output */}
       <PricingPageTracker variant="v2" />
 
       <Navbar />
