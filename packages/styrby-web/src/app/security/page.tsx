@@ -67,9 +67,9 @@ export default function SecurityPage() {
           </p>
 
           {/* ── Security Measures ─────────────────────────────── */}
-          <h2>Security Measures</h2>
+          <h2 className="scroll-mt-20" id="security-measures">Security Measures</h2>
 
-          <h3>Encryption</h3>
+          <h3 className="scroll-mt-20" id="encryption">Encryption</h3>
           <ul>
             <li>
               <strong>End-to-end encryption</strong>: session messages between
@@ -87,7 +87,7 @@ export default function SecurityPage() {
             </li>
           </ul>
 
-          <h3>Access Control</h3>
+          <h3 className="scroll-mt-20" id="access-control">Access Control</h3>
           <ul>
             <li>
               <strong>Row Level Security (RLS)</strong>: every database table
@@ -104,7 +104,7 @@ export default function SecurityPage() {
             </li>
           </ul>
 
-          <h3>Application Security</h3>
+          <h3 className="scroll-mt-20" id="application-security">Application Security</h3>
           <ul>
             <li>
               <strong>Input validation</strong>: all API endpoints use Zod
@@ -131,7 +131,7 @@ export default function SecurityPage() {
           </ul>
 
           {/* ── Vulnerability Disclosure ──────────────────────── */}
-          <h2>Responsible Disclosure</h2>
+          <h2 className="scroll-mt-20" id="responsible-disclosure">Responsible Disclosure</h2>
           <p>
             If you discover a security vulnerability in Styrby, we ask that you
             disclose it responsibly:
@@ -157,27 +157,27 @@ export default function SecurityPage() {
           </p>
 
           {/* ── Incident Response ─────────────────────────────── */}
-          <h2>Incident Response</h2>
+          <h2 className="scroll-mt-20" id="incident-response">Incident Response</h2>
           <p>
             In the event of a confirmed security incident or data breach, we
             follow this response plan:
           </p>
 
-          <h3>1. Detection and Assessment (0-4 hours)</h3>
+          <h3 className="scroll-mt-20" id="1-detection-and-assessment-0-4-hours">1. Detection and Assessment (0-4 hours)</h3>
           <ul>
             <li>Confirm the incident scope, affected systems, and data categories</li>
             <li>Assess severity: critical, high, medium, or low</li>
             <li>Activate incident response team</li>
           </ul>
 
-          <h3>2. Containment (4-24 hours)</h3>
+          <h3 className="scroll-mt-20" id="2-containment-4-24-hours">2. Containment (4-24 hours)</h3>
           <ul>
             <li>Isolate affected systems to prevent further exposure</li>
             <li>Revoke compromised credentials or API keys</li>
             <li>Preserve evidence for investigation</li>
           </ul>
 
-          <h3>3. Notification (within 72 hours)</h3>
+          <h3 className="scroll-mt-20" id="3-notification-within-72-hours">3. Notification (within 72 hours)</h3>
           <ul>
             <li>
               <strong>Supervisory authority</strong>: if the breach is likely
@@ -199,7 +199,7 @@ export default function SecurityPage() {
             </li>
           </ul>
 
-          <h3>4. Recovery and Review (1-7 days)</h3>
+          <h3 className="scroll-mt-20" id="4-recovery-and-review-1-7-days">4. Recovery and Review (1-7 days)</h3>
           <ul>
             <li>Restore affected systems from verified backups</li>
             <li>Implement fixes to prevent recurrence</li>
@@ -208,7 +208,7 @@ export default function SecurityPage() {
           </ul>
 
           {/* ── Infrastructure ────────────────────────────────── */}
-          <h2>Infrastructure</h2>
+          <h2 className="scroll-mt-20" id="infrastructure">Infrastructure</h2>
           <ul>
             <li>
               <strong>Hosting</strong>: Vercel (SOC 2 Type II compliant)
@@ -227,7 +227,7 @@ export default function SecurityPage() {
           </ul>
 
           {/* ── Contact ──────────────────────────────────────── */}
-          <h2>Contact</h2>
+          <h2 className="scroll-mt-20" id="contact">Contact</h2>
           <p>
             For security concerns:{' '}
             <strong>security@styrby.dev</strong>

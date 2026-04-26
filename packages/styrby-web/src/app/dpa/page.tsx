@@ -146,7 +146,7 @@ export default function DpaPage() {
           </p>
 
           {/* ── Definitions ──────────────────────────────────── */}
-          <h2>1. Definitions</h2>
+          <h2 className="scroll-mt-20" id="1-definitions">1. Definitions</h2>
           <ul>
             <li>
               <strong>&quot;Personal Data&quot;</strong> means any information
@@ -176,7 +176,7 @@ export default function DpaPage() {
           </ul>
 
           {/* ── Scope ────────────────────────────────────────── */}
-          <h2>2. Scope of Processing</h2>
+          <h2 className="scroll-mt-20" id="2-scope-of-processing">2. Scope of Processing</h2>
           <p>
             Processor processes Personal Data only as necessary to provide the
             Styrby platform services. Processing activities include:
@@ -202,13 +202,13 @@ export default function DpaPage() {
             </li>
           </ul>
 
-          <h3>Categories of Data Subjects</h3>
+          <h3 className="scroll-mt-20" id="categories-of-data-subjects">Categories of Data Subjects</h3>
           <p>
             Team members and authorized users of Controller&apos;s Styrby
             account.
           </p>
 
-          <h3>Categories of Personal Data</h3>
+          <h3 className="scroll-mt-20" id="categories-of-personal-data">Categories of Personal Data</h3>
           <p>
             The following categories of personal data are processed. Session
             message content is excluded because Processor cannot access it.
@@ -229,7 +229,7 @@ export default function DpaPage() {
             </li>
           </ul>
 
-          <h3>Duration of Processing</h3>
+          <h3 className="scroll-mt-20" id="duration-of-processing">Duration of Processing</h3>
           <p>
             Processor processes Personal Data for the duration of
             Controller&apos;s active subscription. Upon termination, data is
@@ -237,7 +237,7 @@ export default function DpaPage() {
           </p>
 
           {/* ── Obligations ──────────────────────────────────── */}
-          <h2>3. Processor Obligations</h2>
+          <h2 className="scroll-mt-20" id="3-processor-obligations">3. Processor Obligations</h2>
           <p>Processor shall:</p>
           <ul>
             <li>
@@ -287,7 +287,7 @@ export default function DpaPage() {
           </ul>
 
           {/* ── Sub-processors ───────────────────────────────── */}
-          <h2>4. Sub-processors</h2>
+          <h2 className="scroll-mt-20" id="4-sub-processors">4. Sub-processors</h2>
           <p>
             Controller provides general authorization for Processor to engage
             the sub-processors listed below. Processor will notify Controller
@@ -331,7 +331,7 @@ export default function DpaPage() {
           </table>
 
           {/* ── Data Subject Rights ──────────────────────────── */}
-          <h2>5. Data Subject Rights</h2>
+          <h2 className="scroll-mt-20" id="5-data-subject-rights">5. Data Subject Rights</h2>
           <p>
             Processor provides self-service tools for the following Data
             Subject rights:
@@ -362,7 +362,7 @@ export default function DpaPage() {
           </p>
 
           {/* ── Data Breach ──────────────────────────────────── */}
-          <h2>6. Data Breach Notification</h2>
+          <h2 className="scroll-mt-20" id="6-data-breach-notification">6. Data Breach Notification</h2>
           <p>
             In the event of a confirmed Personal Data breach, Processor shall:
           </p>
@@ -391,7 +391,7 @@ export default function DpaPage() {
           </p>
 
           {/* ── International Transfers ──────────────────────── */}
-          <h2>7. International Data Transfers</h2>
+          <h2 className="scroll-mt-20" id="7-international-data-transfers">7. International Data Transfers</h2>
           <p>
             Personal Data is primarily processed in the United States by
             Processor and its sub-processors. For transfers from the EU/EEA or
@@ -414,7 +414,7 @@ export default function DpaPage() {
           </p>
 
           {/* ── Term and Termination ─────────────────────────── */}
-          <h2>8. Term and Termination</h2>
+          <h2 className="scroll-mt-20" id="8-term-and-termination">8. Term and Termination</h2>
           <p>
             This DPA remains in force for the duration of Controller&apos;s
             use of the Service. Upon termination of the Service:
@@ -441,7 +441,7 @@ export default function DpaPage() {
           </ul>
 
           {/* ── Contact ──────────────────────────────────────── */}
-          <h2>9. Contact</h2>
+          <h2 className="scroll-mt-20" id="9-contact">9. Contact</h2>
           <p>
             For questions about this DPA, data rights requests, or to execute
             a signed DPA for enterprise compliance purposes:

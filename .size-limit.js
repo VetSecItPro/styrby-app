@@ -148,7 +148,11 @@ module.exports = [
     // ChurnSaveOfferCard. All gated behind /dashboard/admin or user-authenticated
     // /billing/offer routes. Small ratchet — smaller than prior phases because
     // we reused the datetime-local normalize + dollar-to-cents helpers.
-    limit: '775 KB',
+    // /design Wave 2 ratchet 775 → 776: TableOfContents (xl-only client component,
+    // IntersectionObserver-driven section highlighting on docs pages) + CopyButton
+    // (per-CodeBlock copy-to-clipboard). Shiki itself is build-time, zero runtime
+    // JS. Measured 775.51 KB gzip — 0.51 KB over. Smallest ratchet to date.
+    limit: '776 KB',
     gzip: true,
     // WHY import is omitted: We cannot import directly from Next.js output —
     // these are already-built assets. size-limit stats the files and sums sizes.

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Navbar } from "@/components/landing/navbar";
 import { Footer } from "@/components/landing/footer";
 import { DocsSidebar } from "./docs-sidebar";
+import { TableOfContents } from "@/components/docs/TableOfContents";
 
 export const metadata: Metadata = {
   title: "Documentation",
@@ -35,7 +36,7 @@ export default function DocsLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100">
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
       <Navbar />
 
       {/* Spacer for the fixed navbar */}
@@ -48,7 +49,13 @@ export default function DocsLayout({
           id="main-content"
           className="min-w-0 flex-1 px-6 py-10 md:px-12 lg:px-16"
         >
-          <div className="mx-auto max-w-3xl">{children}</div>
+          {/* WHY: 3-column grid only at xl+ — TOC right-rail appears once
+              there is enough horizontal real estate (>=1280px). Below that,
+              the article fills the column and the TOC stays hidden. */}
+          <div className="mx-auto flex w-full max-w-5xl gap-10">
+            <div className="min-w-0 max-w-3xl flex-1">{children}</div>
+            <TableOfContents />
+          </div>
         </main>
       </div>
 

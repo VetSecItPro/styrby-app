@@ -136,7 +136,7 @@ export function Hero() {
             asChild
             size="lg"
             className={cn(
-              "h-12 px-7 text-base font-semibold rounded-xl",
+              "h-12 px-7 text-base font-semibold rounded-lg",
               "bg-amber-500 text-zinc-950 hover:bg-amber-400",
               "shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_4px_20px_rgba(245,158,11,0.35)]",
               "transition-all duration-200 hover:shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_6px_28px_rgba(245,158,11,0.5)]",
@@ -154,7 +154,7 @@ export function Hero() {
             size="lg"
             asChild
             className={cn(
-              "h-12 px-7 text-base rounded-xl",
+              "h-12 px-7 text-base rounded-lg",
               "border border-white/[0.10] text-zinc-400",
               "hover:bg-white/[0.04] hover:text-zinc-200 hover:border-white/[0.16]",
               "transition-all duration-200"

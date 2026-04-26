@@ -16,11 +16,11 @@ export function PrevNext({
   next: DocNavItem | null;
 }) {
   return (
-    <div className="mt-16 flex items-center justify-between border-t border-zinc-800 pt-6">
+    <div className="mt-16 flex items-center justify-between border-t border-border pt-6">
       {prev ? (
         <Link
           href={prev.href}
-          className="group flex items-center gap-2 text-sm text-zinc-400 transition-colors hover:text-amber-500"
+          className="group flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-amber-500"
         >
           <ChevronLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
           {prev.title}
@@ -31,7 +31,7 @@ export function PrevNext({
       {next ? (
         <Link
           href={next.href}
-          className="group flex items-center gap-2 text-sm text-zinc-400 transition-colors hover:text-amber-500"
+          className="group flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-amber-500"
         >
           {next.title}
           <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
