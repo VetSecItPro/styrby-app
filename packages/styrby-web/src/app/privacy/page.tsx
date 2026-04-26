@@ -273,10 +273,11 @@ export default function PrivacyPolicyPage() {
           </ul>
 
           <p>
-            Data is stored on servers operated by Supabase (SOC 2 Type II
-            compliant). The web application is hosted on Vercel (SOC 2 Type II
-            compliant). No method of storage or transmission is 100% secure.
-            We cannot guarantee absolute security.
+            Data is stored on servers operated by Supabase. The web application
+            is hosted on Vercel. Both are major US-based platforms; you can
+            review their published security posture on their respective trust
+            pages. No method of storage or transmission is 100% secure. We
+            cannot guarantee absolute security.
           </p>
 
           {/* ── Third-Party Services ──────────────────────────── */}

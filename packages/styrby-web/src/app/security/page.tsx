@@ -211,20 +211,25 @@ export default function SecurityPage() {
           <h2 className="scroll-mt-20" id="infrastructure">Infrastructure</h2>
           <ul>
             <li>
-              <strong>Hosting</strong>: Vercel (SOC 2 Type II compliant)
+              <strong>Hosting</strong>: Vercel
             </li>
             <li>
-              <strong>Database</strong>: Supabase (SOC 2 Type II compliant,
-              daily backups, point-in-time recovery)
+              <strong>Database</strong>: Supabase, with daily backups and
+              point-in-time recovery
             </li>
             <li>
-              <strong>Email</strong>: Resend (DKIM, SPF, DMARC configured)
+              <strong>Email</strong>: Resend, with DKIM, SPF, and DMARC
+              configured on our sending domain
             </li>
             <li>
-              <strong>Payments</strong>: Polar (PCI DSS compliant as merchant
-              of record; we never handle payment card data)
+              <strong>Payments</strong>: Polar, as merchant of record. We
+              never handle payment card data.
             </li>
           </ul>
+          <p className="text-sm text-muted-foreground">
+            Each vendor publishes its own security and compliance posture; you
+            can verify the current status on their respective trust pages.
+          </p>
 
           {/* ── Contact ──────────────────────────────────────── */}
           <h2 className="scroll-mt-20" id="contact">Contact</h2>

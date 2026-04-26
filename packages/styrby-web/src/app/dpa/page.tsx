@@ -399,8 +399,8 @@ export default function DpaPage() {
           </p>
           <ul>
             <li>
-              EU-US Data Privacy Framework certification of sub-processors
-              where available (Vercel, Supabase are certified)
+              EU-US Data Privacy Framework participation of sub-processors
+              where available
             </li>
             <li>
               Standard Contractual Clauses (SCCs) as approved by the European

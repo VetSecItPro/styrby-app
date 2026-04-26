@@ -97,7 +97,7 @@ const featureCategories = [
         icon: FileSearch,
         title: 'Audit Trail',
         description:
-          'Every permission approval, budget change, team action, and security event lands in a tamper-evident log with timestamp and actor. Export it directly for SOC2, ISO 27001, or internal compliance reviews.',
+          'Every permission approval, budget change, team action, and security event lands in a tamper-evident log with timestamp and actor. Export it directly for internal compliance reviews or incident forensics.',
         detail: 'Tamper-evident logging with row-level security.',
       },
     ],
