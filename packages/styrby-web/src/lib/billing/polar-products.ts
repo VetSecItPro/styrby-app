@@ -371,6 +371,31 @@ export function validateSeatCount(tierId: AcceptedTierId, seatCount: number): bo
 }
 
 /**
+ * Module-scope `Intl.NumberFormat` instances reused across every
+ * {@link formatCents} call.
+ *
+ * WHY hoisted: `Intl.NumberFormat` construction is non-trivial — it parses
+ * locale and currency tables on each `new` call. The pricing page can call
+ * `formatCents` 20+ times per render (one per tier card pricing line +
+ * comparison rows), so re-instantiating per-call burns measurable CPU on
+ * the SeatCountSlider drag path (60fps). Constructed once at module load
+ * since the locale ('en-US') and currency ('USD') are constants.
+ */
+const CURRENCY_FORMATTER_NO_CENTS = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+
+const CURRENCY_FORMATTER_WITH_CENTS = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/**
  * Formats USD cents as a display string.
  *
  * @param cents - Amount in USD cents.
@@ -387,19 +412,9 @@ export function formatCents(cents: number): string {
   const dollars = cents / 100;
   if (cents === 0) return '$0';
   if (cents % 100 === 0) {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(dollars);
+    return CURRENCY_FORMATTER_NO_CENTS.format(dollars);
   }
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(dollars);
+  return CURRENCY_FORMATTER_WITH_CENTS.format(dollars);
 }
 
 // ============================================================================
@@ -637,17 +652,26 @@ export function getPlanFromProductId(productId: string): 'free' | PublicTierId {
   // misconfiguration. We use console.warn (no logger import) to keep this
   // module client-safe; server callers route through `lib/polar.ts` which
   // has its own structured logger wrapping this helper.
+  //
+  // WHY only the offending id + count (not the full UUID list): the previous
+  // payload dumped all six configured Polar product UUIDs on every miss.
+  // Even at warn level that ships the full UUID inventory to logs/Sentry on
+  // every unknown-id miss, which is unnecessary log volume and unnecessary
+  // exposure of internal product identifiers. The unknown id (the actual
+  // diagnostic signal) plus a count of configured ids is sufficient to
+  // diagnose misconfiguration.
   if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+    const configuredCount = [
+      proMonthly,
+      proAnnual,
+      growthMonthly,
+      growthAnnual,
+      growthSeatMonthly,
+      growthSeatAnnual,
+    ].filter(Boolean).length;
     console.warn('[billing] Unknown Polar product ID — falling back to free tier', {
       productId,
-      configuredIds: {
-        proMonthly,
-        proAnnual,
-        growthMonthly,
-        growthAnnual,
-        growthSeatMonthly,
-        growthSeatAnnual,
-      },
+      configuredCount,
     });
   }
   return 'free';

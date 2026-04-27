@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import Link from 'next/link';
 import { Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -8,7 +9,6 @@ import {
   TIER_DEFINITIONS_CANONICAL,
   calculateMonthlyCostCents,
   calculateAnnualCostCents,
-  calculateAnnualMonthlyEquivalentCents,
   formatCents,
 } from '@/lib/billing/polar-products';
 
@@ -49,11 +49,27 @@ interface ProTierCardProps {
 export function ProTierCard({ annual }: ProTierCardProps) {
   const tier = TIER_DEFINITIONS_CANONICAL.pro;
 
+  // WHY useMemo with empty deps: Pro pricing has no per-render inputs (it is
+  // a single-seat fixed plan), so these values are effectively constants for
+  // the lifetime of the component. Memoising once at mount avoids three
+  // billing-helper calls on every parent re-render (e.g. when the annual
+  // toggle on the parent flips — the only meaningful trigger here).
+  //
   // WHY integer cents: avoids float drift in displayed prices. The shared
   // billing module returns USD cents and we format only at the edge.
-  const monthlyCents = calculateMonthlyCostCents('pro', 1);
-  const annualCents = calculateAnnualCostCents('pro', 1);
-  const annualMonthlyEquiv = calculateAnnualMonthlyEquivalentCents('pro', 1);
+  // WHY a single calculateAnnualCostCents call: previously this also called
+  // `calculateAnnualMonthlyEquivalentCents`, which internally calls
+  // `calculateAnnualCostCents` again — so the same value was computed twice.
+  // We now derive `annualMonthlyEquiv` inline using the same `Math.floor(/12)`
+  // formula the helper uses, eliminating the redundant evaluation.
+  const { monthlyCents, annualCents, annualMonthlyEquiv } = useMemo(() => {
+    const annual = calculateAnnualCostCents('pro', 1);
+    return {
+      monthlyCents: calculateMonthlyCostCents('pro', 1),
+      annualCents: annual,
+      annualMonthlyEquiv: Math.floor(annual / 12),
+    };
+  }, []);
 
   const displayMonthlyCents = annual ? annualMonthlyEquiv : monthlyCents;
   const annualSavingsCents = annual ? monthlyCents * 12 - annualCents : 0;

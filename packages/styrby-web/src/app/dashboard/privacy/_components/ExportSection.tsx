@@ -20,6 +20,22 @@
 import { useCallback, useState } from 'react';
 import { Download } from 'lucide-react';
 
+/**
+ * Module-scope `Intl.DateTimeFormat` reused by {@link ExportSection.formatDate}.
+ *
+ * WHY hoisted: the formatter options are constants. Re-instantiating an
+ * `Intl.DateTimeFormat` inside the render path forces the ICU tables to be
+ * re-parsed on each call. One module-level instance is safe because there
+ * is no per-render variation in locale or options here.
+ */
+const EXPORT_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
 /** Props for {@link ExportSection}. */
 export interface ExportSectionProps {
   /** ISO timestamp of the last successful export, or null if never. */
@@ -39,13 +55,7 @@ export function ExportSection({ lastExportedAt }: ExportSectionProps) {
   const formatDate = (iso: string | null): string => {
     if (!iso) return '';
     try {
-      return new Intl.DateTimeFormat('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      }).format(new Date(iso));
+      return EXPORT_DATE_FORMATTER.format(new Date(iso));
     } catch {
       return iso;
     }

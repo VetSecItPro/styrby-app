@@ -393,13 +393,22 @@ export function CloudTasksPanel({ userId }: CloudTasksPanelProps) {
   // Stats
   // --------------------------------------------------------------------------
 
+  // WHY single-pass reduce: previously this did 4 sequential `.filter().length`
+  // walks over `tasks`, which is O(4n). One reduce yields the same shape in
+  // a single O(n) pass. Important on dashboards with many active tasks where
+  // this memo recomputes on every Realtime event.
   const stats = useMemo(
-    () => ({
-      running:   tasks.filter((t) => t.status === 'running').length,
-      queued:    tasks.filter((t) => t.status === 'queued').length,
-      completed: tasks.filter((t) => t.status === 'completed').length,
-      failed:    tasks.filter((t) => t.status === 'failed').length,
-    }),
+    () =>
+      tasks.reduce(
+        (acc, t) => {
+          if (t.status === 'running') acc.running++;
+          else if (t.status === 'queued') acc.queued++;
+          else if (t.status === 'completed') acc.completed++;
+          else if (t.status === 'failed') acc.failed++;
+          return acc;
+        },
+        { running: 0, queued: 0, completed: 0, failed: 0 }
+      ),
     [tasks]
   );
 

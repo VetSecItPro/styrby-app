@@ -225,17 +225,23 @@ describe('getPlanFromProductId', () => {
 
     expect(getPlanFromProductId('prod_bogus_xxx')).toBe('free');
 
+    // SEC-LOGIC-001: marker assertion stays — warn is the regression signal.
+    // WHY trimmed payload: previously the warn dumped all 6 configured Polar
+    // product UUIDs. We now log only the offending productId plus a count
+    // of configured products to keep log volume sane and avoid shipping
+    // internal product UUID inventory to Sentry on every miss.
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Unknown Polar product ID'),
       expect.objectContaining({
         productId: 'prod_bogus_xxx',
-        configuredIds: expect.objectContaining({
-          proMonthly: 'prod_pro_mo',
-          growthMonthly: 'prod_growth_mo',
-        }),
+        configuredCount: 6,
       }),
     );
+    // Defensive: ensure the verbose `configuredIds` payload is gone so the
+    // log-hygiene fix can't silently regress.
+    const payload = warnSpy.mock.calls[0][1] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('configuredIds');
   });
 });
 
