@@ -652,17 +652,26 @@ export function getPlanFromProductId(productId: string): 'free' | PublicTierId {
   // misconfiguration. We use console.warn (no logger import) to keep this
   // module client-safe; server callers route through `lib/polar.ts` which
   // has its own structured logger wrapping this helper.
+  //
+  // WHY only the offending id + count (not the full UUID list): the previous
+  // payload dumped all six configured Polar product UUIDs on every miss.
+  // Even at warn level that ships the full UUID inventory to logs/Sentry on
+  // every unknown-id miss, which is unnecessary log volume and unnecessary
+  // exposure of internal product identifiers. The unknown id (the actual
+  // diagnostic signal) plus a count of configured ids is sufficient to
+  // diagnose misconfiguration.
   if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+    const configuredCount = [
+      proMonthly,
+      proAnnual,
+      growthMonthly,
+      growthAnnual,
+      growthSeatMonthly,
+      growthSeatAnnual,
+    ].filter(Boolean).length;
     console.warn('[billing] Unknown Polar product ID — falling back to free tier', {
       productId,
-      configuredIds: {
-        proMonthly,
-        proAnnual,
-        growthMonthly,
-        growthAnnual,
-        growthSeatMonthly,
-        growthSeatAnnual,
-      },
+      configuredCount,
     });
   }
   return 'free';
