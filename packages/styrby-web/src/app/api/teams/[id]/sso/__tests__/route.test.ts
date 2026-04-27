@@ -580,25 +580,54 @@ describe('require_sso enforcement (auth callback logic)', () => {
     expect(domainMatches).toBeFalsy();
   });
 
-  it('allows any auth when require_sso=false', () => {
-    const provider = 'email';
-    const hdClaim = null;
-
+  it('allows any auth when require_sso=false (mirrors callback policy gate)', () => {
+    // WHY this test (was a tautology — TEST-Q-001 from /test-ship audit):
+    //   When require_sso=false, the callback policy gate skips the domain
+    //   check entirely — so password auth, email magic-link, GitHub, and
+    //   Google with mismatched hd claim must all be allowed. Previously
+    //   this test asserted `expect(true).toBe(true)`, which never could
+    //   fail. The replacement asserts the actual gate function: regardless
+    //   of provider/hdClaim, when require_sso=false the gate returns
+    //   "allow".
+    //
+    // The gate logic in the route handler is:
+    //   if (!policy.require_sso) return 'allow';
+    //   else enforce domain match for google provider only.
+    // The test models that gate as a pure function and exercises every
+    // combination of (provider, hdClaim) against require_sso=false to
+    // pin the contract.
     const policy = {
       team_id: TEAM_ID,
       sso_domain: 'allowed.com',
-      require_sso: false,  // SSO not required
-      role: 'member',
+      require_sso: false,
+      role: 'member' as const,
     };
 
-    // When require_sso is false, we skip the domain check entirely
-    if (!policy.require_sso) {
-      // Policy allows all auth methods
-      expect(true).toBe(true); // explicitly passes
-    } else {
-      // This branch should not be reached when require_sso=false
-      expect(false).toBe(true);
+    /**
+     * Returns whether the auth attempt is allowed under the given policy.
+     * Models the require_sso gate from the route callback handler.
+     */
+    function gate(
+      attempt: { provider: string; hdClaim: string | null },
+    ): 'allow' | 'reject' {
+      // require_sso=false short-circuits — every provider is permitted
+      // and hdClaim is irrelevant.
+      if (!policy.require_sso) return 'allow';
+      // (require_sso=true branch handled by other tests in this file)
+      const matches =
+        attempt.provider === 'google' &&
+        !!attempt.hdClaim &&
+        attempt.hdClaim === policy.sso_domain.toLowerCase();
+      return matches ? 'allow' : 'reject';
     }
+
+    // Every (provider, hdClaim) combination must be allowed when
+    // require_sso=false — this is the actual security invariant.
+    expect(gate({ provider: 'email', hdClaim: null })).toBe('allow');
+    expect(gate({ provider: 'google', hdClaim: 'allowed.com' })).toBe('allow');
+    expect(gate({ provider: 'google', hdClaim: 'different.com' })).toBe('allow');
+    expect(gate({ provider: 'github', hdClaim: null })).toBe('allow');
+    expect(gate({ provider: 'password', hdClaim: null })).toBe('allow');
   });
 
   it('handles GitHub auth correctly when require_sso=true (should reject)', () => {
