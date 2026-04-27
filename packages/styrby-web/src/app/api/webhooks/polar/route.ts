@@ -12,6 +12,7 @@
  * - subscription.canceled — individual plan OR team/business plan cancellation
  * - subscription.past_due — team/business payment failure
  * - order.created         — acknowledged, no state change
+ * - order.refunded        — refund: subscription_id-match guarded (Bug #8 / H6)
  *
  * Team-tier events are distinguished by the presence of `subscription.metadata.team_id`
  * in the Polar payload. When team_id is present, the event is routed to the team billing
@@ -144,7 +145,8 @@ type PolarEvent =
   | 'subscription.updated'
   | 'subscription.canceled'
   | 'subscription.past_due'
-  | 'order.created';
+  | 'order.created'
+  | 'order.refunded';
 
 // ============================================================================
 // Team subscription payload schemas
@@ -812,6 +814,7 @@ export async function POST(request: Request) {
       'subscription.canceled',
       'subscription.past_due',
       'order.created',
+      'order.refunded',
     ]);
     if (!knownTypes.has(eventResult.data.type)) {
       console.warn(`Received unrecognized Polar event type: ${eventResult.data.type}`);
@@ -1277,6 +1280,224 @@ export async function POST(request: Request) {
       case 'order.created': {
         const isDev = process.env.NODE_ENV === 'development';
         if (isDev) console.log('Order created event received');
+        break;
+      }
+
+      case 'order.refunded': {
+        // ────────────────────────────────────────────────────────────────────
+        // Bug #8 (Kaulby billing-pipeline-hardening / Phase H6):
+        // subscription-id match guard for order.refunded.
+        //
+        // WHY this guard: order.refunded fires for ANY refunded order, including
+        // side-purchases (e.g., a Growth/team admin refunding ONE seat-addon).
+        // A naive implementation that blanket-resets the user/team to free tier
+        // is wrong — refunding one seat would nuke their entire team subscription.
+        //
+        // The fix: compare the refunded order's subscription_id against the
+        // user's MAIN subscription (the row in `subscriptions` for this customer).
+        // Only the main subscription's refund clears tier state. Side-purchase
+        // refunds preserve the main tier; seat-addon-specific bookkeeping is
+        // handled separately when the corresponding subscription.canceled event
+        // for the seat addon fires.
+        //
+        // STATUS: latent — Styrby's current production tiers (free/pro/power)
+        // do NOT have seat addons, so today every order.refunded is a main-sub
+        // refund. The guard is added proactively so the handler is correct by
+        // construction the moment Growth ships seat-addon SKUs.
+        //
+        // Audit: every branch writes one audit_log row using the existing
+        // `subscription_changed` enum value (no migration required). Branch
+        // discrimination lives in metadata.event_subtype so SOC2 reviewers can
+        // distinguish main-sub refunds from side-purchase refunds without
+        // ambiguity.
+        //
+        // SOC2 CC7.2: every billing state mutation has an audit trail; refund
+        // events that DO NOT mutate state are still audited so the absence of
+        // a reset is itself observable in the trail.
+        // ────────────────────────────────────────────────────────────────────
+
+        const isDev = process.env.NODE_ENV === 'development';
+
+        // WHY rawData (not the narrow `event.data` type): the inline event type
+        // declared at the top of POST is shaped for subscription events and
+        // doesn't carry order.refunded fields (subscription_id, subscription.id,
+        // refunded_amount). We re-use rawData (already parsed for team-routing
+        // above) and read the refund fields explicitly.
+        //
+        // WHY two field-name fallbacks: Polar's order webhook payload nests the
+        // refunded subscription either as `subscription.id` (expanded object) or
+        // `subscription_id` (flat reference) depending on API version. We accept
+        // either to stay forward-compatible without coupling to one shape.
+        const orderRefundData = rawData ?? {};
+        const refundedSubscriptionId =
+          (orderRefundData as { subscription?: { id?: string } }).subscription?.id ??
+          (orderRefundData as { subscription_id?: string }).subscription_id ??
+          null;
+        const refundedCustomerId =
+          (orderRefundData as { customer_id?: string }).customer_id ?? null;
+        const refundedOrderId =
+          (orderRefundData as { id?: string }).id ?? null;
+
+        // WHY we look up by polar_customer_id (not subscription_id): if this is
+        // a side-purchase, refundedSubscriptionId !== mainSubscriptionId by
+        // definition, so a SELECT keyed on it would miss the user entirely.
+        // polar_customer_id is stable across all of a customer's purchases.
+        type MainSubLookup = {
+          user_id: string;
+          polar_subscription_id: string;
+          tier: string;
+        };
+        let mainSubscription: MainSubLookup | null = null;
+
+        if (refundedCustomerId) {
+          const { data: subRow, error: subLookupErr } = await supabase
+            .from('subscriptions')
+            .select('user_id, polar_subscription_id, tier')
+            .eq('polar_customer_id', refundedCustomerId)
+            .single<MainSubLookup>();
+
+          if (subLookupErr) {
+            // Not fatal: customer may have been hard-deleted or this is a refund
+            // for a customer who never had a stored subscription (test order,
+            // pre-Styrby-era purchase). Audit and acknowledge.
+            if (isDev) {
+              console.log(
+                `polar/route: order.refunded — no subscription row for customer ${refundedCustomerId}: ${subLookupErr.message}`
+              );
+            }
+          } else if (subRow) {
+            mainSubscription = subRow;
+          }
+        }
+
+        const userMainSubscriptionId = mainSubscription?.polar_subscription_id ?? null;
+
+        // Match condition: BOTH the refunded subscription id and the user's
+        // main subscription id must be present AND equal. A null on either side
+        // is treated as NOT a main-sub refund — never default to "reset to free"
+        // on ambiguous data (the more conservative choice preserves paid access).
+        const isMainSubRefund =
+          refundedSubscriptionId !== null &&
+          userMainSubscriptionId !== null &&
+          refundedSubscriptionId === userMainSubscriptionId;
+
+        if (!isMainSubRefund) {
+          // Side-purchase refund (or ambiguous payload). Preserve main tier.
+          // The seat-addon-specific bookkeeping (decrement seat count, prorate)
+          // is handled separately when the seat-addon's own subscription.canceled
+          // fires — NOT here.
+          //
+          // WHY no financial details in metadata: PCI/PII hygiene. We log the
+          // subscription_id and order_id (opaque Polar references) but not the
+          // refunded amount or payment-instrument data. The full financial
+          // record lives in Polar's dashboard, not in Styrby's audit_log.
+          const { error: auditErr } = await supabase.from('audit_log').insert({
+            user_id: mainSubscription?.user_id ?? null,
+            action: 'subscription_changed',
+            resource_type: 'subscription',
+            resource_id: null,
+            metadata: {
+              event_subtype: 'order_refunded_side_purchase',
+              refunded_subscription_id: refundedSubscriptionId,
+              main_subscription_id: userMainSubscriptionId,
+              refunded_order_id: refundedOrderId,
+              refunded_customer_id: refundedCustomerId,
+            },
+          });
+          if (auditErr) {
+            // Non-fatal — same posture as other audit writes in this file.
+            console.error(
+              'polar/route: audit_log insert failed on order.refunded side-purchase (non-fatal):',
+              auditErr.message
+            );
+          }
+
+          // TODO(H3 wiring): send refund email here, gated by isMainSubRefund.
+          // Side-purchase refunds should NOT email "your tier was reset" — the
+          // tier was not reset. A separate seat-addon refund email may be wired
+          // later when Growth ships.
+
+          if (isDev) {
+            console.log(
+              `polar/route: order.refunded — side-purchase refund preserved main tier (refunded_sub=${refundedSubscriptionId}, main_sub=${userMainSubscriptionId})`
+            );
+          }
+          return NextResponse.json({ received: true, side_purchase_refund: true });
+        }
+
+        // Main subscription refund — reset to free tier.
+        //
+        // WHY only the columns below: we mirror the subscription.canceled path's
+        // posture (status flip, canceled_at stamp). We additionally clear tier
+        // to 'free' because a refund — unlike a normal cancellation — voids the
+        // paid period. The user does not get a grace period when their money
+        // is returned.
+        //
+        // The .eq() filter pins this to the main subscription row, which we
+        // verified above. mainSubscription is non-null here because
+        // isMainSubRefund implies userMainSubscriptionId is non-null, which
+        // implies mainSubscription is non-null.
+        // TS narrowing: isMainSubRefund === true implies mainSubscription !== null.
+        // Re-assert with a runtime check so the compiler narrows correctly.
+        if (!mainSubscription) {
+          // Defensive — should be unreachable.
+          return NextResponse.json({ received: true });
+        }
+        const mainSub: MainSubLookup = mainSubscription;
+
+        const { error: resetErr } = await supabase
+          .from('subscriptions')
+          .update({
+            tier: 'free',
+            status: 'canceled',
+            canceled_at: new Date().toISOString(),
+            cancel_at_period_end: false,
+            current_period_end: null,
+          })
+          .eq('polar_subscription_id', mainSub.polar_subscription_id);
+
+        if (resetErr) {
+          // Refund processing must not silently fail. Returning 500 lets Polar
+          // retry — the .update() is idempotent (re-applying the same reset
+          // produces the same row state) so retries are safe.
+          console.error(
+            'polar/route: order.refunded — failed to reset main subscription:',
+            resetErr.message
+          );
+          return NextResponse.json({ error: 'Processing failed' }, { status: 500 });
+        }
+
+        const { error: auditErr } = await supabase.from('audit_log').insert({
+          user_id: mainSub.user_id,
+          action: 'subscription_changed',
+          resource_type: 'subscription',
+          resource_id: null,
+          metadata: {
+            event_subtype: 'order_refunded_main',
+            refunded_subscription_id: refundedSubscriptionId,
+            main_subscription_id: userMainSubscriptionId,
+            refunded_order_id: refundedOrderId,
+            refunded_customer_id: refundedCustomerId,
+            previous_tier: mainSub.tier,
+            new_tier: 'free',
+          },
+        });
+        if (auditErr) {
+          console.error(
+            'polar/route: audit_log insert failed on order.refunded main (non-fatal):',
+            auditErr.message
+          );
+        }
+
+        // TODO(H3 wiring): send refund email here, gated by isMainSubRefund.
+        // The email helper (sendRefundEmail) lands with Phase H3; once wired,
+        // call it here ONLY (not in the side-purchase branch above).
+
+        if (isDev) {
+          console.log(
+            `polar/route: order.refunded — main subscription reset to free (sub=${mainSub.polar_subscription_id})`
+          );
+        }
         break;
       }
 
