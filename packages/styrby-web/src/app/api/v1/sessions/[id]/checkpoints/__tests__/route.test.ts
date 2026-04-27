@@ -171,9 +171,9 @@ describe('Session Checkpoints API', () => {
     it('allows pro tier users (Phase 5: Pro inherits power-equivalent features)', async () => {
       // Phase 5 reconciliation: Pro absorbs the old Power feature set, so
       // session checkpoints are now available on Pro.
-      fromCallQueue.push({ data: { tier: 'pro' }, error: null });
-      fromCallQueue.push({ data: null, error: null }); // dup-name lookup
-      fromCallQueue.push({ data: { id: 'cp_1' }, error: null }); // insert
+      fromCallQueue.push({ data: { tier: 'pro' }, error: null }); // subscriptions tier
+      fromCallQueue.push({ data: { id: VALID_SESSION_ID }, error: null }); // session ownership
+      fromCallQueue.push({ data: { id: 'cp_1' }, error: null }); // checkpoint insert
 
       const res = await POST(makeRequest('POST', VALID_SESSION_ID, VALID_CHECKPOINT_BODY));
       expect([200, 201]).toContain(res.status);

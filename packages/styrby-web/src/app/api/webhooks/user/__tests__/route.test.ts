@@ -169,7 +169,8 @@ describe('User Webhooks API', () => {
       const body = await response.json();
       expect(body.webhooks).toHaveLength(2);
       expect(body.tier).toBe('pro');
-      expect(body.webhookLimit).toBe(3);
+      // Phase 5: Pro tier webhooks limit = 10 (Pro inherits old Power feature set).
+      expect(body.webhookLimit).toBe(10);
       expect(body.webhookCount).toBe(2);
     });
 

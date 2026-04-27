@@ -186,7 +186,8 @@ describe('Teams API — /api/teams', () => {
       expect(body.teams[0].member_count).toBe(3);
       expect(body.tier).toBe('growth');
       expect(body.canCreateTeam).toBe(true);
-      expect(body.teamLimit).toBe(3);
+      // Phase 5: Growth tier teamMembers limit = 100 (was 3 in legacy team tier).
+      expect(body.teamLimit).toBe(100);
     });
 
     it('returns empty teams array when user has no teams', async () => {
