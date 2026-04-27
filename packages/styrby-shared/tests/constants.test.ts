@@ -19,7 +19,19 @@ import {
 // =============================================================================
 
 describe('AGENT_CONFIG', () => {
-  const EXPECTED_AGENTS = ['claude', 'codex', 'gemini', 'opencode', 'aider'] as const;
+  const EXPECTED_AGENTS = [
+    'claude',
+    'codex',
+    'gemini',
+    'opencode',
+    'aider',
+    'goose',
+    'amp',
+    'crush',
+    'kilo',
+    'kiro',
+    'droid',
+  ] as const;
 
   it('contains all expected agent keys', () => {
     for (const agent of EXPECTED_AGENTS) {
