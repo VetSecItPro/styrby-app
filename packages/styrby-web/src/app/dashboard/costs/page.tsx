@@ -383,12 +383,13 @@ export default async function CostsPage({
 
   // Map tier to a human-readable label for the warning card.
   const tierLabelMap: Record<string, string> = {
-    free: 'Free', pro: 'Pro', power: 'Power', team: 'Team',
+    free: 'Free', pro: 'Pro', growth: 'Growth',
   };
   const tierLabel = tierLabelMap[userTier] ?? 'Free';
 
-  // Only expose team data on Power tier - other tiers don't have team access.
-  const teamId = userTier === 'power'
+  // Only expose team data on Growth tier - other tiers don't have team access.
+  // WHY (Phase 5 rename): pre-rename `'power'` collapsed into Growth.
+  const teamId = userTier === 'growth'
     ? (teamMemberResult.data?.team_id as string | null) ?? null
     : null;
 
@@ -478,10 +479,11 @@ export default async function CostsPage({
             Budget Alerts
           </Link>
 
-          {/* Export button - Power tier only, locked/greyed for Free and Pro */}
-          {/* WHY: Export is a Power differentiator. Showing the locked state to
+          {/* Export button - Growth tier only, locked/greyed for Free and Pro */}
+          {/* WHY (Phase 5 rename): Export is a Growth-tier differentiator. Pre-
+              rename `'power'` collapsed into Growth. Showing the locked state to
               Free/Pro users reinforces the upsell path without hiding the feature. */}
-          <ExportButton isPowerTier={userTier === 'power'} days={days} />
+          <ExportButton isPowerTier={userTier === 'growth'} days={days} />
         </div>
 
         {/* Time range selector - client component for onChange interactivity */}
@@ -531,12 +533,11 @@ export default async function CostsPage({
           alertLimit={alertLimit}
         />
 
-        {/* Daily Cost Charts - Power tier only.
-            WHY: The full daily spending chart (area chart + stacked bars + pie)
-            is a Power differentiator. Free/Pro users see a locked upgrade card
-            that teases the feature. They still see token totals and model/tag
-            breakdowns below - those are available to all tiers. */}
-        {userTier === 'power' ? (
+        {/* Daily Cost Charts - Growth tier only.
+            WHY (Phase 5 rename): The full daily spending chart is a Growth
+            differentiator (pre-rename: Power). Free/Pro users see a locked
+            upgrade card that teases the feature. */}
+        {userTier === 'growth' ? (
           <CostCharts data={chartData} />
         ) : (
           <div className="mt-4 rounded-xl border border-border/60 bg-card/40 p-6 flex items-center justify-between">
@@ -662,11 +663,10 @@ export default async function CostsPage({
         </div>
       </section>
 
-      {/* Team Cost Dashboard - Power tier + team membership only.
-          WHY: Agencies and collaborative teams need to attribute AI spend to
-          individual developers. This section is only meaningful when the user
-          is on Power (which enables team features) AND has at least one team. */}
-      {userTier === 'power' && teamId && (
+      {/* Team Cost Dashboard - Growth tier + team membership only.
+          WHY (Phase 5 rename): pre-rename `'power'` collapsed into Growth.
+          Section only renders when the user is on Growth AND has a team. */}
+      {userTier === 'growth' && teamId && (
         <TeamCosts teamId={teamId} rangeStartDate={rangeStartDate} />
       )}
 

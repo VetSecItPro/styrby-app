@@ -263,14 +263,14 @@ describe('Budget Alerts API', () => {
       expect(body.error).toContain('Free plan');
     });
 
-    it('returns 403 when pro user exceeds 3 alert limit', async () => {
+    it('returns 403 when pro user exceeds the budget alert limit', async () => {
+      // Phase 5: TIERS.pro.limits.budgetAlerts = 5 (post-rename Pro inherits
+      // the old Power feature set). Test pushed to 5 to hit the cap.
       mockAuthenticated();
 
-      // 1. getUserTier → pro
       fromCallQueue.push({ data: { tier: 'pro' }, error: null });
       fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
-      // 2. count → 3 (at limit)
-      fromCallQueue.push({ count: 3, error: null });
+      fromCallQueue.push({ count: 5, error: null });
 
       const req = createNextRequest({ name: 'Another alert', threshold_usd: 10, period: 'daily', action: 'notify' });
       const response = await POST(req);

@@ -40,8 +40,9 @@ function getWelcomeTitle(tier: OnboardingState['tier']): string {
   switch (tier) {
     case 'pro':
       return 'Welcome to Pro';
-    case 'power':
-      return 'Welcome to Power';
+    case 'growth':
+      // WHY (Phase 5 rename): pre-rename `'power'` collapsed into Growth.
+      return 'Welcome to Growth';
     default:
       return 'Welcome to Styrby';
   }

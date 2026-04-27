@@ -170,25 +170,25 @@ describe('getOnboardingState', () => {
   });
 
   // --------------------------------------------------------------------------
-  // Power tier — 5 steps
+  // Growth tier — 5 steps
   // --------------------------------------------------------------------------
 
-  it('shows 5 steps for power tier user', async () => {
+  it('shows 5 steps for growth tier user', async () => {
     const supabase = buildMockSupabase([
       { data: { onboarding_completed_at: null }, error: null },
-      { data: { tier: 'power' }, error: null },
+      { data: { tier: 'growth' }, error: null },
       { count: 0, data: null, error: null }, // machines
       { count: 0, data: null, error: null }, // budget_alerts
       { count: 0, data: null, error: null }, // device_tokens
       { count: 0, data: null, error: null }, // team_members
       { count: 0, data: null, error: null }, // api_keys
-      // team_invitations (power-only check)
+      // team_invitations (growth-only check)
       { count: 0, data: null, error: null },
     ]);
 
     const state = await getOnboardingState(supabase, USER_ID);
 
-    expect(state.tier).toBe('power');
+    expect(state.tier).toBe('growth');
     expect(state.totalSteps).toBe(5);
     const stepIds = state.steps.map((s) => s.id);
     expect(stepIds).toContain('invite-team-member');
@@ -198,7 +198,7 @@ describe('getOnboardingState', () => {
   it('marks invite-team-member complete when there are sent invitations', async () => {
     const supabase = buildMockSupabase([
       { data: { onboarding_completed_at: null }, error: null },
-      { data: { tier: 'power' }, error: null },
+      { data: { tier: 'growth' }, error: null },
       { count: 1, data: null, error: null }, // machine
       { count: 1, data: null, error: null }, // budget alert
       { count: 1, data: null, error: null }, // device token
@@ -222,7 +222,7 @@ describe('getOnboardingState', () => {
   it('each step has required fields (id, label, description, href)', async () => {
     const supabase = buildMockSupabase([
       { data: { onboarding_completed_at: null }, error: null },
-      { data: { tier: 'power' }, error: null },
+      { data: { tier: 'growth' }, error: null },
       { count: 0, data: null, error: null },
       { count: 0, data: null, error: null },
       { count: 0, data: null, error: null },

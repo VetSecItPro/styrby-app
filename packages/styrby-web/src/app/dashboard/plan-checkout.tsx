@@ -14,7 +14,10 @@
 import { useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
-const VALID_PLANS = ['pro', 'power'];
+// WHY: post-Phase-5 reconciliation. `'power'` is preserved as a legacy URL
+// alias (Decision #9 in `.audit/styrby-fulltest.md`) for any pre-existing
+// backlinks; the checkout API resolves it to `'growth'` server-side.
+const VALID_PLANS = ['pro', 'growth', 'power', 'team'];
 
 export function PlanCheckout() {
   const searchParams = useSearchParams();

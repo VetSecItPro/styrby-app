@@ -42,6 +42,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { withApiAuth, addRateLimitHeaders, type ApiAuthContext } from '@/middleware/api-auth';
 import type { SessionCheckpoint } from '@styrby/shared';
+import { normalizeEffectiveTier } from '@/lib/tier-enforcement';
 import { z } from 'zod';
 
 // ============================================================================
@@ -235,8 +236,11 @@ async function postHandler(
     .eq('status', 'active')
     .maybeSingle();
 
-  const userTierForCheck = (subscription?.tier as string) || 'free';
-  if (userTierForCheck !== 'power') {
+  // WHY (Phase 5): direct DB read passes through normalization so legacy
+  // enum values (`power`, `team`, `business`, `enterprise`) still resolve
+  // correctly. Pre-rename `'power'` rows alias to `'growth'` (Decision #8).
+  const userTierForCheck = normalizeEffectiveTier((subscription?.tier as string) || 'free');
+  if (userTierForCheck !== 'growth' && userTierForCheck !== 'pro') {
     return NextResponse.json(
       { error: 'Session checkpoints require a Power plan. Upgrade at https://app.styrby.com/pricing' },
       { status: 403 }

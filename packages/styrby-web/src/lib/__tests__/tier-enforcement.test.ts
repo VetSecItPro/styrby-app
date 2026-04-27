@@ -264,73 +264,69 @@ describe('checkTierLimit — pro tier (Infinity sessions)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// checkTierLimit — Power tier (Infinity sessions, higher agents)
+// checkTierLimit — Growth tier (Phase 5: replaces 'power' / 'team')
 // ---------------------------------------------------------------------------
 
-describe('checkTierLimit — power tier', () => {
-  it('always allows sessions for power (Infinity limit)', async () => {
-    const supabase = buildSupabaseMock({ tier: 'power' });
+describe('checkTierLimit — growth tier', () => {
+  it('always allows sessions for growth (Infinity limit)', async () => {
+    const supabase = buildSupabaseMock({ tier: 'growth' });
     const result = await checkTierLimit(USER_ID, 'maxSessionsPerDay', supabase);
     expect(isAllowed(result)).toBe(true);
   });
 
-  it('does NOT query sessions table when power tier has Infinity limit', async () => {
-    const supabase = buildSupabaseMock({ tier: 'power' });
+  it('does NOT query sessions table when growth tier has Infinity limit', async () => {
+    const supabase = buildSupabaseMock({ tier: 'growth' });
     const fromSpy = supabase.from as ReturnType<typeof vi.fn>;
     await checkTierLimit(USER_ID, 'maxSessionsPerDay', supabase);
     const tablesQueried = fromSpy.mock.calls.map((c: unknown[]) => c[0]);
     expect(tablesQueried).not.toContain('sessions');
   });
 
-  it('enforces maxAgents for power tier at boundary', async () => {
-    const powerAgentLimit = TIER_LIMITS.power.maxAgents as number;
-    const supabase = buildSupabaseMock({ tier: 'power', agentCount: powerAgentLimit });
+  it('enforces maxAgents for growth tier at boundary', async () => {
+    const growthAgentLimit = TIER_LIMITS.growth.maxAgents as number;
+    const supabase = buildSupabaseMock({ tier: 'growth', agentCount: growthAgentLimit });
     const result = await checkTierLimit(USER_ID, 'maxAgents', supabase);
     expect(isBlocked(result)).toBe(true);
     if (isBlocked(result)) {
-      expect(result.limit).toBe(powerAgentLimit);
-      expect(result.tier).toBe('power');
+      expect(result.limit).toBe(growthAgentLimit);
+      expect(result.tier).toBe('growth');
     }
   });
 
-  it('allows maxAgents for power tier under limit', async () => {
-    const powerAgentLimit = TIER_LIMITS.power.maxAgents as number;
-    const supabase = buildSupabaseMock({ tier: 'power', agentCount: powerAgentLimit - 1 });
+  it('allows maxAgents for growth tier under limit', async () => {
+    const growthAgentLimit = TIER_LIMITS.growth.maxAgents as number;
+    const supabase = buildSupabaseMock({ tier: 'growth', agentCount: growthAgentLimit - 1 });
     const result = await checkTierLimit(USER_ID, 'maxAgents', supabase);
     expect(isAllowed(result)).toBe(true);
   });
 
-  it('power tier has higher maxAgents than pro tier', () => {
-    // Regression guard: SEC-BIZ-003 fix set power to 9 agents.
-    // If someone reverts that, this test catches it immediately.
-    expect(TIER_LIMITS.power.maxAgents).toBeGreaterThan(TIER_LIMITS.pro.maxAgents);
-    expect(TIER_LIMITS.power.maxAgents).toBe(9);
+  it('pro and growth tiers both grant the full 11-agent cap', () => {
+    expect(TIER_LIMITS.pro.maxAgents).toBe(11);
+    expect(TIER_LIMITS.growth.maxAgents).toBe(11);
   });
 });
 
 // ---------------------------------------------------------------------------
-// checkTierLimit — Team tier (Infinity sessions)
+// checkTierLimit — Legacy DB enum values (Phase 5 alias resolution)
 // ---------------------------------------------------------------------------
 
-describe('checkTierLimit — team tier', () => {
-  it('always allows sessions for team (Infinity limit)', async () => {
+describe('checkTierLimit — legacy "team" DB value resolves through alias', () => {
+  it('legacy "team" → growth: always allows sessions (Infinity)', async () => {
     const supabase = buildSupabaseMock({ tier: 'team' });
     const result = await checkTierLimit(USER_ID, 'maxSessionsPerDay', supabase);
     expect(isAllowed(result)).toBe(true);
   });
 
-  it('enforces maxAgents for team tier', async () => {
-    const teamAgentLimit = TIER_LIMITS.team.maxAgents as number;
-    const supabase = buildSupabaseMock({ tier: 'team', agentCount: teamAgentLimit });
+  it('legacy "team" → growth: enforces maxAgents at growth cap', async () => {
+    const growthAgentLimit = TIER_LIMITS.growth.maxAgents as number;
+    const supabase = buildSupabaseMock({ tier: 'team', agentCount: growthAgentLimit });
     const result = await checkTierLimit(USER_ID, 'maxAgents', supabase);
     expect(isBlocked(result)).toBe(true);
     if (isBlocked(result)) {
-      // WHY (Phase 0.10): tier resolution now delegates to the shared
-      // `normalizeTier` helper which recognises 'team' as a valid tier id
-      // (the Teams plan is reserved for future GA but the id itself is
-      // canonical). Web and mobile both agree on this normalisation.
-      expect(result.tier).toBe('team');
-      expect(result.limit).toBe(teamAgentLimit);
+      // Resolver alias maps `'team'` to `'growth'`; the result must reflect
+      // the canonical post-rename tier id, not the legacy DB string.
+      expect(result.tier).toBe('growth');
+      expect(result.limit).toBe(growthAgentLimit);
     }
   });
 });
@@ -673,23 +669,46 @@ describe('TIER_LIMITS constants — shape validation', () => {
     expect(TIER_LIMITS.pro.maxSessionsPerDay).toBe(Infinity);
   });
 
-  it('power tier has Infinity maxSessionsPerDay', () => {
-    expect(isFinite(TIER_LIMITS.power.maxSessionsPerDay as number)).toBe(false);
-    expect(TIER_LIMITS.power.maxSessionsPerDay).toBe(Infinity);
+  it('growth tier has Infinity maxSessionsPerDay', () => {
+    expect(isFinite(TIER_LIMITS.growth.maxSessionsPerDay as number)).toBe(false);
+    expect(TIER_LIMITS.growth.maxSessionsPerDay).toBe(Infinity);
   });
 
-  it('power maxAgents (9) is the SEC-BIZ-003 fix value', () => {
-    // Regression guard for SEC-BIZ-003: power was previously capped at 3,
-    // contradicting the billing definition. Any revert here breaks this test.
-    expect(TIER_LIMITS.power.maxAgents).toBe(9);
+  it('pro maxAgents is 11 (all CLI agents) — Phase 5 reconciliation', () => {
+    expect(TIER_LIMITS.pro.maxAgents).toBe(11);
+  });
+
+  it('growth maxAgents is 11 (all CLI agents) — Phase 5 reconciliation', () => {
+    expect(TIER_LIMITS.growth.maxAgents).toBe(11);
   });
 
   it('free maxAgents is less than pro maxAgents', () => {
     expect(TIER_LIMITS.free.maxAgents).toBeLessThan(TIER_LIMITS.pro.maxAgents);
   });
 
-  it('pro maxAgents is less than power maxAgents', () => {
-    expect(TIER_LIMITS.pro.maxAgents).toBeLessThan(TIER_LIMITS.power.maxAgents);
+  it('pro has apiAccess but no teamFeatures', () => {
+    expect((TIER_LIMITS.pro as { apiAccess?: boolean }).apiAccess).toBe(true);
+    expect((TIER_LIMITS.pro as { teamFeatures?: boolean }).teamFeatures).toBe(false);
+  });
+
+  it('growth has both apiAccess and teamFeatures', () => {
+    expect((TIER_LIMITS.growth as { apiAccess?: boolean }).apiAccess).toBe(true);
+    expect((TIER_LIMITS.growth as { teamFeatures?: boolean }).teamFeatures).toBe(true);
+  });
+
+  describe('legacy aliases preserved as defensive entries', () => {
+    it('legacy "power" entry exists with growth-equivalent caps for back-compat', () => {
+      // Decision #7: legacy enum values stay defined so historical DB rows
+      // never crash the `TIER_LIMITS[tier]` lookup.
+      expect(TIER_LIMITS.power.maxAgents).toBe(11);
+      expect(TIER_LIMITS.power.maxSessionsPerDay).toBe(Infinity);
+    });
+
+    it('legacy "team" / "business" / "enterprise" entries exist with team caps', () => {
+      expect(TIER_LIMITS.team.maxAgents).toBe(11);
+      expect(TIER_LIMITS.business.maxAgents).toBe(11);
+      expect(TIER_LIMITS.enterprise.maxAgents).toBe(11);
+    });
   });
 });
 
@@ -697,14 +716,11 @@ describe('TIER_LIMITS constants — shape validation', () => {
 // SEC-ADV-004 — Tier ordering helpers
 // ---------------------------------------------------------------------------
 
-describe('rankTier — canonical tier ordering', () => {
-  it('ranks all 6 known tiers monotonically', () => {
+describe('rankTier — canonical tier ordering (Phase 5: free < pro < growth)', () => {
+  it('ranks the 3 canonical tiers monotonically', () => {
     expect(rankTier('free')).toBe(0);
     expect(rankTier('pro')).toBe(1);
-    expect(rankTier('power')).toBe(2);
-    expect(rankTier('team')).toBe(3);
-    expect(rankTier('business')).toBe(4);
-    expect(rankTier('enterprise')).toBe(5);
+    expect(rankTier('growth')).toBe(2);
   });
 
   it('returns 0 (free) for an unknown tier — fail-closed', () => {
@@ -716,26 +732,44 @@ describe('rankTier — canonical tier ordering', () => {
 
 describe('maxTier — picks the higher-ranked tier', () => {
   it('returns the higher of two tiers', () => {
-    expect(maxTier('free', 'business')).toBe('business');
-    expect(maxTier('power', 'team')).toBe('team');
-    expect(maxTier('enterprise', 'free')).toBe('enterprise');
+    expect(maxTier('free', 'growth')).toBe('growth');
+    expect(maxTier('pro', 'growth')).toBe('growth');
+    expect(maxTier('growth', 'free')).toBe('growth');
   });
 
   it('returns either when tiers are equal', () => {
-    expect(maxTier('team', 'team')).toBe('team');
+    expect(maxTier('growth', 'growth')).toBe('growth');
   });
 
-  it('handles power vs pro correctly (power > pro)', () => {
-    expect(maxTier('pro', 'power')).toBe('power');
+  it('handles growth vs pro correctly (growth > pro)', () => {
+    expect(maxTier('pro', 'growth')).toBe('growth');
   });
 });
 
 describe('normalizeEffectiveTier — input sanitisation', () => {
-  it('preserves known tier ids', () => {
-    const all: EffectiveTierId[] = ['free', 'pro', 'power', 'team', 'business', 'enterprise'];
+  it('preserves canonical tier ids', () => {
+    const all: EffectiveTierId[] = ['free', 'pro', 'growth'];
     for (const t of all) {
       expect(normalizeEffectiveTier(t)).toBe(t);
     }
+  });
+
+  describe('LEGACY_TIER_ALIASES — Phase 5 reconciliation (Decision #8)', () => {
+    it('maps legacy "power" → "growth"', () => {
+      expect(normalizeEffectiveTier('power')).toBe('growth');
+    });
+
+    it('maps legacy "team" → "growth"', () => {
+      expect(normalizeEffectiveTier('team')).toBe('growth');
+    });
+
+    it('maps legacy "business" → "growth"', () => {
+      expect(normalizeEffectiveTier('business')).toBe('growth');
+    });
+
+    it('maps legacy "enterprise" → "growth"', () => {
+      expect(normalizeEffectiveTier('enterprise')).toBe('growth');
+    });
   });
 
   it('falls back to free for null / undefined / unknown', () => {
@@ -757,54 +791,59 @@ describe('resolveEffectiveTier — personal vs team cross-read', () => {
     expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('free');
   });
 
-  it('user with no team but power personal sub → power (preserves current behaviour)', async () => {
+  it('user with no team but legacy "power" personal sub → growth (Phase 5 alias)', async () => {
+    // Pre-rename `'power'` was the solo paid tier; post-rename it aliases to
+    // Growth via LEGACY_TIER_ALIASES. Historical DB rows still resolve.
     const supabase = buildSupabaseMock({ tier: 'power', teamBillingTiers: [] });
-    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('power');
+    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('growth');
   });
 
-  it('user with personal=free + team=business → business (THE BUG FIX)', async () => {
-    // SEC-ADV-004 happy path: a team admin whose team pays for business but
-    // who has no personal subscription must receive business-tier access.
+  it('user with no team but pro personal sub → pro', async () => {
+    const supabase = buildSupabaseMock({ tier: 'pro', teamBillingTiers: [] });
+    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('pro');
+  });
+
+  it('user with personal=free + team=legacy "business" → growth (THE BUG FIX + alias)', async () => {
+    // SEC-ADV-004 happy path: a team admin whose team pays for the (legacy)
+    // business tier — that DB value aliases to growth per Decision #8.
     const supabase = buildSupabaseMock({
       tier: null,
       teamBillingTiers: ['business'],
     });
-    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('business');
+    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('growth');
   });
 
-  it('user with personal=enterprise (admin override) + team=team → enterprise (personal outranks team)', async () => {
-    // Admin-overridden personal tier must be honored when above the team tier.
-    // Canonical TIER_ORDER: free < pro < power < team < business < enterprise.
+  it('user with personal=legacy "enterprise" + team=legacy "team" → growth (both alias to growth)', async () => {
     const supabase = buildSupabaseMock({
       tier: 'enterprise',
       teamBillingTiers: ['team'],
     });
-    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('enterprise');
+    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('growth');
   });
 
-  it('user with personal=power + team=team → team (team outranks power per canonical order)', async () => {
-    // Pins the documented ordering: team-family always >= solo tiers.
+  it('user with legacy "power" personal + legacy "team" team → growth (rank fold)', async () => {
+    // Both legacy values alias to growth; max(growth, growth) = growth.
     const supabase = buildSupabaseMock({
       tier: 'power',
       teamBillingTiers: ['team'],
     });
-    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('team');
+    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('growth');
   });
 
-  it('user on multiple teams → max team tier wins', async () => {
+  it('user on multiple teams (mixed legacy values) → max team tier wins', async () => {
     const supabase = buildSupabaseMock({
       tier: 'free',
       teamBillingTiers: ['team', 'enterprise', 'business'],
     });
-    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('enterprise');
+    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('growth');
   });
 
   it('team_members query error → falls back to personal tier (fail-closed for team component)', async () => {
     const supabase = buildSupabaseMock({
-      tier: 'power',
+      tier: 'pro',
       teamMembersError: true,
     });
-    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('power');
+    expect(await resolveEffectiveTier(supabase, USER_ID)).toBe('pro');
   });
 
   it('both reads fail → free (fail-closed end-to-end)', async () => {
@@ -830,9 +869,7 @@ describe('resolveEffectiveTier — personal vs team cross-read', () => {
 // ---------------------------------------------------------------------------
 
 describe('checkTierLimit — team-tier elevation via teams.billing_tier', () => {
-  it('free personal + business team → maxSessionsPerDay is unlimited', async () => {
-    // Without the cross-read, this user would be blocked at the free 5/day cap.
-    // With the fix, business has Infinity sessions so they pass without a count.
+  it('free personal + legacy "business" team → maxSessionsPerDay is unlimited (alias → growth)', async () => {
     const supabase = buildSupabaseMock({
       tier: null,
       teamBillingTiers: ['business'],
@@ -842,44 +879,39 @@ describe('checkTierLimit — team-tier elevation via teams.billing_tier', () => 
     expect(isAllowed(result)).toBe(true);
   });
 
-  it('free personal + enterprise team → maxAgents follows enterprise caps', async () => {
-    const enterpriseAgents = TIER_LIMITS.enterprise.maxAgents as number;
+  it('free personal + legacy "enterprise" team → maxAgents follows growth caps', async () => {
+    const growthAgents = TIER_LIMITS.growth.maxAgents as number;
     const supabase = buildSupabaseMock({
       tier: null,
       teamBillingTiers: ['enterprise'],
-      agentCount: enterpriseAgents - 1,
+      agentCount: growthAgents - 1,
     });
     const result = await checkTierLimit(USER_ID, 'maxAgents', supabase);
     expect(isAllowed(result)).toBe(true);
   });
 
-  it('free personal + enterprise team at agent cap → blocked, tier="enterprise"', async () => {
-    const enterpriseAgents = TIER_LIMITS.enterprise.maxAgents as number;
+  it('free personal + legacy "enterprise" team at agent cap → blocked, tier="growth"', async () => {
+    const growthAgents = TIER_LIMITS.growth.maxAgents as number;
     const supabase = buildSupabaseMock({
       tier: null,
       teamBillingTiers: ['enterprise'],
-      agentCount: enterpriseAgents,
+      agentCount: growthAgents,
     });
     const result = await checkTierLimit(USER_ID, 'maxAgents', supabase);
     expect(isBlocked(result)).toBe(true);
     if (isBlocked(result)) {
-      expect(result.tier).toBe('enterprise');
-      expect(result.limit).toBe(enterpriseAgents);
+      expect(result.tier).toBe('growth');
+      expect(result.limit).toBe(growthAgents);
     }
   });
 
-  it('admin override (personal=power) above team=team is honored', async () => {
-    // Admin set personal to power; team is on the team plan. Power outranks
-    // team in the canonical ordering only if personal is the max — but here
-    // team (rank 3) > power (rank 2), so team wins. This test pins the
-    // ordering documented in TIER_ORDER.
+  it('legacy "power" personal + legacy "team" → growth (both alias)', async () => {
     const supabase = buildSupabaseMock({
       tier: 'power',
       teamBillingTiers: ['team'],
       sessionCount: 0,
     });
     const result = await checkTierLimit(USER_ID, 'maxSessionsPerDay', supabase);
-    // Both power and team have Infinity sessions → allowed without a count query.
     expect(isAllowed(result)).toBe(true);
   });
 

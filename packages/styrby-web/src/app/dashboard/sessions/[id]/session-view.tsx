@@ -48,7 +48,7 @@ interface SessionViewProps {
   /** Current user's ID */
   userId: string;
   /** User's subscription tier */
-  userTier: 'free' | 'pro' | 'power';
+  userTier: 'free' | 'pro' | 'growth';
 }
 
 /**

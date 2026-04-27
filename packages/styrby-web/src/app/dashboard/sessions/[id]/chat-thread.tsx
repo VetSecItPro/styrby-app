@@ -95,7 +95,7 @@ interface ChatThreadProps {
    * User's subscription tier. Controls visibility of Pro-gated features
    * such as per-message cost pills.
    */
-  userTier: 'free' | 'pro' | 'power';
+  userTier: 'free' | 'pro' | 'growth';
 }
 
 /* ──────────────────────────── Icons ──────────────────────────── */
@@ -347,7 +347,7 @@ interface MessageRowProps {
    * (they require per-message token tracking in the Pro/Power feature set).
    * Free users see a blurred upgrade prompt instead.
    */
-  userTier: 'free' | 'pro' | 'power';
+  userTier: 'free' | 'pro' | 'growth';
 }
 
 /**

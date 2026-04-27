@@ -41,9 +41,9 @@ export default async function TeamPage() {
     .single();
 
   const tier = (subscription?.tier as TierId) || 'free';
-  // WHY: Team features are Power-only. Pro is a single-user tier.
-  // Power users get up to 3 team members.
-  const hasTeamAccess = tier === 'power';
+  // WHY (Phase 5 rename): Team features are Growth-only post-rename. Pro
+  // remains a single-user tier. Pre-rename `'power'` collapsed into Growth.
+  const hasTeamAccess = tier === 'growth';
 
   // If not Pro+ tier, show upgrade prompt
   if (!hasTeamAccess) {
@@ -178,7 +178,7 @@ export default async function TeamPage() {
             </div>
 
             <p className="mt-6 text-sm text-zinc-500">
-              Pro plan: ${TIERS.pro.price.monthly}/month · Power plan: ${TIERS.power.price.monthly}/month
+              Pro plan: ${TIERS.pro.price.monthly}/month · Growth plan: ${TIERS.growth.price.monthly}/month
             </p>
           </div>
         </main>

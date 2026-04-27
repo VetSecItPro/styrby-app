@@ -57,9 +57,10 @@ async function getUserTier(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string
 ): Promise<TierId> {
-  // SEC-ADV-004: cross-read personal subscription + team memberships and
-  // pick the higher-ranked tier. team-family results are collapsed to
-  // 'power' for compatibility with the legacy TIERS table.
+  // SEC-ADV-004 + Phase 5 reconciliation: cross-read personal subscription +
+  // team memberships and pick the higher-ranked tier. Effective tier is one
+  // of 'free' | 'pro' | 'growth'; legacy DB values are normalised by the
+  // resolver via LEGACY_TIER_ALIASES.
   const effective = await resolveEffectiveTier(supabase, userId);
   return toLegacyTierId(effective) as TierId;
 }
@@ -67,14 +68,15 @@ async function getUserTier(
 /**
  * Checks if a tier has team features enabled.
  *
- * WHY: Only Power tier includes team collaboration. Pro and Free users must
- * upgrade to access team features.
+ * WHY: Team collaboration is Growth-only. Pro is a single-user plan; Free
+ * has no paid features. Pre-rename code referenced `'power'` here — that
+ * concept maps to `'growth'` in the post-Phase-5 model.
  *
  * @param tier - The user's subscription tier
  * @returns True if the tier includes team features
  */
 function tierHasTeamFeatures(tier: TierId): boolean {
-  return tier === 'power';
+  return tier === 'growth';
 }
 
 // ---------------------------------------------------------------------------
