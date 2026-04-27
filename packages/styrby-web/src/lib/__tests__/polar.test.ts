@@ -5,8 +5,18 @@
  * pricing calculations, and product ID resolution.
  */
 
-import { describe, it, expect, vi } from 'vitest';
-import { TIERS, getTier, getProductId, getDisplayPrice, type TierId } from '../polar';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+  TIERS,
+  getTier,
+  getProductId,
+  getDisplayPrice,
+  STYRBY_PRORATION_BEHAVIOR,
+  getPolarServer,
+  getTeamSeatProductId,
+  isTeamSeatProduct,
+  type TierId,
+} from '../polar';
 
 // Mock the Polar SDK to prevent actual API calls during tests
 vi.mock('@polar-sh/sdk', () => ({
@@ -313,5 +323,119 @@ describe('Polar Billing Module', () => {
         expect(getDisplayPrice('power', 'annual').period).toBe('/year');
       });
     });
+  });
+});
+
+// ============================================================================
+// Polar helpers ported from Kaulby — Bug #6 (no proration) + H7 (POLAR_ENV)
+// ============================================================================
+
+describe('STYRBY_PRORATION_BEHAVIOR', () => {
+  it('is the literal string "next_period" (no proration policy)', () => {
+    // WHY: This constant is the wire-level value Polar accepts to skip
+    // proration on subscription updates. If this drifts to "prorate" or
+    // "invoice" we lose Bug #6 protection — partial refunds resume.
+    expect(STYRBY_PRORATION_BEHAVIOR).toBe('next_period');
+  });
+});
+
+describe('getPolarServer()', () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('returns "sandbox" when POLAR_ENV === "sandbox"', () => {
+    vi.stubEnv('POLAR_ENV', 'sandbox');
+    expect(getPolarServer()).toBe('sandbox');
+  });
+
+  it('returns "production" when POLAR_ENV is unset', () => {
+    vi.stubEnv('POLAR_ENV', '');
+    expect(getPolarServer()).toBe('production');
+  });
+
+  it('returns "production" when POLAR_ENV === "production"', () => {
+    vi.stubEnv('POLAR_ENV', 'production');
+    expect(getPolarServer()).toBe('production');
+  });
+
+  it('returns "production" for any value other than the literal "sandbox"', () => {
+    // WHY strict equality: we only flip to sandbox on the exact string. Typos
+    // like "Sandbox" or "test" must NOT route to sandbox — they must fail
+    // closed to production so accidental misconfig doesn't ship test traffic
+    // against the production billing surface.
+    vi.stubEnv('POLAR_ENV', 'Sandbox');
+    expect(getPolarServer()).toBe('production');
+    vi.stubEnv('POLAR_ENV', 'test');
+    expect(getPolarServer()).toBe('production');
+    vi.stubEnv('POLAR_ENV', 'staging');
+    expect(getPolarServer()).toBe('production');
+  });
+});
+
+describe('getTeamSeatProductId()', () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('returns the monthly seat env var for "monthly"', () => {
+    vi.stubEnv('POLAR_GROWTH_SEAT_MONTHLY_PRODUCT_ID', 'prod_seat_mo_123');
+    vi.stubEnv('POLAR_GROWTH_SEAT_ANNUAL_PRODUCT_ID', 'prod_seat_yr_456');
+    expect(getTeamSeatProductId('monthly')).toBe('prod_seat_mo_123');
+  });
+
+  it('returns the annual seat env var for "annual"', () => {
+    vi.stubEnv('POLAR_GROWTH_SEAT_MONTHLY_PRODUCT_ID', 'prod_seat_mo_123');
+    vi.stubEnv('POLAR_GROWTH_SEAT_ANNUAL_PRODUCT_ID', 'prod_seat_yr_456');
+    expect(getTeamSeatProductId('annual')).toBe('prod_seat_yr_456');
+  });
+
+  it('does not cross interval (monthly call must not return annual id)', () => {
+    vi.stubEnv('POLAR_GROWTH_SEAT_MONTHLY_PRODUCT_ID', 'prod_seat_mo_123');
+    vi.stubEnv('POLAR_GROWTH_SEAT_ANNUAL_PRODUCT_ID', 'prod_seat_yr_456');
+    expect(getTeamSeatProductId('monthly')).not.toBe('prod_seat_yr_456');
+    expect(getTeamSeatProductId('annual')).not.toBe('prod_seat_mo_123');
+  });
+
+  it('returns null when the matching env var is unset', () => {
+    vi.stubEnv('POLAR_GROWTH_SEAT_MONTHLY_PRODUCT_ID', '');
+    vi.stubEnv('POLAR_GROWTH_SEAT_ANNUAL_PRODUCT_ID', '');
+    expect(getTeamSeatProductId('monthly')).toBeNull();
+    expect(getTeamSeatProductId('annual')).toBeNull();
+  });
+});
+
+describe('isTeamSeatProduct()', () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.stubEnv('POLAR_GROWTH_SEAT_MONTHLY_PRODUCT_ID', 'prod_seat_mo_123');
+    vi.stubEnv('POLAR_GROWTH_SEAT_ANNUAL_PRODUCT_ID', 'prod_seat_yr_456');
+  });
+
+  it('returns true for the monthly seat product id', () => {
+    expect(isTeamSeatProduct('prod_seat_mo_123')).toBe(true);
+  });
+
+  it('returns true for the annual seat product id', () => {
+    expect(isTeamSeatProduct('prod_seat_yr_456')).toBe(true);
+  });
+
+  it('returns false for an unrelated product id (base plan, etc.)', () => {
+    expect(isTeamSeatProduct('prod_pro_mo_xyz')).toBe(false);
+    expect(isTeamSeatProduct('prod_power_yr_zzz')).toBe(false);
+  });
+
+  it('returns false for the empty string', () => {
+    // WHY: Polar webhook payloads can carry an empty product id during
+    // rare partial-payload edge cases. Returning true for "" would falsely
+    // classify those as seat products and skew seat accounting.
+    expect(isTeamSeatProduct('')).toBe(false);
+  });
+
+  it('returns false when both seat env vars are unset (no false positives)', () => {
+    vi.stubEnv('POLAR_GROWTH_SEAT_MONTHLY_PRODUCT_ID', '');
+    vi.stubEnv('POLAR_GROWTH_SEAT_ANNUAL_PRODUCT_ID', '');
+    // Even if a real-looking id is passed, both env vars empty → never a seat
+    expect(isTeamSeatProduct('prod_seat_mo_123')).toBe(false);
   });
 });
