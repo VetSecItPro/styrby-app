@@ -816,6 +816,211 @@ describe('POST /api/webhooks/polar', () => {
   });
 
   // --------------------------------------------------------------------------
+  // Order Refunded — Bug #8 / Phase H6 subscription-id match guard
+  //
+  // WHY these tests: order.refunded blanket-resets are a billing-state
+  // landmine. The handler MUST differentiate between:
+  //   1. Main subscription refund        → reset to free
+  //   2. Side-purchase refund (seat addon) → preserve main tier
+  //   3. Refund event with missing subscription_id → graceful no-op
+  //
+  // These tests pin the contract so a future refactor cannot regress to the
+  // naive "always reset" behavior. SOC2 CC7.2: every billing decision is
+  // observable via audit_log; we assert the audit row's metadata.event_subtype
+  // discriminator is present in every branch.
+  // --------------------------------------------------------------------------
+
+  describe('order.refunded (Bug #8 subscription-id match guard)', () => {
+    /** Build a signed order.refunded request. */
+    async function sendSignedRefund(body: Record<string, unknown>): Promise<Response> {
+      const payload = JSON.stringify(body);
+      const signature = signPayload(payload);
+      const headersMock = new Headers();
+      headersMock.set('x-polar-signature', signature);
+      vi.mocked(headers).mockResolvedValue(
+        headersMock as unknown as Awaited<ReturnType<typeof headers>>
+      );
+      const request = new Request('http://localhost:3000/api/webhooks/polar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-forwarded-for': '10.0.0.1',
+        },
+        body: payload,
+      });
+      return POST(request);
+    }
+
+    it('main subscription refund: resets to free, audit metadata event_subtype=order_refunded_main', async () => {
+      // Subscription lookup returns the user's main sub with the SAME id as the
+      // refunded subscription_id below.
+      mockSingle.mockResolvedValueOnce({
+        data: {
+          user_id: 'user-uuid-123',
+          polar_subscription_id: 'sub_main_xyz',
+          tier: 'pro',
+        },
+        error: null,
+      });
+
+      // The flow makes TWO .eq() calls in sequence:
+      //   1. SELECT ... .eq('polar_customer_id', ...).single() — must return the
+      //      chain object so .single() can be called next (mockSingle resolves it).
+      //   2. UPDATE ... .eq('polar_subscription_id', ...) — must resolve to { error: null }.
+      //
+      // Defaults from beforeEach use mockReturnThis() for ALL calls. Adding a
+      // mockResolvedValueOnce would land on call 1 (FIFO), breaking the lookup.
+      // We explicitly chain: first call returns the mock itself (preserving the
+      // chain), second call resolves with success.
+      mockEq.mockReturnValueOnce({
+        select: mockSelect,
+        eq: mockEq,
+        single: mockSingle,
+        upsert: mockUpsert,
+        update: mockUpdate,
+        insert: mockInsert,
+        order: mockOrder,
+        limit: mockLimit,
+      });
+      mockEq.mockResolvedValueOnce({ data: null, error: null });
+
+      const event = {
+        id: 'evt_refund_main_001',
+        type: 'order.refunded',
+        data: {
+          id: 'ord_refund_001',
+          customer_id: 'cust_test_456',
+          subscription_id: 'sub_main_xyz', // === main subscription
+        },
+      };
+
+      const response = await sendSignedRefund(event);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      // WHY no side_purchase_refund key on main-sub branch: the response shape
+      // intentionally differs so callers/observability can distinguish the path.
+      expect(body.side_purchase_refund).toBeUndefined();
+      expect(body.received).toBe(true);
+
+      // Verify update was called to reset tier to free.
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tier: 'free',
+          status: 'canceled',
+        })
+      );
+
+      // Verify audit_log insert with main-branch discriminator.
+      expect(mockInsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'subscription_changed',
+          metadata: expect.objectContaining({
+            event_subtype: 'order_refunded_main',
+            refunded_subscription_id: 'sub_main_xyz',
+            main_subscription_id: 'sub_main_xyz',
+            previous_tier: 'pro',
+            new_tier: 'free',
+          }),
+        })
+      );
+    });
+
+    it('side-purchase refund (subscription_id !== main): preserves main tier, audit event_subtype=order_refunded_side_purchase, response side_purchase_refund=true', async () => {
+      // Subscription lookup returns the user's main sub with a DIFFERENT id
+      // than the refunded subscription_id.
+      mockSingle.mockResolvedValueOnce({
+        data: {
+          user_id: 'user-uuid-123',
+          polar_subscription_id: 'sub_main_xyz',
+          tier: 'pro',
+        },
+        error: null,
+      });
+
+      const event = {
+        id: 'evt_refund_seat_001',
+        type: 'order.refunded',
+        data: {
+          id: 'ord_refund_seat_001',
+          customer_id: 'cust_test_456',
+          subscription_id: 'sub_seat_addon_abc', // !== main
+        },
+      };
+
+      const response = await sendSignedRefund(event);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.received).toBe(true);
+      // WHY this assertion is the headline of Bug #8: side_purchase_refund=true
+      // is the contract that proves the guard fired and the main tier was
+      // preserved. If this flag flips false on a side-purchase refund, the
+      // billing pipeline is back to the naive blanket-reset behavior.
+      expect(body.side_purchase_refund).toBe(true);
+
+      // Verify NO subscription update was called (main tier preserved).
+      expect(mockUpdate).not.toHaveBeenCalled();
+
+      // Verify audit_log insert with side-purchase discriminator.
+      expect(mockInsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'subscription_changed',
+          metadata: expect.objectContaining({
+            event_subtype: 'order_refunded_side_purchase',
+            refunded_subscription_id: 'sub_seat_addon_abc',
+            main_subscription_id: 'sub_main_xyz',
+          }),
+        })
+      );
+    });
+
+    it('refund with missing subscription_id: graceful 200 with side_purchase_refund=true, no main-tier reset', async () => {
+      // Subscription lookup succeeds (so userMainSubscriptionId is non-null),
+      // but the refund event omits subscription_id entirely. The guard MUST
+      // treat this as not-a-main-sub-refund (refundedSubscriptionId === null
+      // fails the equality check) and preserve the main tier.
+      mockSingle.mockResolvedValueOnce({
+        data: {
+          user_id: 'user-uuid-123',
+          polar_subscription_id: 'sub_main_xyz',
+          tier: 'pro',
+        },
+        error: null,
+      });
+
+      const event = {
+        id: 'evt_refund_missing_subid_001',
+        type: 'order.refunded',
+        data: {
+          id: 'ord_refund_missing_001',
+          customer_id: 'cust_test_456',
+          // subscription_id intentionally omitted
+        },
+      };
+
+      const response = await sendSignedRefund(event);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.received).toBe(true);
+      expect(body.side_purchase_refund).toBe(true);
+
+      // No main-tier reset on ambiguous payload.
+      expect(mockUpdate).not.toHaveBeenCalled();
+
+      // Audit row recorded with refunded_subscription_id=null in metadata so
+      // the absence is observable.
+      expect(mockInsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'subscription_changed',
+          metadata: expect.objectContaining({
+            event_subtype: 'order_refunded_side_purchase',
+            refunded_subscription_id: null,
+          }),
+        })
+      );
+    });
+  });
+
+  // --------------------------------------------------------------------------
   // Individual-path event-id dedup (migration 054 hardening)
   //
   // WHY these tests: migration 054 adds event-id dedup to the individual
