@@ -47,10 +47,11 @@ describe('isTierFeatureEnabled', () => {
 });
 
 describe('getFeatureLimitFor', () => {
-  it('returns the numeric maxAgents for each tier', () => {
-    expect(getFeatureLimitFor('free', 'maxAgents')).toBe(1);
-    expect(getFeatureLimitFor('pro', 'maxAgents')).toBe(3);
-    expect(getFeatureLimitFor('power', 'maxAgents')).toBe(9);
+  it('returns the numeric maxAgents for each tier (Phase 5: free=3, pro=11, power-alias=11)', () => {
+    expect(getFeatureLimitFor('free', 'maxAgents')).toBe(3);
+    expect(getFeatureLimitFor('pro', 'maxAgents')).toBe(11);
+    // 'power' is a legacy DB enum value preserved as a defensive alias.
+    expect(getFeatureLimitFor('power', 'maxAgents')).toBe(11);
   });
 
   it('returns Infinity for unlimited maxSessionsPerDay (pro/power)', () => {
@@ -64,7 +65,8 @@ describe('getFeatureLimitFor', () => {
   });
 
   it('falls back to free tier on unknown tier id', () => {
-    expect(getFeatureLimitFor('mystery' as never, 'maxAgents')).toBe(1);
+    // Phase 5: free maxAgents is 3 (entry-level CLI agents).
+    expect(getFeatureLimitFor('mystery' as never, 'maxAgents')).toBe(3);
   });
 });
 

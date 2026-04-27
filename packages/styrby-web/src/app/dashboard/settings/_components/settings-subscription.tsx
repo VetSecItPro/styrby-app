@@ -23,7 +23,7 @@ export interface SettingsSubscriptionProps {
 export function SettingsSubscription({ subscription }: SettingsSubscriptionProps) {
   const router = useRouter();
   const supabase = createClient();
-  const isPaidTier = subscription?.tier === 'pro' || subscription?.tier === 'power';
+  const isPaidTier = subscription?.tier === 'pro' || subscription?.tier === 'growth';
   const monthlySpend = useMonthlySpend(supabase, isPaidTier);
 
   const isFree = subscription?.tier === 'free' || !subscription;

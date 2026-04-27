@@ -123,7 +123,8 @@ export async function GET() {
       .eq('status', 'active')
       .single();
 
-    const knownTiers: TierId[] = ['free', 'pro', 'power'];
+    // WHY post-Phase 5: TierId narrowed to 'free' | 'pro' | 'growth'.
+    const knownTiers: TierId[] = ['free', 'pro', 'growth'];
     const resolvedTier = (
       knownTiers.includes(subscription?.tier as TierId)
         ? subscription?.tier

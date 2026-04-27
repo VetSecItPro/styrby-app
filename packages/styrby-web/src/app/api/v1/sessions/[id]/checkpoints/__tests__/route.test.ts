@@ -162,20 +162,21 @@ describe('Session Checkpoints API', () => {
     });
 
     it('returns 403 for free tier users', async () => {
-      // subscriptions → free (not power)
-      fromCallQueue.push({ data: null, error: null }); // maybeSingle → null → defaults to free
+      fromCallQueue.push({ data: null, error: null });
 
       const res = await POST(makeRequest('POST', VALID_SESSION_ID, VALID_CHECKPOINT_BODY));
       expect(res.status).toBe(403);
-      const body = await res.json();
-      expect(body.error).toContain('Power plan');
     });
 
-    it('returns 403 for pro tier users', async () => {
+    it('allows pro tier users (Phase 5: Pro inherits power-equivalent features)', async () => {
+      // Phase 5 reconciliation: Pro absorbs the old Power feature set, so
+      // session checkpoints are now available on Pro.
       fromCallQueue.push({ data: { tier: 'pro' }, error: null });
+      fromCallQueue.push({ data: null, error: null }); // dup-name lookup
+      fromCallQueue.push({ data: { id: 'cp_1' }, error: null }); // insert
 
       const res = await POST(makeRequest('POST', VALID_SESSION_ID, VALID_CHECKPOINT_BODY));
-      expect(res.status).toBe(403);
+      expect([200, 201]).toContain(res.status);
     });
 
     it('returns 400 for missing name', async () => {

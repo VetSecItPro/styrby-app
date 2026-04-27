@@ -141,12 +141,12 @@ describe('OnboardingModal — tier headlines', () => {
     expect(screen.getByRole('heading', { name: 'Welcome to Pro' })).toBeInTheDocument();
   });
 
-  it('shows "Welcome to Power" for power tier', () => {
+  it('shows "Welcome to Growth" for growth tier (Phase 5 rename)', () => {
     render(
-      <OnboardingModal onboardingState={buildState({ tier: 'power' })} onDismiss={vi.fn()} />
+      <OnboardingModal onboardingState={buildState({ tier: 'growth' })} onDismiss={vi.fn()} />
     );
 
-    expect(screen.getByRole('heading', { name: 'Welcome to Power' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Welcome to Growth' })).toBeInTheDocument();
   });
 });
 

@@ -137,14 +137,14 @@ describe('SignUpPage — info step', () => {
     ).toBeInTheDocument();
   });
 
-  it('shows "Create your Power account" when plan=power', () => {
+  it('shows "Create your Growth account" when plan=growth (Phase 5 rename)', () => {
     mockSearchParams.get.mockImplementation((key: string) =>
-      key === 'plan' ? 'power' : null
+      key === 'plan' ? 'growth' : null
     );
     setup();
 
     expect(
-      screen.getByRole('heading', { name: 'Create your Power account' })
+      screen.getByRole('heading', { name: 'Create your Growth account' })
     ).toBeInTheDocument();
   });
 

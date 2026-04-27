@@ -133,7 +133,7 @@ interface DashboardRealtimeProps {
    * - Activity graph: Pro+
    * - Cloud Tasks panel: Power only
    */
-  userTier: 'free' | 'pro' | 'power';
+  userTier: 'free' | 'pro' | 'growth';
 }
 
 /* ──────────────────────────── Component ──────────────────────────── */
@@ -460,7 +460,7 @@ export function DashboardRealtime({
       {/* Cloud Tasks Panel - async agent task monitoring - Power tier only
           WHY: Cloud Monitoring is listed as a Power-exclusive feature in the TIERS
           config. Pro users see a locked upgrade card; Free users also see it. */}
-      {userTier === 'power' ? (
+      {userTier === 'growth' ? (
         <div className="mt-8 rounded-xl bg-zinc-900 border border-zinc-800 p-4">
           <CloudTasksPanel userId={userId} />
         </div>

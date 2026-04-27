@@ -184,7 +184,7 @@ describe('Teams API — /api/teams', () => {
       expect(body.teams[0].name).toBe('Alpha Team');
       expect(body.teams[0].role).toBe('owner');
       expect(body.teams[0].member_count).toBe(3);
-      expect(body.tier).toBe('power');
+      expect(body.tier).toBe('growth');
       expect(body.canCreateTeam).toBe(true);
       expect(body.teamLimit).toBe(3);
     });

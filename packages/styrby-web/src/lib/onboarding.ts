@@ -42,7 +42,7 @@ export type OnboardingStep = {
  */
 export type OnboardingState = {
   /** The user's current subscription tier */
-  tier: 'free' | 'pro' | 'power';
+  tier: 'free' | 'pro' | 'growth';
   /** Ordered list of onboarding steps for this tier */
   steps: OnboardingStep[];
   /** Number of steps the user has completed */
@@ -105,7 +105,9 @@ const STEP_DEFINITIONS = {
 const TIER_STEPS: Record<TierId, (keyof typeof STEP_DEFINITIONS)[]> = {
   free: ['connectMachine'],
   pro: ['connectMachine', 'setBudgetAlert', 'installMobileApp'],
-  power: ['connectMachine', 'setBudgetAlert', 'inviteTeamMember', 'createApiKey', 'installMobileApp'],
+  // WHY (Phase 5 rename): pre-rename `'power'` tier collapsed into Growth.
+  // Growth is the new team plan; team-invite step belongs there.
+  growth: ['connectMachine', 'setBudgetAlert', 'inviteTeamMember', 'createApiKey', 'installMobileApp'],
 };
 
 // ---------------------------------------------------------------------------
@@ -203,7 +205,7 @@ export async function getOnboardingState(
   // team this user owns. A simpler heuristic: check if there are pending or accepted
   // invitations sent by this user.
   let hasInvitedTeamMember = false;
-  if (tier === 'power') {
+  if (tier === 'growth') {
     const { count: invitationCount } = await supabase
       .from('team_invitations')
       .select('id', { count: 'exact', head: true })

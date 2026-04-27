@@ -79,7 +79,7 @@ export function SettingsClient({
   notificationPrefs,
   agentConfigs,
 }: SettingsClientProps) {
-  const isPowerTier = subscription?.tier === 'power';
+  const isPowerTier = subscription?.tier === 'growth';
 
   return (
     <>

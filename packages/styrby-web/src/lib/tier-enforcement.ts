@@ -12,13 +12,12 @@
  * the request was initiated.
  *
  * WHY the resolver cross-reads `subscriptions.tier` AND `teams.billing_tier`
- * (SEC-ADV-004): A team admin whose team is on `teams.billing_tier='business'`
+ * (SEC-ADV-004): A team admin whose team is on `teams.billing_tier='growth'`
  * but who has no personal `subscriptions` row (or an outdated one with
  * `tier='free'`) was previously receiving free-tier limits despite their team
  * paying. We now compute the EFFECTIVE tier as
  *   max(personal_subscription_tier, max(team_billing_tier_for_active_memberships))
- * over the canonical tier ordering free < pro < power < team < business <
- * enterprise. This:
+ * over the canonical tier ordering free < pro < growth. This:
  *   - avoids a backfill migration (no risk of inconsistent state during deploy)
  *   - avoids tying tier sync to team membership change triggers
  *   - honors admin overrides that elevate a personal tier above the team tier
@@ -26,8 +25,24 @@
  *
  * Design principles:
  * - Fail-closed: if tier lookup fails, defaults to 'free' (most restrictive)
- * - Infinity limits (pro/power/team/business/enterprise for sessions) skip DB count
+ * - Infinity limits (pro/growth for sessions) skip DB count
  * - Returns structured errors so callers can surface actionable messages
+ *
+ * ---------------------------------------------------------------------------
+ * 2026-04-27 — Tier reconciliation refactor (Phase 5)
+ * ---------------------------------------------------------------------------
+ *
+ * EffectiveTierId collapsed from 6 values to 3: `'free' | 'pro' | 'growth'`.
+ * Legacy enum values (`power`, `team`, `business`, `enterprise`) are still
+ * possible in `subscriptions.tier` (historical rows) and therefore still
+ * possible in `teams.billing_tier`. {@link LEGACY_TIER_ALIASES} resolves
+ * those to their post-rename equivalents at read time so that:
+ *   - The enforcement layer never sees the legacy strings.
+ *   - No DB backfill is required to ship the rename safely.
+ *   - The DB enum can keep the legacy values forever (Postgres cannot drop
+ *     enum values without a rebuild) without polluting application logic.
+ *
+ * See `.audit/styrby-fulltest.md` Decision #7 / #8 for the canonical mapping.
  *
  * Compliance: SOC2 CC6.1 (logical access enforcement) + OWASP ASVS V11.
  */
@@ -40,37 +55,67 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 // ---------------------------------------------------------------------------
 
 /**
- * The full set of tier identifiers that may resolve from this module.
- *
- * 'pro' is a legacy alias retained because some `subscriptions.tier` rows in
- * production may still hold the literal value (the enum predates the rename).
- * Marketing surfaces no longer offer 'pro' but enforcement must still honor
- * it (it currently maps to a stricter cap than 'power').
+ * The canonical set of tier identifiers used by the gating layer post the
+ * 2026-04-27 reconciliation. Historical DB rows holding legacy values
+ * (`power`, `team`, `business`, `enterprise`) are mapped to one of these
+ * via {@link LEGACY_TIER_ALIASES} before they reach any consumer.
  *
  * Order in {@link TIER_ORDER} is the canonical upgrade path used by
  * {@link rankTier} and {@link resolveEffectiveTier}.
  */
-export type EffectiveTierId =
-  | 'free'
-  | 'pro'
+export type EffectiveTierId = 'free' | 'pro' | 'growth';
+
+/**
+ * Legacy DB enum values that may still appear in `subscriptions.tier` or
+ * `teams.billing_tier` from rows written before the 2026-04-27 rename.
+ *
+ * Includes both the canonical post-rename values (so the alias map is total
+ * over every observable string) and the historical aliases.
+ */
+type ObservableTierString =
+  | EffectiveTierId
   | 'power'
   | 'team'
   | 'business'
   | 'enterprise';
 
 /**
+ * Maps every observable tier string (canonical or legacy) to a canonical
+ * {@link EffectiveTierId}.
+ *
+ * WHY each legacy mapping (matches `.audit/styrby-fulltest.md` Decision #8):
+ *
+ * | Legacy value | Maps to | Why |
+ * |---|---|---|
+ * | `'power'`      | `'growth'`   | Pre-rename `power` granted the "all 11 agents + API" feature set on the cross-read resolver. Mapping it to `growth` preserves the most-permissive tier those users had access to via the rank fold. Bumping single-user `power` to a team-feature tier is intentional: the resolver also takes max() over the team-membership tier, so a true single-user `power` row resolves to `growth` anyway via that path; mapping here keeps the personal-tier read consistent. |
+ * | `'team'`       | `'growth'`   | The Team plan was always the multi-seat paid tier; Growth is its post-rename equivalent. |
+ * | `'business'`   | `'growth'`   | Business was a superset of Team; collapsed into Growth in the 2-tier model (Decision #1). |
+ * | `'enterprise'` | `'growth'`   | Enterprise was a custom-priced superset of Business. Custom deals continue out-of-band; for the gating layer we treat them as Growth. |
+ *
+ * WHY no mapping for `'pro'`: `pro` is a CANONICAL post-rename value (the
+ * $39 individual plan), not a legacy alias. It maps to itself.
+ *
+ * SOC2 CC6.1 — fail-closed: anything not in this map falls through to
+ * `'free'` via {@link normalizeEffectiveTier}.
+ */
+export const LEGACY_TIER_ALIASES: Readonly<Record<ObservableTierString, EffectiveTierId>> = {
+  // Canonical (identity)
+  free: 'free',
+  pro: 'pro',
+  growth: 'growth',
+  // Legacy
+  power: 'growth',
+  team: 'growth',
+  business: 'growth',
+  enterprise: 'growth',
+} as const;
+
+/**
  * Canonical upgrade-path ordering. Index 0 = most restrictive (`free`),
- * last = most permissive (`enterprise`). Used by {@link rankTier} so that
+ * last = most permissive (`growth`). Used by {@link rankTier} so that
  * cross-reading `max(personal, team)` always picks the higher tier.
  */
-const TIER_ORDER: readonly EffectiveTierId[] = [
-  'free',
-  'pro',
-  'power',
-  'team',
-  'business',
-  'enterprise',
-] as const;
+const TIER_ORDER: readonly EffectiveTierId[] = ['free', 'pro', 'growth'] as const;
 
 /**
  * Returns the canonical numeric rank for a tier within {@link TIER_ORDER}.
@@ -85,7 +130,8 @@ export function rankTier(tier: EffectiveTierId): number {
 }
 
 /**
- * Normalises an arbitrary string to a known {@link EffectiveTierId},
+ * Normalises an arbitrary string to a canonical {@link EffectiveTierId},
+ * resolving legacy aliases through {@link LEGACY_TIER_ALIASES} and
  * defaulting to `'free'` for any unknown value.
  *
  * WHY fail-closed to 'free' (SOC2 CC6.1): an unrecognised tier must never
@@ -93,19 +139,12 @@ export function rankTier(tier: EffectiveTierId): number {
  * is the safe default.
  *
  * @param raw - Raw tier string from DB / API.
- * @returns A validated {@link EffectiveTierId}.
+ * @returns A validated canonical {@link EffectiveTierId}.
  */
 export function normalizeEffectiveTier(raw: string | null | undefined): EffectiveTierId {
-  switch (raw) {
-    case 'pro':
-    case 'power':
-    case 'team':
-    case 'business':
-    case 'enterprise':
-      return raw;
-    default:
-      return 'free';
-  }
+  if (raw == null) return 'free';
+  const mapped = (LEGACY_TIER_ALIASES as Record<string, EffectiveTierId | undefined>)[raw];
+  return mapped ?? 'free';
 }
 
 /**
@@ -217,10 +256,9 @@ async function readMaxTeamTier(
   userId: string
 ): Promise<EffectiveTierId> {
   // PostgREST nested-select: pull billing_tier from the related teams row.
-  // The CHECK constraint on teams.billing_tier guarantees one of
-  // 'free' | 'team' | 'business' | 'enterprise' (migration 031), so values
-  // here are already constrained — we still pass them through the normaliser
-  // for defence-in-depth.
+  // The CHECK constraint on teams.billing_tier may legitimately hold legacy
+  // strings (`team` / `business` / `enterprise`) for rows pre-dating the
+  // 2026-04-27 rename — those are normalised through LEGACY_TIER_ALIASES.
   const { data, error } = await supabase
     .from('team_members')
     .select('teams!inner(billing_tier)')
@@ -251,11 +289,11 @@ async function readMaxTeamTier(
  *
  * Use this anywhere you previously read `subscriptions.tier` directly for
  * gating purposes. Direct reads are now a footgun because they miss the
- * team-billing path.
+ * team-billing path AND skip the legacy-alias normalisation.
  *
  * @param supabase - An authenticated Supabase client.
  * @param userId - The authenticated user's UUID.
- * @returns The user's effective tier id.
+ * @returns The user's canonical effective tier id.
  *
  * @example
  * ```ts
@@ -278,36 +316,19 @@ export async function resolveEffectiveTier(
 
 /**
  * Collapses an {@link EffectiveTierId} to the narrower
- * `'free' | 'pro' | 'power'` set used by the legacy `TIERS` table in
+ * `'free' | 'pro' | 'growth'` set used by the legacy `TIERS` table in
  * `lib/polar.ts` (and re-exported as the `TierId` type there).
  *
- * WHY this bridge exists: many API route handlers were written before the
- * team-family tiers were enforceable on a per-user basis. They consume
- * `TIERS[tier].limits.<x>` to gate features. Until those callers are fully
- * refactored to consume `TIER_LIMITS` directly, this collapse maps the
- * team-family tiers down to `'power'` (the most permissive solo tier in the
- * legacy table) so a team-paying user is never accidentally downgraded.
+ * Post-rename this is an identity function — both the gating-layer
+ * EffectiveTierId and the marketing-side TierId converged on the same
+ * three values. Kept as an explicit named export so existing callers
+ * (`toLegacyTierId(tier)` in API handlers) continue to compile.
  *
- * - free → free
- * - pro → pro
- * - power → power
- * - team / business / enterprise → power (≥ power privileges)
- *
- * @param tier - The full effective tier.
- * @returns A legacy-compatible tier id.
+ * @param tier - The canonical effective tier.
+ * @returns The same tier id (identity post-Phase 5).
  */
-export function toLegacyTierId(tier: EffectiveTierId): 'free' | 'pro' | 'power' {
-  switch (tier) {
-    case 'free':
-      return 'free';
-    case 'pro':
-      return 'pro';
-    case 'power':
-    case 'team':
-    case 'business':
-    case 'enterprise':
-      return 'power';
-  }
+export function toLegacyTierId(tier: EffectiveTierId): EffectiveTierId {
+  return tier;
 }
 
 /**
@@ -378,8 +399,8 @@ async function countAgentConfigs(supabase: SupabaseClient, userId: string): Prom
  * before performing any DB writes.
  *
  * Edge cases handled:
- * - `Infinity` limits (pro/power/team/business/enterprise for sessions) →
- *   always allowed, no DB count query
+ * - `Infinity` limits (pro/growth for sessions) → always allowed, no DB
+ *   count query
  * - Tier lookup failure → defaults to 'free' (fail-closed)
  * - Count query failure → returns 0 (fail-open for counting, fail-closed on tier)
  *
@@ -405,9 +426,9 @@ export async function checkTierLimit(
   // Cross-read personal sub + team memberships → effective tier.
   const tier = await resolveEffectiveTier(supabase, userId);
 
-  // Look up the limit for this tier. TIER_LIMITS now covers all 6 effective
-  // tier ids (free / pro / power / team / business / enterprise) — see
-  // packages/styrby-shared/src/constants.ts.
+  // Look up the limit for this tier. TIER_LIMITS in @styrby/shared retains
+  // legacy keys as defensive aliases, but resolveEffectiveTier only ever
+  // returns canonical values — so this lookup is always one of free/pro/growth.
   const tierLimits = TIER_LIMITS[tier as keyof typeof TIER_LIMITS];
   const limit = tierLimits[limitType] as number;
 

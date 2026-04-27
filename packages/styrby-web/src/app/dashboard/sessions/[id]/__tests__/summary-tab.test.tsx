@@ -109,7 +109,7 @@ describe('SummaryTab', () => {
 
     it('shows active placeholder for power tier users too', () => {
       render(
-        <SummaryTab {...BASE_PROPS} sessionStatus="running" userTier="power" />
+        <SummaryTab {...BASE_PROPS} sessionStatus="running" userTier="growth" />
       );
 
       expect(
@@ -259,7 +259,7 @@ describe('SummaryTab', () => {
           sessionStatus="expired"
           summary={SUMMARY_TEXT}
           summaryGeneratedAt={GENERATED_AT}
-          userTier="power"
+          userTier="growth"
         />
       );
 
@@ -307,7 +307,7 @@ describe('SummaryTab', () => {
           sessionStatus="stopped"
           summary="Test summary"
           summaryGeneratedAt="2025-01-01T00:00:00Z"
-          userTier="power"
+          userTier="growth"
         />
       );
 
