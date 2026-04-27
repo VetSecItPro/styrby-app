@@ -54,6 +54,54 @@ export const AGENT_CONFIG = {
     icon: 'users',
     provider: 'Open Source',
   },
+  goose: {
+    name: 'Goose',
+    id: 'goose',
+    description: 'Block/Square open-source AI agent with MCP-native architecture',
+    color: '#EAB308', // Yellow
+    icon: 'feather',
+    provider: 'Block',
+  },
+  amp: {
+    name: 'Amp',
+    id: 'amp',
+    description: 'Sourcegraph deep-mode coding agent with sub-agent orchestration',
+    color: '#0EA5E9', // Sky blue
+    icon: 'zap',
+    provider: 'Sourcegraph',
+  },
+  crush: {
+    name: 'Crush',
+    id: 'crush',
+    description: 'Charmbracelet ACP-compatible terminal coding agent',
+    color: '#A855F7', // Purple
+    icon: 'sparkle',
+    provider: 'Charmbracelet',
+  },
+  kilo: {
+    name: 'Kilo',
+    id: 'kilo',
+    description: 'Community-built coding agent supporting 500+ models with Memory Bank',
+    color: '#14B8A6', // Teal
+    icon: 'brain',
+    provider: 'Kilo',
+  },
+  kiro: {
+    name: 'Kiro',
+    id: 'kiro',
+    description: 'AWS-backed coding agent with per-prompt credit billing',
+    color: '#F59E0B', // Amber
+    icon: 'cloud',
+    provider: 'AWS',
+  },
+  droid: {
+    name: 'Droid',
+    id: 'droid',
+    description: 'BYOK multi-backend coding agent powered by LiteLLM',
+    color: '#6366F1', // Indigo
+    icon: 'bot',
+    provider: 'Droid',
+  },
 } as const;
 
 /** Error source colors for UI */
