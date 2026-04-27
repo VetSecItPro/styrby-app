@@ -90,7 +90,7 @@ export default async function SessionPage({ params }: SessionPageProps) {
   ]);
 
   const userTier =
-    (subscriptionResult.data?.tier as 'free' | 'pro' | 'power') || 'free';
+    (subscriptionResult.data?.tier as 'free' | 'pro' | 'growth') || 'free';
   const isBookmarked = bookmarkResult.data !== null;
 
   // Determine if session is active for the header status display

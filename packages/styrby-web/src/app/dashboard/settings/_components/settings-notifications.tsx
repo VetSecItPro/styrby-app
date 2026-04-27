@@ -91,7 +91,7 @@ export function SettingsNotifications({
   const router = useRouter();
   const supabase = createClient();
 
-  const isPaidTier = subscription?.tier === 'pro' || subscription?.tier === 'power';
+  const isPaidTier = subscription?.tier === 'pro' || subscription?.tier === 'growth';
 
   const [pushEnabled, setPushEnabled] = useState(
     notificationPrefs?.push_enabled ?? true

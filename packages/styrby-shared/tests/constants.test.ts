@@ -159,23 +159,33 @@ describe('HEARTBEAT_CONFIG', () => {
 // TIER_LIMITS
 // =============================================================================
 
-describe('TIER_LIMITS', () => {
-  const TIERS = ['free', 'pro', 'power', 'team'] as const;
+describe('TIER_LIMITS — Phase 5 reconciliation (free + pro + growth)', () => {
+  const CANONICAL_TIERS = ['free', 'pro', 'growth'] as const;
+  const LEGACY_TIERS = ['power', 'team', 'business', 'enterprise'] as const;
+  const ALL_TIERS = [...CANONICAL_TIERS, ...LEGACY_TIERS] as const;
 
-  it('contains all expected subscription tiers', () => {
-    for (const tier of TIERS) {
+  it('contains all canonical post-rename tiers (free, pro, growth)', () => {
+    for (const tier of CANONICAL_TIERS) {
       expect(TIER_LIMITS).toHaveProperty(tier);
     }
   });
 
-  it('every tier has a positive maxAgents value', () => {
-    for (const tier of TIERS) {
+  it('preserves legacy enum entries as defensive aliases', () => {
+    // Decision #7: Postgres enums cannot drop values; rows written under the
+    // pre-rename tier names must still resolve to a sensible cap.
+    for (const tier of LEGACY_TIERS) {
+      expect(TIER_LIMITS).toHaveProperty(tier);
+    }
+  });
+
+  it('every tier (canonical + legacy) has a positive maxAgents value', () => {
+    for (const tier of ALL_TIERS) {
       expect(TIER_LIMITS[tier].maxAgents).toBeGreaterThan(0);
     }
   });
 
   it('every tier has a maxSessionsPerDay that is a positive number or Infinity', () => {
-    for (const tier of TIERS) {
+    for (const tier of ALL_TIERS) {
       expect(TIER_LIMITS[tier].maxSessionsPerDay).toBeGreaterThan(0);
     }
   });
@@ -188,12 +198,8 @@ describe('TIER_LIMITS', () => {
     expect(TIER_LIMITS.pro.maxSessionsPerDay).toBe(Infinity);
   });
 
-  it('power tier has unlimited sessions (Infinity)', () => {
-    expect(TIER_LIMITS.power.maxSessionsPerDay).toBe(Infinity);
-  });
-
-  it('team tier has unlimited sessions (Infinity)', () => {
-    expect(TIER_LIMITS.team.maxSessionsPerDay).toBe(Infinity);
+  it('growth tier has unlimited sessions (Infinity)', () => {
+    expect(TIER_LIMITS.growth.maxSessionsPerDay).toBe(Infinity);
   });
 
   it('free tier has no budget alerts', () => {
@@ -204,12 +210,8 @@ describe('TIER_LIMITS', () => {
     expect(TIER_LIMITS.pro.budgetAlerts).toBe(true);
   });
 
-  it('power tier has budget alerts enabled', () => {
-    expect(TIER_LIMITS.power.budgetAlerts).toBe(true);
-  });
-
-  it('team tier has budget alerts enabled', () => {
-    expect(TIER_LIMITS.team.budgetAlerts).toBe(true);
+  it('growth tier has budget alerts enabled', () => {
+    expect(TIER_LIMITS.growth.budgetAlerts).toBe(true);
   });
 
   it('free tier has "basic" cost dashboard', () => {
@@ -220,31 +222,50 @@ describe('TIER_LIMITS', () => {
     expect(TIER_LIMITS.pro.costDashboard).toBe('full');
   });
 
-  it('power tier has API access enabled', () => {
-    // WHY: Power tier is explicitly designed for API access — this guards against
-    // accidental removal of the apiAccess feature flag.
-    expect((TIER_LIMITS.power as { apiAccess?: boolean }).apiAccess).toBe(true);
+  it('pro tier has apiAccess true and teamFeatures false', () => {
+    expect((TIER_LIMITS.pro as { apiAccess?: boolean }).apiAccess).toBe(true);
+    expect((TIER_LIMITS.pro as { teamFeatures?: boolean }).teamFeatures).toBe(false);
   });
 
-  it('team tier has team features enabled', () => {
-    expect((TIER_LIMITS.team as { teamFeatures?: boolean }).teamFeatures).toBe(true);
+  it('growth tier has apiAccess true and teamFeatures true', () => {
+    expect((TIER_LIMITS.growth as { apiAccess?: boolean }).apiAccess).toBe(true);
+    expect((TIER_LIMITS.growth as { teamFeatures?: boolean }).teamFeatures).toBe(true);
   });
 
   it('free tier has fewer maxAgents than paid tiers', () => {
     expect(TIER_LIMITS.free.maxAgents).toBeLessThan(TIER_LIMITS.pro.maxAgents);
+    expect(TIER_LIMITS.free.maxAgents).toBeLessThan(TIER_LIMITS.growth.maxAgents);
   });
 
-  it('free tier maxAgents is 1', () => {
-    expect(TIER_LIMITS.free.maxAgents).toBe(1);
+  it('free tier maxAgents is 3', () => {
+    // Phase 5: free includes 3 entry-level CLI agents.
+    expect(TIER_LIMITS.free.maxAgents).toBe(3);
   });
 
-  it('pro/team tiers have maxAgents of 3', () => {
-    expect(TIER_LIMITS.pro.maxAgents).toBe(3);
-    expect(TIER_LIMITS.team.maxAgents).toBe(3);
+  it('pro tier has maxAgents of 11 (all CLI agents)', () => {
+    expect(TIER_LIMITS.pro.maxAgents).toBe(11);
   });
 
-  it('power tier has maxAgents of 9 (aligned with billing definition)', () => {
-    // SEC-BIZ-003: Power tier maxAgents was 3 but billing defines 9 machines
-    expect(TIER_LIMITS.power.maxAgents).toBe(9);
+  it('growth tier has maxAgents of 11 (all CLI agents)', () => {
+    expect(TIER_LIMITS.growth.maxAgents).toBe(11);
+  });
+
+  describe('Legacy aliases — Decision #7', () => {
+    it('legacy "power" alias inherits canonical caps (Infinity sessions)', () => {
+      expect(TIER_LIMITS.power.maxSessionsPerDay).toBe(Infinity);
+      expect(TIER_LIMITS.power.maxAgents).toBe(11);
+    });
+
+    it('legacy "team" alias inherits team-feature caps', () => {
+      expect((TIER_LIMITS.team as { teamFeatures?: boolean }).teamFeatures).toBe(true);
+    });
+
+    it('legacy "business" alias inherits team-feature caps', () => {
+      expect((TIER_LIMITS.business as { teamFeatures?: boolean }).teamFeatures).toBe(true);
+    });
+
+    it('legacy "enterprise" alias inherits team-feature caps', () => {
+      expect((TIER_LIMITS.enterprise as { teamFeatures?: boolean }).teamFeatures).toBe(true);
+    });
   });
 });

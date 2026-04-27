@@ -56,12 +56,15 @@ vi.mock('@/lib/rateLimit', () => ({
   ),
 }));
 
-// Mock TIERS from polar.ts to provide bookmark limits
+// Mock TIERS from polar.ts to provide bookmark limits.
+// Phase 5: TIERS now exposes only 'free' | 'pro' | 'growth'. 'pro' inherits
+// the old Power feature set (unlimited bookmarks). Legacy 'power' input is
+// normalised to 'growth' by the resolveEffectiveTier path before TIERS lookup.
 vi.mock('@/lib/polar', () => ({
   TIERS: {
     free: { limits: { bookmarks: 5 } },
-    pro: { limits: { bookmarks: 50 } },
-    power: { limits: { bookmarks: -1 } },
+    pro: { limits: { bookmarks: -1 } },
+    growth: { limits: { bookmarks: -1 } },
   },
 }));
 
@@ -142,7 +145,8 @@ describe('Bookmarks API', () => {
       const body = await res.json();
       expect(body.bookmarks).toHaveLength(1);
       expect(body.tier).toBe('pro');
-      expect(body.bookmarkLimit).toBe(50);
+      // Phase 5: Pro tier bookmarks limit = -1 (unlimited; Pro inherits old Power feature set).
+      expect(body.bookmarkLimit).toBe(-1);
       expect(body.bookmarkCount).toBe(1);
     });
 
@@ -208,21 +212,25 @@ describe('Bookmarks API', () => {
       expect(body.error).toContain('Free plan');
     });
 
-    it('returns 403 when pro user is at bookmark limit (50/50)', async () => {
+    it('allows pro user to exceed 50 bookmarks (Phase 5: pro is now unlimited)', async () => {
+      // Phase 5: TIERS.pro.limits.bookmarks = -1 (post-rename Pro inherits the
+      // old Power feature set, including unlimited bookmarks).
       mockAuthenticated();
       fromCallQueue.push({ data: { tier: 'pro' }, error: null });
       fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
-      fromCallQueue.push({ count: 50, error: null });
+      fromCallQueue.push({ count: 999, error: null });
+      fromCallQueue.push({ data: { id: 'bm-new', session_id: VALID_SESSION_ID }, error: null });
 
       const res = await POST(makeRequest('POST', { session_id: VALID_SESSION_ID }));
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(201);
     });
 
-    it('allows power user to exceed 50 bookmarks (unlimited)', async () => {
+    it('allows growth user to exceed 50 bookmarks (unlimited)', async () => {
       mockAuthenticated();
+      // Use legacy `'power'` to also exercise the LEGACY_TIER_ALIASES path.
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
-      fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
-      fromCallQueue.push({ count: 999, error: null }); // -1 = unlimited
+      fromCallQueue.push({ data: [], error: null });
+      fromCallQueue.push({ count: 999, error: null });
       fromCallQueue.push({ data: { id: 'bm-new', session_id: VALID_SESSION_ID }, error: null });
 
       const res = await POST(makeRequest('POST', { session_id: VALID_SESSION_ID }));

@@ -74,7 +74,7 @@ export default async function DashboardPage() {
   ]);
 
   const machines = machinesResult.data;
-  const userTier = (subscriptionResult.data?.tier as 'free' | 'pro' | 'power') || 'free';
+  const userTier = (subscriptionResult.data?.tier as 'free' | 'pro' | 'growth') || 'free';
 
   return (
     <DashboardRealtime

@@ -169,7 +169,8 @@ describe('User Webhooks API', () => {
       const body = await response.json();
       expect(body.webhooks).toHaveLength(2);
       expect(body.tier).toBe('pro');
-      expect(body.webhookLimit).toBe(3);
+      // Phase 5: Pro tier webhooks limit = 10 (Pro inherits old Power feature set).
+      expect(body.webhookLimit).toBe(10);
       expect(body.webhookCount).toBe(2);
     });
 
@@ -212,7 +213,7 @@ describe('User Webhooks API', () => {
       const response = await GET();
       const body = await response.json();
       expect(body.webhookLimit).toBe(10);
-      expect(body.tier).toBe('power');
+      expect(body.tier).toBe('growth');
     });
   });
 
@@ -424,14 +425,14 @@ describe('User Webhooks API', () => {
       expect(body.error).toContain('Free plan');
     });
 
-    it('returns 403 when pro user is at webhook limit (3)', async () => {
+    it('returns 403 when pro user is at webhook limit (10 — Phase 5)', async () => {
       mockAuthenticated();
 
-      // 1. getUserTier → pro
+      // Phase 5: TIERS.pro.limits.webhooks = 10 (post-rename Pro inherits the
+      // old Power feature set).
       fromCallQueue.push({ data: { tier: 'pro' }, error: null });
       fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
-      // 2. count → 3 (at limit)
-      fromCallQueue.push({ count: 3, error: null });
+      fromCallQueue.push({ count: 10, error: null });
 
       const req = createNextRequest('POST', VALID_WEBHOOK);
       const response = await POST(req);
@@ -439,7 +440,7 @@ describe('User Webhooks API', () => {
 
       const body = await response.json();
       expect(body.error).toContain('limit');
-      expect(body.error).toContain('3');
+      expect(body.error).toContain('10');
     });
 
     it('returns 201 and secret when pro user creates webhook under limit', async () => {
