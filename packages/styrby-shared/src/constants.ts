@@ -75,7 +75,7 @@ export const AGENT_CONFIG = {
     id: 'crush',
     description: 'Charmbracelet ACP-compatible terminal coding agent',
     color: '#A855F7', // Purple
-    icon: 'sparkle',
+    icon: 'wand-2',
     provider: 'Charmbracelet',
   },
   kilo: {
