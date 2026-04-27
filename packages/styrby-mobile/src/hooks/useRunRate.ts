@@ -50,11 +50,16 @@ export interface UseRunRateReturn {
 // Tier display names
 // ============================================================================
 
+// WHY display labels diverge from the stored value: Phase 6 collapsed the
+// public ladder to Pro + Growth (`.audit/styrby-fulltest.md` Decision #9).
+// `'power'` and `'team'` are kept in `SubscriptionTier` as legacy aliases
+// for back-compat with existing subscription rows; both render as "Growth"
+// at the UI boundary.
 const TIER_LABELS: Record<string, string> = {
   free: 'Free',
   pro: 'Pro',
-  power: 'Power',
-  team: 'Team',
+  power: 'Growth',
+  team: 'Growth',
 };
 
 // ============================================================================

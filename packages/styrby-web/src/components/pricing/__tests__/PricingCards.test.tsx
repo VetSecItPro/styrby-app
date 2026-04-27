@@ -1,31 +1,34 @@
 /**
- * Tests for pricing tier cards - CTA URLs and checkout wiring.
+ * Tests for the pricing tier cards — CTA URLs, render correctness, seat copy.
  *
- * WHY: The CTA buttons are the conversion point. Wrong URLs = dead clicks
- * = lost revenue. These tests verify each tier's CTA routes to the correct
- * checkout entry point.
+ * Phase 6 rewrite: replaces the legacy four-card test suite (Solo / Team /
+ * Business / Enterprise, partly skipped pending the rename) with a focused
+ * suite for the canonical {@link ProTierCard} + {@link GrowthTierCard}
+ * components introduced as part of the tier reconciliation in
+ * `.audit/styrby-fulltest.md` Decisions #1 / #2.
  *
- * WHY NOT full render of page: the page uses dynamic imports for ROICalculator
- * and depends on Sentry SDK. These unit tests isolate individual cards to
- * avoid those dependencies.
+ * WHY: the CTA buttons are the conversion point. Wrong URLs = dead clicks
+ * = lost revenue. These tests assert that each card's CTA routes to the
+ * correct checkout entry point and surfaces the canonical pricing copy.
  *
- * Mobile-responsive: the card layout is tested via snapshot at 375px viewport.
- * Lighthouse CI tests full responsive behaviour on the built bundle.
+ * WHY NOT a full render of /pricing: the page uses dynamic imports for
+ * `ROICalculator` and depends on the Sentry SDK. These unit tests isolate
+ * individual cards to avoid those dependencies.
+ *
+ * @module components/pricing/__tests__/PricingCards
  */
 
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { SoloTierCard } from '../SoloTierCard';
-import { TeamTierCard } from '../TeamTierCard';
-import { BusinessTierCard } from '../BusinessTierCard';
-import { EnterpriseTierCard } from '../EnterpriseTierCard';
+import { ProTierCard } from '../ProTierCard';
+import { GrowthTierCard } from '../GrowthTierCard';
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
 
-// WHY mock next/link: avoids needing a full Next.js router context in tests.
-// We only need to verify the href attribute; navigation itself is framework-tested.
+// WHY mock next/link: avoids needing a full Next.js router context. We only
+// verify the rendered href; navigation itself is framework-tested.
 vi.mock('next/link', () => ({
   default: ({
     href,
@@ -46,8 +49,8 @@ vi.mock('@/lib/utils', () => ({
   cn: (...classes: unknown[]) => classes.filter(Boolean).join(' '),
 }));
 
-// WHY mock UI components: Button and Slider have complex Radix internals;
-// we only need the rendered anchor href for CTA wiring tests.
+// WHY mock UI primitives: Button and Slider have complex Radix internals;
+// we only need the rendered anchor href and the slider's role/value.
 vi.mock('@/components/ui/button', () => ({
   Button: ({
     children,
@@ -70,7 +73,6 @@ vi.mock('@/components/ui/slider', () => ({
     min,
     max,
     value,
-    onValueChange,
     'aria-label': ariaLabel,
   }: {
     min: number;
@@ -103,184 +105,116 @@ vi.mock('lucide-react', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// SoloTierCard
+// ProTierCard
 // ---------------------------------------------------------------------------
 
-describe('SoloTierCard', () => {
+describe('ProTierCard', () => {
   describe('monthly billing', () => {
-    // TODO(Phase 6): re-enable after pricing card components renamed Pro/Growth — see .audit/styrby-fulltest.md
-    it.skip('renders Solo heading', () => {
-      render(<SoloTierCard annual={false} />);
-      expect(screen.getByText('Solo')).toBeTruthy();
+    it('renders the Pro heading', () => {
+      render(<ProTierCard annual={false} />);
+      expect(screen.getByRole('heading', { name: 'Pro' })).toBeTruthy();
     });
 
-    // TODO(Phase 6): re-enable after pricing card components renamed Pro/Growth — see .audit/styrby-fulltest.md
-    it.skip('CTA links to /signup?plan=power (monthly)', () => {
-      render(<SoloTierCard annual={false} />);
-      const link = screen.getByRole('link', { name: /start my solo trial/i });
-      expect(link.getAttribute('href')).toBe('/signup?plan=power');
+    it('CTA links to /signup?plan=pro (monthly)', () => {
+      render(<ProTierCard annual={false} />);
+      const link = screen.getByRole('link', { name: /start my pro trial/i });
+      expect(link.getAttribute('href')).toBe('/signup?plan=pro');
     });
 
-    // TODO(Phase 6): re-enable after pricing card components renamed Pro/Growth — see .audit/styrby-fulltest.md
-    it.skip('displays $49/mo price', () => {
-      render(<SoloTierCard annual={false} />);
-      // $49 = 4900 cents formatted to "$49"
-      expect(screen.getByText('$49')).toBeTruthy();
+    it('displays the $39/mo price', () => {
+      render(<ProTierCard annual={false} />);
+      // $39 = 3900 cents formatted as "$39"
+      expect(screen.getByText('$39')).toBeTruthy();
+    });
+
+    it('does not show annual savings copy when annual is off', () => {
+      render(<ProTierCard annual={false} />);
+      expect(screen.queryByText(/save \$/i)).toBeNull();
     });
   });
 
   describe('annual billing', () => {
-    // TODO(Phase 6): re-enable after pricing card components renamed Pro/Growth — see .audit/styrby-fulltest.md
-    it.skip('CTA links to /signup?plan=power&billing=annual', () => {
-      render(<SoloTierCard annual={true} />);
-      const link = screen.getByRole('link', { name: /start my solo trial/i });
-      expect(link.getAttribute('href')).toBe('/signup?plan=power&billing=annual');
+    it('CTA links to /signup?plan=pro&billing=annual', () => {
+      render(<ProTierCard annual={true} />);
+      const link = screen.getByRole('link', { name: /start my pro trial/i });
+      expect(link.getAttribute('href')).toBe('/signup?plan=pro&billing=annual');
     });
 
-    it('displays discounted monthly equivalent price (less than $49)', () => {
-      render(<SoloTierCard annual={true} />);
-      // Annual equivalent = floor(48804 / 12) = 4067 cents = ~$40
-      // The price shown should not be $49
+    it('displays a discounted monthly equivalent (less than $39)', () => {
+      render(<ProTierCard annual={true} />);
+      // Pro annual = $390/yr → $32.50/mo equivalent → never shown as "$39"
       const priceEl = document.querySelector('.text-5xl');
-      expect(priceEl?.textContent).not.toBe('$49');
+      expect(priceEl?.textContent).not.toBe('$39');
+    });
+
+    it('shows annual savings copy', () => {
+      render(<ProTierCard annual={true} />);
+      // Pro saves ($39 × 12) - $390 = $78
+      expect(screen.getByText(/\$390\/year/i)).toBeTruthy();
     });
   });
 });
 
 // ---------------------------------------------------------------------------
-// TeamTierCard
+// GrowthTierCard
 // ---------------------------------------------------------------------------
 
-describe('TeamTierCard', () => {
+describe('GrowthTierCard', () => {
   const defaultProps = {
     annual: false,
-    seatCount: 5,
+    seatCount: 3,
     onSeatCountChange: vi.fn(),
   };
 
-  // TODO(Phase 6): re-enable after pricing card components renamed Pro/Growth — see .audit/styrby-fulltest.md
-  it.skip('renders Team heading', () => {
-    render(<TeamTierCard {...defaultProps} />);
-    expect(screen.getByText('Team')).toBeTruthy();
+  it('renders the Growth heading', () => {
+    render(<GrowthTierCard {...defaultProps} />);
+    expect(screen.getByRole('heading', { name: 'Growth' })).toBeTruthy();
   });
 
-  it('renders "Most Popular" badge', () => {
-    render(<TeamTierCard {...defaultProps} />);
+  it('renders the "Most Popular" badge', () => {
+    render(<GrowthTierCard {...defaultProps} />);
     expect(screen.getByText(/most popular/i)).toBeTruthy();
   });
 
-  // TODO(Phase 6): re-enable after pricing card components renamed Pro/Growth — see .audit/styrby-fulltest.md
-  it.skip('CTA links to /signup?plan=team with seat count (monthly)', () => {
-    render(<TeamTierCard {...defaultProps} seatCount={7} />);
-    const link = screen.getByRole('link', { name: /start my team trial/i });
-    expect(link.getAttribute('href')).toBe('/signup?plan=team&seats=7');
-  });
-
-  // TODO(Phase 6): re-enable after pricing card components renamed Pro/Growth — see .audit/styrby-fulltest.md
-  it.skip('CTA includes billing=annual when annual is true', () => {
-    render(<TeamTierCard {...defaultProps} annual={true} seatCount={10} />);
-    const link = screen.getByRole('link', { name: /start my team trial/i });
-    expect(link.getAttribute('href')).toBe('/signup?plan=team&seats=10&billing=annual');
-  });
-
-  // TODO(Phase 6): re-enable after pricing card components renamed Pro/Growth — see .audit/styrby-fulltest.md
-  it.skip('shows $95 total for 5 seats at monthly rate (5 × $19)', () => {
-    render(<TeamTierCard {...defaultProps} seatCount={5} />);
-    // 5 × 1900 = 9500 cents = $95
-    expect(screen.getByText('$95')).toBeTruthy();
-  });
-
-  // TODO(Phase 6): re-enable after pricing card components renamed Pro/Growth — see .audit/styrby-fulltest.md
-  it.skip('shows $190 total for 10 seats at monthly rate (10 × $19)', () => {
-    render(<TeamTierCard {...defaultProps} seatCount={10} />);
-    // 10 × 1900 = 19000 cents = $190
-    expect(screen.getByText('$190')).toBeTruthy();
-  });
-
   it('renders a seat slider', () => {
-    render(<TeamTierCard {...defaultProps} />);
+    render(<GrowthTierCard {...defaultProps} />);
     expect(screen.getByTestId('mock-slider')).toBeTruthy();
   });
-});
 
-// ---------------------------------------------------------------------------
-// BusinessTierCard
-// ---------------------------------------------------------------------------
-
-describe('BusinessTierCard', () => {
-  const defaultProps = {
-    annual: false,
-    seatCount: 10,
-    onSeatCountChange: vi.fn(),
-  };
-
-  // TODO(Phase 6): re-enable after pricing card components renamed Pro/Growth — see .audit/styrby-fulltest.md
-  it.skip('renders Business heading', () => {
-    render(<BusinessTierCard {...defaultProps} />);
-    expect(screen.getByText('Business')).toBeTruthy();
+  it('shows the "Includes 3 seats. Add more for $19/seat/month." copy', () => {
+    render(<GrowthTierCard {...defaultProps} seatCount={3} />);
+    expect(
+      screen.getByText(/Includes 3 seats. Add more for \$19\/seat\/month\./i),
+    ).toBeTruthy();
   });
 
-  // TODO(Phase 6): re-enable after pricing card components renamed Pro/Growth — see .audit/styrby-fulltest.md
-  it.skip('CTA links to /signup?plan=business with seat count (monthly)', () => {
-    render(<BusinessTierCard {...defaultProps} seatCount={15} />);
-    const link = screen.getByRole('link', { name: /start my business trial/i });
-    expect(link.getAttribute('href')).toBe('/signup?plan=business&seats=15');
+  it('CTA links to /signup?plan=growth&seats=3 with the base seat count', () => {
+    render(<GrowthTierCard {...defaultProps} seatCount={3} />);
+    const link = screen.getByRole('link', { name: /start my growth trial/i });
+    expect(link.getAttribute('href')).toBe('/signup?plan=growth&seats=3');
   });
 
-  // TODO(Phase 6): re-enable after pricing card components renamed Pro/Growth — see .audit/styrby-fulltest.md
-  it.skip('CTA includes billing=annual when annual is true', () => {
-    render(<BusinessTierCard {...defaultProps} annual={true} seatCount={20} />);
-    const link = screen.getByRole('link', { name: /start my business trial/i });
-    expect(link.getAttribute('href')).toBe('/signup?plan=business&seats=20&billing=annual');
+  it('CTA includes the chosen seat count when slider moves', () => {
+    render(<GrowthTierCard {...defaultProps} seatCount={7} />);
+    const link = screen.getByRole('link', { name: /start my growth trial/i });
+    expect(link.getAttribute('href')).toBe('/signup?plan=growth&seats=7');
   });
 
-  // TODO(Phase 6): re-enable after pricing card components renamed Pro/Growth — see .audit/styrby-fulltest.md
-  it.skip('shows $390 total for 10 seats monthly (10 × $39)', () => {
-    render(<BusinessTierCard {...defaultProps} seatCount={10} />);
-    // 10 × 3900 = 39000 cents = $390
-    expect(screen.getByText('$390')).toBeTruthy();
+  it('CTA appends billing=annual when annual is true', () => {
+    render(<GrowthTierCard {...defaultProps} annual={true} seatCount={5} />);
+    const link = screen.getByRole('link', { name: /start my growth trial/i });
+    expect(link.getAttribute('href')).toBe('/signup?plan=growth&seats=5&billing=annual');
   });
 
-  it('renders a seat slider', () => {
-    render(<BusinessTierCard {...defaultProps} />);
-    expect(screen.getByTestId('mock-slider')).toBeTruthy();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// EnterpriseTierCard
-// ---------------------------------------------------------------------------
-
-describe('EnterpriseTierCard', () => {
-  it('renders Enterprise heading', () => {
-    render(<EnterpriseTierCard />);
-    expect(screen.getByText('Enterprise')).toBeTruthy();
+  it('shows $99 total for the base 3-seat plan in monthly mode', () => {
+    render(<GrowthTierCard {...defaultProps} seatCount={3} />);
+    // 9900 cents = $99
+    expect(screen.getByText('$99')).toBeTruthy();
   });
 
-  it('shows Custom pricing (not a dollar amount)', () => {
-    render(<EnterpriseTierCard />);
-    expect(screen.getByText('Custom')).toBeTruthy();
-  });
-
-  it('shows $15K/year anchor', () => {
-    render(<EnterpriseTierCard />);
-    expect(screen.getByText(/\$15K\/year/i)).toBeTruthy();
-  });
-
-  it('CTA is "Talk to the founders"', () => {
-    render(<EnterpriseTierCard />);
-    expect(screen.getByText('Talk to the founders')).toBeTruthy();
-  });
-
-  it('CTA link opens in new tab (target=_blank)', () => {
-    render(<EnterpriseTierCard />);
-    const link = screen.getByRole('link', { name: /talk to the founders/i });
-    expect(link.getAttribute('target')).toBe('_blank');
-    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
-  });
-
-  it('CTA has a calendar icon', () => {
-    render(<EnterpriseTierCard />);
-    expect(screen.getByTestId('calendar-icon')).toBeTruthy();
+  it('shows $137 total for 5 seats in monthly mode (base $99 + 2 × $19)', () => {
+    render(<GrowthTierCard {...defaultProps} seatCount={5} />);
+    // 9900 + (2 × 1900) = 13700 cents = $137
+    expect(screen.getByText('$137')).toBeTruthy();
   });
 });

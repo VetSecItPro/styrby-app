@@ -16,12 +16,12 @@ function CellValue({ value }: { value: boolean | string }) {
 }
 
 /**
- * Renders a category header row and its feature rows in the comparison table.
+ * Renders a category header row and its feature rows.
  *
  * Extracted to avoid React Fragment key warnings and to keep the main table
  * render loop clean.
  *
- * @param category - One category entry from comparisonCategories.
+ * @param category - One category entry from `comparisonCategories`.
  */
 function ComparisonCategory({
   category,
@@ -32,7 +32,7 @@ function ComparisonCategory({
     <>
       <tr>
         <td
-          colSpan={6}
+          colSpan={3}
           className="pt-8 pb-3 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-500/60"
         >
           {category.name}
@@ -47,13 +47,12 @@ function ComparisonCategory({
           )}
         >
           <td className="py-3.5 text-sm text-zinc-300">{feature.name}</td>
-          <td className="py-3.5 text-center"><CellValue value={feature.free} /></td>
-          <td className="py-3.5 text-center"><CellValue value={feature.solo} /></td>
           <td className="py-3.5 text-center">
-            <CellValue value={feature.team} />
+            <CellValue value={feature.pro} />
           </td>
-          <td className="py-3.5 text-center"><CellValue value={feature.business} /></td>
-          <td className="py-3.5 text-center"><CellValue value={feature.enterprise} /></td>
+          <td className="py-3.5 text-center">
+            <CellValue value={feature.growth} />
+          </td>
         </tr>
       ))}
     </>
@@ -61,34 +60,28 @@ function ComparisonCategory({
 }
 
 /**
- * Full feature comparison table for all five tiers (Free, Solo, Team, Business, Enterprise).
+ * Full feature comparison table for the two paid tiers (Pro and Growth).
  *
+ * Phase 6: collapses the previous five-tier grid (Free / Solo / Team /
+ * Business / Enterprise) into the canonical Pro vs. Growth comparison.
  * Horizontally scrollable on mobile to prevent layout overflow.
- * Column widths are tuned for readability at 1024px and wider.
+ *
+ * @returns The full comparison table.
  */
 export function ComparisonTable() {
   return (
     <div className="mt-12 overflow-x-auto">
-      <table className="w-full min-w-[700px]">
+      <table className="w-full min-w-[480px]">
         <thead>
           <tr className="border-b border-zinc-800/60">
-            <th className="pb-4 text-left text-sm font-medium text-muted-foreground w-[28%]">
+            <th className="pb-4 text-left text-sm font-medium text-muted-foreground w-[50%]">
               Feature
             </th>
-            <th className="pb-4 text-center text-sm font-medium text-muted-foreground w-[12%]">
-              Free
+            <th className="pb-4 text-center text-sm font-medium text-muted-foreground w-[25%]">
+              Pro
             </th>
-            <th className="pb-4 text-center text-sm font-medium text-muted-foreground w-[15%]">
-              Solo
-            </th>
-            <th className="pb-4 text-center text-sm font-semibold w-[15%]">
-              <span className="text-amber-400">Team</span>
-            </th>
-            <th className="pb-4 text-center text-sm font-medium text-muted-foreground w-[15%]">
-              Business
-            </th>
-            <th className="pb-4 text-center text-sm font-medium text-muted-foreground w-[15%]">
-              Enterprise
+            <th className="pb-4 text-center text-sm font-semibold w-[25%]">
+              <span className="text-amber-400">Growth</span>
             </th>
           </tr>
         </thead>
