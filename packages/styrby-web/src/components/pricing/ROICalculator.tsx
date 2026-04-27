@@ -21,18 +21,25 @@ interface ROIInputs {
 }
 
 /**
+ * Module-scope `Intl.NumberFormat` reused across every {@link formatDollars}
+ * call. Hoisted so slider drags (60fps) don't reconstruct the formatter on
+ * every render — locale/currency are constants.
+ */
+const DOLLAR_FORMATTER = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+
+/**
  * Formats a dollar amount as "$1,234" (no cents).
  *
  * @param dollars - Amount in US dollars (integer expected).
  * @returns Formatted string.
  */
 function formatDollars(dollars: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(Math.round(dollars));
+  return DOLLAR_FORMATTER.format(Math.round(dollars));
 }
 
 /**

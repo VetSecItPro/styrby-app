@@ -371,6 +371,31 @@ export function validateSeatCount(tierId: AcceptedTierId, seatCount: number): bo
 }
 
 /**
+ * Module-scope `Intl.NumberFormat` instances reused across every
+ * {@link formatCents} call.
+ *
+ * WHY hoisted: `Intl.NumberFormat` construction is non-trivial — it parses
+ * locale and currency tables on each `new` call. The pricing page can call
+ * `formatCents` 20+ times per render (one per tier card pricing line +
+ * comparison rows), so re-instantiating per-call burns measurable CPU on
+ * the SeatCountSlider drag path (60fps). Constructed once at module load
+ * since the locale ('en-US') and currency ('USD') are constants.
+ */
+const CURRENCY_FORMATTER_NO_CENTS = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+
+const CURRENCY_FORMATTER_WITH_CENTS = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/**
  * Formats USD cents as a display string.
  *
  * @param cents - Amount in USD cents.
@@ -387,19 +412,9 @@ export function formatCents(cents: number): string {
   const dollars = cents / 100;
   if (cents === 0) return '$0';
   if (cents % 100 === 0) {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(dollars);
+    return CURRENCY_FORMATTER_NO_CENTS.format(dollars);
   }
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(dollars);
+  return CURRENCY_FORMATTER_WITH_CENTS.format(dollars);
 }
 
 // ============================================================================

@@ -33,13 +33,19 @@ export interface MrrCardProps {
 // Helpers
 // ============================================================================
 
+/**
+ * Module-scope formatter — locale/currency are constants, so hoisting avoids
+ * re-instantiating the underlying ICU tables on every dashboard render.
+ */
+const USD_FORMATTER = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+
 function fmtUsd(usd: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(usd);
+  return USD_FORMATTER.format(usd);
 }
 
 function fmtPct(rate: number | null): string {
