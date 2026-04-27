@@ -1075,6 +1075,174 @@ describe('POST /api/webhooks/polar', () => {
         })
       );
     });
+
+    // ------------------------------------------------------------------------
+    // SEC-API-001: idempotency-before-mutation race
+    //
+    // WHY these tests: order.refunded inserts a polar_webhook_events row at the
+    // top of the handler for at-least-once dedup. If the downstream tier reset
+    // fails AFTER the dedup row is recorded, Polar's retry would short-circuit
+    // on the dedup row and skip the actual reset — leaving the user on a paid
+    // tier post-refund (billing drift). The fix: on reset failure, DELETE the
+    // dedup row before returning 500 so the retry re-runs the full handler.
+    // ------------------------------------------------------------------------
+
+    it('SEC-API-001: tier reset failure → 500 AND polar_webhook_events row deleted (retry will re-process)', async () => {
+      // Wire a delete() mock onto the supabase chain for this test only.
+      // The compensating-delete code path calls
+      //   supabase.from('polar_webhook_events').delete().eq('event_id', ...)
+      // We need .delete().eq() to resolve without error.
+      const mockDelete = vi.fn();
+      const deleteEqFn = vi.fn().mockResolvedValue({ data: null, error: null });
+      mockDelete.mockReturnValue({ eq: deleteEqFn });
+      mockFrom.mockReturnValue({
+        select: mockSelect,
+        eq: mockEq,
+        single: mockSingle,
+        upsert: mockUpsert,
+        update: mockUpdate,
+        insert: mockInsert,
+        order: mockOrder,
+        limit: mockLimit,
+        delete: mockDelete,
+      });
+
+      // Subscription lookup returns the user's main sub with the same id as
+      // the refunded subscription_id below — main-sub branch.
+      mockSingle.mockResolvedValueOnce({
+        data: {
+          user_id: 'user-uuid-123',
+          polar_subscription_id: 'sub_main_xyz',
+          tier: 'pro',
+        },
+        error: null,
+      });
+
+      // First .eq() (lookup) preserves the chain so .single() can resolve;
+      // second .eq() (UPDATE on subscriptions) FAILS — simulating the DB error
+      // that would otherwise leave the dedup row in place and skip the retry.
+      mockEq.mockReturnValueOnce({
+        select: mockSelect,
+        eq: mockEq,
+        single: mockSingle,
+        upsert: mockUpsert,
+        update: mockUpdate,
+        insert: mockInsert,
+        order: mockOrder,
+        limit: mockLimit,
+        delete: mockDelete,
+      });
+      mockEq.mockResolvedValueOnce({
+        data: null,
+        error: { message: 'simulated DB failure on tier reset' },
+      });
+
+      const event = {
+        id: 'evt_refund_race_001',
+        type: 'order.refunded',
+        data: {
+          id: 'ord_refund_race_001',
+          customer_id: 'cust_test_456',
+          subscription_id: 'sub_main_xyz',
+        },
+      };
+
+      const response = await sendSignedRefund(event);
+
+      // Polar must see 500 so it retries the delivery.
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body.error).toBe('Processing failed');
+
+      // The dedup row MUST be deleted so the retry re-runs the full handler.
+      // Without this, the retry would short-circuit on the dedup row and the
+      // tier would never reset (billing drift).
+      expect(mockDelete).toHaveBeenCalled();
+      expect(deleteEqFn).toHaveBeenCalledWith('event_id', 'evt_refund_race_001');
+    });
+
+    it('SEC-API-001: happy path → dedup row persists, no compensating delete', async () => {
+      // Wire a delete() mock so we can assert it was NOT called.
+      const mockDelete = vi.fn();
+      mockFrom.mockReturnValue({
+        select: mockSelect,
+        eq: mockEq,
+        single: mockSingle,
+        upsert: mockUpsert,
+        update: mockUpdate,
+        insert: mockInsert,
+        order: mockOrder,
+        limit: mockLimit,
+        delete: mockDelete,
+      });
+
+      mockSingle.mockResolvedValueOnce({
+        data: {
+          user_id: 'user-uuid-123',
+          polar_subscription_id: 'sub_main_xyz',
+          tier: 'pro',
+        },
+        error: null,
+      });
+
+      // Lookup chain + successful UPDATE.
+      mockEq.mockReturnValueOnce({
+        select: mockSelect,
+        eq: mockEq,
+        single: mockSingle,
+        upsert: mockUpsert,
+        update: mockUpdate,
+        insert: mockInsert,
+        order: mockOrder,
+        limit: mockLimit,
+        delete: mockDelete,
+      });
+      mockEq.mockResolvedValueOnce({ data: null, error: null });
+
+      const event = {
+        id: 'evt_refund_happy_001',
+        type: 'order.refunded',
+        data: {
+          id: 'ord_refund_happy_001',
+          customer_id: 'cust_test_456',
+          subscription_id: 'sub_main_xyz',
+        },
+      };
+
+      const response = await sendSignedRefund(event);
+      expect(response.status).toBe(200);
+
+      // Dedup row was inserted (upsert on polar_webhook_events) and MUST stay
+      // — so a Polar retry of this same event is correctly short-circuited.
+      expect(mockUpsert).toHaveBeenCalled();
+      expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('SEC-API-001: retry of already-processed refund event → 200 with received=true (dedup short-circuit)', async () => {
+      // Override mockUpsert default ("new event") with empty-RETURNING ("conflict
+      // — already processed"). This simulates Polar redelivering an event whose
+      // event_id we have already recorded.
+      const dupSelectFn = vi.fn().mockResolvedValueOnce({ data: [], error: null });
+      mockUpsert.mockReturnValueOnce({ select: dupSelectFn });
+
+      const event = {
+        id: 'evt_refund_dup_001',
+        type: 'order.refunded',
+        data: {
+          id: 'ord_refund_dup_001',
+          customer_id: 'cust_test_456',
+          subscription_id: 'sub_main_xyz',
+        },
+      };
+
+      const response = await sendSignedRefund(event);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.received).toBe(true);
+
+      // No tier reset on a duplicate — we returned 200 immediately.
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
   });
 
   // --------------------------------------------------------------------------

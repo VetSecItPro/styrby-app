@@ -1750,6 +1750,63 @@ export async function POST(request: Request) {
 
         const isDev = process.env.NODE_ENV === 'development';
 
+        // SEC-API-001: event_id dedup parity with subscription.canceled / .revoked.
+        // Without this guard, a Polar retry of an order.refunded event re-runs the
+        // tier-reset logic — which is .update()-idempotent against the same
+        // subscription, but produces duplicate audit_log rows and (once H3 lands)
+        // duplicate refund emails. Mirror the dedup pattern from the canceled /
+        // revoked cases above.
+        //
+        // CRITICAL: `refundEventId` is captured here so that if the downstream
+        // tier-reset fails, we can DELETE the idempotency row before returning
+        // 500 — otherwise Polar's retry would short-circuit on the dedup row
+        // and skip the actual tier reset, leaving the user on a paid tier
+        // post-refund (billing drift). See compensating delete below.
+        const refundEventId = (rawParsed as Record<string, unknown>).id as string | undefined;
+        let refundIdempotencyRecorded = false;
+        if (!refundEventId) {
+          console.error(
+            'polar/route: order.refunded event missing top-level id field — cannot enforce event-id dedup'
+          );
+        } else {
+          const refundPayloadHash = sha256Hex(payload);
+          const { data: dedupRows, error: dedupErr } = await supabase
+            .from('polar_webhook_events')
+            .upsert(
+              {
+                event_id: refundEventId,
+                event_type: event.type,
+                // WHY null subscription_id at this point: we have not yet
+                // resolved which subscription this refund targets (the lookup
+                // happens below by polar_customer_id). We store the event-id
+                // for dedup; the audit_log row below carries the resolved
+                // subscription_id for traceability.
+                subscription_id: null,
+                payload_hash: refundPayloadHash,
+              },
+              { onConflict: 'event_id', ignoreDuplicates: true }
+            )
+            .select('event_id');
+
+          if (dedupErr) {
+            // Non-fatal — same posture as canceled / revoked. Reset below is
+            // .update()-idempotent so re-applying the same final state is safe.
+            console.error(
+              'polar/route: order.refunded — failed to record event in polar_webhook_events (non-fatal):',
+              dedupErr.message
+            );
+          } else if (!dedupRows || dedupRows.length === 0) {
+            if (isDev) {
+              console.log(
+                `polar/route: duplicate order.refunded event ${refundEventId}, skipping`
+              );
+            }
+            return NextResponse.json({ received: true });
+          } else {
+            refundIdempotencyRecorded = true;
+          }
+        }
+
         // WHY rawData (not the narrow `event.data` type): the inline event type
         // declared at the top of POST is shaped for subscription events and
         // doesn't carry order.refunded fields (subscription_id, subscription.id,
@@ -1896,6 +1953,27 @@ export async function POST(request: Request) {
             'polar/route: order.refunded — failed to reset main subscription:',
             resetErr.message
           );
+
+          // Security (SEC-API-001): If tier reset fails, delete the idempotency row so
+          // Polar's retry re-runs the full handler. Without this, the idempotency record
+          // short-circuits the retry, leaving user on paid tier post-refund (billing drift).
+          if (refundIdempotencyRecorded && refundEventId) {
+            const { error: dedupDeleteErr } = await supabase
+              .from('polar_webhook_events')
+              .delete()
+              .eq('event_id', refundEventId);
+            if (dedupDeleteErr) {
+              // Compensating-delete failure is itself a high-severity event:
+              // the next Polar retry will be silently skipped. Surface loudly
+              // (Sentry will pick this up via console.error wrapping) so ops
+              // can manually replay if needed.
+              console.error(
+                'polar/route: order.refunded — CRITICAL: failed to delete idempotency row after reset failure (manual replay required):',
+                dedupDeleteErr.message
+              );
+            }
+          }
+
           return NextResponse.json({ error: 'Processing failed' }, { status: 500 });
         }
 
