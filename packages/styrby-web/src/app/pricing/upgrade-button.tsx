@@ -60,7 +60,8 @@ export function UpgradeButton({ tierId, billingCycle, isPopular }: UpgradeButton
   const tierLabels: Record<TierId, string> = {
     free: 'Start Free',
     pro: 'Upgrade to Pro',
-    power: 'Upgrade to Power',
+    // WHY (Phase 5 rename): pre-rename `'power'` collapsed into Growth.
+    growth: 'Upgrade to Growth',
   };
   const ctaLabel = tierLabels[tierId] ?? 'Upgrade to Pro';
 

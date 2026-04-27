@@ -29,18 +29,16 @@ export default function AgentSetupPage() {
         be on your PATH.
       </p>
       <p className="mt-3 text-muted-foreground">
-        Free tier includes 3 agents (Claude Code, Codex, Gemini CLI). Pro tier
-        adds 6 more (OpenCode, Aider, Goose, Amp, Crush, Kilo) for 9 total.
-        Power tier adds the remaining 2 (Kiro, Droid) for all 11. Agents you
-        do not have installed are simply skipped during detection.
+        Pro and Growth both unlock all 11 agents. Agents you do not have
+        installed are simply skipped during detection.
       </p>
 
-      {/* Free agents */}
-      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="free-tier-agents">
-        Free Tier Agents
+      {/* First-party agents */}
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="first-party-agents">
+        First-Party Agents
       </h2>
       <p className="mt-3 text-muted-foreground">
-        These three agents are available on all tiers, including Free.
+        Built and maintained by the major AI providers.
       </p>
 
       {/* Claude Code */}
@@ -120,14 +118,13 @@ gemini --version`}
         before your first session.
       </p>
 
-      {/* Pro tier agents */}
-      <h2 className="mt-12 text-xl font-semibold text-foreground scroll-mt-20" id="pro-tier-agents">
-        Pro Tier Agents
+      {/* Open-source / community agents */}
+      <h2 className="mt-12 text-xl font-semibold text-foreground scroll-mt-20" id="open-source-agents">
+        Open-Source Agents
       </h2>
       <p className="mt-3 text-muted-foreground">
-        These six agents are available on the Pro tier and above. Pro and Power
-        plans support all their included agents simultaneously with no session
-        limits.
+        Pro and Growth both run all six of these agents simultaneously with no
+        session limits.
       </p>
 
       {/* OpenCode */}
@@ -293,13 +290,14 @@ kilo --version`}
         the agent&apos;s official site for the latest install instructions.
       </p>
 
-      {/* Power-only agents */}
-      <h2 className="mt-12 text-xl font-semibold text-foreground scroll-mt-20" id="power-tier-agents">
-        Power Tier Agents
+      {/* Enterprise-leaning agents */}
+      <h2 className="mt-12 text-xl font-semibold text-foreground scroll-mt-20" id="enterprise-agents">
+        Enterprise-Leaning Agents
       </h2>
       <p className="mt-3 text-muted-foreground">
-        These two agents are exclusive to the Power tier. Power includes all 11
-        agents.
+        Pro and Growth both include these. They are listed separately because
+        they target enterprise wedges (Kiro, Droid) rather than the community
+        ecosystem.
       </p>
 
       {/* Kiro */}

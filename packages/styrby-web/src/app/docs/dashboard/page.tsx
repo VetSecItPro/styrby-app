@@ -185,7 +185,7 @@ export default function DashboardGuidePage() {
         </li>
         <li>
           <strong className="text-foreground/75">API Keys:</strong> Generate and manage API keys
-          (Power tier).
+          (Pro and Growth).
         </li>
         <li>
           <strong className="text-foreground/75">Webhooks:</strong> Configure webhook endpoints and

@@ -97,20 +97,25 @@ describe('GET /api/v1/costs/export', () => {
   // --------------------------------------------------------------------------
 
   it('returns 403 for free tier users', async () => {
-    // subscriptions → free tier
     fromCallQueue.push({ data: { tier: 'free' }, error: null });
 
     const res = await GET(makeRequest());
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('Power tier');
+    // WHY (Phase 5 rename): error message migrated from "Power tier" to
+    // "Pro and Growth plans". Free is still blocked.
+    expect(body.error).toContain('Paid plan');
   });
 
-  it('returns 403 for pro tier users', async () => {
+  it('allows pro tier users (Phase 5: Pro inherits power-equivalent features)', async () => {
+    // Phase 5 reconciliation: Pro absorbs the old Power feature set, so cost
+    // export is now available on Pro.
     fromCallQueue.push({ data: { tier: 'pro' }, error: null });
+    // cost_records → empty result (test happy path with no data)
+    fromCallQueue.push({ data: [], error: null });
 
     const res = await GET(makeRequest());
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
   });
 
   it('returns 403 when no subscription found (defaults to free)', async () => {

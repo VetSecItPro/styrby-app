@@ -150,7 +150,7 @@ describe('GET /api/keys', () => {
     expect(response.status).toBe(200);
     expect(data.keys).toHaveLength(1);
     expect(data.keys[0].key_prefix).toBe('sk_live_abc');
-    expect(data.tier).toBe('power');
+    expect(data.tier).toBe('growth');
     expect(data.keyCount).toBe(1);
   });
 

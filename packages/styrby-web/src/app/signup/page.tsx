@@ -284,8 +284,8 @@ function SignUpPageInner() {
                   ? 'Verify your email'
                   : plan === 'pro'
                   ? 'Create your Pro account'
-                  : plan === 'power'
-                  ? 'Create your Power account'
+                  : plan === 'growth'
+                  ? 'Create your Growth account'
                   : 'Create your free account'}
               </h1>
               <p className="mt-1 text-xs text-muted-foreground text-center">
