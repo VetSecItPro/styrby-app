@@ -1108,7 +1108,22 @@ export async function POST(request: Request) {
         // FIX-007: Downgrade protection - don't silently downgrade paid users
         // WHY: If a user is on 'power' and this event says 'pro', it may be
         // a stale webhook or Polar issue. Log a warning and skip the downgrade.
-        const tierRank: Record<string, number> = { free: 0, pro: 1, power: 2 };
+        // BUG #9 (Kaulby hardening taxonomy): Growth replaces Power as the new
+        // highest paid tier. Why the legacy values are kept: defensive aliasing —
+        // the DB's subscription_tier enum still holds free/pro/power/team/business/
+        // enterprise as legacy values per migration 055. A late .active event for
+        // any of those must NOT downgrade a user currently on growth. Map them all
+        // to rank 2 (same as growth) so the guard only fires when the incoming
+        // rank is genuinely lower.
+        const tierRank: Record<string, number> = {
+          free: 0,
+          pro: 1,
+          power: 2,
+          team: 2,
+          business: 2,
+          enterprise: 2,
+          growth: 2,
+        };
         const { data: existingSub } = await supabase
           .from('subscriptions')
           .select('tier, status')
