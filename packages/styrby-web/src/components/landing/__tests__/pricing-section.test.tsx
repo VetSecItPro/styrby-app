@@ -1,19 +1,21 @@
 /**
- * PricingSection Component Tests
+ * PricingSection — landing-page pricing section tests.
  *
- * Tests the landing-page pricing section:
- * - All three plan cards render (Free, Pro, Power)
- * - Monthly prices are shown by default
- * - Annual toggle switches to annual pricing
- * - Annual savings copy appears when toggle is on, disappears when off
- * - CTA buttons link to correct signup URLs including plan params
- * - Free plan "forever" label (not "/mo")
- * - Free plan not-included features list (renders X icon items)
- * - Toggle switch has correct aria-checked attribute
- * - Annual label gets the "Save 2 months" badge
+ * Phase 6 rewrite: the section now surfaces only Pro and Growth (the legacy
+ * Free / Pro $24 / Power $59 layout was retired with the tier reconciliation
+ * in `.audit/styrby-fulltest.md`). These tests guard:
+ *   - Both plan cards render (Pro, Growth).
+ *   - Monthly prices match the canonical billing-config values.
+ *   - Annual toggle switches to the discounted equivalents.
+ *   - Annual savings copy appears / disappears with the toggle.
+ *   - CTA buttons link to /signup?plan=pro and /signup?plan=growth (with
+ *     billing=annual variants when toggled).
+ *   - Toggle has correct ARIA semantics.
  *
- * WHY: The pricing section is the primary conversion point. Incorrect prices,
- * broken CTA links, or wrong plan copy directly harm revenue.
+ * WHY: the pricing section is the primary on-landing-page conversion point.
+ * Wrong prices, broken CTAs, or stale plan copy directly harm revenue.
+ *
+ * @module components/landing/__tests__/pricing-section
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -61,171 +63,147 @@ function setup() {
 // ---------------------------------------------------------------------------
 
 describe('PricingSection — plan cards render', () => {
-  it('renders all three plan names', () => {
+  it('renders both plan headings (Pro and Growth)', () => {
     setup();
-
-    expect(screen.getByRole('heading', { name: 'Free' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Pro' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Power' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Growth' })).toBeInTheDocument();
   });
 
-  it('renders the three plan taglines', () => {
+  it('renders both plan taglines', () => {
     setup();
-
-    expect(screen.getByText('For developers exploring')).toBeInTheDocument();
     expect(screen.getByText('For developers who ship daily')).toBeInTheDocument();
-    expect(screen.getByText('For teams and power users')).toBeInTheDocument();
+    expect(
+      screen.getByText('For teams that need to govern spend and access'),
+    ).toBeInTheDocument();
+  });
+
+  it('marks Growth as the recommended plan ("Most Popular" badge)', () => {
+    setup();
+    expect(screen.getByText(/most popular/i)).toBeInTheDocument();
   });
 });
 
 describe('PricingSection — monthly prices', () => {
-  it('shows $0 for Free plan', () => {
+  it('shows $39 for Pro in monthly mode', () => {
     setup();
-
-    // Free plan has $0 — the span renders "$0" as the price text
-    // There are three price spans on the page; $0 corresponds to Free
-    expect(screen.getByText('$0')).toBeInTheDocument();
+    expect(screen.getByText('$39')).toBeInTheDocument();
   });
 
-  it('shows $24 for Pro plan in monthly mode', () => {
+  it('shows $99 for Growth in monthly mode', () => {
     setup();
-
-    // $24 monthly price
-    expect(screen.getByText('$24')).toBeInTheDocument();
+    expect(screen.getByText('$99')).toBeInTheDocument();
   });
 
-  it('shows $59 for Power plan in monthly mode', () => {
+  it('shows the per-seat add-on note on the Growth card', () => {
     setup();
-
-    expect(screen.getByText('$59')).toBeInTheDocument();
-  });
-
-  it('shows "forever" label for Free plan instead of /mo', () => {
-    setup();
-
-    expect(screen.getByText('forever')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Includes 3 seats. \+\$19\/seat\/month after\./i),
+    ).toBeInTheDocument();
   });
 });
 
 describe('PricingSection — annual toggle', () => {
   it('toggle has aria-checked="false" by default', () => {
     setup();
-
     const toggle = screen.getByRole('switch', { name: /toggle annual billing/i });
     expect(toggle).toHaveAttribute('aria-checked', 'false');
   });
 
   it('toggle switches to aria-checked="true" when clicked', async () => {
     const { user } = setup();
-
     const toggle = screen.getByRole('switch', { name: /toggle annual billing/i });
     await user.click(toggle);
-
     expect(toggle).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('shows annual prices when toggle is on (Pro: $20/mo equivalent)', async () => {
+  it('shows Pro annual price ($33/mo equivalent) when toggled', async () => {
     const { user } = setup();
-
     await user.click(screen.getByRole('switch', { name: /toggle annual billing/i }));
-
-    // Pro annual = $240/year → $20/mo displayed
-    expect(screen.getByText('$20')).toBeInTheDocument();
+    // Pro annual = $390/year → Math.round(390/12) = $33
+    expect(screen.getByText('$33')).toBeInTheDocument();
   });
 
-  it('shows Power annual price ($49/mo equivalent) when toggled', async () => {
+  it('shows Growth annual price ($83/mo equivalent) when toggled', async () => {
     const { user } = setup();
-
     await user.click(screen.getByRole('switch', { name: /toggle annual billing/i }));
-
-    // Power annual = $590/year → Math.round(590/12) = $49
-    expect(screen.getByText('$49')).toBeInTheDocument();
+    // Growth base annual = $990/year → Math.round(990/12) = $83
+    expect(screen.getByText('$83')).toBeInTheDocument();
   });
 
   it('shows savings copy for Pro when annual is toggled on', async () => {
     const { user } = setup();
-
     await user.click(screen.getByRole('switch', { name: /toggle annual billing/i }));
-
-    // Pro saves $48 per year
-    expect(screen.getByText(/\$240\/year.*save \$48/i)).toBeInTheDocument();
+    // Pro saves $78 per year
+    expect(screen.getByText(/\$390\/year.*save \$78/i)).toBeInTheDocument();
   });
 
   it('hides savings copy when toggled back to monthly', async () => {
     const { user } = setup();
-
     const toggle = screen.getByRole('switch', { name: /toggle annual billing/i });
     await user.click(toggle); // on
     await user.click(toggle); // off
-
-    expect(screen.queryByText(/save \$48/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/save \$78/i)).not.toBeInTheDocument();
   });
 
-  it('shows the "Save 2 months" badge in the annual label', () => {
+  it('shows the "Save 17%" badge in the annual label', () => {
     setup();
-
-    expect(screen.getByText('Save 2 months')).toBeInTheDocument();
+    expect(screen.getByText('Save 17%')).toBeInTheDocument();
   });
 });
 
 describe('PricingSection — CTA links', () => {
-  it('Free plan CTA links to /signup', () => {
+  it('Pro plan CTA links to /signup?plan=pro (monthly)', () => {
     setup();
-
-    const freeLink = screen.getByRole('link', { name: 'Start Free' });
-    expect(freeLink).toHaveAttribute('href', '/signup');
-  });
-
-  it('Pro plan CTA links to /signup?plan=pro', () => {
-    setup();
-
-    const proLink = screen.getByRole('link', { name: 'Connect 3 Machines' });
+    const proLink = screen.getByRole('link', { name: 'Start my Pro trial' });
     expect(proLink).toHaveAttribute('href', '/signup?plan=pro');
   });
 
-  it('Power plan CTA links to /signup?plan=power', () => {
+  it('Growth plan CTA links to /signup?plan=growth (monthly)', () => {
     setup();
+    const growthLink = screen.getByRole('link', { name: 'Start my Growth trial' });
+    expect(growthLink).toHaveAttribute('href', '/signup?plan=growth');
+  });
 
-    const powerLink = screen.getByRole('link', { name: 'Connect 9 Machines' });
-    expect(powerLink).toHaveAttribute('href', '/signup?plan=power');
+  it('Pro CTA appends billing=annual when annual toggle is on', async () => {
+    const { user } = setup();
+    await user.click(screen.getByRole('switch', { name: /toggle annual billing/i }));
+    const proLink = screen.getByRole('link', { name: 'Start my Pro trial' });
+    expect(proLink).toHaveAttribute('href', '/signup?plan=pro&billing=annual');
+  });
+
+  it('Growth CTA appends billing=annual when annual toggle is on', async () => {
+    const { user } = setup();
+    await user.click(screen.getByRole('switch', { name: /toggle annual billing/i }));
+    const growthLink = screen.getByRole('link', { name: 'Start my Growth trial' });
+    expect(growthLink).toHaveAttribute('href', '/signup?plan=growth&billing=annual');
   });
 });
 
 describe('PricingSection — feature lists', () => {
-  it('renders included features for Free plan', () => {
+  it('renders included features for Pro', () => {
     setup();
-
-    expect(screen.getByText('1 connected machine')).toBeInTheDocument();
-    expect(screen.getByText('E2E encryption')).toBeInTheDocument();
-    expect(screen.getByText('1 budget alert')).toBeInTheDocument();
-  });
-
-  it('renders not-included features for Free plan', () => {
-    setup();
-
-    // notIncluded items for Free
-    expect(screen.getByText('Per-message cost tracking')).toBeInTheDocument();
-    expect(screen.getByText('Session checkpoints')).toBeInTheDocument();
-    expect(screen.getByText('Team management')).toBeInTheDocument();
-    expect(screen.getByText('Voice commands')).toBeInTheDocument();
-  });
-
-  it('renders included features for Power plan', () => {
-    setup();
-
+    expect(screen.getByText('All 11 CLI agents')).toBeInTheDocument();
     expect(
-      screen.getByText('OTEL export (Grafana, Datadog, and more)')
+      screen.getByText('OTEL export (Grafana, Datadog, Honeycomb)'),
     ).toBeInTheDocument();
-    expect(screen.getByText('Voice commands and cloud monitoring')).toBeInTheDocument();
+  });
+
+  it('renders included features for Growth', () => {
+    setup();
+    expect(screen.getByText('Everything in Pro, plus:')).toBeInTheDocument();
+    expect(
+      screen.getByText('Team workspace with role-based access'),
+    ).toBeInTheDocument();
   });
 });
 
-describe('PricingSection — trial footnote', () => {
-  it('shows the 14-day free trial note', () => {
+describe('PricingSection — trial footnote and deep link', () => {
+  it('shows the 14-day free trial note with the compare-pricing link', () => {
     setup();
-
     expect(
-      screen.getByText(/14-day free trial on pro and power/i)
+      screen.getByText(/14-day free trial on pro and growth/i),
     ).toBeInTheDocument();
+    const compareLink = screen.getByRole('link', { name: /compare full pricing/i });
+    expect(compareLink).toHaveAttribute('href', '/pricing');
   });
 });

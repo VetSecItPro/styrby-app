@@ -76,7 +76,11 @@ export function getUpgradeMessage(
   feature: string,
   tier: 'pro' | 'power' = 'pro'
 ): string {
-  const tierLabel = tier === 'power' ? 'Power' : 'Pro';
+  // WHY display labels diverge from `tier` value: Phase 6 collapsed the
+  // public ladder to Pro + Growth (`.audit/styrby-fulltest.md` Decision #9).
+  // The legacy `'power'` value is preserved on the server for back-compat
+  // and rendered as "Growth" at the UI boundary.
+  const tierLabel = tier === 'power' ? 'Growth' : 'Pro';
 
   if (Platform.OS === 'ios') {
     // WHY: Apple prohibits displaying pricing or upgrade CTAs in Reader Apps.
@@ -84,7 +88,9 @@ export function getUpgradeMessage(
     return `${feature} requires a ${tierLabel} subscription`;
   }
 
-  const price = tier === 'power' ? '$59/mo' : '$29/mo';
+  // WHY $99 / $39: post-Phase-5 canonical prices for Growth and Pro.
+  // See `.audit/styrby-fulltest.md` Decisions #2 and #3.
+  const price = tier === 'power' ? '$99/mo' : '$39/mo';
   return `${feature} requires ${tierLabel} — Upgrade for ${price}`;
 }
 
@@ -110,7 +116,9 @@ export function getUpgradeButtonLabel(
     // WHY: Apple Reader App rules — no purchase/upgrade buttons on iOS.
     return null;
   }
-  return tier === 'power' ? 'Upgrade to Power' : 'Upgrade to Pro';
+  // WHY display label: post-Phase-6, `'power'` is preserved on the server
+  // as a legacy alias and rendered as "Growth" at the UI boundary.
+  return tier === 'power' ? 'Upgrade to Growth' : 'Upgrade to Pro';
 }
 
 /**

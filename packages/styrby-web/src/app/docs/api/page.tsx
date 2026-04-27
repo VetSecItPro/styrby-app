@@ -19,7 +19,7 @@ export default function APIReferencePage() {
         API Reference
       </h1>
       <p className="mt-3 text-muted-foreground">
-        Programmatic access to your Styrby data. Available on the Power tier.
+        Programmatic access to your Styrby data. Available on the Pro or Growth tier.
       </p>
 
       {/* Auth */}
@@ -336,7 +336,7 @@ export default function APIReferencePage() {
             </tr>
             <tr className="border-b border-border/50">
               <td className="py-2 pr-4 text-xs">403</td>
-              <td className="py-2 text-xs">API access requires Power tier.</td>
+              <td className="py-2 text-xs">API access requires a Pro or Growth subscription.</td>
             </tr>
             <tr className="border-b border-border/50">
               <td className="py-2 pr-4 text-xs">429</td>

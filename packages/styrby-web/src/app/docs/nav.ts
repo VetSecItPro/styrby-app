@@ -37,7 +37,7 @@ export const docsNav: DocNavItem[] = [
   {
     title: 'API Reference',
     href: '/docs/api',
-    description: 'REST API for programmatic access (Power tier).',
+    description: 'REST API for programmatic access (Pro and Growth).',
   },
   {
     title: 'Webhooks',
@@ -57,17 +57,17 @@ export const docsNav: DocNavItem[] = [
   {
     title: 'Team Management',
     href: '/docs/teams',
-    description: 'Roles, shared visibility, and member management (Pro and Power tiers).',
+    description: 'Roles, shared visibility, and member management (Pro and Pro and Growths).',
   },
   {
     title: 'OTEL Metrics Export',
     href: '/docs/otel',
-    description: 'Export metrics to Grafana, Datadog, Honeycomb, or New Relic (Power tier).',
+    description: 'Export metrics to Grafana, Datadog, Honeycomb, or New Relic (Pro and Growth).',
   },
   {
     title: 'Voice Input',
     href: '/docs/voice',
-    description: 'Send voice commands to your agents from the mobile app (Power tier).',
+    description: 'Send voice commands to your agents from the mobile app (Pro and Growth).',
   },
   {
     title: 'Troubleshooting',

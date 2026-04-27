@@ -2,100 +2,79 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { Check, X } from "lucide-react"
+import { Check, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 /**
- * Pricing data for all three tiers.
+ * Pricing data for the landing-page snapshot — Pro and Growth.
  *
- * WHY decoy layout: Pro is styled as "most popular" and highlighted with
- * amber - it looks like the obvious choice. Power is priced close enough
- * that informed buyers self-upgrade. Free anchors the low end so $24
- * feels reasonable.
+ * Phase 6 update: collapsed from the legacy three-card (Free / Pro $24 /
+ * Power $59) layout to the canonical two-tier ladder. Numbers are kept in
+ * sync with `packages/styrby-web/src/lib/billing/polar-products.ts` —
+ * the dedicated /pricing page is the source of truth for the live total
+ * (sliders, annual math); this section is the marketing summary.
+ *
+ * WHY two cards (not three): retiring the Free tier from the public
+ * surface (Decision #6 in `.audit/styrby-fulltest.md`) leaves Pro and
+ * Growth as the only paid options. A two-card layout reads better on
+ * mobile and removes decision fatigue.
  */
 const plans = [
   {
-    name: "Free",
-    tagline: "For developers exploring",
-    monthly: 0,
-    annual: 0,
-    savings: null,
-    popular: false,
-    cta: "Start Free",
-    ctaVariant: "ghost" as const,
-    included: [
-      "1 connected machine",
-      "3 agents: Claude Code, Codex, Gemini CLI",
-      "7-day session history",
-      "1,000 messages/month",
-      "Cost dashboard",
-      "1 budget alert",
-      "E2E encryption",
-      "Push notifications",
-      "Offline queue",
-    ],
-    notIncluded: [
-      "Per-message cost tracking",
-      "Session checkpoints",
-      "Team management",
-      "Voice commands",
-    ],
-  },
-  {
     name: "Pro",
     tagline: "For developers who ship daily",
-    monthly: 24,
-    annual: 240,
-    savings: 48,
+    monthly: 39,
+    annual: 390,
+    savings: 78,
+    perSeatNote: null,
     popular: false,
-    cta: "Connect 3 Machines",
-    ctaVariant: "amber" as const,
+    cta: "Start my Pro trial",
+    href: "/signup?plan=pro",
+    annualHref: "/signup?plan=pro&billing=annual",
     included: [
-      "3 connected machines",
-      "9 agents (+ OpenCode, Aider, Goose, Amp, Crush, Kilo)",
-      "90-day session history",
-      "25,000 messages/month",
-      "Cost dashboard",
-      "Export and import",
-      "3 budget alerts",
-      "Email support",
+      "All 11 CLI agents",
+      "Unlimited sessions, no per-message overage",
+      "1 year of encrypted session history",
+      "Token-level cost attribution across every model",
+      "Budget caps that throttle or kill runaway sessions",
+      "Session checkpoints, sharing, and replay",
+      "OTEL export (Grafana, Datadog, Honeycomb)",
+      "Push notifications and offline command queue",
     ],
-    notIncluded: [],
   },
   {
-    name: "Power",
-    tagline: "For teams and power users",
-    monthly: 59,
-    annual: 590,
-    savings: 98,
-    popular: false,
-    cta: "Connect 9 Machines",
-    ctaVariant: "outline" as const,
+    name: "Growth",
+    tagline: "For teams that need to govern spend and access",
+    monthly: 99,
+    annual: 990,
+    savings: 198,
+    perSeatNote: "Includes 3 seats. +$19/seat/month after.",
+    popular: true,
+    cta: "Start my Growth trial",
+    href: "/signup?plan=growth",
+    annualHref: "/signup?plan=growth&billing=annual",
     included: [
       "Everything in Pro, plus:",
-      "All 11 agents (+ Kiro and Droid)",
-      "9 machines, 5 budget alerts",
-      "Session checkpoints and sharing",
-      "Per-message costs and context breakdown",
-      "Voice commands and cloud monitoring",
-      "Code review from mobile",
-      "OTEL export (Grafana, Datadog, and more)",
-      "Team management (3 members) and API access",
+      "Team workspace with role-based access",
+      "Per-developer cost rollup with shared dashboards",
+      "Approval chains: require sign-off on risky CLI commands",
+      "Full audit trail export (SOC2 / ISO 27001 evidence)",
+      "Invite flow with email verification and seat-cap enforcement",
+      "Priority email support, response within one business day",
+      "DPA available on request",
     ],
-    notIncluded: [],
   },
 ]
 
 /**
  * Pricing section for the landing page.
  *
- * Uses a decoy pricing layout: Pro is visually highlighted as the
- * recommended choice, but Power is close enough in price that informed
- * buyers self-select to it. This increases average revenue per user
- * without aggressive upselling.
+ * Mirrors the dedicated /pricing page at a glance: two paid tiers, an
+ * annual / monthly toggle, a single "compare full pricing" link to deep
+ * dive on /pricing for the seat-count slider and ROI estimator.
  *
- * @returns The full pricing section with toggle and three-card layout
+ * @returns The full landing-page pricing section.
  */
 export function PricingSection() {
   const [annual, setAnnual] = useState(false)
@@ -110,15 +89,14 @@ export function PricingSection() {
             Pricing
           </p>
           <h2 className="mt-3 text-balance text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-            One price. Everything included. No per-token fees.
+            One price for solos. One for teams. No surprises.
           </h2>
           <p className="mt-4 text-muted-foreground leading-relaxed">
-            Flat monthly pricing. Your AI API costs are yours to manage. We
-            only charge for Styrby.
+            Pro covers a single developer end-to-end. Growth covers your team. Your AI provider bills are yours to manage.
           </p>
         </div>
 
-        {/* Annual/monthly toggle */}
+        {/* Annual / monthly toggle */}
         <div className="mt-10 flex items-center justify-center gap-4">
           <span
             className={cn(
@@ -154,21 +132,27 @@ export function PricingSection() {
           >
             Annual{" "}
             <span className="ml-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-amber-400 border border-amber-500/20">
-              Save 2 months
+              Save 17%
             </span>
           </span>
         </div>
 
-        {/* Cards - Pro is slightly elevated via scale and z-index */}
-        <div className="mt-12 grid gap-4 md:grid-cols-3 md:items-stretch">
+        {/* Cards — Growth is highlighted as the recommended choice */}
+        <div className="mx-auto mt-12 grid max-w-4xl gap-6 md:grid-cols-2 md:items-stretch">
           {plans.map((plan) => (
             <PricingCard key={plan.name} plan={plan} annual={annual} />
           ))}
         </div>
 
-        {/* Trust footnote */}
+        {/* Trust footnote + deep link */}
         <p className="mt-8 text-center text-xs text-muted-foreground/60">
-          14-day free trial on Pro and Power. No credit card required. Cancel anytime.
+          14-day free trial on Pro and Growth. No credit card required. Cancel anytime.{" "}
+          <Link
+            href="/pricing"
+            className="text-amber-400/80 underline-offset-4 hover:text-amber-400 hover:underline"
+          >
+            Compare full pricing
+          </Link>
         </p>
       </div>
     </section>
@@ -178,8 +162,8 @@ export function PricingSection() {
 /**
  * Individual pricing card.
  *
- * @param plan - The plan data to render
- * @param annual - Whether annual billing is selected
+ * @param plan - The plan data to render.
+ * @param annual - Whether annual billing is selected.
  */
 function PricingCard({
   plan,
@@ -188,21 +172,26 @@ function PricingCard({
   plan: (typeof plans)[number]
   annual: boolean
 }) {
+  // WHY: the annual product price already bakes in the ~17% discount.
+  // Showing the monthly equivalent (annual / 12) keeps the visible price
+  // consistent across both toggle states.
   const displayPrice =
     annual && plan.annual > 0 ? Math.round(plan.annual / 12) : plan.monthly
+
+  const href = annual ? plan.annualHref : plan.href
 
   return (
     <div
       className={cn(
         "relative flex flex-col rounded-2xl px-8 py-6 transition-all duration-300",
         plan.popular
-          ? // Pro: amber border, subtle amber bloom behind the card, slightly taller via py
-            "border border-amber-500/40 bg-zinc-950 amber-glow md:-my-4 md:py-12 z-10"
-          : // Free and Power: true black with faint zinc border, inner glow on hover
+          ? // Growth: amber border, subtle amber bloom behind the card.
+            "border border-amber-500/40 bg-zinc-950 amber-glow z-10"
+          : // Pro: zinc border, inner glow on hover.
             "border border-zinc-800/80 bg-zinc-950/60 hover:border-zinc-700/80 hover:bg-zinc-950/80"
       )}
     >
-      {/* Ambient radial glow behind Pro card */}
+      {/* Ambient radial glow behind the recommended card */}
       {plan.popular && (
         <div
           className="pointer-events-none absolute inset-0 rounded-2xl"
@@ -225,31 +214,33 @@ function PricingCard({
 
       {/* Plan name + tagline */}
       <div className="text-center">
-        <h3 className="text-2xl font-bold tracking-tight text-foreground">
-          {plan.name}
-        </h3>
+        <div className="flex items-center justify-center gap-2">
+          {plan.popular && (
+            <Users className="h-5 w-5 text-amber-400" aria-hidden="true" />
+          )}
+          <h3 className="text-2xl font-bold tracking-tight text-foreground">
+            {plan.name}
+          </h3>
+        </div>
         <p className="mt-1 text-sm text-muted-foreground">{plan.tagline}</p>
       </div>
 
       {/* Price */}
-      <div className="mt-6 flex items-baseline gap-1">
+      <div className="mt-6 flex items-baseline gap-1 justify-center">
         <span className="text-5xl font-bold tracking-tight text-foreground">
           ${displayPrice}
         </span>
-        {plan.monthly > 0 && (
-          <span className="text-sm font-normal text-muted-foreground">/mo</span>
-        )}
-        {plan.monthly === 0 && (
-          <span className="text-sm font-normal text-muted-foreground">forever</span>
-        )}
+        <span className="text-sm font-normal text-muted-foreground">/mo</span>
       </div>
 
-      {/* Annual savings line - always reserve height to prevent layout shift */}
-      <div className="mt-1 h-4">
+      {/* Annual savings + per-seat note — fixed height to avoid layout shift */}
+      <div className="mt-1 h-4 text-center">
         {annual && plan.savings ? (
           <p className="text-xs text-amber-500/80">
             ${plan.annual}/year (save ${plan.savings})
           </p>
+        ) : plan.perSeatNote ? (
+          <p className="text-xs text-muted-foreground/50">{plan.perSeatNote}</p>
         ) : null}
       </div>
 
@@ -261,14 +252,16 @@ function PricingCard({
         )}
       />
 
-      {/* Feature list - included */}
+      {/* Feature list */}
       <ul className="mt-6 flex-1 space-y-3">
         {plan.included.map((feature) => (
           <li
             key={feature}
             className={cn(
               "flex items-start gap-3 text-sm",
-              feature.endsWith("plus:") ? "font-semibold text-zinc-200 pb-1 border-b border-zinc-800/60" : "text-zinc-300"
+              feature.endsWith("plus:")
+                ? "font-semibold text-zinc-200 pb-1 border-b border-zinc-800/60"
+                : "text-zinc-300"
             )}
           >
             {!feature.endsWith("plus:") && (
@@ -282,38 +275,24 @@ function PricingCard({
             {feature}
           </li>
         ))}
-
-        {/* Not included (Free only) */}
-        {plan.notIncluded.length > 0 &&
-          plan.notIncluded.map((feature) => (
-            <li
-              key={feature}
-              className="flex items-start gap-3 text-sm text-zinc-500"
-            >
-              <X className="mt-0.5 h-4 w-4 shrink-0 text-zinc-700" />
-              {feature}
-            </li>
-          ))}
       </ul>
 
       {/* CTA button */}
       <div className="mt-8 flex justify-center">
-        {plan.ctaVariant === "ghost" ? (
+        {plan.popular ? (
+          <Button
+            asChild
+            className="rounded-full px-6 bg-amber-500 font-semibold text-zinc-950 hover:bg-amber-400 active:bg-amber-600 transition-colors"
+          >
+            <Link href={href}>{plan.cta}</Link>
+          </Button>
+        ) : (
           <Button
             variant="outline"
             asChild
             className="rounded-full px-6 border-zinc-700 bg-transparent font-medium text-zinc-300 hover:border-zinc-500 hover:text-foreground transition-colors"
           >
-            <Link href="/signup">{plan.cta}</Link>
-          </Button>
-        ) : (
-          <Button
-            asChild
-            className="rounded-full px-6 bg-amber-500 font-semibold text-zinc-950 hover:bg-amber-400 active:bg-amber-600 transition-colors"
-          >
-            <Link href={`/signup?plan=${plan.name.toLowerCase()}`}>
-              {plan.cta}
-            </Link>
+            <Link href={href}>{plan.cta}</Link>
           </Button>
         )}
       </div>

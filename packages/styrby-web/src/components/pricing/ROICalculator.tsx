@@ -139,7 +139,9 @@ export function ROICalculator() {
 
   const annualROI = useMemo(() => computeAnnualROI(inputs), [inputs]);
 
-  // Rough annual Styrby cost for context (Team tier, same dev count, no discount)
+  // WHY $19/seat × 12: Growth seat add-on price for an annualised back-of-the-
+  // envelope. Conservative — the $99/mo base covers the first 3 seats but we
+  // ignore that here so the ROI ratio is never overstated for small teams.
   const annualStyrbyEstimate = inputs.developers * 19 * 12;
   const roi = annualStyrbyEstimate > 0 ? annualROI / annualStyrbyEstimate : 0;
 
@@ -221,7 +223,7 @@ export function ROICalculator() {
           <div className="mt-4 grid grid-cols-2 gap-4 w-full text-center">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                Styrby Team cost
+                Styrby Growth cost
               </p>
               <p className="mt-1 text-lg font-bold text-foreground">
                 ~{formatDollars(annualStyrbyEstimate)}/yr

@@ -49,11 +49,16 @@ interface OnboardingModalProps {
 /**
  * Display-friendly tier names for the welcome message.
  */
+// WHY display labels diverge from the stored value: Phase 6 collapsed the
+// public ladder to Pro + Growth (`.audit/styrby-fulltest.md` Decision #9).
+// Server records still carry the legacy values `'power'` and `'team'` for
+// back-compat, so we map them at the display boundary rather than running
+// a destructive migration.
 const TIER_DISPLAY_NAMES: Record<SubscriptionTier, string> = {
   free: 'Free',
   pro: 'Pro',
-  power: 'Power',
-  team: 'Team',
+  power: 'Growth',
+  team: 'Growth',
 };
 
 // ============================================================================
