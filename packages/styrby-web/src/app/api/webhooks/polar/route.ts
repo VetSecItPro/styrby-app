@@ -58,6 +58,8 @@ import {
   PolarSignatureError,
 } from '@/lib/polar-webhook-signature';
 import { validateSeatCount, shouldHonorManualOverride } from '@styrby/shared/billing';
+import { polar, isTeamSeatProduct, STYRBY_PRORATION_BEHAVIOR } from '@/lib/polar';
+import { getPlanFromProductId } from '@/lib/billing/polar-products';
 
 // ============================================================================
 // Cold-start env validation (team-tier Polar product IDs + secrets)
@@ -144,6 +146,7 @@ type PolarEvent =
   | 'subscription.created'
   | 'subscription.updated'
   | 'subscription.canceled'
+  | 'subscription.revoked'
   | 'subscription.past_due'
   | 'order.created'
   | 'order.refunded';
@@ -251,6 +254,134 @@ function getBillingCycleFromProductId(productId: string): 'monthly' | 'annual' {
     return 'annual';
   }
   return 'monthly';
+}
+
+// ============================================================================
+// Cascade-cancel seat addons (Bugs #4 + #7 / Phase H2)
+// ============================================================================
+
+/**
+ * Result of a cascade-cancel sweep — surfaced to the calling event handler
+ * so it can be embedded in the webhook's audit-log metadata for SOC2 CC7.2.
+ */
+interface CascadeCancelResult {
+  /** Number of seat-addon subscriptions successfully scheduled for cancellation. */
+  cancelled: number;
+  /** Polar subscription IDs that were successfully scheduled for cancellation. */
+  subscriptionIds: string[];
+  /** Per-seat error messages for any seat-addon update calls that failed. */
+  errors: string[];
+}
+
+/**
+ * Cancel all seat-addon subscriptions for a Polar customer at period-end.
+ *
+ * WHY (Bugs #4 + #7 / Phase H2): Styrby's Growth tier follows Polar's multi-
+ * product Path A pattern — a base Growth subscription PLUS N separate
+ * seat-addon subscriptions (one per additional seat above the included 3).
+ * When the main Growth subscription is revoked OR the user downgrades from
+ * Growth to a non-Growth tier (Pro / Free), those seat-addon subscriptions
+ * become ORPHANS. Without explicit cancellation, the customer keeps paying
+ * ~$19/mo per seat for capacity their workspace can no longer use.
+ *
+ * Approach B (cancelAtPeriodEnd, not immediate revoke):
+ *   The customer keeps the seats through the rest of their seat billing
+ *   period — they paid for it, they get to use it. Each addon's existing
+ *   subscription.canceled webhook will fire when its period ends and the
+ *   normal cleanup path takes over. Mirrors Kaulby's pattern at
+ *   `packages/05.kaulby-app/src/app/api/webhooks/polar/route.ts` lines
+ *   555–578 (downgrade) and 711–753 (revoke).
+ *
+ * WHY isolated try/catch on each seat: a Polar API failure on one seat must
+ * not abort cancellation of the others, AND must not throw out of this
+ * helper. The caller is mid-webhook and the main subscription's downgrade /
+ * revoke has already been committed to the DB. Rethrowing would cause Polar
+ * to retry the whole event, re-running the main update — which is idempotent
+ * but still produces noise in the audit trail. Errors are collected into the
+ * result and rolled up by the caller into a single audit_log row.
+ *
+ * @param customerId - Polar customer ID (from the webhook's `data.customer_id`,
+ *   not Styrby's user ID — Polar's subscription list API filters by Polar
+ *   customer ID).
+ * @returns Summary of the sweep (count cancelled, per-seat errors). NEVER
+ *   throws — Polar API failures are captured in `result.errors`.
+ *
+ * @example
+ *   const result = await cascadeCancelSeatAddons('cust_test_456');
+ *   // result.cancelled === 2, result.subscriptionIds === ['sub_seat_a','sub_seat_b']
+ */
+async function cascadeCancelSeatAddons(
+  customerId: string,
+): Promise<CascadeCancelResult> {
+  const result: CascadeCancelResult = {
+    cancelled: 0,
+    subscriptionIds: [],
+    errors: [],
+  };
+
+  if (!customerId) {
+    return result;
+  }
+
+  // 1. List the customer's active subscriptions.
+  // WHY `as unknown as { ... }`: the Polar SDK's `subscriptions.list` return
+  // shape declares a generic `result.items` array — we only read `.id` and
+  // `.productId`, so a narrow structural cast keeps the helper isolated from
+  // SDK type churn (mirrors the cast in `fetchPolarSubscription` in
+  // `app/api/billing/seats/route.ts`).
+  let listed: Array<{ id: string; productId: string }> = [];
+  try {
+    const list = await polar.subscriptions.list({
+      customerId: [customerId],
+      active: true,
+      limit: 100,
+    });
+    const items =
+      (list as unknown as {
+        result?: { items?: Array<{ id: string; productId: string }> };
+      })?.result?.items ?? [];
+    listed = items;
+  } catch (err) {
+    // Listing failed entirely — record one error and bail. The main webhook
+    // path has already committed the downgrade/revoke; this is a best-effort
+    // cleanup, never fatal. SOC2 CC7.2: the failure is captured in audit_log
+    // metadata via the result.errors array surfaced by the caller.
+    result.errors.push(
+      `list_failed:${err instanceof Error ? err.message : String(err)}`,
+    );
+    return result;
+  }
+
+  // 2. Filter to seat-addon products only (env-resolved IDs).
+  const seatAddons = listed.filter((s) => isTeamSeatProduct(s.productId));
+
+  // 3. For each addon, schedule cancellation at period-end. Errors are
+  //    collected per-seat — never let one failure stop the others.
+  for (const sub of seatAddons) {
+    try {
+      // WHY the `as unknown as` cast: same SDK enum lag documented in
+      // `lib/polar.ts` cancelSubscription — `@polar-sh/sdk@0.29.x`'s
+      // generated TS enum narrows `prorationBehavior` to
+      // "invoice" | "prorate", but the wire API honors `next_period`.
+      await polar.subscriptions.update({
+        id: sub.id,
+        subscriptionUpdate: {
+          cancelAtPeriodEnd: true,
+          prorationBehavior: STYRBY_PRORATION_BEHAVIOR,
+        } as unknown as Parameters<
+          typeof polar.subscriptions.update
+        >[0]['subscriptionUpdate'],
+      });
+      result.cancelled += 1;
+      result.subscriptionIds.push(sub.id);
+    } catch (err) {
+      result.errors.push(
+        `${sub.id}:${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  return result;
 }
 
 // ============================================================================
@@ -812,6 +943,7 @@ export async function POST(request: Request) {
       'subscription.created',
       'subscription.updated',
       'subscription.canceled',
+      'subscription.revoked',
       'subscription.past_due',
       'order.created',
       'order.refunded',
@@ -1130,6 +1262,105 @@ export async function POST(request: Request) {
           .eq('user_id', profileId)
           .single();
 
+        // ──────────────────────────────────────────────────────────────────
+        // Bug #7 / Phase H2: cascade-cancel orphan seat addons on
+        // Growth → non-Growth tier downgrade.
+        //
+        // WHY this runs BEFORE the rank-guard rejection: the cascade is the
+        // user-intent cleanup (the user requested the downgrade — their seats
+        // must be cancelled). The tier-rank guard further down protects
+        // against stale .active events that would silently demote a paying
+        // user; that protection still applies (the upsert may be rejected),
+        // but the cascade itself must fire whether or not the upsert proceeds.
+        //
+        // WHY only on `subscription.updated` (not `.created`): a brand-new
+        // subscription has no prior tier to step down from. Growth seat addons
+        // only attach to a pre-existing Growth main subscription.
+        //
+        // WHY canonical comparison via getPlanFromProductId (not the legacy
+        // getTierFromProductId): the legacy helper returns only 'pro' | 'power'
+        // (pre-Growth taxonomy) and would never see 'growth'. The canonical
+        // helper resolves both Growth base + seat-addon products to 'growth',
+        // and Pro to 'pro'. Treat any non-Growth canonical target as a
+        // downgrade requiring cascade.
+        //
+        // WHY check `data.status === 'active'`: a `subscription.updated`
+        // event also fires for transitional statuses (past_due, unpaid,
+        // trialing). Cascade-cancelling on a transient past_due would orphan
+        // the addons before the customer can update their payment method.
+        // ──────────────────────────────────────────────────────────────────
+        if (
+          event.type === 'subscription.updated' &&
+          data.status === 'active' &&
+          existingSub
+        ) {
+          const oldCanonical: 'free' | 'pro' | 'growth' | null =
+            existingSub.tier === 'growth' ||
+            existingSub.tier === 'team' ||
+            existingSub.tier === 'business' ||
+            existingSub.tier === 'enterprise'
+              ? 'growth'
+              : existingSub.tier === 'pro'
+                ? 'pro'
+                : existingSub.tier === 'free'
+                  ? 'free'
+                  : null;
+          const newCanonical = getPlanFromProductId(productId);
+
+          if (oldCanonical === 'growth' && newCanonical !== 'growth') {
+            try {
+              const cascadeResult = await cascadeCancelSeatAddons(
+                data.customer_id,
+              );
+
+              if (
+                cascadeResult.cancelled > 0 ||
+                cascadeResult.errors.length > 0
+              ) {
+                const { error: cascadeAuditErr } = await supabase
+                  .from('audit_log')
+                  .insert({
+                    user_id: profileId,
+                    action: 'subscription_changed',
+                    resource_type: 'subscription',
+                    resource_id: null,
+                    metadata: {
+                      event_subtype: 'seat_addons_cascade_canceled_on_downgrade',
+                      polar_event_id: polarEventId,
+                      polar_subscription_id: data.id,
+                      polar_customer_id: data.customer_id,
+                      previous_tier: existingSub.tier,
+                      new_tier: newCanonical,
+                      cancelled_count: cascadeResult.cancelled,
+                      cancelled_subscription_ids:
+                        cascadeResult.subscriptionIds,
+                      errors: cascadeResult.errors,
+                    },
+                  });
+                if (cascadeAuditErr) {
+                  console.error(
+                    'polar/route: audit_log insert failed for cascade-cancel on downgrade (non-fatal):',
+                    cascadeAuditErr.message,
+                  );
+                }
+              }
+
+              if (isDev) {
+                console.log(
+                  `polar/route: cascade-cancel on downgrade — ${cascadeResult.cancelled} seat addon(s) cancelled, ${cascadeResult.errors.length} error(s)`,
+                );
+              }
+            } catch (cascadeErr) {
+              console.error(
+                'polar/route: cascade-cancel on downgrade threw unexpectedly (main downgrade still committed):',
+                cascadeErr instanceof Error
+                  ? cascadeErr.message
+                  : String(cascadeErr),
+              );
+            }
+          }
+        }
+
         if (
           existingSub &&
           existingSub.status === 'active' &&
@@ -1274,6 +1505,207 @@ export async function POST(request: Request) {
           .eq('polar_subscription_id', data.id);
 
         if (isDev) console.log('Subscription canceled successfully');
+        break;
+      }
+
+      case 'subscription.revoked': {
+        // ────────────────────────────────────────────────────────────────────
+        // Bug #4 / Phase H2: cascade-cancel orphan seat addons on Growth main
+        // subscription revoke.
+        //
+        // WHY a separate case (not a fall-through into subscription.canceled):
+        // Polar sends `subscription.revoked` when the main subscription is
+        // hard-terminated immediately (admin revoke, fraud, account deletion).
+        // `subscription.canceled` is the period-end variant. The DB-side
+        // bookkeeping is similar (status → 'canceled'), but ONLY revoke
+        // requires immediate cascade-cancel of seat addons — at period-end
+        // cancellation the addons keep billing through THEIR period and the
+        // existing seat-cancel handler decrements naturally.
+        //
+        // WHY cascade-cancel addons "at period-end" even on a hard-revoke of
+        // the main: the customer paid for the seat-addon billing period — we
+        // honor that period (the addons each have their own current_period_end).
+        // Polar fires per-addon `subscription.canceled` when the addon period
+        // ends, the existing handler deactivates, and the workspace seat
+        // count decrements naturally. The main subscription's revoke vs.
+        // cancel distinction does NOT propagate to the addons.
+        //
+        // WHY check the main product is Growth: a Pro revoke has no addons
+        // attached (Pro is a 1-seat plan with no seat-addon SKUs). Skipping
+        // the cascade for non-Growth saves a Polar API round-trip on the
+        // happy path.
+        // ────────────────────────────────────────────────────────────────────
+        const { data } = event;
+        const isDev = process.env.NODE_ENV === 'development';
+
+        // Event-id dedup parity with subscription.canceled.
+        // WHY: Polar retries on transient 5xx — without dedup a re-delivered
+        // revoke event would re-run the cascade-cancel sweep and re-write
+        // the audit row. The state-based fallback (UPDATE is idempotent)
+        // keeps correctness if dedup table writes fail.
+        {
+          const rawEventId = (rawParsed as Record<string, unknown>).id as
+            | string
+            | undefined;
+          if (!rawEventId) {
+            console.error(
+              'polar/route: subscription.revoked event missing top-level id field — cannot enforce event-id dedup',
+            );
+          } else {
+            const revokePayloadHash = sha256Hex(payload);
+            const { data: dedupRows, error: dedupErr } = await supabase
+              .from('polar_webhook_events')
+              .upsert(
+                {
+                  event_id: rawEventId,
+                  event_type: event.type,
+                  subscription_id: data.id,
+                  payload_hash: revokePayloadHash,
+                },
+                { onConflict: 'event_id', ignoreDuplicates: true },
+              )
+              .select('event_id');
+
+            if (dedupErr) {
+              console.error(
+                'polar/route: subscription.revoked — failed to record event in polar_webhook_events (non-fatal):',
+                dedupErr.message,
+              );
+            } else if (!dedupRows || dedupRows.length === 0) {
+              if (isDev) {
+                console.log(
+                  `polar/route: duplicate revoked event ${rawEventId}, skipping`,
+                );
+              }
+              return NextResponse.json({ received: true });
+            }
+          }
+        }
+
+        // Look up the main subscription so we can record previous_tier in
+        // the audit row AND resolve the Polar canonical tier of the revoked
+        // subscription. We prefer the DB row's stored polar_product_id
+        // because the revoke webhook payload may omit product_id on certain
+        // delivery paths (the field is informational on revoke).
+        type RevokedSubLookup = {
+          user_id: string;
+          tier: string;
+          polar_product_id: string | null;
+        };
+        let revokedSub: RevokedSubLookup | null = null;
+        const { data: subLookupRow } = await supabase
+          .from('subscriptions')
+          .select('user_id, tier, polar_product_id')
+          .eq('polar_subscription_id', data.id)
+          .single<RevokedSubLookup>();
+        if (subLookupRow) {
+          revokedSub = subLookupRow;
+        }
+
+        // Determine if this revoke is for a Growth main subscription. We
+        // check BOTH the DB tier (definitive — already reconciled to a
+        // canonical value) AND the stored product_id as a defense-in-depth
+        // fallback if the row is missing or has been mutated by a concurrent
+        // event.
+        const dbTier = revokedSub?.tier ?? null;
+        const storedProductId = revokedSub?.polar_product_id ?? '';
+        const productCanonical = storedProductId
+          ? getPlanFromProductId(storedProductId)
+          : 'free';
+        const isGrowthRevoke =
+          dbTier === 'growth' ||
+          dbTier === 'team' ||
+          dbTier === 'business' ||
+          dbTier === 'enterprise' ||
+          productCanonical === 'growth';
+
+        // Update the main subscription row → canceled. Mirrors
+        // subscription.canceled's posture: we set status='canceled' and
+        // canceled_at, but a revoke voids the paid period, so we do NOT
+        // preserve current_period_end and we set tier to 'free' immediately.
+        // (The cron grace-period path applies only to .canceled.)
+        const { error: revokeUpdateErr } = await supabase
+          .from('subscriptions')
+          .update({
+            tier: 'free',
+            status: 'canceled',
+            canceled_at:
+              data.canceled_at ?? new Date().toISOString(),
+            cancel_at_period_end: false,
+            current_period_end: null,
+          })
+          .eq('polar_subscription_id', data.id);
+
+        if (revokeUpdateErr) {
+          // 500 → Polar retries, which is safe because the .update is
+          // idempotent and the dedup row above prevents double-cascade.
+          console.error(
+            'polar/route: subscription.revoked — failed to update main subscription:',
+            revokeUpdateErr.message,
+          );
+          return NextResponse.json(
+            { error: 'Processing failed' },
+            { status: 500 },
+          );
+        }
+
+        // Cascade-cancel seat addons (only for Growth main). Failure-tolerant
+        // by design — see cascadeCancelSeatAddons docs.
+        if (isGrowthRevoke && data.customer_id) {
+          try {
+            const cascadeResult = await cascadeCancelSeatAddons(
+              data.customer_id,
+            );
+
+            if (
+              cascadeResult.cancelled > 0 ||
+              cascadeResult.errors.length > 0
+            ) {
+              const { error: cascadeAuditErr } = await supabase
+                .from('audit_log')
+                .insert({
+                  user_id: revokedSub?.user_id ?? null,
+                  action: 'subscription_changed',
+                  resource_type: 'subscription',
+                  resource_id: null,
+                  metadata: {
+                    event_subtype: 'seat_addons_cascade_canceled_on_revoke',
+                    polar_event_id:
+                      ((rawParsed as Record<string, unknown>).id as string) ??
+                      null,
+                    polar_subscription_id: data.id,
+                    polar_customer_id: data.customer_id,
+                    previous_tier: dbTier,
+                    cancelled_count: cascadeResult.cancelled,
+                    cancelled_subscription_ids: cascadeResult.subscriptionIds,
+                    errors: cascadeResult.errors,
+                  },
+                });
+              if (cascadeAuditErr) {
+                console.error(
+                  'polar/route: audit_log insert failed for cascade-cancel on revoke (non-fatal):',
+                  cascadeAuditErr.message,
+                );
+              }
+            }
+
+            if (isDev) {
+              console.log(
+                `polar/route: cascade-cancel on revoke — ${cascadeResult.cancelled} seat addon(s) cancelled, ${cascadeResult.errors.length} error(s)`,
+              );
+            }
+          } catch (cascadeErr) {
+            // Defensive — same rationale as the .updated cascade branch.
+            console.error(
+              'polar/route: cascade-cancel on revoke threw unexpectedly (main revoke still committed):',
+              cascadeErr instanceof Error
+                ? cascadeErr.message
+                : String(cascadeErr),
+            );
+          }
+        }
+
+        if (isDev) console.log('Subscription revoked successfully');
         break;
       }
 
