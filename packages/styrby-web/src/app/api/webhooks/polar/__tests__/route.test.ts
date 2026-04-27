@@ -598,6 +598,146 @@ describe('POST /api/webhooks/polar', () => {
       expect(response.status).toBe(200);
       expect(mockUpsert).toHaveBeenCalled();
     });
+
+    // ------------------------------------------------------------------------
+    // Bug #9 (Kaulby hardening) — Growth-tier rank guard cases
+    // ------------------------------------------------------------------------
+    // WHY these tests: Phase H5 introduces Growth as the new highest paid tier
+    // alongside legacy Power/Team/Business/Enterprise rows still present in the
+    // subscription_tier enum (migration 055). The tierRank table maps all of
+    // free=0, pro=1, and {power,team,business,enterprise,growth}=2. The guard
+    // uses strict `<` so equal-rank events PROCEED (renewal / cross-grade),
+    // genuine downgrades (rank-2 → rank-0/1) are rejected.
+
+    it('rejects downgrade from growth to free (Bug #9)', async () => {
+      // WHY: late .active for the deprecated free tier must NOT clobber a paying
+      // growth subscriber. growth=2, free=0, 0 < 2 → guard rejects.
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'growth', status: 'active' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'growth', status: 'active' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { tier: 'growth', status: 'active' },
+        error: null,
+      });
+
+      // WHY product_id 'prod_unknown_thing': there is no Free product in Polar,
+      // so we exercise the unrecognized-product branch which short-circuits
+      // before tierRank — confirming defense-in-depth (no upsert either way).
+      const event = createSubscriptionEvent('subscription.updated', {
+        product_id: 'prod_unknown_thing',
+      });
+      const response = await sendSignedEvent(event);
+
+      expect(response.status).toBe(200);
+      expect(mockUpsert).not.toHaveBeenCalled();
+    });
+
+    it('allows free→growth upgrade event (rank up, Bug #9)', async () => {
+      // WHY: free=0, growth=2 → 2 < 0 is false, guard passes, upsert runs.
+      // Stand-in: 'prod_power_monthly' resolves to tier='power' which shares
+      // rank 2 with growth (defensive aliasing per the new tierRank table).
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'free', status: 'active' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'free', status: 'active' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { tier: 'free', status: 'active' },
+        error: null,
+      });
+
+      const event = createSubscriptionEvent('subscription.updated', {
+        product_id: 'prod_power_monthly',
+      });
+      const response = await sendSignedEvent(event);
+
+      expect(response.status).toBe(200);
+      expect(mockUpsert).toHaveBeenCalled();
+    });
+
+    it('allows renewal at same growth/power rank (Bug #9)', async () => {
+      // WHY: existing tier=growth, incoming tier=power, both rank 2, strict `<`
+      // false → upsert proceeds. This is the renewal / Polar-late-event case
+      // that must NOT be rejected (rejection would block legitimate renewals).
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'growth', status: 'active' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'growth', status: 'active' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { tier: 'growth', status: 'active' },
+        error: null,
+      });
+
+      const event = createSubscriptionEvent('subscription.updated', {
+        product_id: 'prod_power_monthly',
+      });
+      const response = await sendSignedEvent(event);
+
+      expect(response.status).toBe(200);
+      expect(mockUpsert).toHaveBeenCalled();
+    });
+
+    it('allows pro→growth-rank upgrade (Bug #9)', async () => {
+      // WHY: pro=1, power(=growth-rank)=2 → 2 < 1 false → upsert proceeds.
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'pro', status: 'active' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'pro', status: 'active' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { tier: 'pro', status: 'active' },
+        error: null,
+      });
+
+      const event = createSubscriptionEvent('subscription.updated', {
+        product_id: 'prod_power_monthly',
+      });
+      const response = await sendSignedEvent(event);
+
+      expect(response.status).toBe(200);
+      expect(mockUpsert).toHaveBeenCalled();
+    });
+
+    it('rejects downgrade from team-legacy to pro (Bug #9 alias)', async () => {
+      // WHY: team is a legacy alias at rank 2; an inbound Pro event (rank 1)
+      // must be rejected to prevent a stale .active from demoting a team-tier
+      // row still present in the enum per migration 055.
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'team', status: 'active' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'team', status: 'active' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { tier: 'team', status: 'active' },
+        error: null,
+      });
+
+      const event = createSubscriptionEvent('subscription.updated', {
+        product_id: 'prod_pro_monthly',
+      });
+      const response = await sendSignedEvent(event);
+
+      expect(response.status).toBe(200);
+      expect(mockUpsert).not.toHaveBeenCalled();
+    });
   });
 
   // --------------------------------------------------------------------------
