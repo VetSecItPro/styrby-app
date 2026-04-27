@@ -217,15 +217,26 @@ export function getTier(tierId: TierId) {
 /**
  * Get product ID for a tier and billing cycle.
  *
- * Returns undefined for the free tier (no Polar product) and undefined when
- * called from a client component (env vars are server-only). Returns
- * undefined when the matching env var is not yet populated (e.g. Growth env
- * vars during the H12 cutover gap).
+ * Returns `undefined` for the free tier (no Polar product) and `undefined`
+ * when called from a client component (env vars are server-only). Returns
+ * `undefined` when the matching env var is not yet populated (e.g. Growth
+ * env vars during the H12 cutover gap) — both the unset case (`undefined`)
+ * AND the empty-string case (`''`, which is how Vercel projects a "set but
+ * empty" env var) normalize to `undefined` so callers can branch on a
+ * single sentinel.
+ *
+ * WHY normalise empty string → undefined: previously this helper returned
+ * `''` when the env var was set-but-empty, which is truthy-coercion-prone
+ * and silently disagreed with the JSDoc contract. Aligning the impl with
+ * the signature (`string | undefined`) prevents `?.` and `||` callers from
+ * routing the empty string into a Polar API call. Surfaced by /test-ship
+ * audit (TEST-003, 2026-04-27).
  */
 export function getProductId(tierId: TierId, cycle: BillingCycle): string | undefined {
   const tier = TIERS[tierId];
   if (!tier || tierId === 'free') return undefined;
-  return tier.polarProductId[cycle];
+  const id = tier.polarProductId[cycle];
+  return id ? id : undefined;
 }
 
 /**
