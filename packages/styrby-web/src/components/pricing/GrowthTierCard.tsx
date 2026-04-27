@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import Link from 'next/link';
 import { Check, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -63,14 +64,28 @@ export function GrowthTierCard({
 }: GrowthTierCardProps) {
   const tier = TIER_DEFINITIONS_CANONICAL.growth;
 
+  // WHY useMemo: SeatCountSlider drags emit at up to 60fps. Memoising the
+  // derived pricing values keeps each drag tick to a single recompute when
+  // seatCount actually changes, and zero recomputes when only `annual` flips
+  // (memo only depends on seatCount). Without this, every parent re-render
+  // (annual toggle, neighbouring component change) recomputes the billing
+  // helpers even though the inputs are unchanged.
+  //
   // WHY integer cents math: avoids float drift on large seat counts. The
   // shared billing module owns the canonical formula (`base + seats × addon`)
   // so we never recalculate locally — that would risk drift between display
   // and checkout (SOC2 CC7.2 single-source-of-truth).
-  const monthlyCents = calculateMonthlyCostCents('growth', seatCount);
-  const annualCents = calculateAnnualCostCents('growth', seatCount);
-  const annualMonthlyEquiv = calculateAnnualMonthlyEquivalentCents('growth', seatCount);
-  const annualSavingsCents = monthlyCents * 12 - annualCents;
+  const { monthlyCents, annualCents, annualMonthlyEquiv, annualSavingsCents } = useMemo(() => {
+    const monthly = calculateMonthlyCostCents('growth', seatCount);
+    const annual = calculateAnnualCostCents('growth', seatCount);
+    const annualEquiv = calculateAnnualMonthlyEquivalentCents('growth', seatCount);
+    return {
+      monthlyCents: monthly,
+      annualCents: annual,
+      annualMonthlyEquiv: annualEquiv,
+      annualSavingsCents: monthly * 12 - annual,
+    };
+  }, [seatCount]);
 
   const displayMonthlyCents = annual ? annualMonthlyEquiv : monthlyCents;
 
