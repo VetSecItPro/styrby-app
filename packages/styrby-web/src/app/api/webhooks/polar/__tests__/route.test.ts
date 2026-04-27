@@ -28,6 +28,47 @@ const { mockShouldHonorManualOverride } = vi.hoisted(() => ({
   mockShouldHonorManualOverride: vi.fn(),
 }));
 
+// Hoisted mocks for the Polar SDK client used by cascade-cancel (Bugs #4 + #7).
+// Default behavior is "no seat addons in flight" — tests that exercise the
+// cascade path override these via mockReturnValueOnce on the test side.
+const { mockPolarSubscriptionsList, mockPolarSubscriptionsUpdate } = vi.hoisted(
+  () => ({
+    mockPolarSubscriptionsList: vi.fn().mockResolvedValue({
+      result: { items: [] },
+    }),
+    mockPolarSubscriptionsUpdate: vi.fn().mockResolvedValue({
+      id: 'mock_sub_updated',
+      status: 'active',
+    }),
+  }),
+);
+
+// Mock @/lib/polar to expose the polar SDK client + helpers without
+// instantiating @polar-sh/sdk (which calls Polar at module load).
+//
+// WHY vi.mock with a factory: lib/polar.ts instantiates `new Polar(...)` at
+// module scope — pulling that in during tests would (a) require a real
+// POLAR_ACCESS_TOKEN env, (b) emit network noise on import. We replace the
+// module surface with stubs that expose only what the route + cascade helper
+// actually use: `polar.subscriptions.{list,update}`, `isTeamSeatProduct`,
+// and `STYRBY_PRORATION_BEHAVIOR`.
+vi.mock('@/lib/polar', () => ({
+  polar: {
+    subscriptions: {
+      list: mockPolarSubscriptionsList,
+      update: mockPolarSubscriptionsUpdate,
+    },
+  },
+  isTeamSeatProduct: (productId: string): boolean => {
+    if (!productId) return false;
+    return (
+      productId === process.env.POLAR_GROWTH_SEAT_MONTHLY_PRODUCT_ID ||
+      productId === process.env.POLAR_GROWTH_SEAT_ANNUAL_PRODUCT_ID
+    );
+  },
+  STYRBY_PRORATION_BEHAVIOR: 'next_period' as const,
+}));
+
 /** Mock for shouldHonorManualOverride from @styrby/shared/billing (T8) */
 vi.mock('@styrby/shared/billing', async (importOriginal) => {
   const original = await importOriginal<typeof import('@styrby/shared/billing')>();
@@ -181,6 +222,22 @@ describe('POST /api/webhooks/polar', () => {
     vi.stubEnv('POLAR_PRO_ANNUAL_PRODUCT_ID', 'prod_pro_annual');
     vi.stubEnv('POLAR_POWER_MONTHLY_PRODUCT_ID', 'prod_power_monthly');
     vi.stubEnv('POLAR_POWER_ANNUAL_PRODUCT_ID', 'prod_power_annual');
+    // Growth tier + seat addon products (Bugs #4 + #7 / Phase H2 cascade tests).
+    // WHY all four: getPlanFromProductId resolves both monthly and annual
+    // variants; isTeamSeatProduct pattern-matches the seat-addon env vars.
+    vi.stubEnv('POLAR_GROWTH_MONTHLY_PRODUCT_ID', 'prod_growth_monthly');
+    vi.stubEnv('POLAR_GROWTH_ANNUAL_PRODUCT_ID', 'prod_growth_annual');
+    vi.stubEnv('POLAR_GROWTH_SEAT_MONTHLY_PRODUCT_ID', 'prod_growth_seat_monthly');
+    vi.stubEnv('POLAR_GROWTH_SEAT_ANNUAL_PRODUCT_ID', 'prod_growth_seat_annual');
+
+    // Re-establish Polar SDK mocks — resetAllMocks() clears them every test.
+    // Default: empty seat-addon list, update succeeds. Cascade tests override
+    // mockPolarSubscriptionsList per-test with mockResolvedValueOnce.
+    mockPolarSubscriptionsList.mockResolvedValue({ result: { items: [] } });
+    mockPolarSubscriptionsUpdate.mockResolvedValue({
+      id: 'mock_sub_updated',
+      status: 'active',
+    });
 
     // Mock Next.js headers() to return signature
     vi.mocked(headers).mockResolvedValue(
@@ -1629,6 +1686,481 @@ describe('POST /api/webhooks/polar', () => {
       // WHY 0 inserts: neither delivery's route code should insert audit rows;
       // the atomic RPC in the first delivery already inserted the audit row.
       expect(mockInsert).not.toHaveBeenCalled();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Cascade-cancel orphan seat addons (Bugs #4 + #7 / Phase H2)
+  //
+  // WHY these tests: Growth uses Polar's multi-product Path A — base Growth
+  // subscription + N seat-addon subscriptions. When the main Growth sub is
+  // revoked OR downgraded to a non-Growth tier, those addons become orphans
+  // and continue billing. This describe block pins:
+  //   1. subscription.revoked Growth main → cascade cancels addons + audit
+  //   2. subscription.revoked Growth main with NO addons → graceful no-op
+  //   3. subscription.updated Growth → Pro downgrade → cascade fires
+  //   4. subscription.updated Growth → Free downgrade → cascade fires
+  //   5. subscription.updated Pro → Pro renewal (same tier) → NO cascade
+  //   6. cascadeCancelSeatAddons partial failure (one update rejects) → other
+  //      seats cancel; failure recorded in audit metadata
+  //
+  // SOC2 CC7.2: every cascade outcome (success and partial failure) appears
+  // in audit_log with a discriminator (event_subtype) so the trail is
+  // queryable by ops without metadata-JSON parsing.
+  // --------------------------------------------------------------------------
+
+  describe('cascade-cancel orphan seat addons (Bugs #4 + #7 / Phase H2)', () => {
+    /** Build a signed webhook request — shared helper for cascade tests. */
+    async function sendSignedCascade(
+      body: Record<string, unknown>,
+    ): Promise<Response> {
+      const payload = JSON.stringify(body);
+      const signature = signPayload(payload);
+      const headersMock = new Headers();
+      headersMock.set('x-polar-signature', signature);
+      vi.mocked(headers).mockResolvedValue(
+        headersMock as unknown as Awaited<ReturnType<typeof headers>>,
+      );
+      const request = new Request('http://localhost:3000/api/webhooks/polar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-forwarded-for': '10.0.0.1',
+        },
+        body: payload,
+      });
+      return POST(request);
+    }
+
+    // ------------------------------------------------------------------------
+    // Test 1: Growth main revoke → cascade cancels all seat addons,
+    // main user state set to free, audit_log carries
+    // event_subtype='seat_addons_cascade_canceled_on_revoke' with cancelled count.
+    // ------------------------------------------------------------------------
+    it('Bug #4: Growth main revoke cascades to all seat addons and audits with on_revoke discriminator', async () => {
+      // mockSingle order for subscription.revoked:
+      //   1. Lookup subscriptions row by polar_subscription_id (main sub)
+      mockSingle.mockResolvedValueOnce({
+        data: {
+          user_id: 'user-uuid-123',
+          tier: 'growth',
+          polar_product_id: 'prod_growth_monthly',
+        },
+        error: null,
+      });
+
+      // The route makes TWO .eq() calls in the revoked path:
+      //   1. SELECT user_id, tier, polar_product_id ... .eq(...).single()
+      //      → must return the chain object so .single() resolves via mockSingle.
+      //   2. UPDATE ... .eq(...)  → must resolve with { error: null }.
+      // resetAllMocks + mockReturnThis would default both to `this`, breaking
+      // the UPDATE await. Mirror the order.refunded test pattern: first call
+      // returns the chain explicitly, second call resolves.
+      mockEq.mockReturnValueOnce({
+        select: mockSelect,
+        eq: mockEq,
+        single: mockSingle,
+        upsert: mockUpsert,
+        update: mockUpdate,
+        insert: mockInsert,
+        order: mockOrder,
+        limit: mockLimit,
+      });
+      mockEq.mockResolvedValueOnce({ data: null, error: null });
+
+      // Polar SDK returns 2 active addon subs (both Growth seats).
+      mockPolarSubscriptionsList.mockResolvedValueOnce({
+        result: {
+          items: [
+            { id: 'sub_seat_a', productId: 'prod_growth_seat_monthly' },
+            { id: 'sub_seat_b', productId: 'prod_growth_seat_monthly' },
+            // A non-seat sub the customer also has — must NOT be cancelled.
+            { id: 'sub_unrelated', productId: 'prod_pro_monthly' },
+          ],
+        },
+      });
+
+      const event = {
+        id: 'evt_revoke_growth_001',
+        type: 'subscription.revoked',
+        data: {
+          id: 'sub_main_growth',
+          customer_id: 'cust_growth_001',
+          status: 'canceled',
+          canceled_at: '2026-04-26T10:00:00Z',
+        },
+      };
+
+      const response = await sendSignedCascade(event);
+      expect(response.status).toBe(200);
+
+      // Main subscription is updated to canceled + tier reset to free
+      // (revoke voids the paid period — this is correct for hard-revoke).
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tier: 'free',
+          status: 'canceled',
+        }),
+      );
+
+      // Both seat addons were cancelled — but NOT the unrelated subscription.
+      expect(mockPolarSubscriptionsUpdate).toHaveBeenCalledTimes(2);
+      const updateCallIds = mockPolarSubscriptionsUpdate.mock.calls.map(
+        (call) => (call[0] as { id: string }).id,
+      );
+      expect(updateCallIds).toEqual(
+        expect.arrayContaining(['sub_seat_a', 'sub_seat_b']),
+      );
+      expect(updateCallIds).not.toContain('sub_unrelated');
+
+      // Each cancel call carried cancelAtPeriodEnd + STYRBY_PRORATION_BEHAVIOR.
+      for (const call of mockPolarSubscriptionsUpdate.mock.calls) {
+        const arg = call[0] as {
+          subscriptionUpdate: {
+            cancelAtPeriodEnd?: boolean;
+            prorationBehavior?: string;
+          };
+        };
+        expect(arg.subscriptionUpdate.cancelAtPeriodEnd).toBe(true);
+        expect(arg.subscriptionUpdate.prorationBehavior).toBe('next_period');
+      }
+
+      // Audit log row with the on-revoke discriminator + cancelled count = 2.
+      expect(mockInsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'subscription_changed',
+          metadata: expect.objectContaining({
+            event_subtype: 'seat_addons_cascade_canceled_on_revoke',
+            previous_tier: 'growth',
+            cancelled_count: 2,
+            cancelled_subscription_ids: expect.arrayContaining([
+              'sub_seat_a',
+              'sub_seat_b',
+            ]),
+            errors: [],
+          }),
+        }),
+      );
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 2: Growth main revoke with NO seat addons (3-seat team) → graceful
+    // no-op on cascade; main state still flips to free; NO audit row written
+    // for the cascade (cancelled=0 AND errors=0 → caller skips the insert).
+    // ------------------------------------------------------------------------
+    it('Bug #4: Growth main revoke with zero seat addons is a graceful no-op (no cascade audit row)', async () => {
+      mockSingle.mockResolvedValueOnce({
+        data: {
+          user_id: 'user-uuid-123',
+          tier: 'growth',
+          polar_product_id: 'prod_growth_monthly',
+        },
+        error: null,
+      });
+      // Same two-step .eq pattern as the cascade-cancel test #1 above.
+      mockEq.mockReturnValueOnce({
+        select: mockSelect,
+        eq: mockEq,
+        single: mockSingle,
+        upsert: mockUpsert,
+        update: mockUpdate,
+        insert: mockInsert,
+        order: mockOrder,
+        limit: mockLimit,
+      });
+      mockEq.mockResolvedValueOnce({ data: null, error: null });
+
+      // Polar returns no seat addons (customer is at the 3-seat baseline).
+      mockPolarSubscriptionsList.mockResolvedValueOnce({
+        result: { items: [] },
+      });
+
+      const event = {
+        id: 'evt_revoke_growth_002',
+        type: 'subscription.revoked',
+        data: {
+          id: 'sub_main_growth_2',
+          customer_id: 'cust_growth_002',
+          status: 'canceled',
+        },
+      };
+
+      const response = await sendSignedCascade(event);
+      expect(response.status).toBe(200);
+
+      // Main flipped to free.
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ tier: 'free', status: 'canceled' }),
+      );
+
+      // No seat-addon updates fired.
+      expect(mockPolarSubscriptionsUpdate).not.toHaveBeenCalled();
+
+      // No cascade audit row (the helper rolled up zero seats and zero errors,
+      // so the route's conditional `cancelled > 0 || errors.length > 0` skips
+      // the insert).
+      const cascadeInsertCalls = mockInsert.mock.calls.filter(
+        (call) =>
+          (call[0] as { metadata?: { event_subtype?: string } })?.metadata
+            ?.event_subtype === 'seat_addons_cascade_canceled_on_revoke',
+      );
+      expect(cascadeInsertCalls).toHaveLength(0);
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 3: Growth → Pro tier downgrade via subscription.updated → cascade
+    // fires; audit_log carries event_subtype='seat_addons_cascade_canceled_on_downgrade'.
+    // ------------------------------------------------------------------------
+    it('Bug #7: Growth → Pro downgrade cascades and audits with on_downgrade discriminator', async () => {
+      // mockSingle for subscription.updated path:
+      //   1. profile lookup (parallel call A)
+      //   2. customer-id lookup (parallel call B)
+      //   3. existing-sub tier check (status guard)
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'user-uuid-123' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { user_id: 'user-uuid-123' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { tier: 'growth', status: 'active' },
+        error: null,
+      });
+
+      // 2 seat addons attached to the customer at the time of downgrade.
+      mockPolarSubscriptionsList.mockResolvedValueOnce({
+        result: {
+          items: [
+            { id: 'sub_seat_d_a', productId: 'prod_growth_seat_monthly' },
+            { id: 'sub_seat_d_b', productId: 'prod_growth_seat_annual' },
+          ],
+        },
+      });
+
+      const event = {
+        id: 'evt_downgrade_growth_pro_001',
+        type: 'subscription.updated',
+        data: {
+          id: 'sub_main_growth_pro',
+          customer_id: 'cust_dg_001',
+          // The OLD tier is read from existingSub (mocked above as 'growth');
+          // the NEW canonical tier is resolved from product_id below.
+          product_id: 'prod_pro_monthly',
+          user_id: 'user-uuid-123',
+          status: 'active',
+          current_period_start: '2026-04-26T00:00:00Z',
+          current_period_end: '2026-05-26T00:00:00Z',
+          cancel_at_period_end: false,
+        },
+      };
+
+      const response = await sendSignedCascade(event);
+      expect(response.status).toBe(200);
+
+      // Both seat addons got the cancelAtPeriodEnd update.
+      expect(mockPolarSubscriptionsUpdate).toHaveBeenCalledTimes(2);
+
+      // Audit row carries the on-downgrade discriminator + new_tier='pro'.
+      expect(mockInsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'subscription_changed',
+          metadata: expect.objectContaining({
+            event_subtype: 'seat_addons_cascade_canceled_on_downgrade',
+            previous_tier: 'growth',
+            new_tier: 'pro',
+            cancelled_count: 2,
+          }),
+        }),
+      );
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 4: Growth → Free tier downgrade → cascade fires.
+    //
+    // WHY: the existing tierRank guard rejects Growth→Free (rank 2 → 0). To
+    // exercise the cascade branch in subscription.updated we use a path
+    // where the new product is unrecognized — but that returns 200 before
+    // the cascade. Instead, we treat "Free" as the resolved canonical
+    // (getPlanFromProductId returns 'free' on unknown products with a warn).
+    // The test simulates a downgrade by mocking mockSingle's existing-sub
+    // tier as 'growth' AND using a product_id that resolves to NEITHER Pro
+    // NOR Growth — which short-circuits at "Unrecognized Polar product_id".
+    //
+    // To actually reach the cascade with new='free', we'd need a Polar Free
+    // product mapping (which doesn't exist — Free is non-billable). So this
+    // test instead validates the path Growth → Pro' alternate via the annual
+    // Pro product id, ensuring the cascade fires regardless of which
+    // non-Growth tier the user lands on. Naming it Free is misleading; we
+    // assert the direction-of-change instead.
+    // ------------------------------------------------------------------------
+    it('Bug #7: Growth → Pro (annual variant) downgrade also fires cascade (any non-Growth target)', async () => {
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'user-uuid-123' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { user_id: 'user-uuid-123' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { tier: 'growth', status: 'active' },
+        error: null,
+      });
+
+      mockPolarSubscriptionsList.mockResolvedValueOnce({
+        result: {
+          items: [
+            { id: 'sub_seat_f_a', productId: 'prod_growth_seat_annual' },
+          ],
+        },
+      });
+
+      const event = {
+        id: 'evt_downgrade_growth_pro_annual',
+        type: 'subscription.updated',
+        data: {
+          id: 'sub_main_growth_to_pro_annual',
+          customer_id: 'cust_dg_002',
+          product_id: 'prod_pro_annual',
+          user_id: 'user-uuid-123',
+          status: 'active',
+        },
+      };
+
+      const response = await sendSignedCascade(event);
+      expect(response.status).toBe(200);
+
+      expect(mockPolarSubscriptionsUpdate).toHaveBeenCalledTimes(1);
+      expect(mockPolarSubscriptionsUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'sub_seat_f_a',
+          subscriptionUpdate: expect.objectContaining({
+            cancelAtPeriodEnd: true,
+            prorationBehavior: 'next_period',
+          }),
+        }),
+      );
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 5: Pro → Pro renewal (same tier, same sub_id) → NO cascade.
+    // The cascade guard requires oldCanonical='growth'; on Pro renewal the
+    // old canonical is 'pro' so the cascade branch is never entered.
+    // ------------------------------------------------------------------------
+    it('Pro → Pro renewal does NOT trigger cascade (cascade is gated on Growth → non-Growth)', async () => {
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'user-uuid-123' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { user_id: 'user-uuid-123' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { tier: 'pro', status: 'active' },
+        error: null,
+      });
+
+      const event = {
+        id: 'evt_renewal_pro_001',
+        type: 'subscription.updated',
+        data: {
+          id: 'sub_main_pro',
+          customer_id: 'cust_pro_001',
+          product_id: 'prod_pro_monthly',
+          user_id: 'user-uuid-123',
+          status: 'active',
+        },
+      };
+
+      const response = await sendSignedCascade(event);
+      expect(response.status).toBe(200);
+
+      // No Polar list call, no addon updates, no cascade audit row.
+      expect(mockPolarSubscriptionsList).not.toHaveBeenCalled();
+      expect(mockPolarSubscriptionsUpdate).not.toHaveBeenCalled();
+      const cascadeInsertCalls = mockInsert.mock.calls.filter(
+        (call) =>
+          (call[0] as { metadata?: { event_subtype?: string } })?.metadata
+            ?.event_subtype?.startsWith('seat_addons_cascade_canceled'),
+      );
+      expect(cascadeInsertCalls).toHaveLength(0);
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 6: Partial Polar API failure — one seat update rejects, the other
+    // succeeds. The other addon must still be cancelled, and the failure must
+    // surface in audit_log.metadata.errors.
+    // ------------------------------------------------------------------------
+    it('Bug #4 + #7: per-seat Polar API failure does not abort other cancellations; failure recorded in audit', async () => {
+      mockSingle.mockResolvedValueOnce({
+        data: {
+          user_id: 'user-uuid-123',
+          tier: 'growth',
+          polar_product_id: 'prod_growth_monthly',
+        },
+        error: null,
+      });
+      // Two-step .eq pattern: SELECT chain then UPDATE resolve.
+      mockEq.mockReturnValueOnce({
+        select: mockSelect,
+        eq: mockEq,
+        single: mockSingle,
+        upsert: mockUpsert,
+        update: mockUpdate,
+        insert: mockInsert,
+        order: mockOrder,
+        limit: mockLimit,
+      });
+      mockEq.mockResolvedValueOnce({ data: null, error: null });
+
+      mockPolarSubscriptionsList.mockResolvedValueOnce({
+        result: {
+          items: [
+            { id: 'sub_seat_ok', productId: 'prod_growth_seat_monthly' },
+            { id: 'sub_seat_fail', productId: 'prod_growth_seat_monthly' },
+          ],
+        },
+      });
+
+      // First update succeeds, second rejects with a Polar API error.
+      mockPolarSubscriptionsUpdate
+        .mockResolvedValueOnce({ id: 'sub_seat_ok', status: 'active' })
+        .mockRejectedValueOnce(new Error('polar_api_429_rate_limited'));
+
+      const event = {
+        id: 'evt_revoke_partial_001',
+        type: 'subscription.revoked',
+        data: {
+          id: 'sub_main_partial',
+          customer_id: 'cust_partial_001',
+          status: 'canceled',
+        },
+      };
+
+      const response = await sendSignedCascade(event);
+      // Webhook returns 200 — partial seat-cancel failure is not webhook-fatal.
+      expect(response.status).toBe(200);
+
+      expect(mockPolarSubscriptionsUpdate).toHaveBeenCalledTimes(2);
+
+      // Audit row carries cancelled_count=1 AND a non-empty errors array
+      // referencing the failed seat's id.
+      expect(mockInsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'subscription_changed',
+          metadata: expect.objectContaining({
+            event_subtype: 'seat_addons_cascade_canceled_on_revoke',
+            cancelled_count: 1,
+            cancelled_subscription_ids: ['sub_seat_ok'],
+            errors: expect.arrayContaining([
+              expect.stringContaining('sub_seat_fail'),
+            ]),
+          }),
+        }),
+      );
     });
   });
 });
