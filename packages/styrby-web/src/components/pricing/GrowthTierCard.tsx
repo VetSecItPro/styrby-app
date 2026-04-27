@@ -11,7 +11,6 @@ import {
   GROWTH_MAX_SEATS,
   calculateMonthlyCostCents,
   calculateAnnualCostCents,
-  calculateAnnualMonthlyEquivalentCents,
   formatCents,
 } from '@/lib/billing/polar-products';
 import { SeatCountSlider } from './SeatCountSlider';
@@ -75,14 +74,18 @@ export function GrowthTierCard({
   // shared billing module owns the canonical formula (`base + seats × addon`)
   // so we never recalculate locally — that would risk drift between display
   // and checkout (SOC2 CC7.2 single-source-of-truth).
+  // WHY a single calculateAnnualCostCents call: previously this also called
+  // `calculateAnnualMonthlyEquivalentCents`, which internally calls
+  // `calculateAnnualCostCents` again — so the same value was computed twice.
+  // We now derive `annualMonthlyEquiv` inline using the same `Math.floor(/12)`
+  // formula the helper uses, eliminating the redundant evaluation.
   const { monthlyCents, annualCents, annualMonthlyEquiv, annualSavingsCents } = useMemo(() => {
     const monthly = calculateMonthlyCostCents('growth', seatCount);
     const annual = calculateAnnualCostCents('growth', seatCount);
-    const annualEquiv = calculateAnnualMonthlyEquivalentCents('growth', seatCount);
     return {
       monthlyCents: monthly,
       annualCents: annual,
-      annualMonthlyEquiv: annualEquiv,
+      annualMonthlyEquiv: Math.floor(annual / 12),
       annualSavingsCents: monthly * 12 - annual,
     };
   }, [seatCount]);

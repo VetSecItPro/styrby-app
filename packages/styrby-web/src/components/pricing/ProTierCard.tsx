@@ -9,7 +9,6 @@ import {
   TIER_DEFINITIONS_CANONICAL,
   calculateMonthlyCostCents,
   calculateAnnualCostCents,
-  calculateAnnualMonthlyEquivalentCents,
   formatCents,
 } from '@/lib/billing/polar-products';
 
@@ -58,11 +57,17 @@ export function ProTierCard({ annual }: ProTierCardProps) {
   //
   // WHY integer cents: avoids float drift in displayed prices. The shared
   // billing module returns USD cents and we format only at the edge.
+  // WHY a single calculateAnnualCostCents call: previously this also called
+  // `calculateAnnualMonthlyEquivalentCents`, which internally calls
+  // `calculateAnnualCostCents` again — so the same value was computed twice.
+  // We now derive `annualMonthlyEquiv` inline using the same `Math.floor(/12)`
+  // formula the helper uses, eliminating the redundant evaluation.
   const { monthlyCents, annualCents, annualMonthlyEquiv } = useMemo(() => {
+    const annual = calculateAnnualCostCents('pro', 1);
     return {
       monthlyCents: calculateMonthlyCostCents('pro', 1),
-      annualCents: calculateAnnualCostCents('pro', 1),
-      annualMonthlyEquiv: calculateAnnualMonthlyEquivalentCents('pro', 1),
+      annualCents: annual,
+      annualMonthlyEquiv: Math.floor(annual / 12),
     };
   }, []);
 
