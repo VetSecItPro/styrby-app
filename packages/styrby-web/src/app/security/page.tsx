@@ -52,7 +52,7 @@ export default function SecurityPage() {
       </header>
 
       {/* Security content */}
-      <main className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
+      <main id="main-content" tabIndex={-1} className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
         <article className="prose prose-lg prose-invert max-w-none prose-headings:text-zinc-100 prose-p:text-zinc-300 prose-li:text-zinc-300 prose-a:text-orange-400 prose-a:no-underline hover:prose-a:text-orange-300 prose-strong:text-zinc-200">
           <h1>Security</h1>
           <p className="text-sm text-zinc-500">

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useId } from 'react';
 import { DollarSign } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { cn } from '@/lib/utils';
@@ -98,10 +98,17 @@ function SliderRow({
   format: (v: number) => string;
   onChange: (v: number) => void;
 }) {
+  // WHY useId + aria-labelledby: WCAG 4.1.2 (Name, Role, Value) requires
+  // every slider have an accessible name. The visible <span> label was
+  // not associated with the underlying Radix Slider thumb, so screen
+  // readers announced only "slider" with no context. useId generates a
+  // stable id per row that aria-labelledby targets — Radix forwards the
+  // attribute to the actual focusable thumb element.
+  const labelId = useId();
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-sm text-zinc-300">{label}</span>
+        <span id={labelId} className="text-sm text-zinc-300">{label}</span>
         <span className="text-sm font-semibold text-foreground tabular-nums">{format(value)}</span>
       </div>
       <Slider
@@ -110,6 +117,7 @@ function SliderRow({
         step={step}
         value={[value]}
         onValueChange={([v]) => onChange(v)}
+        aria-labelledby={labelId}
         className={cn(
           '[&_.bg-primary]:bg-amber-500',
           '[&_.border-primary]:border-amber-500',
@@ -216,7 +224,17 @@ export function ROICalculator() {
         </div>
 
         {/* Output */}
-        <div className="flex flex-col items-center justify-center rounded-xl border border-zinc-800/60 bg-zinc-900/40 p-8 text-center">
+        {/* WHY aria-live="polite" + aria-atomic: WCAG 4.1.3 (Status
+            Messages) — when sliders move, the computed dollar amount and
+            ROI multiplier update silently. Polite live region + atomic
+            re-announces the whole result block so screen reader users
+            get the new estimate without it interrupting other speech. */}
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="flex flex-col items-center justify-center rounded-xl border border-zinc-800/60 bg-zinc-900/40 p-8 text-center"
+        >
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground/60">
             Estimated Annual Value
           </p>

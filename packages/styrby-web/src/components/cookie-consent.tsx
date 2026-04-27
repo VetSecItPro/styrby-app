@@ -48,7 +48,15 @@ export function CookieConsent() {
 
   return (
     <div
-      role="alert"
+      // WHY role="region" + aria-live="polite" (was role="alert"):
+      // role="alert" implies aria-live="assertive" which interrupts the
+      // screen reader mid-sentence. A cookie notice is informational, not
+      // urgent — WCAG 4.1.3 (Status Messages) recommends polite live
+      // regions for non-critical updates. role="region" with an aria-label
+      // also makes the banner reachable as a landmark for users who want
+      // to navigate to or skip it.
+      role="region"
+      aria-live="polite"
       aria-label="Cookie notice"
       className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-lg rounded-lg border border-border bg-card p-4 shadow-lg md:left-auto md:right-6 md:mx-0"
     >

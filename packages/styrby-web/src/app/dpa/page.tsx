@@ -107,7 +107,7 @@ export default function DpaPage() {
       </header>
 
       {/* DPA content */}
-      <main className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
+      <main id="main-content" tabIndex={-1} className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
         {/* Download PDF button — hidden in print output via data-print-hide */}
         <div className="mb-6 flex justify-end">
           <DownloadDpaButton />

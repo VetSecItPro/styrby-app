@@ -195,7 +195,13 @@ export function Hero() {
               key={text}
               className="flex items-center gap-2 text-[13px] text-zinc-500"
             >
-              <Icon className="h-3.5 w-3.5 flex-shrink-0 text-amber-500/60" />
+              {/* WHY aria-hidden: the adjacent <span> already conveys the
+                  meaning verbatim ("E2E encrypted on your machine" etc.).
+                  Without aria-hidden, screen readers announce the icon's
+                  implicit role then re-read the same text — duplicate
+                  noise for assistive tech (WCAG 1.1.1 best practice for
+                  decorative imagery paired with equivalent text). */}
+              <Icon aria-hidden="true" className="h-3.5 w-3.5 flex-shrink-0 text-amber-500/60" />
               <span>{text}</span>
             </div>
           ))}

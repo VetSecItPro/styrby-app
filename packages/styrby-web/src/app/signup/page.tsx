@@ -267,7 +267,12 @@ function SignUpPageInner() {
 
   return (
     <div className="flex min-h-[100dvh] flex-col">
-      <div className="flex flex-1 items-center justify-center px-4">
+      {/* WHY <main id="main-content">: WCAG 1.3.1 (Info and Relationships)
+          requires a main landmark per page; the root layout's skip link
+          targets #main-content, so this id makes the skip link operational
+          on the auth pages. tabIndex={-1} lets the skip link move focus
+          into <main> without making it a Tab stop. */}
+      <main id="main-content" tabIndex={-1} className="flex flex-1 items-center justify-center px-4">
         <div className="fixed inset-0 -z-10" />
         <div className="fixed left-1/2 top-1/3 -z-10 h-[400px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-500/5 blur-[120px]" />
 
@@ -490,7 +495,7 @@ function SignUpPageInner() {
             </p>
           </div>
         </div>
-      </div>
+      </main>
       <Footer />
     </div>
   );

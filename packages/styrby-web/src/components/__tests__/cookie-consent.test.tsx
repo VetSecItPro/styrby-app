@@ -63,7 +63,10 @@ describe('CookieConsent — visibility', () => {
     // No key set — banner should be visible
     render(<CookieConsent />);
 
-    expect(screen.getByRole('alert', { name: /cookie notice/i })).toBeInTheDocument();
+    // WHY role="region" (was "alert"): the banner switched from
+    // assertive interrupt to a polite landmark region during the
+    // 2026-04-26 a11y pass — see cookie-consent.tsx WHY note.
+    expect(screen.getByRole('region', { name: /cookie notice/i })).toBeInTheDocument();
   });
 
   it('does NOT render the banner when already dismissed (key present)', () => {
@@ -71,7 +74,7 @@ describe('CookieConsent — visibility', () => {
 
     render(<CookieConsent />);
 
-    expect(screen.queryByRole('alert', { name: /cookie notice/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /cookie notice/i })).not.toBeInTheDocument();
   });
 });
 
@@ -80,11 +83,11 @@ describe('CookieConsent — dismiss action', () => {
     const user = userEvent.setup();
     render(<CookieConsent />);
 
-    expect(screen.getByRole('alert', { name: /cookie notice/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /cookie notice/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /dismiss cookie notice/i }));
 
-    expect(screen.queryByRole('alert', { name: /cookie notice/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /cookie notice/i })).not.toBeInTheDocument();
   });
 
   it('writes the dismiss key to localStorage on dismiss', async () => {
@@ -108,7 +111,7 @@ describe('CookieConsent — content', () => {
   it('mentions authentication and sidebar preference cookies', () => {
     render(<CookieConsent />);
 
-    const banner = screen.getByRole('alert');
+    const banner = screen.getByRole('region', { name: /cookie notice/i });
     expect(banner.textContent).toMatch(/authentication/i);
     expect(banner.textContent).toMatch(/sidebar/i);
   });
