@@ -73,8 +73,9 @@ export default async function WebhooksPage() {
         </li>
         <li>
           <strong className="text-foreground/75">URL:</strong> Your HTTPS endpoint.
-          Must return 2xx within 10 seconds. Internal IPs and localhost are
-          blocked.
+          Must return 2xx within 30 seconds. Internal IPs, localhost, link-local
+          addresses, and cloud metadata services are blocked. DNS rebinding is
+          mitigated by re-resolving the hostname before each delivery.
         </li>
         <li>
           <strong className="text-foreground/75">Events:</strong> Select which events
@@ -167,16 +168,66 @@ export default async function WebhooksPage() {
 }`}
       />
 
+      {/* Request Headers */}
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="request-headers">
+        Request Headers
+      </h2>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Every webhook delivery is a{" "}
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">POST</code>{" "}
+        with the following headers. Use them to verify origin, deduplicate, and
+        correlate with delivery logs.
+      </p>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-left">
+              <th className="pb-2 pr-4 font-medium text-foreground/75">Header</th>
+              <th className="pb-2 font-medium text-foreground/75">Value</th>
+            </tr>
+          </thead>
+          <tbody className="text-muted-foreground">
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">Content-Type</td>
+              <td className="py-2 text-xs">application/json</td>
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">User-Agent</td>
+              <td className="py-2 text-xs">Styrby-Webhook/1.0</td>
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">X-Styrby-Signature</td>
+              <td className="py-2 text-xs">sha256=&lt;hex HMAC of raw body&gt;</td>
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">X-Styrby-Event</td>
+              <td className="py-2 text-xs">Event type (e.g. session.completed)</td>
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">X-Styrby-Delivery-Id</td>
+              <td className="py-2 text-xs">UUID of this delivery attempt; use for idempotency</td>
+            </tr>
+            <tr>
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">X-Styrby-Timestamp</td>
+              <td className="py-2 text-xs">Unix seconds when the request was sent</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
       {/* Signature Verification */}
       <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="signature-verification">
         Signature Verification
       </h2>
       <p className="mt-2 text-sm text-muted-foreground">
-        Every webhook request includes a{" "}
+        The{" "}
         <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">
           X-Styrby-Signature
         </code>{" "}
-        header. Verify it using HMAC-SHA256 with your signing secret.
+        header carries an HMAC-SHA256 of the raw request body, prefixed with
+        <code className="ml-1 rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">sha256=</code>.
+        Compute the same HMAC with your signing secret and compare with a
+        constant-time check. Reject the request if the comparison fails.
       </p>
       <CodeBlock
         lang="typescript"
@@ -229,6 +280,20 @@ if (!isValid) {
         After 3 total failed attempts, the delivery is marked as failed. You
         can view delivery history and retry failed events from the webhook
         detail page in Settings &gt; Webhooks.
+      </p>
+
+      {/* Idempotency */}
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="idempotency">
+        Idempotency
+      </h2>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Retries reuse the same{" "}
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">
+          X-Styrby-Delivery-Id
+        </code>
+        . Manual retries from the dashboard issue a new delivery row with a new
+        ID. Treat the delivery ID as the idempotency key on your end and store
+        it for at least the retry window (3 minutes) to drop duplicates safely.
       </p>
 
       <PrevNext prev={prev} next={next} />

@@ -71,7 +71,7 @@ export default function APIReferencePage() {
             <tr className="border-b border-border/50">
               <td className="py-2 pr-4 font-mono text-xs text-foreground/75">agent_type</td>
               <td className="py-2 pr-4 text-xs">string</td>
-              <td className="py-2 text-xs">Filter by agent type: claude, codex, gemini, opencode, or aider.</td>
+              <td className="py-2 text-xs">Filter by agent type. Currently accepts <code className="rounded bg-secondary px-1 py-0.5">claude</code>, <code className="rounded bg-secondary px-1 py-0.5">codex</code>, <code className="rounded bg-secondary px-1 py-0.5">gemini</code>. Other agents are tracked in sessions but the filter values are not yet enabled.</td>
             </tr>
             <tr className="border-b border-border/50">
               <td className="py-2 pr-4 font-mono text-xs text-foreground/75">status</td>
@@ -290,6 +290,129 @@ export default function APIReferencePage() {
 }`}</code>
       </pre>
 
+      {/* GET /sessions/:id */}
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="get-sessions-id">
+        GET /sessions/:id
+      </h2>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Returns a single session by UUID. The path parameter must be a valid
+        UUID; otherwise the endpoint returns 400.
+      </p>
+      <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
+        <code>{`curl -H "Authorization: Bearer styrby_abc123" \\
+  "https://styrbyapp.com/api/v1/sessions/8f3k2m9x-1234-5678-9abc-def012345678"
+
+# Errors
+# 400 { "error": "Invalid session ID" }
+# 404 { "error": "Session not found" }`}</code>
+      </pre>
+
+      {/* GET /sessions/:id/messages */}
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="get-sessions-id-messages">
+        GET /sessions/:id/messages
+      </h2>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Lists messages for a session. Message bodies are end-to-end encrypted
+        and returned as ciphertext. Decryption requires the per-machine private
+        key, so this endpoint is mainly useful for metadata, archival, and
+        client-side decryption pipelines.
+      </p>
+      <h3 className="mt-4 text-base font-medium text-foreground/90 scroll-mt-20" id="messages-query-parameters">Query Parameters</h3>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-left">
+              <th className="pb-2 pr-4 font-medium text-foreground/75">Param</th>
+              <th className="pb-2 pr-4 font-medium text-foreground/75">Type</th>
+              <th className="pb-2 font-medium text-foreground/75">Description</th>
+            </tr>
+          </thead>
+          <tbody className="text-muted-foreground">
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">limit</td>
+              <td className="py-2 pr-4 text-xs">number</td>
+              <td className="py-2 text-xs">Results per page. Default 50, max 200.</td>
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">offset</td>
+              <td className="py-2 pr-4 text-xs">number</td>
+              <td className="py-2 text-xs">Pagination offset. Default 0.</td>
+            </tr>
+            <tr>
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">type</td>
+              <td className="py-2 pr-4 text-xs">string</td>
+              <td className="py-2 text-xs">
+                Filter by message type. One of:{" "}
+                <code className="rounded bg-secondary px-1 py-0.5">user_prompt</code>,{" "}
+                <code className="rounded bg-secondary px-1 py-0.5">agent_response</code>,{" "}
+                <code className="rounded bg-secondary px-1 py-0.5">agent_thinking</code>,{" "}
+                <code className="rounded bg-secondary px-1 py-0.5">permission_request</code>,{" "}
+                <code className="rounded bg-secondary px-1 py-0.5">permission_response</code>,{" "}
+                <code className="rounded bg-secondary px-1 py-0.5">tool_use</code>,{" "}
+                <code className="rounded bg-secondary px-1 py-0.5">tool_result</code>,{" "}
+                <code className="rounded bg-secondary px-1 py-0.5">error</code>,{" "}
+                <code className="rounded bg-secondary px-1 py-0.5">system</code>.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* GET / POST /sessions/:id/checkpoints */}
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="sessions-id-checkpoints">
+        GET / POST /sessions/:id/checkpoints
+      </h2>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Lists or creates named checkpoints inside a session timeline. POST
+        requires the Power tier and rejects names longer than 80 characters or
+        outside the <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">[a-zA-Z0-9 \-_.]</code>{" "}
+        character class. Names must be unique within a session.
+      </p>
+      <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
+        <code>{`# List
+curl -H "Authorization: Bearer styrby_abc123" \\
+  "https://styrbyapp.com/api/v1/sessions/<id>/checkpoints"
+
+# Create
+curl -X POST -H "Authorization: Bearer styrby_abc123" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "name": "before-refactor",
+    "description": "auth module rewrite, message 142",
+    "messageSequenceNumber": 142
+  }' \\
+  "https://styrbyapp.com/api/v1/sessions/<id>/checkpoints"
+
+# Errors
+# 400 { "error": <Zod validation message> }
+# 403 { "error": "Power tier required" }
+# 409 { "error": "Checkpoint name already exists" }`}</code>
+      </pre>
+
+      {/* GET /costs/export */}
+      <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="get-costs-export">
+        GET /costs/export
+      </h2>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Streams raw cost records as CSV for accounting and reconciliation. Power
+        tier only. Throttled to 1 request per hour per API key (export is
+        expensive); the standard 100 req/min ceiling still applies for everything
+        else.
+      </p>
+      <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
+        <code>{`curl -H "Authorization: Bearer styrby_abc123" \\
+  "https://styrbyapp.com/api/v1/costs/export?days=90" \\
+  -o styrby-costs.csv
+
+# Response: text/csv with header
+# date, session_id, agent_type, model, input_tokens,
+# output_tokens, cache_tokens, cost_usd
+
+# Errors
+# 403 { "error": "Power tier required" }
+# 429 { "error": "RATE_LIMITED" }`}</code>
+      </pre>
+
       {/* Rate Limits */}
       <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="rate-limits">
         Rate Limits
@@ -304,10 +427,15 @@ export default function APIReferencePage() {
             </tr>
           </thead>
           <tbody className="text-muted-foreground">
-            <tr>
-              <td className="py-2 pr-4 text-xs">All v1 endpoints</td>
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 text-xs">All v1 endpoints (default)</td>
               <td className="py-2 pr-4 text-xs">100 requests</td>
               <td className="py-2 text-xs">Per minute, per API key</td>
+            </tr>
+            <tr>
+              <td className="py-2 pr-4 text-xs">GET /costs/export</td>
+              <td className="py-2 pr-4 text-xs">1 request</td>
+              <td className="py-2 text-xs">Per hour, per API key</td>
             </tr>
           </tbody>
         </table>

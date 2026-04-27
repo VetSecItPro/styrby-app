@@ -90,15 +90,18 @@ yarn global add styrby-cli`}</code>
         <code>{`styrby start --agent claude
 styrby start --agent codex
 
-# Agent shorthand (equivalent)
-styrby claude
-styrby codex
-styrby gemini
-styrby opencode
-styrby aider
+# All 11 agents have a shorthand. Each is equivalent to "styrby start --agent <name>":
+styrby claude     styrby goose      styrby kilo
+styrby codex      styrby amp        styrby kiro
+styrby gemini     styrby crush      styrby droid
+styrby opencode   styrby aider
 
-# Bare command uses your default agent
-styrby`}</code>
+# Bare command uses your default agent (configurable via ~/.styrby/config.json)
+styrby
+
+# Common flags
+#   -a, --agent <name>     Agent to use (overrides shorthand and config)
+#   -p, --project <path>   Project directory (default: cwd)`}</code>
       </pre>
 
       {/* status */}
@@ -135,7 +138,7 @@ styrby`}</code>
       </p>
       <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
         <code>{`styrby doctor
-#   ✓ [PASS] Node.js version: 20.x.x (>= 18 required)
+#   ✓ [PASS] Node.js version: 20.x.x (>= 20 required)
 #   ✓ [PASS] Configuration: Config file loaded successfully
 #   ✓ [PASS] Authentication: Authenticated
 #   ✓ [PASS] AI Agents: 2 agent(s) found: Claude Code, Codex`}</code>
@@ -210,6 +213,111 @@ styrby daemon status     # Check auto-start status`}</code>
       <p className="mt-2 text-sm text-muted-foreground">
         Manage reusable prompt templates.
       </p>
+      <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
+        <code>{`styrby template list                   # List all your templates
+styrby template create <name>          # Create interactively
+styrby template show <name>            # Show template content
+styrby template use <name>             # Render with variable substitution
+styrby template delete <name>          # Delete (with confirmation)`}</code>
+      </pre>
+
+      {/* resume */}
+      <h3 className="mt-8 text-lg font-medium text-foreground/90 scroll-mt-20" id="styrby-resume">
+        <code className="rounded bg-secondary px-2 py-0.5 text-amber-500">styrby resume</code>
+      </h3>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Re-attach the relay to an existing session without spawning a new agent
+        process. Useful after a network blip or daemon restart.
+      </p>
+      <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
+        <code>{`styrby resume                          # Re-attach to most recent live session
+styrby resume <sessionId>              # Re-attach to a specific session`}</code>
+      </pre>
+
+      {/* auth */}
+      <h3 className="mt-8 text-lg font-medium text-foreground/90 scroll-mt-20" id="styrby-auth">
+        <code className="rounded bg-secondary px-2 py-0.5 text-amber-500">styrby auth</code>
+      </h3>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Re-authenticate with GitHub without re-running the rest of the
+        onboarding wizard. Use{" "}
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">
+          --force
+        </code>{" "}
+        to invalidate the existing token first.
+      </p>
+
+      {/* checkpoint */}
+      <h3 className="mt-8 text-lg font-medium text-foreground/90 scroll-mt-20" id="styrby-checkpoint">
+        <code className="rounded bg-secondary px-2 py-0.5 text-amber-500">styrby checkpoint</code>
+      </h3>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Save and restore named positions inside a session timeline. Aliased as{" "}
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">
+          styrby cp
+        </code>.
+      </p>
+      <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
+        <code>{`styrby checkpoint save <name>          # Save current position as named checkpoint
+styrby checkpoint list                 # List checkpoints for current session
+styrby checkpoint restore <name>       # Show restore info for a checkpoint
+styrby checkpoint delete <name>        # Delete a checkpoint (--force to skip prompt)`}</code>
+      </pre>
+
+      {/* export / import */}
+      <h3 className="mt-8 text-lg font-medium text-foreground/90 scroll-mt-20" id="styrby-export">
+        <code className="rounded bg-secondary px-2 py-0.5 text-amber-500">styrby export</code> /{" "}
+        <code className="rounded bg-secondary px-2 py-0.5 text-amber-500">styrby import</code>
+      </h3>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Move sessions between machines or archive them as JSON files.
+      </p>
+      <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
+        <code>{`styrby export <sessionId>              # Print JSON to stdout
+styrby export <sessionId> --output session.json
+styrby export --all --output ./backup  # Export every session to a directory
+styrby import session.json             # Import a single session JSON`}</code>
+      </pre>
+
+      {/* privacy */}
+      <h3 className="mt-8 text-lg font-medium text-foreground/90 scroll-mt-20" id="styrby-privacy">
+        <code className="rounded bg-secondary px-2 py-0.5 text-amber-500">styrby privacy</code>
+      </h3>
+      <p className="mt-2 text-sm text-muted-foreground">
+        GDPR data subject rights from the terminal. Subject access (Art. 15 / 20)
+        exports every row tied to your account. Erasure (Art. 17) hard-deletes
+        the account behind a two-step confirmation.
+      </p>
+      <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
+        <code>{`styrby privacy export                  # Subject access request (SAR)
+styrby privacy delete                  # Erase account (irreversible)
+styrby export-data                     # Alias for "privacy export"
+styrby delete-account                  # Alias for "privacy delete"`}</code>
+      </pre>
+
+      {/* mcp */}
+      <h3 className="mt-8 text-lg font-medium text-foreground/90 scroll-mt-20" id="styrby-mcp">
+        <code className="rounded bg-secondary px-2 py-0.5 text-amber-500">styrby mcp</code>
+      </h3>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Run the Styrby Model Context Protocol server so any MCP-aware agent
+        (Claude Code, Goose, custom clients) can call into your active sessions.
+      </p>
+
+      {/* context */}
+      <h3 className="mt-8 text-lg font-medium text-foreground/90 scroll-mt-20" id="styrby-context">
+        <code className="rounded bg-secondary px-2 py-0.5 text-amber-500">styrby context</code>
+      </h3>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Inspect, sync, and copy the cross-agent context memory shared inside a
+        session group. Useful when handing off work from one agent to another.
+      </p>
+      <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-4 text-sm font-mono text-foreground/75 ring-1 ring-border">
+        <code>{`styrby context show   --group <groupId>
+styrby context sync   --group <groupId>
+styrby context export --session <sessionId>
+styrby context import --session <target> --from <source>`}</code>
+      </pre>
 
       {/* Environment Variables */}
       <h2 className="mt-10 text-xl font-semibold text-foreground scroll-mt-20" id="environment-variables">
@@ -245,14 +353,37 @@ styrby daemon status     # Check auto-start status`}</code>
               <td className="py-2 pr-4 text-xs">(built-in)</td>
               <td className="py-2 text-xs">Override Supabase project URL (dev/self-hosted).</td>
             </tr>
-            <tr>
+            <tr className="border-b border-border/50">
               <td className="py-2 pr-4 font-mono text-xs text-foreground/75">SUPABASE_ANON_KEY</td>
               <td className="py-2 pr-4 text-xs">(built-in)</td>
               <td className="py-2 text-xs">Override Supabase anon key (dev/self-hosted).</td>
             </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">ANTHROPIC_API_KEY</td>
+              <td className="py-2 pr-4 text-xs">(none)</td>
+              <td className="py-2 text-xs">Required by Claude Code.</td>
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">OPENAI_API_KEY</td>
+              <td className="py-2 pr-4 text-xs">(none)</td>
+              <td className="py-2 text-xs">Required by Codex; optional for OpenCode.</td>
+            </tr>
+            <tr>
+              <td className="py-2 pr-4 font-mono text-xs text-foreground/75">GEMINI_API_KEY / GOOGLE_API_KEY</td>
+              <td className="py-2 pr-4 text-xs">(none)</td>
+              <td className="py-2 text-xs">Required by Gemini CLI. Either name is accepted.</td>
+            </tr>
           </tbody>
         </table>
       </div>
+      <p className="mt-3 text-sm text-muted-foreground/70">
+        Provider keys are read directly by each agent process at session start.
+        Styrby never reads or transmits them. See the{" "}
+        <a href="/docs/agents" className="text-amber-500 underline underline-offset-2 hover:text-amber-400">
+          Agent Setup
+        </a>{" "}
+        page for per-agent authentication details.
+      </p>
       <p className="mt-3 text-sm text-muted-foreground/70">
         Config is stored in{" "}
         <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">
@@ -272,27 +403,27 @@ styrby daemon status     # Check auto-start status`}</code>
         session data. No agent modification required.
       </p>
       <p className="mt-2 text-sm text-muted-foreground">
-        Detected agents:
-      </p>
-      <ul className="mt-2 list-disc space-y-1 pl-6 text-sm text-muted-foreground">
-        <li><strong className="text-foreground/75">Claude Code</strong> (claude)</li>
-        <li><strong className="text-foreground/75">Codex</strong> (codex)</li>
-        <li><strong className="text-foreground/75">Gemini CLI</strong> (gemini)</li>
-        <li><strong className="text-foreground/75">OpenCode</strong> (opencode)</li>
-        <li><strong className="text-foreground/75">Aider</strong> (aider)</li>
-        <li><strong className="text-foreground/75">Goose</strong> (goose)</li>
-        <li><strong className="text-foreground/75">Amp</strong> (amp)</li>
-        <li><strong className="text-foreground/75">Crush</strong> (crush)</li>
-        <li><strong className="text-foreground/75">Kilo</strong> (kilo)</li>
-        <li><strong className="text-foreground/75">Kiro</strong> (kiro)</li>
-        <li><strong className="text-foreground/75">Droid</strong> (droid)</li>
-      </ul>
-      <p className="mt-2 text-sm text-muted-foreground/70">
-        Use{" "}
+        Eleven agent binaries are recognised:{" "}
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">claude</code>,{" "}
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">codex</code>,{" "}
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">gemini</code>,{" "}
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">opencode</code>,{" "}
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">aider</code>,{" "}
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">goose</code>,{" "}
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">amp</code>,{" "}
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">crush</code>,{" "}
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">kilo</code>,{" "}
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">kiro</code>,{" "}
+        <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">droid</code>.
+        See the{" "}
+        <a href="/docs/agents" className="text-amber-500 underline underline-offset-2 hover:text-amber-400">
+          Agent Setup
+        </a>{" "}
+        page for install commands and per-agent config paths. Run{" "}
         <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">
           styrby doctor
         </code>{" "}
-        to check which agents are installed and configured on your machine.
+        to see which are installed on this machine.
       </p>
 
       <PrevNext prev={prev} next={next} />
