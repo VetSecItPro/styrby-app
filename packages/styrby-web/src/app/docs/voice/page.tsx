@@ -5,7 +5,7 @@ import { getPrevNext } from "../nav";
 export const metadata: Metadata = {
   title: "Voice Input",
   description:
-    "Send voice commands to your AI coding agents from the Styrby mobile app. Power tier, mobile only. Requires a transcription endpoint you provide.",
+    "Send voice commands to your AI coding agents from the Styrby mobile app. Pro and Growth, mobile only. Requires a transcription endpoint you provide.",
 };
 
 /**
@@ -13,7 +13,7 @@ export const metadata: Metadata = {
  *
  * Covers setup for OpenAI Whisper and self-hosted alternatives,
  * hold-to-talk vs toggle mode, and troubleshooting.
- * Power tier feature, mobile only.
+ * Included on Pro and Growth, mobile only.
  */
 export default function VoiceDocsPage() {
   const { prev, next } = getPrevNext("/docs/voice");
@@ -27,7 +27,7 @@ export default function VoiceDocsPage() {
         Speak to your AI coding agent instead of typing. Styrby captures audio
         on the mobile app, sends it to a transcription service you configure,
         then delivers the transcribed text to your agent as a normal message.
-        Power tier feature. Mobile only.
+        Included on Pro and Growth. Mobile only.
       </p>
       <p className="mt-3 text-muted-foreground">
         Styrby does not include a transcription service and never processes or
@@ -49,7 +49,7 @@ export default function VoiceDocsPage() {
           <tbody className="divide-y divide-border">
             <tr>
               <td className="py-2 pr-4 text-foreground/75">Tier requirement</td>
-              <td className="py-2">Power tier</td>
+              <td className="py-2">Pro and Growth</td>
             </tr>
             <tr>
               <td className="py-2 pr-4 text-foreground/75">Platform</td>
@@ -396,7 +396,7 @@ docker run -d -p 9000:9000 \
         Voice Input option not available
       </h3>
       <p className="mt-2 text-sm text-muted-foreground">
-        Voice Input requires the Power tier. If the setting is grayed out,
+        Voice Input requires the Pro or Growth tier. If the setting is grayed out,
         upgrade your plan from{" "}
         <strong className="text-foreground/75">Settings &gt; Plan</strong> in the
         mobile app or from the{" "}

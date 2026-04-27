@@ -18,11 +18,11 @@ const faqs = [
   },
   {
     q: "What agents does Styrby support?",
-    a: "Eleven CLI coding agents: Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. The Free tier includes the first three. Solo, Team, Business, and Enterprise tiers unlock all eleven.",
+    a: "Eleven CLI coding agents: Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. Pro and Growth both unlock all eleven.",
   },
   {
-    q: "Can I use my own API keys?",
-    a: "Yes. Droid supports BYOK (bring your own key), so you can connect your own API credentials directly rather than routing through a provider. Your keys are hashed with bcrypt before storage and never stored in plaintext.",
+    q: "Can I use my Claude.ai, ChatGPT, or Google subscription instead of API keys?",
+    a: "Yes. Styrby transparently passes through your existing AI provider subscriptions. Sign in to Claude Code, Codex, or Gemini CLI with the account you already pay for and we route the work through that subscription rather than charging you again at API rates. You can also bring your own API keys (BYOK) on any agent that supports them; keys are hashed with bcrypt before storage and never stored in plaintext.",
   },
   {
     q: "Does it work offline?",
@@ -30,31 +30,31 @@ const faqs = [
   },
   {
     q: "Can I use voice commands?",
-    a: "Yes, voice commands are available on the Power tier. Dictate approvals, queries, or commands hands-free from your phone or browser.",
+    a: "Yes. Dictate approvals, queries, and commands hands-free from your phone or browser. Included on Pro and Growth.",
   },
   {
     q: "Can I review code from my phone?",
-    a: "Yes. Code review from mobile is a Power tier feature. Submit a review request from your phone, monitor progress, and receive a push notification when the review completes.",
+    a: "Yes. Submit a review request from your phone, monitor progress, and receive a push notification when the review completes. Included on Pro and Growth.",
   },
   {
     q: "What are session checkpoints?",
-    a: "Session checkpoints are named save points within a session. You can mark a point in a long session as a checkpoint to return to it later, compare progress, or share a specific moment in the conversation. Available on Pro and above.",
+    a: "Session checkpoints are named save points within a session. You can mark a point in a long session as a checkpoint to return to it later, compare progress, or share a specific moment in the conversation. Included on Pro and Growth.",
   },
   {
     q: "Can I share session replays?",
-    a: "Yes, on Pro and above you can generate a share link for any session replay. The session data remains end-to-end encrypted, and the recipient needs a separate decryption key that you provide. Styrby never has access to the plaintext content.",
+    a: "Yes. Generate a share link for any session replay. The session data remains end-to-end encrypted, and the recipient needs a separate decryption key that you provide. Styrby never has access to the plaintext content.",
   },
   {
     q: "What is OTEL export?",
-    a: "OpenTelemetry (OTEL) export lets you send your agent session metrics, cost data, and trace events to any compatible observability platform: Grafana, Datadog, Honeycomb, and others. Available on the Power tier.",
+    a: "OpenTelemetry (OTEL) export lets you send your agent session metrics, cost data, and trace events to any compatible observability platform: Grafana, Datadog, Honeycomb, and others. Included on Pro and Growth.",
   },
   {
     q: "How does cloud monitoring work?",
-    a: "Submit a cloud monitoring job from the dashboard or mobile app, track its progress in real time, and receive a push notification when it finishes or encounters an error. Available on the Power tier.",
+    a: "Submit a cloud monitoring job from the dashboard or mobile app, track its progress in real time, and receive a push notification when it finishes or encounters an error. Included on Pro and Growth.",
   },
   {
     q: "Can I use it with my team?",
-    a: "Yes. Team plans start at $19 per seat per month with a 3-seat minimum. Business plans add priority support and advanced governance at $39 per seat per month with a 10-seat minimum. Solo accounts run up to 9 connected machines with a 1-year session history if you are a single developer.",
+    a: "Yes. Growth is $99/month and includes 3 seats. Each additional seat is $19/month, billed via a separate seat add-on so you can add or remove seats from the dashboard without leaving Styrby. Pro covers a single developer end-to-end if you are flying solo.",
   },
   {
     q: "How is this different from checking my API dashboard?",

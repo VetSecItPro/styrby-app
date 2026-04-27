@@ -32,6 +32,7 @@ import { createServerClient } from '@supabase/ssr';
 import { withApiAuth, addRateLimitHeaders, type ApiAuthContext } from '@/middleware/api-auth';
 import { z } from 'zod';
 import { rateLimit, RATE_LIMITS } from '@/lib/rateLimit';
+import { normalizeEffectiveTier } from '@/lib/tier-enforcement';
 
 // ---------------------------------------------------------------------------
 // Query Schema
@@ -156,13 +157,14 @@ async function handler(
     .eq('status', 'active')
     .single();
 
-  const userTier = subscription?.tier ?? 'free';
+  // WHY (Phase 5): legacy DB enum values alias to canonical tiers.
+  const userTier = normalizeEffectiveTier((subscription?.tier as string) ?? 'free');
 
-  if (userTier !== 'power') {
+  if (userTier !== 'growth' && userTier !== 'pro') {
     return NextResponse.json(
       {
-        error: 'Power tier required',
-        message: 'CSV cost export is available on the Power plan. Upgrade at /pricing.',
+        error: 'Paid plan required',
+        message: 'CSV cost export is available on the Pro and Growth plans. Upgrade at /pricing.',
         currentTier: userTier,
       },
       { status: 403 }

@@ -54,6 +54,54 @@ export const AGENT_CONFIG = {
     icon: 'users',
     provider: 'Open Source',
   },
+  goose: {
+    name: 'Goose',
+    id: 'goose',
+    description: 'Block/Square open-source AI agent with MCP-native architecture',
+    color: '#EAB308', // Yellow
+    icon: 'feather',
+    provider: 'Block',
+  },
+  amp: {
+    name: 'Amp',
+    id: 'amp',
+    description: 'Sourcegraph deep-mode coding agent with sub-agent orchestration',
+    color: '#0EA5E9', // Sky blue
+    icon: 'zap',
+    provider: 'Sourcegraph',
+  },
+  crush: {
+    name: 'Crush',
+    id: 'crush',
+    description: 'Charmbracelet ACP-compatible terminal coding agent',
+    color: '#A855F7', // Purple
+    icon: 'wand-2',
+    provider: 'Charmbracelet',
+  },
+  kilo: {
+    name: 'Kilo',
+    id: 'kilo',
+    description: 'Community-built coding agent supporting 500+ models with Memory Bank',
+    color: '#14B8A6', // Teal
+    icon: 'brain',
+    provider: 'Kilo',
+  },
+  kiro: {
+    name: 'Kiro',
+    id: 'kiro',
+    description: 'AWS-backed coding agent with per-prompt credit billing',
+    color: '#F59E0B', // Amber
+    icon: 'cloud',
+    provider: 'AWS',
+  },
+  droid: {
+    name: 'Droid',
+    id: 'droid',
+    description: 'BYOK multi-backend coding agent powered by LiteLLM',
+    color: '#6366F1', // Indigo
+    icon: 'bot',
+    provider: 'Droid',
+  },
 } as const;
 
 /** Error source colors for UI */
@@ -73,50 +121,91 @@ export const HEARTBEAT_CONFIG = {
   maxReconnectDelayMs: 30000, // 30 seconds max backoff
 } as const;
 
-/** Subscription tier limits */
+/**
+ * Subscription tier limits — runtime gating table.
+ *
+ * 2026-04-27 — Tier reconciliation refactor (Phase 5).
+ *
+ * Canonical tiers are now `free | pro | growth`:
+ *   - Free  — non-paid fallback for un-trialed / lapsed users
+ *   - Pro   — $39/mo individual paid plan; full single-user feature set
+ *   - Growth — $99/mo + $19/seat team plan; adds team features
+ *
+ * Legacy enum values (`power`, `team`, `business`, `enterprise`) are
+ * defensive aliases for any pre-existing `subscriptions.tier` rows that
+ * were written under the old naming. Migration 060 ADD VALUEs `growth` to
+ * the enum but does NOT drop legacy values — Postgres enums cannot drop
+ * values, and any historical row must still resolve to a sensible cap.
+ *
+ * Legacy → canonical mapping (matches `LEGACY_TIER_ALIASES` in
+ * `packages/styrby-web/src/lib/tier-enforcement.ts`):
+ *   - power      → pro    (legacy individual paid; same single-user shape)
+ *   - team       → growth (legacy team paid)
+ *   - business   → growth (legacy team paid; superset capabilities)
+ *   - enterprise → growth (legacy team paid; superset capabilities)
+ *
+ * WHY map `power → pro` here (not `power → growth`): the `power` enum value
+ * was previously the "solo user" paid tier — it had no team features.
+ * Mapping a historical `power` row to `growth` would silently grant team
+ * privileges to a single-user account. Pro is the single-user equivalent in
+ * the new model. Note: `tier-enforcement.ts` maps `power → growth` because
+ * its `EffectiveTierId` uses the cross-read resolver where the higher-rank
+ * tier always wins; mapping there is for the gating-rank semantics, not
+ * feature-set equivalence. This file is the feature-set table; we map by
+ * feature equivalence.
+ *
+ * SOC2 CC6.1 (logical access): every legacy tier has an entry so that
+ * `TIER_LIMITS[tier]` never returns undefined and crashes the enforcement
+ * check. Fail-closed defaults still apply at the resolver layer.
+ */
 export const TIER_LIMITS = {
   free: {
-    maxAgents: 1,
+    maxAgents: 3,
     maxSessionsPerDay: 5,
     costDashboard: 'basic',
     budgetAlerts: false,
+    apiAccess: false,
+    teamFeatures: false,
   },
   pro: {
-    maxAgents: 3,
-    maxSessionsPerDay: Infinity,
-    costDashboard: 'full',
-    budgetAlerts: true,
-  },
-  power: {
-    // SEC-BIZ-003 FIX: Aligned with polar.ts TIERS.power.limits.machines (9)
-    // WHY: Previously 3, which contradicted the billing definition. Power tier
-    // users on mobile would see a cap of 3 agents while their subscription
-    // entitles them to 9.
-    maxAgents: 9,
+    maxAgents: 11,
     maxSessionsPerDay: Infinity,
     costDashboard: 'full',
     budgetAlerts: true,
     apiAccess: true,
+    teamFeatures: false,
   },
-  team: {
-    maxAgents: 3,
+  growth: {
+    maxAgents: 11,
     maxSessionsPerDay: Infinity,
     costDashboard: 'full',
     budgetAlerts: true,
     apiAccess: true,
     teamFeatures: true,
   },
-  // WHY business / enterprise mirror team caps for enforcement (SEC-ADV-004):
-  // Migration 055 extended `subscriptions.tier` enum to include the team-family
-  // values (team / business / enterprise). The cross-read tier resolver in
-  // `tier-enforcement.ts` may now legitimately resolve a user to any of these
-  // values when their team's `teams.billing_tier` outranks their personal sub.
-  // Without entries here, `TIER_LIMITS[tier]` would be undefined and the
-  // enforcement check would crash. We give them the same enforcement caps as
-  // 'team' (most permissive existing entry); separate marketing/feature caps
-  // still live in `tiers/utils.ts` `TIER_NUMERIC_LIMITS` for the broader matrix.
+  // ----- Legacy enum aliases (read-only — never written by new code) -----
+  // WHY duplicated entries (not a getter): TIER_LIMITS is widely consumed as
+  // a literal `as const` object — TypeScript autocomplete and the `keyof`
+  // inference both depend on the keys being statically present. A getter
+  // would erase the literal types and break the cross-package contract.
+  power: {
+    maxAgents: 11,
+    maxSessionsPerDay: Infinity,
+    costDashboard: 'full',
+    budgetAlerts: true,
+    apiAccess: true,
+    teamFeatures: false,
+  },
+  team: {
+    maxAgents: 11,
+    maxSessionsPerDay: Infinity,
+    costDashboard: 'full',
+    budgetAlerts: true,
+    apiAccess: true,
+    teamFeatures: true,
+  },
   business: {
-    maxAgents: 3,
+    maxAgents: 11,
     maxSessionsPerDay: Infinity,
     costDashboard: 'full',
     budgetAlerts: true,
@@ -124,7 +213,7 @@ export const TIER_LIMITS = {
     teamFeatures: true,
   },
   enterprise: {
-    maxAgents: 3,
+    maxAgents: 11,
     maxSessionsPerDay: Infinity,
     costDashboard: 'full',
     budgetAlerts: true,

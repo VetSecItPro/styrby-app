@@ -21,7 +21,7 @@ export default async function TeamsPage() {
       </h1>
       <p className="mt-3 text-muted-foreground">
         Share cost visibility and agent management across your team. Available
-        on the Power tier. Power includes up to 3 team members.
+        on the Pro or Growth tier. Power includes up to 3 team members.
       </p>
 
       {/* Creating a Team */}

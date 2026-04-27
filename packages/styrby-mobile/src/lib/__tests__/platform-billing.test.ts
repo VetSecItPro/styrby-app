@@ -91,7 +91,7 @@ describe('Platform Billing Utilities', () => {
 
       it('returns informational text without price for power tier', () => {
         const msg = getUpgradeMessage('Session Replay', 'power');
-        expect(msg).toBe('Session Replay requires a Power subscription');
+        expect(msg).toBe('Session Replay requires a Growth subscription');
         expect(msg).not.toContain('$');
       });
 
@@ -111,19 +111,19 @@ describe('Platform Billing Utilities', () => {
 
       it('returns upgrade CTA with price for pro tier', () => {
         const msg = getUpgradeMessage('Budget Alerts', 'pro');
-        expect(msg).toBe('Budget Alerts requires Pro — Upgrade for $29/mo');
-        expect(msg).toContain('$29/mo');
+        expect(msg).toBe('Budget Alerts requires Pro — Upgrade for $39/mo');
+        expect(msg).toContain('$39/mo');
       });
 
       it('returns upgrade CTA with price for power tier', () => {
         const msg = getUpgradeMessage('Session Replay', 'power');
-        expect(msg).toBe('Session Replay requires Power — Upgrade for $59/mo');
-        expect(msg).toContain('$59/mo');
+        expect(msg).toBe('Session Replay requires Growth — Upgrade for $99/mo');
+        expect(msg).toContain('$99/mo');
       });
 
       it('defaults to pro tier on Android', () => {
         const msg = getUpgradeMessage('Some Feature');
-        expect(msg).toBe('Some Feature requires Pro — Upgrade for $29/mo');
+        expect(msg).toBe('Some Feature requires Pro — Upgrade for $39/mo');
       });
 
       it('includes the feature name in the Android CTA', () => {
@@ -161,8 +161,8 @@ describe('Platform Billing Utilities', () => {
         expect(getUpgradeButtonLabel('pro')).toBe('Upgrade to Pro');
       });
 
-      it('returns "Upgrade to Power" label for power tier', () => {
-        expect(getUpgradeButtonLabel('power')).toBe('Upgrade to Power');
+      it('returns "Upgrade to Growth" label for power tier', () => {
+        expect(getUpgradeButtonLabel('power')).toBe('Upgrade to Growth');
       });
 
       it('defaults to pro label when no tier is provided', () => {

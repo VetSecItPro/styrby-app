@@ -186,6 +186,33 @@ export async function sendRetentionPush({
 }
 
 /**
+ * Lazy per-timezone `Intl.DateTimeFormat` cache for the quiet-hours check.
+ *
+ * @internal
+ */
+const QUIET_HOURS_FORMATTER_CACHE = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * Returns a cached `Intl.DateTimeFormat` for the given IANA timezone.
+ *
+ * @param timezone - IANA timezone string.
+ * @returns A reused formatter for the (HH:MM, 24-hour) shape.
+ */
+function getQuietHoursFormatter(timezone: string): Intl.DateTimeFormat {
+  let formatter = QUIET_HOURS_FORMATTER_CACHE.get(timezone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    QUIET_HOURS_FORMATTER_CACHE.set(timezone, formatter);
+  }
+  return formatter;
+}
+
+/**
  * Check whether the current time falls within a user's quiet hours window.
  *
  * WHY timezone-aware: CLAUDE.md mandates CT for internal cron scheduling,
@@ -206,12 +233,12 @@ export function isInQuietHours(
   try {
     // Get current time in user's timezone
     const now = new Date();
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
+    // WHY cached per timezone: the formatter options are otherwise constant,
+    // but `timeZone` varies per user. Memoising by IANA string avoids
+    // reparsing the ICU tables on every quiet-hours check (called on every
+    // notification fan-out path). The cache is bounded by the small set of
+    // timezones in the user base — no eviction needed.
+    const formatter = getQuietHoursFormatter(timezone);
 
     const localTimeStr = formatter.format(now);
     // Intl may return '24:xx' for midnight — normalize to '00:xx'

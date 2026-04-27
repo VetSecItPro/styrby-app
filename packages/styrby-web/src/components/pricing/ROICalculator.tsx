@@ -21,18 +21,25 @@ interface ROIInputs {
 }
 
 /**
+ * Module-scope `Intl.NumberFormat` reused across every {@link formatDollars}
+ * call. Hoisted so slider drags (60fps) don't reconstruct the formatter on
+ * every render — locale/currency are constants.
+ */
+const DOLLAR_FORMATTER = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+
+/**
  * Formats a dollar amount as "$1,234" (no cents).
  *
  * @param dollars - Amount in US dollars (integer expected).
  * @returns Formatted string.
  */
 function formatDollars(dollars: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(Math.round(dollars));
+  return DOLLAR_FORMATTER.format(Math.round(dollars));
 }
 
 /**
@@ -139,7 +146,9 @@ export function ROICalculator() {
 
   const annualROI = useMemo(() => computeAnnualROI(inputs), [inputs]);
 
-  // Rough annual Styrby cost for context (Team tier, same dev count, no discount)
+  // WHY $19/seat × 12: Growth seat add-on price for an annualised back-of-the-
+  // envelope. Conservative — the $99/mo base covers the first 3 seats but we
+  // ignore that here so the ROI ratio is never overstated for small teams.
   const annualStyrbyEstimate = inputs.developers * 19 * 12;
   const roi = annualStyrbyEstimate > 0 ? annualROI / annualStyrbyEstimate : 0;
 
@@ -221,7 +230,7 @@ export function ROICalculator() {
           <div className="mt-4 grid grid-cols-2 gap-4 w-full text-center">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                Styrby Team cost
+                Styrby Growth cost
               </p>
               <p className="mt-1 text-lg font-bold text-foreground">
                 ~{formatDollars(annualStyrbyEstimate)}/yr

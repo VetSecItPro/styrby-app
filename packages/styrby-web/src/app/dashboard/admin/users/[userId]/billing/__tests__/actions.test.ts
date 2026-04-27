@@ -38,29 +38,51 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
-// WHY mock redirect as throwing: Next.js redirect() throws a special error
-// internally to abort the current function. We replicate this so tests can
-// assert "redirect was called" without needing a full Next.js render context.
-const mockRedirect = vi.fn((url: string) => {
-  throw new Error(`NEXT_REDIRECT:${url}`);
-});
-const mockRevalidatePath = vi.fn();
+// WHY vi.hoisted: vi.mock() factories are hoisted to the top of the file by
+// Vitest. Any top-level `const mockX = vi.fn()` referenced inside a factory
+// body is therefore not yet initialized at hoist-time, which under vite ≥7.3's
+// stricter mock-validation throws "Cannot access '__vi_import_X__' before
+// initialization". vi.hoisted() lifts the mock-fn declarations to run BEFORE
+// the vi.mock() factories, which makes the references safe.
+const mocks = vi.hoisted(() => ({
+  // WHY mock redirect as throwing: Next.js redirect() throws a special error
+  // internally to abort the current function. We replicate this so tests can
+  // assert "redirect was called" without needing a full Next.js render context.
+  redirect: vi.fn((url: string) => {
+    throw new Error(`NEXT_REDIRECT:${url}`);
+  }),
+  revalidatePath: vi.fn(),
+  sentryCapture: vi.fn(),
+  sentryCaptureMessage: vi.fn(),
+  rpc: vi.fn(),
+  createPolarRefund: vi.fn(),
+  findRefundableOrder: vi.fn(),
+}));
+
+// Convenience aliases preserved so the existing test bodies keep referencing
+// `mockRedirect`, `mockRpc`, etc. without churn. These point at the same
+// vi.fn() instances created inside vi.hoisted() above.
+const mockRedirect = mocks.redirect;
+const mockRevalidatePath = mocks.revalidatePath;
+const mockSentryCapture = mocks.sentryCapture;
+const mockSentryCaptureMessage = mocks.sentryCaptureMessage;
+const mockRpc = mocks.rpc;
+const mockCreatePolarRefund = mocks.createPolarRefund;
+const mockFindRefundableOrder = mocks.findRefundableOrder;
 
 vi.mock('next/navigation', () => ({
-  redirect: (url: string) => mockRedirect(url),
+  redirect: (url: string) => mocks.redirect(url),
 }));
 
 vi.mock('next/cache', () => ({
-  revalidatePath: (path: string) => mockRevalidatePath(path),
+  revalidatePath: (path: string) => mocks.revalidatePath(path),
 }));
 
 // ─── Sentry mock ─────────────────────────────────────────────────────────────
 
-const mockSentryCapture = vi.fn();
-const mockSentryCaptureMessage = vi.fn();
 vi.mock('@sentry/nextjs', () => ({
-  captureException: (...args: unknown[]) => mockSentryCapture(...args),
-  captureMessage: (...args: unknown[]) => mockSentryCaptureMessage(...args),
+  captureException: (...args: unknown[]) => mocks.sentryCapture(...args),
+  captureMessage: (...args: unknown[]) => mocks.sentryCaptureMessage(...args),
 }));
 
 // ─── Supabase mock ───────────────────────────────────────────────────────────
@@ -69,13 +91,12 @@ vi.mock('@sentry/nextjs', () => ({
  * Configurable mock for Supabase clients.
  *
  * WHY createClient is plain vi.fn() (not .mockResolvedValue in factory):
- *   vi.mock factories are hoisted to the top of the file by Vitest. At hoist
- *   time, mockRpc is not yet initialized — referencing it inside the factory
- *   body causes "Cannot access before initialization". We set the resolved
- *   value in beforeEach() instead, after all const declarations are live.
+ *   The mock state for .rpc / .from is per-test-case and we set
+ *   mockResolvedValue in beforeEach(). The createClient/createAdminClient
+ *   stubs are created locally in the factory because they are not referenced
+ *   elsewhere — only the returned object's .rpc/.from need to be reachable
+ *   from tests, and that comes via mockRpc (hoisted above).
  */
-const mockRpc = vi.fn();
-
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(),
   createAdminClient: vi.fn(),
@@ -91,15 +112,17 @@ vi.mock('@/lib/supabase/server', () => ({
  * without making real HTTP calls. The mock class preserves the `code` and
  * `rawBody` properties that the action inspects.
  */
-const mockCreatePolarRefund = vi.fn();
-const mockFindRefundableOrder = vi.fn();
-
 vi.mock('@/lib/billing/polar-refund', () => {
-  // WHY define RefundError in the factory: the action imports and instanceof-
-  // checks RefundError. If we mock the module, the imported class must match
-  // what the action's import resolves to. Defining it in the factory ensures
-  // both the action and the test see the same class reference.
-  class RefundError extends Error {
+  // WHY define MockRefundError (renamed from RefundError) in the factory:
+  // the action imports and instanceof-checks RefundError, and the test file
+  // also imports the symbol `RefundError` for use in test bodies. Vite ≥7.3's
+  // stricter SSR transform aliases identifiers that match a hoisted import
+  // name, even inside a vi.mock factory body — so a class literally named
+  // `RefundError` inside this factory got rewritten to reference the (not-yet-
+  // initialized) `__vi_import_1__.RefundError`, throwing TDZ. Renaming the
+  // local class breaks the collision; we map it to the public name in the
+  // returned module shape so the action's import still resolves to this class.
+  class MockRefundError extends Error {
     readonly code: string;
     readonly rawBody?: unknown;
     constructor(code: string, message: string, rawBody?: unknown) {
@@ -110,10 +133,10 @@ vi.mock('@/lib/billing/polar-refund', () => {
     }
   }
   return {
-    createPolarRefund: (...args: unknown[]) => mockCreatePolarRefund(...args),
+    createPolarRefund: (...args: unknown[]) => mocks.createPolarRefund(...args),
     findRefundableOrderForSubscription: (...args: unknown[]) =>
-      mockFindRefundableOrder(...args),
-    RefundError,
+      mocks.findRefundableOrder(...args),
+    RefundError: MockRefundError,
   };
 });
 

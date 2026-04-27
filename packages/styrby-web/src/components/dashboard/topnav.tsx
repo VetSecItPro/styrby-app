@@ -23,12 +23,13 @@ const NOTIFICATION_COUNT = 3;
 const TIER_STYLES = {
   free: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20',
   pro: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
-  power: 'bg-amber-500/20 text-amber-400 border-amber-400/30',
+  // WHY (Phase 5 rename): pre-rename `'power'` collapsed into Growth.
+  growth: 'bg-amber-500/20 text-amber-400 border-amber-400/30',
 } as const;
 
 interface DashboardTopNavProps {
   /** Current subscription tier. Defaults to 'free'. */
-  tier?: 'free' | 'pro' | 'power';
+  tier?: 'free' | 'pro' | 'growth';
 }
 
 export function DashboardTopNav({ tier = 'free' }: DashboardTopNavProps) {

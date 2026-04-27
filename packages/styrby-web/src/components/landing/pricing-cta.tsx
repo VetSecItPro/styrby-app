@@ -10,15 +10,14 @@ export function PricingCTA() {
           <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 via-transparent to-amber-500/5" />
           <div className="relative">
             <h2 className="text-balance text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-              Free on one machine. Paid when your team scales.
+              Pro when you ship solo. Growth when your team scales.
             </h2>
             <p className="mx-auto mt-4 max-w-md text-muted-foreground leading-relaxed">
-              {/* WHY this phrasing: the original "Pro when you need more" was
-                  factually drifted (Pro/Power tier names were renamed to
-                  Solo/Team/Business in the Wave-2 pricing redesign). The new
-                  copy stays accurate to the current tier ladder and frames
-                  the upgrade trigger (team scaling) instead of feature gating. */}
-              Connect one machine and use Styrby forever. No credit card. No expiring trial. Add seats and machines when you outgrow it.
+              {/* WHY this phrasing: the Phase 6 tier reconciliation collapsed
+                  the public ladder to Pro ($39/mo) + Growth ($99/mo, 3 seats
+                  included). The CTA now frames the upgrade trigger
+                  (team scaling) cleanly and stays in sync with /pricing. */}
+              Start a 14-day Pro trial. No credit card. Move to Growth the moment a second developer joins.
             </p>
             <div className="mt-8">
               <Button

@@ -98,7 +98,7 @@ const softwareApplicationJsonLd = {
     '@type': 'Offer',
     price: '0',
     priceCurrency: 'USD',
-    description: 'Free tier available. Pro and Power plans with additional features.',
+    description: 'Pro plan at $39/mo for individual developers. Growth plan at $99/mo for teams (3 seats included, $19/seat after).',
   },
   author: {
     '@type': 'Organization',
@@ -140,7 +140,7 @@ const faqPageJsonLd = {
       name: 'Which AI agents are supported?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Eleven CLI coding agents: Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. The Free tier includes the first three. Solo, Team, Business, and Enterprise tiers unlock all eleven.',
+        text: 'Eleven CLI coding agents: Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), OpenCode, Aider, Goose, Amp, Crush, Kilo, Kiro, and Droid. Pro and Growth both unlock all eleven.',
       },
     },
     {
@@ -156,7 +156,7 @@ const faqPageJsonLd = {
       name: 'Can I use it with my team?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Yes. Team plans start at $19 per seat per month with a 3-seat minimum. Business plans add priority support and advanced governance at $39 per seat per month with a 10-seat minimum. Solo accounts run up to 9 connected machines with a 1-year session history if you are a single developer.',
+        text: 'Yes. Growth is $99/month and includes 3 seats; each additional seat is $19/month, billed via a separate seat add-on so you can adjust seats from the dashboard. Pro covers a single developer end-to-end if you are flying solo.',
       },
     },
     {

@@ -53,7 +53,7 @@ interface ExportButtonProps {
  * @param days - Lookback window passed to the export API
  *
  * @example
- * <ExportButton isPowerTier={userTier === 'power'} days={days} />
+ * <ExportButton isPowerTier={userTier === 'growth'} days={days} />
  */
 export function ExportButton({ isPowerTier, days = 30 }: ExportButtonProps) {
   const [open, setOpen] = useState(false);

@@ -48,7 +48,7 @@ const DeleteBookmarkSchema = z.object({
  * `subscriptions.tier` and the maximum `teams.billing_tier` across all of
  * their active team memberships (SEC-ADV-004).
  *
- * The legacy `TIERS` table only knows `'free' | 'pro' | 'power'`, so any
+ * The legacy `TIERS` table only knows `'free' | 'pro' | 'growth'`, so any
  * team-family effective tier (`team` / `business` / `enterprise`) is
  * collapsed to `'power'` via {@link toLegacyTierId} — those tiers grant
  * at least power-level privileges for the bookmark cap.

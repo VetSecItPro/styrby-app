@@ -51,7 +51,7 @@ export default function GettingStartedPage() {
         >
           styrbyapp.com
         </a>
-        . Free tier includes one machine and full session monitoring.
+        . The 14-day Pro trial includes one machine and full session monitoring.
       </p>
 
       {/* Step 3 */}

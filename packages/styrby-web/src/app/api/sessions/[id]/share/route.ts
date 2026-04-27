@@ -39,6 +39,7 @@ import { z } from 'zod';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 import { getAppUrl } from '@/lib/config';
 import type { SharedSession, CreateShareResponse } from '@styrby/shared';
+import { normalizeEffectiveTier } from '@/lib/tier-enforcement';
 
 /**
  * Alphabet for nanoid-style share ID generation.
@@ -140,8 +141,10 @@ export async function POST(request: Request, context: RouteContext) {
       .eq('status', 'active')
       .maybeSingle();
 
-    const userTierForShare = (subscription?.tier as string) || 'free';
-    if (userTierForShare !== 'power') {
+    // WHY (Phase 5): legacy DB enum values (power/team/business/enterprise)
+    // alias to canonical tiers via normalizeEffectiveTier (Decision #8).
+    const userTierForShare = normalizeEffectiveTier((subscription?.tier as string) || 'free');
+    if (userTierForShare !== 'growth' && userTierForShare !== 'pro') {
       return NextResponse.json(
         { error: 'TIER_RESTRICTED', message: 'Session sharing requires a Power plan. Upgrade at /pricing' },
         { status: 403 }

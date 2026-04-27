@@ -31,7 +31,7 @@ interface SummaryTabProps {
   sessionStatus: string;
 
   /** The user's subscription tier */
-  userTier: 'free' | 'pro' | 'power';
+  userTier: 'free' | 'pro' | 'growth';
 
   /** The session ID (for regeneration requests) */
   sessionId: string;
@@ -159,7 +159,7 @@ export function SummaryTab({
   const isSessionActive = ['starting', 'running', 'idle', 'paused'].includes(sessionStatus);
 
   // Check if user has access to summaries
-  const hasSummaryAccess = userTier === 'pro' || userTier === 'power';
+  const hasSummaryAccess = userTier === 'pro' || userTier === 'growth';
 
   // ──────────────────────────────────────────
   // Render: Free tier upgrade prompt
