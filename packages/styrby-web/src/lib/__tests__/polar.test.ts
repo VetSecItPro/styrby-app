@@ -11,6 +11,30 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// WHY vi.hoisted: vi.mock factories run BEFORE module imports. Capturing the
+// SDK method spies in a hoisted block lets the mock factory reference them
+// while still allowing test bodies to assert against the same spies.
+// Aligns with the recent PR #192 mock pattern.
+const polarMocks = vi.hoisted(() => ({
+  subscriptionsUpdate: vi.fn(),
+  subscriptionsGet: vi.fn(),
+  checkoutsCreate: vi.fn(),
+}));
+
+// Mock the Polar SDK to prevent actual API calls during tests
+vi.mock('@polar-sh/sdk', () => ({
+  Polar: vi.fn().mockImplementation(() => ({
+    subscriptions: {
+      update: polarMocks.subscriptionsUpdate,
+      get: polarMocks.subscriptionsGet,
+    },
+    checkouts: {
+      create: polarMocks.checkoutsCreate,
+    },
+  })),
+}));
+
 import {
   TIERS,
   getTier,
@@ -20,13 +44,12 @@ import {
   getPolarServer,
   getTeamSeatProductId,
   isTeamSeatProduct,
+  cancelSubscription,
+  getSubscription,
+  createCheckoutSession,
+  getCustomerPortalUrl,
   type TierId,
 } from '../polar';
-
-// Mock the Polar SDK to prevent actual API calls during tests
-vi.mock('@polar-sh/sdk', () => ({
-  Polar: vi.fn().mockImplementation(() => ({})),
-}));
 
 describe('Polar Billing Module — Phase 5 (Pro + Growth)', () => {
   describe('TIERS constants', () => {
@@ -328,5 +351,164 @@ describe('isTeamSeatProduct()', () => {
     vi.stubEnv('POLAR_GROWTH_SEAT_ANNUAL_PRODUCT_ID', '');
     // Even if a real-looking id is passed, both env vars empty → never a seat
     expect(isTeamSeatProduct('prod_seat_mo_123')).toBe(false);
+  });
+});
+
+// ============================================================================
+// SDK wrapper coverage — TEST-001 / Bug #6 regression guard
+// ============================================================================
+//
+// WHY this block exists:
+//   The Polar SDK wrapper functions (`cancelSubscription`,
+//   `createCheckoutSession`, `getSubscription`, `getCustomerPortalUrl`) were
+//   previously untested. Bug #6 was a missing `prorationBehavior` argument
+//   on the cancel call that allowed Polar's org-level default (which could
+//   drift to "prorate") to issue partial refunds. The tests below pin the
+//   wire contract so any future drift surfaces as a test failure rather than
+//   a silent billing-policy regression.
+
+describe('cancelSubscription() — Bug #6 regression guard', () => {
+  beforeEach(() => {
+    polarMocks.subscriptionsUpdate.mockReset();
+    polarMocks.subscriptionsGet.mockReset();
+    polarMocks.checkoutsCreate.mockReset();
+  });
+
+  it('default (cancel-at-period-end) calls subscriptions.update with the no-proration policy', async () => {
+    // BUG #6 GUARD: prorationBehavior MUST be 'next_period' on every
+    // code-initiated cancellation. If this assertion fails, partial refunds
+    // can resume on the production billing surface.
+    polarMocks.subscriptionsUpdate.mockResolvedValueOnce({ id: 'sub_123', status: 'active', cancelAtPeriodEnd: true });
+
+    const result = await cancelSubscription('sub_123');
+
+    expect(polarMocks.subscriptionsUpdate).toHaveBeenCalledTimes(1);
+    expect(polarMocks.subscriptionsUpdate).toHaveBeenCalledWith({
+      id: 'sub_123',
+      subscriptionUpdate: {
+        cancelAtPeriodEnd: true,
+        prorationBehavior: STYRBY_PRORATION_BEHAVIOR,
+      },
+    });
+    expect(result).toEqual({ id: 'sub_123', status: 'active', cancelAtPeriodEnd: true });
+  });
+
+  it('default branch always uses the literal "next_period" (no env-derived value)', async () => {
+    // Belt-and-suspenders: if STYRBY_PRORATION_BEHAVIOR ever drifted to a
+    // wire-incompatible value, this asserts the hardcoded literal directly.
+    polarMocks.subscriptionsUpdate.mockResolvedValueOnce({});
+    await cancelSubscription('sub_abc');
+    const call = polarMocks.subscriptionsUpdate.mock.calls[0][0];
+    expect(call.subscriptionUpdate.prorationBehavior).toBe('next_period');
+  });
+
+  it('immediate=true uses revoke and intentionally omits prorationBehavior', async () => {
+    polarMocks.subscriptionsUpdate.mockResolvedValueOnce({ id: 'sub_456', status: 'revoked' });
+
+    const result = await cancelSubscription('sub_456', { immediate: true });
+
+    expect(polarMocks.subscriptionsUpdate).toHaveBeenCalledTimes(1);
+    expect(polarMocks.subscriptionsUpdate).toHaveBeenCalledWith({
+      id: 'sub_456',
+      subscriptionUpdate: { revoke: true },
+    });
+    // revoke is the whole-point of immediate cancellation; proration is
+    // irrelevant because nothing is renewed afterward.
+    const call = polarMocks.subscriptionsUpdate.mock.calls[0][0];
+    expect(call.subscriptionUpdate.prorationBehavior).toBeUndefined();
+    expect(result).toEqual({ id: 'sub_456', status: 'revoked' });
+  });
+
+  it('immediate=false explicitly is the same as default', async () => {
+    polarMocks.subscriptionsUpdate.mockResolvedValueOnce({});
+    await cancelSubscription('sub_789', { immediate: false });
+    const call = polarMocks.subscriptionsUpdate.mock.calls[0][0];
+    expect(call.subscriptionUpdate.cancelAtPeriodEnd).toBe(true);
+    expect(call.subscriptionUpdate.prorationBehavior).toBe('next_period');
+    expect(call.subscriptionUpdate.revoke).toBeUndefined();
+  });
+
+  it('propagates SDK errors to the caller (no silent swallow)', async () => {
+    // WHY propagate (not swallow): the wrapper has no error handler. Callers
+    // (webhook handler, settings UI) must see the failure to surface it
+    // rather than continue as if cancellation succeeded. This pins the
+    // contract so a future "soft-fail" refactor would require an explicit
+    // test update.
+    const sdkError = new Error('Polar API: subscription not found');
+    polarMocks.subscriptionsUpdate.mockRejectedValueOnce(sdkError);
+
+    await expect(cancelSubscription('sub_missing')).rejects.toThrow(
+      'Polar API: subscription not found',
+    );
+  });
+});
+
+describe('getSubscription() — SDK wrapper', () => {
+  beforeEach(() => {
+    polarMocks.subscriptionsGet.mockReset();
+  });
+
+  it('happy path: forwards id to subscriptions.get and returns the subscription', async () => {
+    const fakeSub = { id: 'sub_xyz', status: 'active', currentPeriodEnd: '2026-12-01T00:00:00Z' };
+    polarMocks.subscriptionsGet.mockResolvedValueOnce(fakeSub);
+
+    const result = await getSubscription('sub_xyz');
+
+    expect(polarMocks.subscriptionsGet).toHaveBeenCalledWith({ id: 'sub_xyz' });
+    expect(result).toEqual(fakeSub);
+  });
+
+  it('propagates SDK errors (e.g. 404 unknown subscription)', async () => {
+    polarMocks.subscriptionsGet.mockRejectedValueOnce(new Error('Not found'));
+    await expect(getSubscription('sub_unknown')).rejects.toThrow('Not found');
+  });
+});
+
+describe('createCheckoutSession() — SDK wrapper', () => {
+  beforeEach(() => {
+    polarMocks.checkoutsCreate.mockReset();
+  });
+
+  it('happy path: forwards productId, successUrl, customerEmail, metadata to checkouts.create', async () => {
+    const fakeCheckout = { id: 'co_123', url: 'https://polar.sh/checkout/co_123' };
+    polarMocks.checkoutsCreate.mockResolvedValueOnce(fakeCheckout);
+
+    const result = await createCheckoutSession(
+      'prod_pro_mo',
+      'user_abc',
+      'https://styrby.com/billing/success',
+    );
+
+    expect(polarMocks.checkoutsCreate).toHaveBeenCalledTimes(1);
+    expect(polarMocks.checkoutsCreate).toHaveBeenCalledWith({
+      productId: 'prod_pro_mo',
+      successUrl: 'https://styrby.com/billing/success',
+      customerEmail: 'user_abc',
+      metadata: { userId: 'user_abc' },
+    });
+    expect(result).toEqual(fakeCheckout);
+  });
+
+  it('propagates SDK errors (e.g. invalid product id)', async () => {
+    polarMocks.checkoutsCreate.mockRejectedValueOnce(new Error('Invalid product'));
+    await expect(
+      createCheckoutSession('prod_bogus', 'user_abc', 'https://example.com'),
+    ).rejects.toThrow('Invalid product');
+  });
+});
+
+describe('getCustomerPortalUrl() — generic Polar portal link', () => {
+  it('returns the Polar subscriptions portal URL (customer id reserved for future)', async () => {
+    // WHY generic URL: Polar does not yet expose
+    // `customers.createPortalSession()`. This test pins the temporary
+    // contract so when Polar ships the API, the swap is a deliberate
+    // change that updates this assertion.
+    expect(await getCustomerPortalUrl('cust_123')).toBe(
+      'https://polar.sh/purchases/subscriptions',
+    );
+  });
+
+  it('returns the same URL regardless of customer id (current behavior)', async () => {
+    expect(await getCustomerPortalUrl('cust_a')).toBe(await getCustomerPortalUrl('cust_b'));
   });
 });
