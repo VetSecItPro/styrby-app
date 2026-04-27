@@ -12,7 +12,7 @@ export const metadata: Metadata = {
  * OTEL Metrics Export documentation page.
  *
  * Covers setup for all four supported providers plus custom OTLP endpoints.
- * Power tier feature.
+ * Included on Pro and Growth.
  */
 export default function OtelDocsPage() {
   const { prev, next } = getPrevNext("/docs/otel");
@@ -25,7 +25,7 @@ export default function OtelDocsPage() {
       <p className="mt-3 text-muted-foreground">
         Export session metrics to your existing observability platform.
         Styrby sends data using the OpenTelemetry OTLP/HTTP protocol, so it
-        works with any OTLP-compatible backend. Power tier feature.
+        works with any OTLP-compatible backend. Included on Pro and Growth.
       </p>
 
       {/* What gets exported */}

@@ -9,16 +9,14 @@ import { cn } from '@/lib/utils';
 import { Navbar } from '@/components/landing/navbar';
 import { Footer } from '@/components/landing/footer';
 import {
-  SoloTierCard,
-  TeamTierCard,
-  BusinessTierCard,
-  EnterpriseTierCard,
+  ProTierCard,
+  GrowthTierCard,
   ComparisonTable,
   PricingPageTracker,
   trackPricingEvent,
 } from '@/components/pricing';
 import { faqs } from '@/components/pricing/pricing-data';
-import { TEAM_MIN_SEATS, BUSINESS_MIN_SEATS } from '@/lib/billing/polar-products';
+import { GROWTH_BASE_SEATS } from '@/lib/billing/polar-products';
 
 /**
  * WHY dynamic import for ROICalculator:
@@ -40,35 +38,32 @@ const ROICalculator = dynamic(
 );
 
 /**
- * Public pricing page (Phase 2.8 redesign).
+ * Public pricing page (Phase 6 redesign).
  *
- * Orchestrates four tier columns: Solo, Team, Business, Enterprise.
- * - Solo: flat $49/mo, individual plan
- * - Team: $19/seat/mo, seat-count slider (3-100 seats)
- * - Business: $39/seat/mo, seat-count slider (10-100 seats)
- * - Enterprise: custom pricing + calendar booking CTA
+ * Two-tier ladder after the Phase 5 tier reconciliation:
+ *   - **Pro** — $39/mo individual plan (single seat, full feature set)
+ *   - **Growth** — $99/mo team plan (3 seats included, +$19/seat after)
  *
  * Architecture:
- * - State: billing toggle + seat-count sliders live here (orchestrator)
- * - Pricing math: lib/billing/polar-products.ts (integer cents + basis points)
- * - Tier cards: components/pricing/{Solo,Team,Business,Enterprise}TierCard.tsx
- * - Comparison table: components/pricing/ComparisonTable.tsx
- * - ROI calculator: dynamic-imported (bundle budget)
- * - FAQ data + comparison data: components/pricing/pricing-data.ts
- * - A/B tracking: components/pricing/PricingPageTracker.tsx
+ *   - State: billing toggle + seat-count slider live here (orchestrator).
+ *   - Pricing math: `lib/billing/polar-products.ts` (integer cents + bps).
+ *   - Tier cards: `components/pricing/{Pro,Growth}TierCard.tsx`.
+ *   - Comparison table: `components/pricing/ComparisonTable.tsx` (2 cols).
+ *   - ROI calculator: dynamic-imported (bundle budget).
+ *   - FAQ + comparison data: `components/pricing/pricing-data.ts`.
+ *   - A/B tracking: `components/pricing/PricingPageTracker.tsx`.
  *
- * WHY CTA slider events fire every 10 seats: captures high-intent slider
- * interactions without spamming analytics at every 1-seat move.
+ * WHY slider events fire every 10 seats: captures high-intent slider
+ * interactions without spamming analytics at every single-seat move.
  */
 export default function PricingPage() {
   const [annual, setAnnual] = useState(false);
-  const [teamSeats, setTeamSeats] = useState(TEAM_MIN_SEATS);
-  const [businessSeats, setBusinessSeats] = useState(BUSINESS_MIN_SEATS);
+  const [growthSeats, setGrowthSeats] = useState(GROWTH_BASE_SEATS);
   const [activeFaq, setActiveFaq] = useState(0);
 
   return (
     <main className="min-h-[100dvh]">
-      {/* A/B tracking - fires page_view once on mount, no DOM output */}
+      {/* A/B tracking — fires page_view once on mount, no DOM output */}
       <PricingPageTracker variant="v2" />
 
       <Navbar />
@@ -80,19 +75,24 @@ export default function PricingPage() {
             Pricing
           </p>
           <h1 className="mt-3 text-balance text-4xl font-bold tracking-tight text-foreground md:text-5xl">
-            Pricing built for the way you actually run AI agents
+            One price for solos. One for teams. No surprises.
           </h1>
           <p className="mx-auto mt-4 max-w-xl text-lg text-muted-foreground leading-relaxed">
-            From one machine on Solo to a fleet on Business. Annual billing saves about 17%. Cancel anytime, no seat fees on monthly.
+            Pro covers a single developer end-to-end. Growth covers your team. Annual billing saves about 17%. Cancel anytime.
           </p>
         </div>
       </section>
 
-      {/* Annual/monthly toggle */}
+      {/* Annual / monthly toggle */}
       <section className="pb-4">
         <div className="mx-auto max-w-7xl px-6">
           <div className="flex items-center justify-center gap-4">
-            <span className={cn('text-sm transition-colors', !annual ? 'font-medium text-foreground' : 'text-muted-foreground')}>
+            <span
+              className={cn(
+                'text-sm transition-colors',
+                !annual ? 'font-medium text-foreground' : 'text-muted-foreground',
+              )}
+            >
               Monthly
             </span>
             <button
@@ -113,7 +113,12 @@ export default function PricingPage() {
                 )}
               />
             </button>
-            <span className={cn('text-sm transition-colors', annual ? 'font-medium text-foreground' : 'text-muted-foreground')}>
+            <span
+              className={cn(
+                'text-sm transition-colors',
+                annual ? 'font-medium text-foreground' : 'text-muted-foreground',
+              )}
+            >
               Annual{' '}
               <span className="ml-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-amber-400">
                 Save 17%
@@ -123,36 +128,27 @@ export default function PricingPage() {
         </div>
       </section>
 
-      {/* Pricing cards - 4-column grid */}
+      {/* Pricing cards — 2-column grid (stacks on mobile) */}
       <section className="py-12">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 md:items-stretch">
-            <SoloTierCard annual={annual} />
-            <TeamTierCard
+        <div className="mx-auto max-w-4xl px-6">
+          <div className="grid gap-6 md:grid-cols-2 md:items-stretch">
+            <ProTierCard annual={annual} />
+            <GrowthTierCard
               annual={annual}
-              seatCount={teamSeats}
+              seatCount={growthSeats}
               onSeatCountChange={(n) => {
-                setTeamSeats(n);
-                if (n % 10 === 0) trackPricingEvent('team_slider_move', { seats: n, annual });
+                setGrowthSeats(n);
+                if (n % 10 === 0) trackPricingEvent('growth_slider_move', { seats: n, annual });
               }}
             />
-            <BusinessTierCard
-              annual={annual}
-              seatCount={businessSeats}
-              onSeatCountChange={(n) => {
-                setBusinessSeats(n);
-                if (n % 10 === 0) trackPricingEvent('business_slider_move', { seats: n, annual });
-              }}
-            />
-            <EnterpriseTierCard />
           </div>
           <p className="mt-8 text-center text-xs text-muted-foreground/60">
-            14-day free trial on Solo, Team, and Business. No credit card. Upgrade or downgrade in one click.
+            14-day free trial on Pro and Growth. No credit card. Upgrade or downgrade in one click.
           </p>
         </div>
       </section>
 
-      {/* ROI Calculator - dynamic-imported chunk (740 KB budget) */}
+      {/* ROI calculator — dynamic-imported chunk (740 KB budget) */}
       <section className="py-16 border-t border-zinc-800/40">
         <div className="mx-auto max-w-5xl px-6">
           <div className="mx-auto max-w-2xl text-center mb-10">
@@ -163,28 +159,27 @@ export default function PricingPage() {
               Estimate your team&apos;s value recovered
             </h2>
             <p className="mx-auto mt-3 max-w-lg text-muted-foreground">
-              Based on published research. Defaults to conservative 25% gain on repetitive tasks.
-              Adjust the sliders to match your team.
+              Based on published research. Defaults to a conservative 25% gain on repetitive tasks. Adjust the sliders to match your team.
             </p>
           </div>
           <ROICalculator />
         </div>
       </section>
 
-      {/* Feature comparison table */}
+      {/* Feature comparison — Pro vs. Growth */}
       <section className="py-16 border-t border-zinc-800/40">
-        <div className="mx-auto max-w-6xl px-6">
+        <div className="mx-auto max-w-4xl px-6">
           <h2 className="text-balance text-center text-3xl font-bold tracking-tight text-foreground">
-            Compare all features
+            Compare Pro and Growth
           </h2>
           <p className="mx-auto mt-3 max-w-lg text-center text-muted-foreground">
-            A detailed breakdown of what each plan includes.
+            Everything in Pro is in Growth. Growth adds the team layer.
           </p>
           <ComparisonTable />
         </div>
       </section>
 
-      {/* FAQ - two-column interactive layout */}
+      {/* FAQ — two-column interactive layout */}
       <section className="py-24 border-t border-zinc-800/40">
         <div className="mx-auto max-w-7xl px-6">
           <div className="mx-auto max-w-2xl text-center">
@@ -269,7 +264,7 @@ export default function PricingPage() {
             </Button>
           </div>
           <p className="mt-4 text-sm text-muted-foreground/60">
-            Free on one machine. No credit card. Cancel anytime.
+            14-day trial on Pro and Growth. No credit card. Cancel anytime.
           </p>
         </div>
       </section>
