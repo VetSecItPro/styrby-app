@@ -28,7 +28,6 @@ import {
   formatCents,
   getPlanFromProductId,
   getProductId,
-  TIER_DEFINITIONS,
   TIER_DEFINITIONS_CANONICAL,
   GROWTH_BASE_SEATS,
   GROWTH_MAX_SEATS,
@@ -61,22 +60,6 @@ describe('calculateMonthlyCostCents', () => {
     );
   });
 
-  it('legacy alias "team" maps to Growth pricing (back-compat shim)', () => {
-    expect(calculateMonthlyCostCents('team', 3)).toBe(9900);
-    expect(calculateMonthlyCostCents('team', 5)).toBe(9900 + 2 * 1900);
-  });
-
-  it('legacy alias "business" maps to Growth pricing (collapsed in 2-tier model)', () => {
-    expect(calculateMonthlyCostCents('business', 3)).toBe(9900);
-  });
-
-  it('legacy alias "enterprise" maps to Growth pricing (sales convo, but math stays Growth)', () => {
-    expect(calculateMonthlyCostCents('enterprise', 5)).toBe(9900 + 2 * 1900);
-  });
-
-  it('legacy alias "solo" maps to Pro pricing', () => {
-    expect(calculateMonthlyCostCents('solo', 1)).toBe(3900);
-  });
 });
 
 // ============================================================================
@@ -105,9 +88,6 @@ describe('calculateAnnualCostCents', () => {
     );
   });
 
-  it('legacy alias "team" maps to Growth annual pricing', () => {
-    expect(calculateAnnualCostCents('team', 4)).toBe(99000 + 1 * 19000);
-  });
 });
 
 // ============================================================================
@@ -271,35 +251,8 @@ describe('getProductId', () => {
 });
 
 // ============================================================================
-// TIER_DEFINITIONS — legacy-augmented vs canonical view
+// TIER_DEFINITIONS_CANONICAL — strict 2-tier view
 // ============================================================================
-
-describe('TIER_DEFINITIONS — legacy + canonical surface (back-compat shim)', () => {
-  it('exposes canonical Pro and Growth keys', () => {
-    expect(TIER_DEFINITIONS).toHaveProperty('pro');
-    expect(TIER_DEFINITIONS).toHaveProperty('growth');
-  });
-
-  it('exposes legacy keys (solo, team, business, enterprise) for unmodified card components', () => {
-    expect(TIER_DEFINITIONS).toHaveProperty('solo');
-    expect(TIER_DEFINITIONS).toHaveProperty('team');
-    expect(TIER_DEFINITIONS).toHaveProperty('business');
-    expect(TIER_DEFINITIONS).toHaveProperty('enterprise');
-  });
-
-  it('legacy "solo" mirrors Pro pricing ($39/mo, single seat)', () => {
-    expect(TIER_DEFINITIONS.solo.pricePerSeatMonthlyUsdCents).toBe(3900);
-    expect(TIER_DEFINITIONS.solo.minSeats).toBe(1);
-    expect(TIER_DEFINITIONS.solo.maxSeats).toBe(1);
-  });
-
-  it('legacy "team" + "business" both mirror Growth seat-addon ($19/seat)', () => {
-    expect(TIER_DEFINITIONS.team.pricePerSeatMonthlyUsdCents).toBe(1900);
-    expect(TIER_DEFINITIONS.business.pricePerSeatMonthlyUsdCents).toBe(1900);
-    expect(TIER_DEFINITIONS.team.minSeats).toBe(GROWTH_BASE_SEATS);
-    expect(TIER_DEFINITIONS.business.minSeats).toBe(GROWTH_BASE_SEATS);
-  });
-});
 
 describe('TIER_DEFINITIONS_CANONICAL — strict 2-tier view', () => {
   it('contains exactly Pro and Growth, with the new seat math fields', () => {

@@ -7,9 +7,8 @@
  *   - Pro    — $39/mo flat, single-user
  *   - Growth — $99/mo base + $19/seat after 3, team
  *
- * Legacy keys (`solo`, `team`, `business`, `enterprise`) survive in
- * `TIER_DEFINITIONS` only as back-compat aliases for the unmodified
- * pricing card components — see deprecation comments in the source.
+ * The canonical tier identifiers are `'pro'` and `'growth'`. Legacy aliases
+ * (`solo`, `team`, `business`, `enterprise`) were removed in Phase 6 (H25).
  *
  * SEC-LOGIC-001 — `getPlanFromProductId` MUST log a warning for unknown
  * product IDs and fall back to `'free'`. The test stubs console.warn to
@@ -28,11 +27,6 @@ import {
   ANNUAL_DISCOUNT_BPS,
   GROWTH_BASE_SEATS,
   GROWTH_MAX_SEATS,
-  TEAM_MIN_SEATS,
-  TEAM_MAX_SEATS,
-  BUSINESS_MIN_SEATS,
-  BUSINESS_MAX_SEATS,
-  TIER_DEFINITIONS,
   TIER_DEFINITIONS_CANONICAL,
   type PublicTierId,
 } from '../billing/polar-products';
@@ -62,19 +56,6 @@ describe('calculateMonthlyCostCents — Phase 5 (Pro + Growth)', () => {
     expect(calculateMonthlyCostCents('growth', 10)).toBe(23200);
   });
 
-  describe('legacy alias inputs (back-compat)', () => {
-    it('"solo" maps to pro pricing', () => {
-      expect(calculateMonthlyCostCents('solo', 1)).toBe(3900);
-    });
-
-    it('"team" maps to growth pricing', () => {
-      expect(calculateMonthlyCostCents('team', 5)).toBe(13700);
-    });
-
-    it('"business" maps to growth pricing', () => {
-      expect(calculateMonthlyCostCents('business', 10)).toBe(23200);
-    });
-  });
 });
 
 // ============================================================================
@@ -256,66 +237,16 @@ describe('TIER_DEFINITIONS_CANONICAL', () => {
 });
 
 // ============================================================================
-// TIER_DEFINITIONS — augmented view with legacy back-compat keys
+// Canonical constants
 // ============================================================================
 
-describe('TIER_DEFINITIONS (legacy-augmented, back-compat for pricing cards)', () => {
-  it('exposes legacy keys (solo, team, business, enterprise)', () => {
-    expect(TIER_DEFINITIONS).toHaveProperty('solo');
-    expect(TIER_DEFINITIONS).toHaveProperty('team');
-    expect(TIER_DEFINITIONS).toHaveProperty('business');
-    expect(TIER_DEFINITIONS).toHaveProperty('enterprise');
-  });
-
-  it('exposes canonical keys (pro, growth)', () => {
-    expect(TIER_DEFINITIONS).toHaveProperty('pro');
-    expect(TIER_DEFINITIONS).toHaveProperty('growth');
-  });
-
-  it('legacy "solo" exposes pricePerSeatMonthlyUsdCents = $39 (pro pricing)', () => {
-    expect(TIER_DEFINITIONS.solo?.pricePerSeatMonthlyUsdCents).toBe(3900);
-  });
-
-  it('legacy "team" exposes pricePerSeatMonthlyUsdCents = $19 (growth seat addon)', () => {
-    expect(TIER_DEFINITIONS.team?.pricePerSeatMonthlyUsdCents).toBe(1900);
-  });
-
-  it('legacy "business" exposes the same growth seat addon price', () => {
-    expect(TIER_DEFINITIONS.business?.pricePerSeatMonthlyUsdCents).toBe(1900);
-  });
-
-  it('legacy "enterprise" has 0 (custom pricing)', () => {
-    expect(TIER_DEFINITIONS.enterprise?.pricePerSeatMonthlyUsdCents).toBe(0);
-  });
-});
-
-// ============================================================================
-// Slider bound constants — back-compat aliases
-// ============================================================================
-
-describe('slider bound constants (back-compat for unmodified card components)', () => {
+describe('canonical seat bound constants', () => {
   it('GROWTH_BASE_SEATS is 3', () => {
     expect(GROWTH_BASE_SEATS).toBe(3);
   });
 
   it('GROWTH_MAX_SEATS is 100', () => {
     expect(GROWTH_MAX_SEATS).toBe(100);
-  });
-
-  it('TEAM_MIN_SEATS aliases GROWTH_BASE_SEATS (legacy back-compat)', () => {
-    expect(TEAM_MIN_SEATS).toBe(GROWTH_BASE_SEATS);
-  });
-
-  it('TEAM_MAX_SEATS aliases GROWTH_MAX_SEATS (legacy back-compat)', () => {
-    expect(TEAM_MAX_SEATS).toBe(GROWTH_MAX_SEATS);
-  });
-
-  it('BUSINESS_MIN_SEATS aliases GROWTH_BASE_SEATS (collapsed in 2-tier model)', () => {
-    expect(BUSINESS_MIN_SEATS).toBe(GROWTH_BASE_SEATS);
-  });
-
-  it('BUSINESS_MAX_SEATS aliases GROWTH_MAX_SEATS', () => {
-    expect(BUSINESS_MAX_SEATS).toBe(GROWTH_MAX_SEATS);
   });
 });
 

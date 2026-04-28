@@ -33,7 +33,7 @@
  * If any env var is unset (e.g., during the Phase H12 cutover gap), the
  * `getProductId` helper returns `null` and the paywall surface degrades
  * gracefully. The pricing UI still renders price strings (which live on
- * `TIER_DEFINITIONS`, not on env vars).
+ * `TIER_DEFINITIONS_CANONICAL`, not on env vars).
  *
  * SOC2 CC7.2 — billing math has a single code path. Any caller that needs
  * to compute a price MUST go through this module.
@@ -223,38 +223,6 @@ const CANONICAL_TIER_DEFINITIONS: Record<PublicTierId, TierDefinition> = {
 // ============================================================================
 
 /**
- * Public-pricing-page tier identifier OR legacy alias accepted by the
- * back-compat helpers below.
- *
- * @deprecated Phase 6 — `AcceptedTierId` collapses to `PublicTierId`.
- */
-export type AcceptedTierId = PublicTierId | 'solo' | 'team' | 'business' | 'enterprise';
-
-/**
- * Maps an accepted (canonical OR legacy) tier id to a canonical
- * {@link PublicTierId}. Used internally by the back-compat helpers below.
- *
- * Mapping (matches `LEGACY_TIER_ALIASES` in `tier-enforcement.ts` for the
- * marketing → gating axis):
- *   solo       → pro    (single-user paid)
- *   team       → growth (entry team)
- *   business   → growth (collapsed into Growth — Decision #1)
- *   enterprise → growth (custom-priced superset; fall through to Growth)
- */
-function toCanonicalTier(tierId: AcceptedTierId): PublicTierId {
-  switch (tierId) {
-    case 'pro':
-    case 'solo':
-      return 'pro';
-    case 'growth':
-    case 'team':
-    case 'business':
-    case 'enterprise':
-      return 'growth';
-  }
-}
-
-/**
  * Calculates the total monthly cost in USD cents for a given tier and seat
  * count.
  *
@@ -262,14 +230,10 @@ function toCanonicalTier(tierId: AcceptedTierId): PublicTierId {
  *   single-user plan; any seat count above 1 silently clamps).
  * - For `growth`: returns `baseMonthly + seatPrice × max(0, seats - baseSeats)`.
  *
- * Accepts legacy tier names (`solo`, `team`, `business`, `enterprise`) for
- * back-compat with the unmodified pricing card components — those are
- * mapped to `pro` / `growth` via {@link toCanonicalTier}.
- *
  * WHY integer math only: multiplying integer cents by an integer seat count
  * always yields an integer. No rounding needed here.
  *
- * @param tierId - The tier identifier (canonical or legacy alias).
+ * @param tierId - The canonical tier identifier (`'pro'` or `'growth'`).
  * @param seatCount - Number of seats. Clamped to tier min/max.
  * @returns Total monthly cost in USD cents.
  *
@@ -280,12 +244,11 @@ function toCanonicalTier(tierId: AcceptedTierId): PublicTierId {
  * calculateMonthlyCostCents('growth', 5);  // 13700  → $99 + 2 × $19
  * ```
  */
-export function calculateMonthlyCostCents(tierId: AcceptedTierId, seatCount: number): number {
-  const canonical = toCanonicalTier(tierId);
-  const tier = CANONICAL_TIER_DEFINITIONS[canonical];
+export function calculateMonthlyCostCents(tierId: PublicTierId, seatCount: number): number {
+  const tier = CANONICAL_TIER_DEFINITIONS[tierId];
   const seats = Math.max(tier.minSeats, Math.min(tier.maxSeats, seatCount));
 
-  if (canonical === 'pro') {
+  if (tierId === 'pro') {
     return tier.baseMonthlyUsdCents;
   }
 
@@ -304,7 +267,7 @@ export function calculateMonthlyCostCents(tierId: AcceptedTierId, seatCount: num
  *
  * Growth annual: `baseAnnual + seatAnnualPrice × max(0, seats - baseSeats)`.
  *
- * @param tierId - The public tier identifier.
+ * @param tierId - The canonical tier identifier (`'pro'` or `'growth'`).
  * @param seatCount - Number of seats.
  * @returns Total annual cost in USD cents.
  *
@@ -315,12 +278,11 @@ export function calculateMonthlyCostCents(tierId: AcceptedTierId, seatCount: num
  * calculateAnnualCostCents('growth', 5);   // 137000  → $990 + 2 × $190
  * ```
  */
-export function calculateAnnualCostCents(tierId: AcceptedTierId, seatCount: number): number {
-  const canonical = toCanonicalTier(tierId);
-  const tier = CANONICAL_TIER_DEFINITIONS[canonical];
+export function calculateAnnualCostCents(tierId: PublicTierId, seatCount: number): number {
+  const tier = CANONICAL_TIER_DEFINITIONS[tierId];
   const seats = Math.max(tier.minSeats, Math.min(tier.maxSeats, seatCount));
 
-  if (canonical === 'pro') {
+  if (tierId === 'pro') {
     return PRO_ANNUAL_USD_CENTS;
   }
 
@@ -334,7 +296,7 @@ export function calculateAnnualCostCents(tierId: AcceptedTierId, seatCount: numb
  *
  * Used by the pricing page toggle to show "billed annually at $X/mo".
  *
- * @param tierId - The public tier identifier.
+ * @param tierId - The canonical tier identifier (`'pro'` or `'growth'`).
  * @param seatCount - Number of seats.
  * @returns Per-month cost in USD cents when billed annually.
  *
@@ -345,7 +307,7 @@ export function calculateAnnualCostCents(tierId: AcceptedTierId, seatCount: numb
  * ```
  */
 export function calculateAnnualMonthlyEquivalentCents(
-  tierId: AcceptedTierId,
+  tierId: PublicTierId,
   seatCount: number
 ): number {
   const annualCents = calculateAnnualCostCents(tierId, seatCount);
@@ -359,14 +321,13 @@ export function calculateAnnualMonthlyEquivalentCents(
  * - Growth: must be a positive integer between {@link GROWTH_BASE_SEATS}
  *   and {@link GROWTH_MAX_SEATS} inclusive.
  *
- * @param tierId - The public tier identifier.
+ * @param tierId - The canonical tier identifier (`'pro'` or `'growth'`).
  * @param seatCount - Proposed seat count to validate.
  * @returns `true` if the seat count is valid for the tier.
  */
-export function validateSeatCount(tierId: AcceptedTierId, seatCount: number): boolean {
+export function validateSeatCount(tierId: PublicTierId, seatCount: number): boolean {
   if (!Number.isInteger(seatCount)) return false;
-  const canonical = toCanonicalTier(tierId);
-  const tier = CANONICAL_TIER_DEFINITIONS[canonical];
+  const tier = CANONICAL_TIER_DEFINITIONS[tierId];
   return seatCount >= tier.minSeats && seatCount <= tier.maxSeats;
 }
 
@@ -451,168 +412,11 @@ export function getProductId(plan: PublicTierId, interval: BillingInterval): str
   return null;
 }
 
-// ============================================================================
-// Legacy compatibility shims (DELETE in Phase 6 UI copy refactor)
-// ============================================================================
-//
-// WHY this section exists:
-//   The pricing page card components (`SoloTierCard`, `TeamTierCard`,
-//   `BusinessTierCard`, `EnterpriseTierCard`) and `app/pricing/page.tsx`
-//   were authored under the pre-rename 4-tier marketing model. Phase 6 of
-//   the tier reconciliation rewrites those components against the new
-//   2-tier (Pro / Growth) model. Until Phase 6 ships, this PR must not
-//   break the typecheck or runtime — those files are explicitly out of
-//   scope for the library refactor PR (per `.audit/styrby-fulltest.md`
-//   Phase 5 / Phase 6 split).
-//
-//   These shims preserve the OLD export surface (`TIER_DEFINITIONS.solo`,
-//   `TEAM_MIN_SEATS`, `pricePerSeatMonthlyUsdCents`) so the card components
-//   keep compiling and rendering until the Phase 6 PR replaces them with
-//   `<ProTierCard>` and `<GrowthTierCard>`. They map old marketing tiers to
-//   the new pricing model so live render stays approximately correct:
-//     solo       → pro    (single-user paid plan)
-//     team       → growth (entry team plan)
-//     business   → growth (high-end of the same tier — Decision #1)
-//     enterprise → growth (custom-priced superset; sales conversation)
-//
-//   New code MUST use `'pro' | 'growth'` and read from the canonical view
-//   `TIER_DEFINITIONS_CANONICAL`. The exported `TIER_DEFINITIONS` is the
-//   augmented (legacy + canonical) view because the card components and
-//   `app/pricing/page.tsx` already import the bare `TIER_DEFINITIONS`
-//   identifier.
-
-/** @deprecated Phase 6 — use `GROWTH_BASE_SEATS`. */
-export const TEAM_MIN_SEATS = GROWTH_BASE_SEATS;
-
-/** @deprecated Phase 6 — use `GROWTH_MAX_SEATS`. */
-export const TEAM_MAX_SEATS = GROWTH_MAX_SEATS;
-
-/** @deprecated Phase 6 — use `GROWTH_BASE_SEATS` (10-seat business floor is collapsed into Growth). */
-export const BUSINESS_MIN_SEATS = GROWTH_BASE_SEATS;
-
-/** @deprecated Phase 6 — use `GROWTH_MAX_SEATS`. */
-export const BUSINESS_MAX_SEATS = GROWTH_MAX_SEATS;
-
 /**
- * Legacy tier-definition shape used by the unmodified pricing card
- * components. Exposes the pre-rename `pricePerSeatMonthlyUsdCents` field
- * so those components keep rendering until Phase 6.
- *
- * @deprecated Phase 6 — read `TIER_DEFINITIONS_CANONICAL[publicTierId]` directly.
- */
-interface LegacyTierShape {
-  id: string;
-  name: string;
-  tagline: string;
-  pricePerSeatMonthlyUsdCents: number;
-  minSeats: number;
-  maxSeats: number;
-  highlights: readonly string[];
-  cta: string;
-  recommended: boolean;
-  checkoutPath: string | null;
-}
-
-/**
- * Canonical-only `TIER_DEFINITIONS` view, keyed strictly by
- * {@link PublicTierId}. New code should import this.
- *
- * Phase 6 deletes the legacy augmentation and renames the canonical view
- * back to `TIER_DEFINITIONS`.
+ * Canonical `TIER_DEFINITIONS` view, keyed strictly by {@link PublicTierId}.
+ * This is the single source of truth for pricing page tier data.
  */
 export const TIER_DEFINITIONS_CANONICAL = CANONICAL_TIER_DEFINITIONS;
-
-/**
- * Augmented `TIER_DEFINITIONS` view that includes legacy keys
- * (`solo`, `team`, `business`, `enterprise`) for back-compat with the
- * unmodified pricing card components.
- *
- * @deprecated Phase 6 replaces this with the canonical view above.
- */
-export const TIER_DEFINITIONS: Record<string, LegacyTierShape> = {
-  // Canonical entries projected into the legacy shape so consumers that
-  // read `tier.pricePerSeatMonthlyUsdCents` (the unmodified card components)
-  // still work uniformly across canonical and legacy keys.
-  pro: {
-    id: 'pro',
-    name: CANONICAL_TIER_DEFINITIONS.pro.name,
-    tagline: CANONICAL_TIER_DEFINITIONS.pro.tagline,
-    pricePerSeatMonthlyUsdCents: PRO_MONTHLY_USD_CENTS,
-    minSeats: CANONICAL_TIER_DEFINITIONS.pro.minSeats,
-    maxSeats: CANONICAL_TIER_DEFINITIONS.pro.maxSeats,
-    highlights: CANONICAL_TIER_DEFINITIONS.pro.highlights,
-    cta: CANONICAL_TIER_DEFINITIONS.pro.cta,
-    recommended: CANONICAL_TIER_DEFINITIONS.pro.recommended,
-    checkoutPath: CANONICAL_TIER_DEFINITIONS.pro.checkoutPath,
-  },
-  growth: {
-    id: 'growth',
-    name: CANONICAL_TIER_DEFINITIONS.growth.name,
-    tagline: CANONICAL_TIER_DEFINITIONS.growth.tagline,
-    pricePerSeatMonthlyUsdCents: GROWTH_SEAT_MONTHLY_USD_CENTS,
-    minSeats: CANONICAL_TIER_DEFINITIONS.growth.minSeats,
-    maxSeats: CANONICAL_TIER_DEFINITIONS.growth.maxSeats,
-    highlights: CANONICAL_TIER_DEFINITIONS.growth.highlights,
-    cta: CANONICAL_TIER_DEFINITIONS.growth.cta,
-    recommended: CANONICAL_TIER_DEFINITIONS.growth.recommended,
-    checkoutPath: CANONICAL_TIER_DEFINITIONS.growth.checkoutPath,
-  },
-  solo: {
-    id: 'solo',
-    name: 'Pro',
-    tagline: CANONICAL_TIER_DEFINITIONS.pro.tagline,
-    pricePerSeatMonthlyUsdCents: PRO_MONTHLY_USD_CENTS,
-    minSeats: 1,
-    maxSeats: 1,
-    highlights: CANONICAL_TIER_DEFINITIONS.pro.highlights,
-    cta: CANONICAL_TIER_DEFINITIONS.pro.cta,
-    recommended: CANONICAL_TIER_DEFINITIONS.pro.recommended,
-    checkoutPath: CANONICAL_TIER_DEFINITIONS.pro.checkoutPath,
-  },
-  team: {
-    id: 'team',
-    name: 'Growth',
-    tagline: CANONICAL_TIER_DEFINITIONS.growth.tagline,
-    pricePerSeatMonthlyUsdCents: GROWTH_SEAT_MONTHLY_USD_CENTS,
-    minSeats: GROWTH_BASE_SEATS,
-    maxSeats: GROWTH_MAX_SEATS,
-    highlights: CANONICAL_TIER_DEFINITIONS.growth.highlights,
-    cta: CANONICAL_TIER_DEFINITIONS.growth.cta,
-    recommended: CANONICAL_TIER_DEFINITIONS.growth.recommended,
-    checkoutPath: CANONICAL_TIER_DEFINITIONS.growth.checkoutPath,
-  },
-  business: {
-    id: 'business',
-    name: 'Growth',
-    tagline: CANONICAL_TIER_DEFINITIONS.growth.tagline,
-    pricePerSeatMonthlyUsdCents: GROWTH_SEAT_MONTHLY_USD_CENTS,
-    minSeats: GROWTH_BASE_SEATS,
-    maxSeats: GROWTH_MAX_SEATS,
-    highlights: CANONICAL_TIER_DEFINITIONS.growth.highlights,
-    cta: CANONICAL_TIER_DEFINITIONS.growth.cta,
-    recommended: false,
-    checkoutPath: CANONICAL_TIER_DEFINITIONS.growth.checkoutPath,
-  },
-  enterprise: {
-    id: 'enterprise',
-    name: 'Enterprise',
-    tagline: 'For orgs whose procurement team has questions before a developer can sign up.',
-    pricePerSeatMonthlyUsdCents: 0,
-    minSeats: 1,
-    maxSeats: Number.POSITIVE_INFINITY,
-    highlights: [
-      'Everything in Growth, plus:',
-      'Enterprise SSO (SAML 2.0 and OIDC)',
-      'Custom data residency',
-      'Dedicated Slack channel with the engineering team',
-      'Custom SLA with a written uptime guarantee',
-      'Procurement and legal review support, including DPAs',
-    ],
-    cta: 'Talk to the founders',
-    recommended: false,
-    checkoutPath: null,
-  },
-};
 
 /**
  * Maps a Polar product ID back to the canonical tier it represents.
