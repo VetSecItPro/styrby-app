@@ -109,9 +109,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Tier not available for purchase' }, { status: 400 });
     }
 
-    // Create checkout session
+    // Create checkout session.
+    // WHY products array: SDK 0.30+ renamed `productId` (string) to
+    // `products` (string[]). The wire API has always expected an array.
     const checkout = await polar.checkouts.create({
-      productId,
+      products: [productId],
       successUrl: `${process.env.NEXT_PUBLIC_APP_URL}/settings?checkout=success`,
       customerEmail: user.email!,
       metadata: {
