@@ -15,7 +15,7 @@
 import { homedir, platform } from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import chalk from 'chalk';
 import { logger } from '@/ui/logger';
 
@@ -533,9 +533,16 @@ async function handleDaemonServiceStatus(): Promise<void> {
     }
 
     // Check if loaded
+    // WHY: Previously used execSync(`launchctl list | grep ${MACOS_LABEL}`) which
+    // passes a shell-interpolated string through /bin/sh. Even though MACOS_LABEL
+    // is currently a hardcoded constant, the pattern is unsafe: if the label ever
+    // becomes config-driven, it opens a shell-injection vector. Using spawnSync
+    // with an explicit argv array (no shell) and filtering stdout in JS eliminates
+    // the shell entirely. (sec H-04)
     try {
-      const result = execSync(`launchctl list | grep ${MACOS_LABEL}`, { encoding: 'utf-8' });
-      if (result.includes(MACOS_LABEL)) {
+      const { stdout, status } = spawnSync('launchctl', ['list'], { encoding: 'utf-8' });
+      const loaded = status === 0 && stdout.split('\n').some(line => line.includes(MACOS_LABEL));
+      if (loaded) {
         console.log(chalk.green('Daemon installed and loaded'));
         console.log(chalk.gray(`Plist: ${MACOS_PLIST_PATH}`));
       } else {
