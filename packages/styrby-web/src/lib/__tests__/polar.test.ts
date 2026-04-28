@@ -469,7 +469,9 @@ describe('createCheckoutSession() — SDK wrapper', () => {
     polarMocks.checkoutsCreate.mockReset();
   });
 
-  it('happy path: forwards productId, successUrl, customerEmail, metadata to checkouts.create', async () => {
+  it('happy path: forwards products array, successUrl, customerEmail, metadata to checkouts.create', async () => {
+    // H19: SDK 0.30+ renamed `productId` (string) → `products` (string[]).
+    // The wire API has always accepted an array; the v0.29 type was wrong.
     const fakeCheckout = { id: 'co_123', url: 'https://polar.sh/checkout/co_123' };
     polarMocks.checkoutsCreate.mockResolvedValueOnce(fakeCheckout);
 
@@ -481,7 +483,7 @@ describe('createCheckoutSession() — SDK wrapper', () => {
 
     expect(polarMocks.checkoutsCreate).toHaveBeenCalledTimes(1);
     expect(polarMocks.checkoutsCreate).toHaveBeenCalledWith({
-      productId: 'prod_pro_mo',
+      products: ['prod_pro_mo'],
       successUrl: 'https://styrby.com/billing/success',
       customerEmail: 'user_abc',
       metadata: { userId: 'user_abc' },

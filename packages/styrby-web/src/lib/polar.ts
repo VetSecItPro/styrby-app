@@ -137,8 +137,11 @@ export async function createCheckoutSession(
   successUrl: string,
   _cancelUrl?: string
 ) {
+  // WHY products array (not productId): the SDK renamed the field from
+  // singular `productId` to plural `products: string[]` starting in v0.30+.
+  // The wire format expects an array; the v0.29 type was incorrect anyway.
   const checkout = await polar.checkouts.create({
-    productId,
+    products: [productId],
     successUrl,
     customerEmail: customerId, // Will be mapped to customer
     metadata: {
@@ -214,20 +217,18 @@ export async function cancelSubscription(
   subscriptionId: string,
   options: { immediate?: boolean } = {},
 ) {
-  // WHY the cast: Polar's REST API accepts the proration values
-  // "invoice" | "prorate" | "next_period" | "reset" (per Polar dashboard +
-  // OpenAPI docs), but `@polar-sh/sdk@0.29.x`'s generated TS enum only
-  // narrows to "invoice" | "prorate". The wire value `next_period` is still
-  // honored by the API — this cast bridges the SDK type lag to the runtime
-  // contract. Drop the cast once the SDK ships the broader enum (tracked
-  // alongside Bug #6 / Phase H7 sandbox parity).
+  // H19 (resolved 2026-04-28): @polar-sh/sdk 0.47+ ships the broader
+  // SubscriptionProrationBehavior enum that natively includes 'next_period'
+  // and 'reset' (and switched from ClosedEnum to OpenEnum). The previous
+  // `as unknown as ...` cast that bridged the v0.29 SDK type lag is no
+  // longer needed — the literal STYRBY_PRORATION_BEHAVIOR is assignable
+  // directly. Plain typed object below.
   const subscriptionUpdate: Parameters<typeof polar.subscriptions.update>[0]['subscriptionUpdate'] = options.immediate
     ? { revoke: true as const }
-    : // SDK enum lag — see WHY note above the function body.
-      ({
+    : {
         cancelAtPeriodEnd: true,
         prorationBehavior: STYRBY_PRORATION_BEHAVIOR,
-      } as unknown as Parameters<typeof polar.subscriptions.update>[0]['subscriptionUpdate']);
+      };
 
   const subscription = await polar.subscriptions.update({
     id: subscriptionId,

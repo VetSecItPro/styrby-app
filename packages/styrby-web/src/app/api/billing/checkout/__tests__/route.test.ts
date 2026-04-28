@@ -319,7 +319,7 @@ describe('POST /api/billing/checkout', () => {
     expect(response.status).toBe(200);
     expect(data.url).toBe('https://polar.sh/checkout/test123');
     expect(mockCheckoutCreate).toHaveBeenCalledWith({
-      productId: MOCK_TIERS.pro.polarProductId.monthly,
+      products: [MOCK_TIERS.pro.polarProductId.monthly],
       successUrl: expect.stringContaining('/settings?checkout=success'),
       customerEmail: 'test@example.com',
       metadata: {
@@ -356,7 +356,7 @@ describe('POST /api/billing/checkout', () => {
     expect(response.status).toBe(200);
     expect(data.url).toBe('https://polar.sh/checkout/annual456');
     expect(mockCheckoutCreate).toHaveBeenCalledWith({
-      productId: MOCK_TIERS.pro.polarProductId.annual,
+      products: [MOCK_TIERS.pro.polarProductId.annual],
       successUrl: expect.stringContaining('/settings?checkout=success'),
       customerEmail: 'test@example.com',
       metadata: {
