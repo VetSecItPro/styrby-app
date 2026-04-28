@@ -40,7 +40,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { withApiAuth, addRateLimitHeaders, type ApiAuthContext } from '@/middleware/api-auth';
+import { withApiAuthAndRateLimit, addRateLimitHeaders, type ApiAuthContext } from '@/middleware/api-auth';
 import type { SessionCheckpoint } from '@styrby/shared';
 import { normalizeEffectiveTier } from '@/lib/tier-enforcement';
 import { z } from 'zod';
@@ -154,7 +154,7 @@ async function getHandler(
   request: NextRequest,
   context: ApiAuthContext
 ): Promise<NextResponse> {
-  const { userId, keyId } = context;
+  const { userId, keyId, keyExpiresAt } = context;
 
   const url = new URL(request.url);
   const segments = url.pathname.split('/');
@@ -197,7 +197,7 @@ async function getHandler(
   );
 
   const response = NextResponse.json({ checkpoints });
-  return addRateLimitHeaders(response, keyId);
+  return addRateLimitHeaders(response, keyId, keyExpiresAt);
 }
 
 // ============================================================================
@@ -215,7 +215,7 @@ async function postHandler(
   request: NextRequest,
   context: ApiAuthContext
 ): Promise<NextResponse> {
-  const { userId, keyId } = context;
+  const { userId, keyId, keyExpiresAt } = context;
 
   const url = new URL(request.url);
   const segments = url.pathname.split('/');
@@ -319,7 +319,7 @@ async function postHandler(
 
   const checkpoint = rowToCheckpoint(inserted as Record<string, unknown>);
   const response = NextResponse.json({ checkpoint }, { status: 201 });
-  return addRateLimitHeaders(response, keyId);
+  return addRateLimitHeaders(response, keyId, keyExpiresAt);
 }
 
 // ============================================================================
@@ -342,7 +342,7 @@ async function deleteHandler(
   request: NextRequest,
   context: ApiAuthContext
 ): Promise<NextResponse> {
-  const { userId, keyId } = context;
+  const { userId, keyId, keyExpiresAt } = context;
 
   const url = new URL(request.url);
   const segments = url.pathname.split('/');
@@ -392,13 +392,13 @@ async function deleteHandler(
   }
 
   const response = NextResponse.json({ deleted: true });
-  return addRateLimitHeaders(response, keyId);
+  return addRateLimitHeaders(response, keyId, keyExpiresAt);
 }
 
 // ============================================================================
 // Exports
 // ============================================================================
 
-export const GET = withApiAuth(getHandler);
-export const POST = withApiAuth(postHandler);
-export const DELETE = withApiAuth(deleteHandler);
+export const GET = withApiAuthAndRateLimit(getHandler);
+export const POST = withApiAuthAndRateLimit(postHandler);
+export const DELETE = withApiAuthAndRateLimit(deleteHandler);
