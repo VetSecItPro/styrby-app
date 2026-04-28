@@ -32,6 +32,13 @@
  *    inside the functions (not module-level). This allows test code to stub
  *    env vars via vi.stubEnv() without module cache issues.
  *
+ * 5. ENV-AWARE SECRET SELECTION: When `POLAR_ENV=sandbox`, the verifier
+ *    reads `POLAR_SANDBOX_WEBHOOK_SECRET`; otherwise it reads
+ *    `POLAR_WEBHOOK_SECRET`. This mirrors `getPolarServer()` in `polar.ts`
+ *    so a single deploy can be pointed at either Polar environment by
+ *    flipping a single env var. Default behavior (POLAR_ENV unset) preserves
+ *    production: no migration risk to existing deploys.
+ *
  * Governing standards:
  * - OWASP ASVS V3.5 (Token-Based Authentication)
  * - OWASP ASVS V8.3 (Sensitive Private Data)
@@ -45,6 +52,39 @@ import crypto from 'crypto';
 // WHY no .js extension: same as polar-env.ts — webpack (moduleResolution: bundler)
 // cannot resolve explicit .js extensions for TypeScript source files.
 import { getEnv } from './env';
+
+// ============================================================================
+// Env-aware secret resolution
+// ============================================================================
+
+/**
+ * Returns the active Polar webhook signing secret based on `POLAR_ENV`.
+ *
+ * - When `POLAR_ENV === 'sandbox'`: reads `POLAR_SANDBOX_WEBHOOK_SECRET`.
+ * - Otherwise: reads `POLAR_WEBHOOK_SECRET` (production behavior, default).
+ *
+ * WHY env-aware (mirrors `getPolarServer()` in `polar.ts`): sandbox and
+ * production are separate Polar accounts with separate signing secrets. A
+ * sandbox-origin webhook signed with the sandbox secret would fail HMAC
+ * verification against the prod secret (and vice versa) with no useful error,
+ * just a 401. Selecting the secret by env keeps a single deploy capable of
+ * serving either environment correctly when `POLAR_ENV` is set in the
+ * deploy's env scope.
+ *
+ * WHY default-to-prod: `POLAR_ENV` is unset on the production Vercel scope.
+ * Returning the prod secret on absence preserves existing behavior — no
+ * production migration risk introduced by this function.
+ *
+ * @returns The active webhook secret string, or `undefined` if the resolved
+ *   env var is missing/empty. Callers must treat undefined as "reject all
+ *   requests" (see `verifyPolarSignature` for the safe rejection path).
+ */
+export function getPolarWebhookSecret(): string | undefined {
+  const env = getEnv('POLAR_ENV');
+  const isSandbox = env === 'sandbox';
+  const varName = isSandbox ? 'POLAR_SANDBOX_WEBHOOK_SECRET' : 'POLAR_WEBHOOK_SECRET';
+  return getEnv(varName);
+}
 
 // ============================================================================
 // Core verification
@@ -72,16 +112,20 @@ import { getEnv } from './env';
  * ```
  */
 export function verifyPolarSignature(body: string, signature: string): boolean {
-  // WHY read from env here (not module scope): allows vi.stubEnv() in tests
-  // to replace the value between test cases without re-importing the module.
-  const secret = getEnv('POLAR_WEBHOOK_SECRET');
+  // WHY env-aware: getPolarWebhookSecret() returns the sandbox secret when
+  // POLAR_ENV=sandbox, else the prod secret. Reading at call-time (not module
+  // scope) lets vi.stubEnv() swap secrets between test cases without re-import.
+  const secret = getPolarWebhookSecret();
 
   if (!secret) {
-    // POLAR_WEBHOOK_SECRET is not configured — treat as invalid.
+    // No secret configured for the active POLAR_ENV — treat as invalid.
     // This case should have been caught by validatePolarEnv() at startup.
-    // Log the absence (not the value) and reject.
+    // Log the absence (not the value) and reject. The error message
+    // includes which env's secret was missing so ops can locate the gap.
+    const isSandbox = getEnv('POLAR_ENV') === 'sandbox';
+    const which = isSandbox ? 'POLAR_SANDBOX_WEBHOOK_SECRET' : 'POLAR_WEBHOOK_SECRET';
     console.error(
-      'polar-webhook-signature: POLAR_WEBHOOK_SECRET is unset; rejecting all requests'
+      `polar-webhook-signature: ${which} is unset; rejecting all requests`
     );
     return false;
   }
