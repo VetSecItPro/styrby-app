@@ -502,7 +502,19 @@ export class AgentSession extends EventEmitter {
             this.process.kill('SIGINT');
           }
         } else if (payload?.action === 'end_session') {
-          this.stop();
+          // WHY: stop() is async (relay disconnect + SIGTERM sequence). Calling
+          // it without await or .catch() inside this synchronous event handler
+          // turns any internal throw into an unhandled promise rejection. In
+          // Node ≥15 an unhandled rejection crashes the entire CLI process. We
+          // intentionally use void + .catch() rather than await here because
+          // handleMobileMessage() is called from a synchronous relay listener
+          // and cannot be made async without refactoring the event dispatch
+          // chain. Errors are surfaced via the structured logger so they appear
+          // in daemon logs and Sentry, without taking down the process.
+          // See audit finding C-1.
+          void this.stop().catch((err) =>
+            this.log('Failed to stop session on end_session command', { err }),
+          );
         }
         break;
       }
