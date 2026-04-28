@@ -65,6 +65,23 @@ vi.mock('@sentry/nextjs', () => ({
   captureMessage: (...args: unknown[]) => mockSentryCaptureMessage(...args),
 }));
 
+// WHY mock mfa-gate: the actions.integration tests mock createClient to return
+// only the rpc mock (for the user-scoped client). assertAdminMfa calls
+// createAdminClient to query site_admins + passkeys. Without this mock, the
+// MFA gate would fail-closed on every action test. MFA behavior is covered
+// in __tests__/admin/mfa-gate.test.ts. OWASP A07:2021, SOC 2 CC6.1.
+vi.mock('@/lib/admin/mfa-gate', () => ({
+  assertAdminMfa: vi.fn().mockResolvedValue(undefined),
+  AdminMfaRequiredError: class AdminMfaRequiredError extends Error {
+    statusCode = 403 as const;
+    code = 'ADMIN_MFA_REQUIRED' as const;
+    constructor() {
+      super('Admin MFA required');
+      this.name = 'AdminMfaRequiredError';
+    }
+  },
+}));
+
 // ── Supabase mock ─────────────────────────────────────────────────────────────
 const mockRpc = vi.fn();
 const mockGenerateLink = vi.fn();
@@ -124,7 +141,21 @@ describe('overrideTierAction — integration (form → Zod → RPC)', () => {
     vi.clearAllMocks();
     // WHY restore createClient: clearAllMocks wipes mockResolvedValue.
     // Fix P0: createClient (user-scoped) is the RPC client for admin_* RPCs.
-    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
+    (createClient as Mock).mockResolvedValue({
+      rpc: mockRpc,
+      // WHY auth.getUser stub: the MFA gate block in each action calls
+      // supabase.auth.getUser() to resolve the acting admin's ID before calling
+      // assertAdminMfa(). assertAdminMfa is mocked to return undefined (see
+      // vi.mock('@/lib/admin/mfa-gate') above), so the gate itself is bypassed.
+      // But the auth.getUser() call still happens — without this stub the mock
+      // returns undefined for .auth, causing a TypeError. OWASP A07:2021.
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: 'admin-uuid-001' } },
+          error: null,
+        }),
+      },
+    });
     mockHeadersGet.mockImplementation((name: string) => {
       if (name === 'x-forwarded-for') return MOCK_XFF;
       if (name === 'user-agent') return MOCK_UA;
@@ -259,7 +290,21 @@ describe('resetPasswordAction — integration (form → Zod → RPC → generate
     vi.clearAllMocks();
     // WHY restore createClient: clearAllMocks wipes mockResolvedValue.
     // Fix P0: admin_record_password_reset RPC uses user-scoped client.
-    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
+    (createClient as Mock).mockResolvedValue({
+      rpc: mockRpc,
+      // WHY auth.getUser stub: the MFA gate block in each action calls
+      // supabase.auth.getUser() to resolve the acting admin's ID before calling
+      // assertAdminMfa(). assertAdminMfa is mocked to return undefined (see
+      // vi.mock('@/lib/admin/mfa-gate') above), so the gate itself is bypassed.
+      // But the auth.getUser() call still happens — without this stub the mock
+      // returns undefined for .auth, causing a TypeError. OWASP A07:2021.
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: 'admin-uuid-001' } },
+          error: null,
+        }),
+      },
+    });
     mockHeadersGet.mockImplementation((name: string) => {
       if (name === 'x-forwarded-for') return MOCK_XFF;
       if (name === 'user-agent') return MOCK_UA;
@@ -390,7 +435,21 @@ describe('toggleConsentAction — integration (form → Zod → RPC)', () => {
     vi.clearAllMocks();
     // WHY restore createClient: clearAllMocks wipes mockResolvedValue.
     // Fix P0: admin_toggle_consent RPC uses user-scoped client.
-    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
+    (createClient as Mock).mockResolvedValue({
+      rpc: mockRpc,
+      // WHY auth.getUser stub: the MFA gate block in each action calls
+      // supabase.auth.getUser() to resolve the acting admin's ID before calling
+      // assertAdminMfa(). assertAdminMfa is mocked to return undefined (see
+      // vi.mock('@/lib/admin/mfa-gate') above), so the gate itself is bypassed.
+      // But the auth.getUser() call still happens — without this stub the mock
+      // returns undefined for .auth, causing a TypeError. OWASP A07:2021.
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: 'admin-uuid-001' } },
+          error: null,
+        }),
+      },
+    });
     mockHeadersGet.mockImplementation((name: string) => {
       if (name === 'x-forwarded-for') return MOCK_XFF;
       if (name === 'user-agent') return MOCK_UA;

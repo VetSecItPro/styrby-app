@@ -33,6 +33,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createAdminClient, createClient } from '@/lib/supabase/server';
 import * as Sentry from '@sentry/nextjs';
+import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
@@ -276,6 +277,24 @@ export async function overrideTierAction(
   // SOC 2 CC6.1, CC7.2.
   const supabase = await createClient();
 
+  // ── MFA gate — H42 Layer 1 ────────────────────────────────────────────────
+  // WHY here (not in layout): the layout cannot call assertAdminMfa because it
+  // would block the passkey enrollment page itself (bootstrap paradox). Per-action
+  // enforcement is the correct pattern. OWASP A07:2021, SOC 2 CC6.1.
+  {
+    const { data: { user: actingAdmin } } = await supabase.auth.getUser();
+    if (actingAdmin) {
+      try {
+        await assertAdminMfa(actingAdmin.id);
+      } catch (err) {
+        if (err instanceof AdminMfaRequiredError) {
+          return { ok: false, error: err.code };
+        }
+        throw err;
+      }
+    }
+  }
+
   const { data: auditId, error } = await supabase.rpc('admin_override_tier', {
     p_target_user_id: parsed.data.targetUserId,
     p_new_tier: parsed.data.newTier,
@@ -374,6 +393,26 @@ export async function resetPasswordAction(
   //     scoped client forwards the admin's session cookie → auth.uid() resolves.
   //   SOC 2 CC6.1, CC7.2.
   const adminClient = createAdminClient();
+
+  // ── MFA gate — H42 Layer 1 ────────────────────────────────────────────────
+  // WHY user-scoped client for MFA check: assertAdminMfa uses createAdminClient()
+  // internally for DB queries, but we need the acting admin's user ID. We use
+  // a temporary user-scoped client here to resolve auth.uid() → actingAdmin.id.
+  // OWASP A07:2021, SOC 2 CC6.1.
+  {
+    const mfaClient = await createClient();
+    const { data: { user: actingAdmin } } = await mfaClient.auth.getUser();
+    if (actingAdmin) {
+      try {
+        await assertAdminMfa(actingAdmin.id);
+      } catch (err) {
+        if (err instanceof AdminMfaRequiredError) {
+          return { ok: false, error: err.code };
+        }
+        throw err;
+      }
+    }
+  }
 
   // ── 3. Fetch target user server-side via trusted Auth Admin API ───────────
   // CRITICAL (C1): email is resolved from the server-side Auth Admin API, not
@@ -559,6 +598,22 @@ export async function toggleConsentAction(
   // = NULL → 42501. User-scoped client forwards the admin's session cookie.
   // SOC 2 CC6.1, CC7.2.
   const supabase = await createClient();
+
+  // ── MFA gate — H42 Layer 1 ────────────────────────────────────────────────
+  // OWASP A07:2021, SOC 2 CC6.1.
+  {
+    const { data: { user: actingAdmin } } = await supabase.auth.getUser();
+    if (actingAdmin) {
+      try {
+        await assertAdminMfa(actingAdmin.id);
+      } catch (err) {
+        if (err instanceof AdminMfaRequiredError) {
+          return { ok: false, error: err.code };
+        }
+        throw err;
+      }
+    }
+  }
 
   const { error } = await supabase.rpc('admin_toggle_consent', {
     p_target_user_id: parsed.data.targetUserId,

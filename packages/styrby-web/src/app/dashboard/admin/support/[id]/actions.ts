@@ -54,6 +54,7 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { generateSupportToken } from '@/lib/support/token';
 import * as Sentry from '@sentry/nextjs';
+import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 
 // ─── Shared action result type ────────────────────────────────────────────────
 
@@ -251,6 +252,22 @@ export async function requestSupportAccessAction(
 
   // ── 4. Resolve user_id from the ticket (server-side, unforgeable) ──────────
   const supabase = await createClient();
+
+  // ── MFA gate — H42 Layer 1 ────────────────────────────────────────────────
+  // OWASP A07:2021, SOC 2 CC6.1.
+  {
+    const { data: { user: actingAdmin } } = await supabase.auth.getUser();
+    if (actingAdmin) {
+      try {
+        await assertAdminMfa(actingAdmin.id);
+      } catch (err) {
+        if (err instanceof AdminMfaRequiredError) {
+          return { ok: false, error: err.code };
+        }
+        throw err;
+      }
+    }
+  }
 
   // WHY resolve p_user_id from the ticket server-side (not from FormData):
   //   The admin's form submits session_id and reason — there is no user_id field

@@ -40,6 +40,24 @@ vi.mock('@sentry/nextjs', () => ({
   captureException: vi.fn(),
 }));
 
+// WHY mock mfa-gate: the audit-chain tests mock createAdminClient to return
+// only the RPC response shape. assertAdminMfa calls createAdminClient to query
+// site_admins + passkeys + Auth API. Without this mock, assertAdminMfa would
+// fail-closed (throw AdminMfaRequiredError → 403), causing all tests to fail.
+// These tests verify the audit chain logic, not the MFA gate behavior.
+// MFA gate is covered in __tests__/admin/mfa-gate.test.ts. OWASP A07:2021.
+vi.mock('@/lib/admin/mfa-gate', () => ({
+  assertAdminMfa: vi.fn().mockResolvedValue(undefined),
+  AdminMfaRequiredError: class AdminMfaRequiredError extends Error {
+    statusCode = 403 as const;
+    code = 'ADMIN_MFA_REQUIRED' as const;
+    constructor() {
+      super('Admin MFA required');
+      this.name = 'AdminMfaRequiredError';
+    }
+  },
+}));
+
 import { createClient } from '@/lib/supabase/server';
 import { isAdmin } from '@/lib/admin';
 import * as Sentry from '@sentry/nextjs';
