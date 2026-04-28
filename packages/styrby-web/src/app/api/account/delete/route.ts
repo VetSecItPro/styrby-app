@@ -35,11 +35,19 @@ import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
  * Zod schema for delete request validation.
  * WHY: The confirmation literal ensures users consciously acknowledge deletion.
  * This prevents accidental deletions from automated tools or misclicks.
+ *
+ * MASS-ASSIGN-SAFE: OWASP A04:2021 — only `confirmation` and `reason` are
+ * accepted. `.strict()` causes Zod to reject any unrecognized key (e.g.
+ * `is_admin`, `tier`) at parse time and return 400 before any DB write occurs.
+ * The `.update()` calls below use only server-computed values (e.g. `deleted_at`),
+ * never the raw user-supplied object.
  */
-const DeleteRequestSchema = z.object({
-  confirmation: z.literal('DELETE MY ACCOUNT'),
-  reason: z.string().optional(),
-});
+const DeleteRequestSchema = z
+  .object({
+    confirmation: z.literal('DELETE MY ACCOUNT'),
+    reason: z.string().optional(),
+  })
+  .strict(); // OWASP A04:2021 — reject unknown keys (mass-assignment guard)
 
 /**
  * Handles account deletion requests.

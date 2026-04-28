@@ -39,17 +39,24 @@ const ALLOWED_RETENTION_DAYS = [7, 30, 90, 365] as const;
  * WHY nullable union: retention_days: null is a valid payload meaning
  * "clear my retention policy — never auto-delete". Without explicit null
  * support, users couldn't revert to "never delete" after setting a window.
+ *
+ * MASS-ASSIGN-SAFE: OWASP A04:2021 — only `retention_days` is accepted.
+ * `.strict()` rejects unknown keys (e.g. `is_admin`, `tier`) at parse time,
+ * returning 400 before any DB write occurs. The `.update()` call below writes
+ * only `{ retention_days: parsed.data.retention_days }` — never raw user input.
  */
-const RetentionUpdateSchema = z.object({
-  retention_days: z.union([
-    z.enum(['7', '30', '90', '365'] as unknown as [string, ...string[]]).transform(Number),
-    z.literal(7),
-    z.literal(30),
-    z.literal(90),
-    z.literal(365),
-    z.null(),
-  ]),
-});
+const RetentionUpdateSchema = z
+  .object({
+    retention_days: z.union([
+      z.enum(['7', '30', '90', '365'] as unknown as [string, ...string[]]).transform(Number),
+      z.literal(7),
+      z.literal(30),
+      z.literal(90),
+      z.literal(365),
+      z.null(),
+    ]),
+  })
+  .strict(); // OWASP A04:2021 — reject unknown keys (mass-assignment guard)
 
 /**
  * Resolve the Supabase client from cookie session or Bearer token.

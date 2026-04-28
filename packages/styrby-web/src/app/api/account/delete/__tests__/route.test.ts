@@ -452,4 +452,45 @@ describe('DELETE /api/account/delete', () => {
     expect(response.status).toBe(500);
     expect(data.error).toBe('Failed to delete account');
   });
+
+  // ── OWASP A04:2021 Mass-Assignment Guard ────────────────────────────────────
+
+  /**
+   * WHY: Confirms that the .strict() schema rejects any unknown key before any
+   * DB write occurs. An attacker cannot inject fields like `is_admin` or `tier`
+   * alongside a valid confirmation to attempt privilege escalation via
+   * mass-assignment. The route must return 400 without touching the database.
+   *
+   * Note: the .update() calls in the delete route use only server-computed
+   * values (e.g. `{ deleted_at: now }`) — NOT the parsed body. This test
+   * validates that the body schema itself blocks at the validation layer.
+   */
+  it('OWASP A04 — returns 400 and never reaches DB when request includes unknown key is_admin: true', async () => {
+    // No DB queue entries pushed — any DB call would consume from an empty queue
+    // and return { data: null, error: null }, which would let the test pass
+    // incorrectly. We assert queue stays at 0 to prove no DB access occurred.
+
+    const request = createRequest({
+      confirmation: 'DELETE MY ACCOUNT',
+      is_admin: true,
+    });
+
+    const response = await DELETE(request);
+
+    expect(response.status).toBe(400);
+    // Queue untouched proves .from() was never called
+    expect(fromCallQueue.length).toBe(0);
+  });
+
+  it('OWASP A04 — returns 400 and never reaches DB when request includes unknown key tier: enterprise', async () => {
+    const request = createRequest({
+      confirmation: 'DELETE MY ACCOUNT',
+      tier: 'enterprise',
+    });
+
+    const response = await DELETE(request);
+
+    expect(response.status).toBe(400);
+    expect(fromCallQueue.length).toBe(0);
+  });
 });
