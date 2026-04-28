@@ -728,6 +728,87 @@ describe('BudgetMonitor.checkAllAlerts', () => {
     // Only 1 unique key (daily:all) → only 1 cost fetch.
     expect(vi.mocked(getCostsForDateRange)).toHaveBeenCalledTimes(1);
   });
+
+  // --------------------------------------------------------------------------
+  // H-1 regression: subscription_quota + credits caches must be USED, not void'd
+  // --------------------------------------------------------------------------
+
+  it('[H-1] N subscription_quota alerts with the same key issue exactly 1 Supabase cost_records query (not N)', async () => {
+    // WHY: Before the H-1 fix, checkAllAlerts() built quotaCache via a parallel
+    // Supabase pre-fetch then discarded it with `void fraction`. Each alert's
+    // checkAlert() call re-issued getSubscriptionFractionForPeriod independently,
+    // producing N Supabase round-trips for N alerts sharing the same key.
+    // After the fix, checkAlert() receives the pre-resolved fraction and never
+    // calls getSubscriptionFractionForPeriod itself.
+    //
+    // Setup: 5 subscription_quota alerts all sharing 'daily:all' key.
+    // The Supabase mock tracks cost_records calls. We assert exactly 1 call
+    // (the one in the pre-fetch step) regardless of alert count.
+    const N = 5;
+    const quotaAlerts = Array.from({ length: N }, (_, i) =>
+      makeAlert({
+        name: `Quota-${i}`,
+        alert_type: 'subscription_quota',
+        threshold_quota_fraction: 0.80,
+        threshold_usd: 0,
+        period: 'daily',
+        agent_type: null,
+      })
+    );
+
+    const costRecordsRows = [{ subscription_fraction_used: '0.5000' }];
+    const supabase = makeSupabase(quotaAlerts, null, costRecordsRows);
+
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const results = await monitor.checkAllAlerts();
+
+    // All 5 alerts must be returned with the pre-fetched fraction (0.5 of 0.80 = 62.5% → ok).
+    expect(results).toHaveLength(N);
+    expect(results.every((r) => r.level === 'ok')).toBe(true);
+    expect(results.every((r) => Math.abs(r.currentSpendUsd - 0.5) < 0.001)).toBe(true);
+
+    // The critical regression guard: cost_records must have been queried exactly
+    // ONCE (the pre-fetch), NOT N times (one per alert).
+    // supabase.from('cost_records') is called once per unique (period, agentType) key.
+    // With 5 alerts all sharing 'daily:all', that is exactly 1 call.
+    const costRecordsCalls = (supabase.from as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (args: unknown[]) => args[0] === 'cost_records'
+    );
+    expect(costRecordsCalls).toHaveLength(1); // 1 pre-fetch, NOT 5
+  });
+
+  it('[H-1] N credits alerts with the same key issue exactly 1 Supabase cost_records query (not N)', async () => {
+    // WHY: Mirror of the subscription_quota regression above, but for credits type.
+    // Before the fix, each alert re-queried getCreditsConsumedForPeriod independently.
+    const N = 5;
+    const creditAlerts = Array.from({ length: N }, (_, i) =>
+      makeAlert({
+        name: `Credits-${i}`,
+        alert_type: 'credits',
+        threshold_credits: 500,
+        threshold_usd: 0,
+        period: 'daily',
+        agent_type: null,
+      })
+    );
+
+    const costRecordsRows = [{ credits_consumed: 200 }];
+    const supabase = makeSupabase(creditAlerts, null, costRecordsRows);
+
+    const monitor = new BudgetMonitor({ supabase, userId: VALID_UUID });
+    const results = await monitor.checkAllAlerts();
+
+    // All 5 alerts must use the pre-fetched 200 credits (200/500 = 40% → ok).
+    expect(results).toHaveLength(N);
+    expect(results.every((r) => r.level === 'ok')).toBe(true);
+    expect(results.every((r) => r.currentSpendUsd === 200)).toBe(true);
+
+    // cost_records queried exactly ONCE (the pre-fetch), NOT 5 times.
+    const costRecordsCalls = (supabase.from as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (args: unknown[]) => args[0] === 'cost_records'
+    );
+    expect(costRecordsCalls).toHaveLength(1); // 1 pre-fetch, NOT 5
+  });
 });
 
 // ============================================================================
