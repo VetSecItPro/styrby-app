@@ -1,3 +1,9 @@
+// WEBHOOK-INTERNAL: test event trigger
+// This is NOT an inbound vendor webhook receiver. It enqueues a test delivery
+// to the user's own registered endpoint to verify their server is reachable.
+// Access requires a valid Supabase Auth JWT cookie - no external vendor calls
+// this endpoint. Audited H42 Layer 5 (2026-04-28).
+
 /**
  * Webhook Test API Route
  *

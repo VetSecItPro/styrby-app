@@ -1,3 +1,9 @@
+// WEBHOOK-INTERNAL: delivery log reader
+// This is NOT an inbound vendor webhook receiver. It reads Styrby's own
+// outbound webhook delivery history for a given user. Access requires a valid
+// Supabase Auth JWT cookie - no external vendor calls this endpoint.
+// Audited H42 Layer 5 (2026-04-28).
+
 /**
  * Webhook Deliveries API Route
  *
