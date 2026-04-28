@@ -8,6 +8,7 @@
  * because Polar retries, which compounds into duplicate state mutations.
  *
  * Coverage:
+ *   - `buildLifecycleEmail` helper: direct invocation asserting scaffold wiring
  *   - Each of the 6 functions is invoked once and asserted on subject + body
  *   - Each function survives a Resend send failure without throwing
  *   - Each function no-ops cleanly when RESEND_API_KEY is missing
@@ -52,6 +53,75 @@ function lastCall() {
 }
 
 describe('lifecycle emails', () => {
+  describe('buildLifecycleEmail (helper direct)', () => {
+    it('assembles branded HTML scaffold with headline, body, CTA, and sign-off', async () => {
+      const { buildLifecycleEmail } = await load();
+      await buildLifecycleEmail(
+        {
+          to: 'test@example.com',
+          subject: 'Test subject',
+          headline: 'Test headline',
+          bodyHtmlFragments: ['<p>First paragraph</p>', '<p>Second paragraph</p>'],
+          primaryAction: { text: 'Click me', url: 'https://styrbyapp.com/go' },
+          plainText: 'First paragraph\n\nSecond paragraph\n\nClick me: https://styrbyapp.com/go',
+        },
+        'test_kind'
+      );
+      const args = lastCall();
+      expect(args.to).toBe('test@example.com');
+      expect(args.subject).toBe('Test subject');
+      expect(args.from).toContain('Styrby');
+      // Scaffold: headline appears in <h1>
+      expect(args.html).toContain('Test headline');
+      // Both body fragments are present
+      expect(args.html).toContain('First paragraph');
+      expect(args.html).toContain('Second paragraph');
+      // CTA button is rendered
+      expect(args.html).toContain('Click me');
+      expect(args.html).toContain('https://styrbyapp.com/go');
+      // Sign-off
+      expect(args.html).toContain('The Styrby Team');
+      // Plain-text gets the sign-off appended
+      expect(args.text).toContain('First paragraph');
+      expect(args.text).toContain('- The Styrby Team');
+    });
+
+    it('omits the CTA button when primaryAction is not provided', async () => {
+      const { buildLifecycleEmail } = await load();
+      await buildLifecycleEmail(
+        {
+          to: 'test@example.com',
+          subject: 'No CTA',
+          headline: 'No action needed',
+          bodyHtmlFragments: ['<p>Just a notice.</p>'],
+          plainText: 'Just a notice.',
+        },
+        'test_no_cta'
+      );
+      const args = lastCall();
+      // No button anchor should be present
+      expect(args.html).not.toContain('border-radius: 8px');
+      expect(args.html).toContain('No action needed');
+    });
+
+    it('escapes HTML special chars in headline via wrap()', async () => {
+      const { buildLifecycleEmail } = await load();
+      await buildLifecycleEmail(
+        {
+          to: 'test@example.com',
+          subject: 'XSS test',
+          headline: '<script>evil()</script>',
+          bodyHtmlFragments: ['<p>Body</p>'],
+          plainText: 'Body',
+        },
+        'test_xss'
+      );
+      const args = lastCall();
+      expect(args.html).not.toContain('<script>evil()</script>');
+      expect(args.html).toContain('&lt;script&gt;');
+    });
+  });
+
   describe('sendSubscriptionConfirmationEmail', () => {
     it('sends with correct subject, html, and text', async () => {
       const { sendSubscriptionConfirmationEmail } = await load();

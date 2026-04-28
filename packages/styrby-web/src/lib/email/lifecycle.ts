@@ -229,6 +229,89 @@ async function safeSend(params: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// buildLifecycleEmail — shared assembly helper
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Options consumed by {@link buildLifecycleEmail}.
+ *
+ * Every field that varies across the 6 lifecycle email types is expressed
+ * here. The helper assembles the full HTML document and plain-text
+ * alternative, eliminating the ~250 lines of duplicated scaffold that
+ * previously lived inside each function.
+ */
+export interface LifecycleEmailOpts {
+  /** Email recipient address. */
+  to: string;
+  /** Email subject line (verbatim - not modified by the helper). */
+  subject: string;
+  /**
+   * Hero heading rendered inside the branded card.
+   * User-controlled values must already be escaped before being placed here;
+   * `wrap()` calls `escapeHtml` on the title.
+   */
+  headline: string;
+  /**
+   * One or more HTML fragments rendered as the body of the card, in order.
+   * Each fragment is a complete `<p>` block or equivalent. The caller is
+   * responsible for escaping any user-controlled content inside each fragment.
+   */
+  bodyHtmlFragments: string[];
+  /**
+   * Optional call-to-action rendered as a centered button below the body.
+   * Omit for emails that have no primary action (e.g. refund confirmation).
+   */
+  primaryAction?: { text: string; url: string };
+  /**
+   * Plain-text alternative for the email body content block.
+   * The helper appends "- The Styrby Team" sign-off automatically;
+   * the caller supplies everything before it.
+   */
+  plainText: string;
+}
+
+/**
+ * Build the HTML and plain-text bodies for a lifecycle email, then invoke
+ * {@link safeSend}.
+ *
+ * WHY this exists: all 6 lifecycle email functions share the same
+ * HTML scaffold (branded card, CTA button, footer sign-off), the same
+ * `safeSend` invocation, and the same escaping discipline. Extracting them
+ * here reduces the public API to thin wrappers that supply only the copy
+ * that differs per email type.
+ *
+ * @param opts - Per-email variable content (see {@link LifecycleEmailOpts})
+ * @param kind - Short identifier for log correlation (e.g. 'subscription_confirmation')
+ * @returns Promise that always resolves; failures are logged not thrown
+ *
+ * @example
+ * await buildLifecycleEmail(
+ *   {
+ *     to: 'alice@example.com',
+ *     subject: 'Subject line',
+ *     headline: 'Card heading',
+ *     bodyHtmlFragments: ['<p style="...">Body content</p>'],
+ *     primaryAction: { text: 'Open dashboard', url: 'https://styrbyapp.com/dashboard' },
+ *     plainText: 'Body content\n\nOpen your dashboard: https://styrbyapp.com/dashboard',
+ *   },
+ *   'subscription_confirmation'
+ * );
+ */
+export async function buildLifecycleEmail(
+  opts: LifecycleEmailOpts,
+  kind: string
+): Promise<void> {
+  const html = wrap(
+    opts.headline,
+    opts.bodyHtmlFragments.join('\n'),
+    opts.primaryAction?.text,
+    opts.primaryAction?.url
+  );
+  const text = `${opts.plainText}\n\n- The Styrby Team`;
+  await safeSend({ to: opts.to, subject: opts.subject, html, text, kind });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Public API - 6 lifecycle functions
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -264,24 +347,22 @@ export async function sendSubscriptionConfirmationEmail(params: {
   const tier = tierLabel(params.tier);
   const plan = escapeHtml(params.planName);
   const renewal = formatDate(params.currentPeriodEnd);
-  const subject = `You're now on Styrby ${tier}`;
-  const text = `Welcome to Styrby ${tier}.
-
-Your ${params.planName} (${params.billingInterval}) subscription is active. Your next billing date is ${renewal}.
-
-Open your dashboard: ${APP_URL}/dashboard
-
-- The Styrby Team`;
-  const html = wrap(
-    `Welcome to Styrby ${tier}`,
-    `<p style="margin:0;font-size:14px;line-height:1.7;color:#444;">
+  await buildLifecycleEmail(
+    {
+      to: params.email,
+      subject: `You're now on Styrby ${tier}`,
+      headline: `Welcome to Styrby ${tier}`,
+      bodyHtmlFragments: [
+        `<p style="margin:0;font-size:14px;line-height:1.7;color:#444;">
        Your <strong>${plan}</strong> (${escapeHtml(params.billingInterval)}) subscription is active.
        Your next billing date is <strong>${escapeHtml(renewal)}</strong>.
      </p>`,
-    'Open dashboard',
-    `${APP_URL}/dashboard`
+      ],
+      primaryAction: { text: 'Open dashboard', url: `${APP_URL}/dashboard` },
+      plainText: `Welcome to Styrby ${tier}.\n\nYour ${params.planName} (${params.billingInterval}) subscription is active. Your next billing date is ${renewal}.\n\nOpen your dashboard: ${APP_URL}/dashboard`,
+    },
+    'subscription_confirmation'
   );
-  await safeSend({ to: params.email, subject, html, text, kind: 'subscription_confirmation' });
 }
 
 /**
@@ -313,24 +394,22 @@ export async function sendSubscriptionUpgradedEmail(params: {
 }): Promise<void> {
   const from = tierLabel(params.oldTier);
   const to = tierLabel(params.newTier);
-  const subject = `Your Styrby plan was upgraded to ${to}`;
-  const text = `Your Styrby plan was upgraded.
-
-You moved from ${from} to ${to} (${params.billingInterval}). The change is effective immediately and your next bill reflects the new rate.
-
-Open your dashboard: ${APP_URL}/dashboard
-
-- The Styrby Team`;
-  const html = wrap(
-    `Plan upgraded to ${to}`,
-    `<p style="margin:0;font-size:14px;line-height:1.7;color:#444;">
+  await buildLifecycleEmail(
+    {
+      to: params.email,
+      subject: `Your Styrby plan was upgraded to ${to}`,
+      headline: `Plan upgraded to ${to}`,
+      bodyHtmlFragments: [
+        `<p style="margin:0;font-size:14px;line-height:1.7;color:#444;">
        Your account moved from <strong>${escapeHtml(from)}</strong> to <strong>${escapeHtml(to)}</strong>
        (${escapeHtml(params.billingInterval)}). The change is effective immediately and your next bill reflects the new rate.
      </p>`,
-    'Open dashboard',
-    `${APP_URL}/dashboard`
+      ],
+      primaryAction: { text: 'Open dashboard', url: `${APP_URL}/dashboard` },
+      plainText: `Your Styrby plan was upgraded.\n\nYou moved from ${from} to ${to} (${params.billingInterval}). The change is effective immediately and your next bill reflects the new rate.\n\nOpen your dashboard: ${APP_URL}/dashboard`,
+    },
+    'subscription_upgraded'
   );
-  await safeSend({ to: params.email, subject, html, text, kind: 'subscription_upgraded' });
 }
 
 /**
@@ -361,25 +440,23 @@ export async function sendSubscriptionDowngradedEmail(params: {
 }): Promise<void> {
   const from = tierLabel(params.oldTier);
   const to = tierLabel(params.newTier);
-  const subject = `Your Styrby plan was changed to ${to}`;
-  const text = `Your Styrby plan was changed.
-
-You moved from ${from} to ${to} (${params.billingInterval}). Your next bill reflects the new rate. Some features may no longer be available - review your dashboard for details.
-
-Open your dashboard: ${APP_URL}/dashboard
-
-- The Styrby Team`;
-  const html = wrap(
-    `Plan changed to ${to}`,
-    `<p style="margin:0;font-size:14px;line-height:1.7;color:#444;">
+  await buildLifecycleEmail(
+    {
+      to: params.email,
+      subject: `Your Styrby plan was changed to ${to}`,
+      headline: `Plan changed to ${to}`,
+      bodyHtmlFragments: [
+        `<p style="margin:0;font-size:14px;line-height:1.7;color:#444;">
        Your account moved from <strong>${escapeHtml(from)}</strong> to <strong>${escapeHtml(to)}</strong>
        (${escapeHtml(params.billingInterval)}). Your next bill reflects the new rate. Some features may no longer
        be available - review your dashboard for details.
      </p>`,
-    'Open dashboard',
-    `${APP_URL}/dashboard`
+      ],
+      primaryAction: { text: 'Open dashboard', url: `${APP_URL}/dashboard` },
+      plainText: `Your Styrby plan was changed.\n\nYou moved from ${from} to ${to} (${params.billingInterval}). Your next bill reflects the new rate. Some features may no longer be available - review your dashboard for details.\n\nOpen your dashboard: ${APP_URL}/dashboard`,
+    },
+    'subscription_downgraded'
   );
-  await safeSend({ to: params.email, subject, html, text, kind: 'subscription_downgraded' });
 }
 
 /**
@@ -408,27 +485,25 @@ export async function sendCancellationEmail(params: {
 }): Promise<void> {
   const tier = tierLabel(params.tier);
   const until = formatDate(params.accessUntil);
-  const subject = 'Your Styrby cancellation is confirmed';
-  const text = `Cancellation confirmed.
-
-Your ${tier} subscription was canceled. You'll keep full access until ${until}, after which your account moves to the free tier.
-
-Changed your mind? Resubscribe any time before then to restore your plan: ${APP_URL}/pricing
-
-- The Styrby Team`;
-  const html = wrap(
-    'Cancellation confirmed',
-    `<p style="margin:0 0 12px;font-size:14px;line-height:1.7;color:#444;">
+  await buildLifecycleEmail(
+    {
+      to: params.email,
+      subject: 'Your Styrby cancellation is confirmed',
+      headline: 'Cancellation confirmed',
+      bodyHtmlFragments: [
+        `<p style="margin:0 0 12px;font-size:14px;line-height:1.7;color:#444;">
        Your <strong>${escapeHtml(tier)}</strong> subscription was canceled. You'll keep full access until
        <strong>${escapeHtml(until)}</strong>, after which your account moves to the free tier.
-     </p>
-     <p style="margin:0;font-size:14px;line-height:1.7;color:#444;">
+     </p>`,
+        `<p style="margin:0;font-size:14px;line-height:1.7;color:#444;">
        Changed your mind? You can resubscribe any time before then to restore your plan.
      </p>`,
-    'Resubscribe',
-    `${APP_URL}/pricing`
+      ],
+      primaryAction: { text: 'Resubscribe', url: `${APP_URL}/pricing` },
+      plainText: `Cancellation confirmed.\n\nYour ${tier} subscription was canceled. You'll keep full access until ${until}, after which your account moves to the free tier.\n\nChanged your mind? Resubscribe any time before then to restore your plan: ${APP_URL}/pricing`,
+    },
+    'subscription_canceled'
   );
-  await safeSend({ to: params.email, subject, html, text, kind: 'subscription_canceled' });
 }
 
 /**
@@ -451,24 +526,22 @@ export async function sendRevokedEmail(params: {
   tier: SubscriptionTier;
 }): Promise<void> {
   const tier = tierLabel(params.tier);
-  const subject = 'Your Styrby subscription has ended';
-  const text = `Your Styrby subscription has ended.
-
-Your ${tier} subscription has ended and your account is now on the free tier. Your data is preserved per the free-tier retention policy. Resubscribe any time to restore full features.
-
-Reactivate: ${APP_URL}/pricing
-
-- The Styrby Team`;
-  const html = wrap(
-    'Your subscription has ended',
-    `<p style="margin:0;font-size:14px;line-height:1.7;color:#444;">
+  await buildLifecycleEmail(
+    {
+      to: params.email,
+      subject: 'Your Styrby subscription has ended',
+      headline: 'Your subscription has ended',
+      bodyHtmlFragments: [
+        `<p style="margin:0;font-size:14px;line-height:1.7;color:#444;">
        Your <strong>${escapeHtml(tier)}</strong> subscription has ended and your account is now on the free tier.
        Your data is preserved per the free-tier retention policy. Resubscribe any time to restore full features.
      </p>`,
-    'Reactivate',
-    `${APP_URL}/pricing`
+      ],
+      primaryAction: { text: 'Reactivate', url: `${APP_URL}/pricing` },
+      plainText: `Your Styrby subscription has ended.\n\nYour ${tier} subscription has ended and your account is now on the free tier. Your data is preserved per the free-tier retention policy. Resubscribe any time to restore full features.\n\nReactivate: ${APP_URL}/pricing`,
+    },
+    'subscription_revoked'
   );
-  await safeSend({ to: params.email, subject, html, text, kind: 'subscription_revoked' });
 }
 
 /**
@@ -501,24 +574,26 @@ export async function sendRefundEmail(params: {
   const tier = tierLabel(params.tier);
   const amount = formatCents(params.refundAmountCents);
   const reason = params.refundReason?.trim() ? params.refundReason.trim() : null;
-  const subject = 'Your Styrby refund has been processed';
-  const text = `Refund processed.
-
-Your refund of ${amount} for ${tier} has been processed${reason ? ` (reason: ${reason})` : ''}. It typically takes 5-10 business days to appear on your statement, depending on your bank. Your account access has been adjusted accordingly.
-
-Questions? Reply to this email.
-
-- The Styrby Team`;
-  const html = wrap(
-    'Refund processed',
-    `<p style="margin:0 0 12px;font-size:14px;line-height:1.7;color:#444;">
+  await buildLifecycleEmail(
+    {
+      to: params.email,
+      subject: 'Your Styrby refund has been processed',
+      headline: 'Refund processed',
+      bodyHtmlFragments: [
+        `<p style="margin:0 0 12px;font-size:14px;line-height:1.7;color:#444;">
        Your refund of <strong>${escapeHtml(amount)}</strong> for <strong>${escapeHtml(tier)}</strong> has been processed${
          reason ? ` (reason: <em>${escapeHtml(reason)}</em>)` : ''
        }. It typically takes 5-10 business days to appear on your statement, depending on your bank. Your account access has been adjusted accordingly.
-     </p>
-     <p style="margin:0;font-size:14px;line-height:1.7;color:#444;">
+     </p>`,
+        `<p style="margin:0;font-size:14px;line-height:1.7;color:#444;">
        Questions? Reply to this email and we'll help.
-     </p>`
+     </p>`,
+      ],
+      // WHY no primaryAction: refund emails have no meaningful next action for
+      // the customer - their money is being returned, not a tier change they
+      // should act on. The `wrap()` helper omits the button when undefined.
+      plainText: `Refund processed.\n\nYour refund of ${amount} for ${tier} has been processed${reason ? ` (reason: ${reason})` : ''}. It typically takes 5-10 business days to appear on your statement, depending on your bank. Your account access has been adjusted accordingly.\n\nQuestions? Reply to this email.`,
+    },
+    'refund'
   );
-  await safeSend({ to: params.email, subject, html, text, kind: 'refund' });
 }
