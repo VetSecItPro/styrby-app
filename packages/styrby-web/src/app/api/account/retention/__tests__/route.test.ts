@@ -254,4 +254,56 @@ describe('PUT /api/account/retention', () => {
       expect(response.status).toBe(200);
     }
   });
+
+  // ── OWASP A04:2021 Mass-Assignment Guard ──────────────────────────────────
+
+  /**
+   * WHY this test: confirms that the .strict() schema rejects unknown keys at
+   * the validation layer, so an attacker cannot inject fields like `is_admin`
+   * or `tier` that would be mass-assigned into the profiles.update() call.
+   * The DB must never be reached when unknown keys are present.
+   */
+  it('OWASP A04 — returns 400 and never calls .update() when request includes unknown key is_admin: true', async () => {
+    setupAuthUser();
+
+    const profileUpdateSpy = vi.fn();
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'audit_log') return { insert: vi.fn().mockResolvedValue({ error: null }) };
+      if (table === 'profiles') {
+        return {
+          update: profileUpdateSpy,
+        };
+      }
+      return {};
+    });
+
+    const { PUT } = await import('../route');
+    // Malicious payload: valid retention_days + injected privilege-escalation key
+    const response = await PUT(makeRequest('PUT', { retention_days: 30, is_admin: true }));
+
+    expect(response.status).toBe(400);
+    // Critical: .update() must NOT have been called — the schema guard stopped the request
+    expect(profileUpdateSpy).not.toHaveBeenCalled();
+  });
+
+  it('OWASP A04 — returns 400 and never calls .update() when request includes unknown key tier: enterprise', async () => {
+    setupAuthUser();
+
+    const profileUpdateSpy = vi.fn();
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'audit_log') return { insert: vi.fn().mockResolvedValue({ error: null }) };
+      if (table === 'profiles') {
+        return { update: profileUpdateSpy };
+      }
+      return {};
+    });
+
+    const { PUT } = await import('../route');
+    const response = await PUT(makeRequest('PUT', { retention_days: 7, tier: 'enterprise' }));
+
+    expect(response.status).toBe(400);
+    expect(profileUpdateSpy).not.toHaveBeenCalled();
+  });
 });

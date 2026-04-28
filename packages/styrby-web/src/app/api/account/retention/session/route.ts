@@ -38,13 +38,19 @@ import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
  */
 const VALID_OVERRIDE_PATTERN = /^(inherit|pin_forever|pin_days:(7|30|90|365))$/;
 
-const SessionRetentionSchema = z.object({
-  session_id: z.string().uuid('session_id must be a valid UUID'),
-  retention_override: z.string().regex(
-    VALID_OVERRIDE_PATTERN,
-    'retention_override must be: inherit, pin_forever, pin_days:7, pin_days:30, pin_days:90, or pin_days:365',
-  ),
-});
+// MASS-ASSIGN-SAFE: OWASP A04:2021 — only `session_id` and `retention_override`
+// are accepted. `.strict()` rejects unknown keys (e.g. `user_id`, `is_admin`)
+// at parse time, returning 400 before any DB write occurs. The `.update()` call
+// below writes only `{ retention_override }` extracted from `parsed.data`.
+const SessionRetentionSchema = z
+  .object({
+    session_id: z.string().uuid('session_id must be a valid UUID'),
+    retention_override: z.string().regex(
+      VALID_OVERRIDE_PATTERN,
+      'retention_override must be: inherit, pin_forever, pin_days:7, pin_days:30, pin_days:90, or pin_days:365',
+    ),
+  })
+  .strict(); // OWASP A04:2021 — reject unknown keys (mass-assignment guard)
 
 async function resolveClient(request: Request) {
   const authHeader = request.headers.get('Authorization');
