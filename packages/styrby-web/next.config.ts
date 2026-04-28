@@ -86,6 +86,18 @@ const cspHeader = [
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
+  // SEC-014: CSP violation reporting.
+  // WHY: Real-time visibility into CSP violations lets us detect injection
+  // attempts (XSS, unauthorized third-party script loads, eval-equivalents)
+  // BEFORE they succeed. The browser POSTs the violation to our endpoint;
+  // we log to audit_log for correlation with other anomaly signals.
+  // Per OWASP A03:2021. Endpoint: /api/security/csp-report.
+  //
+  // Both report-uri (Level 2) and report-to (Level 3) are emitted because
+  // browsers vary in which they honor. report-to references the named group
+  // defined via the Reporting-Endpoints header below.
+  'report-uri /api/security/csp-report',
+  'report-to csp-endpoint',
 ].join('; ');
 
 /**
@@ -216,6 +228,16 @@ const nextConfig: NextConfig = {
           {
             key: 'Strict-Transport-Security',
             value: 'max-age=63072000; includeSubDomains; preload',
+          },
+          {
+            // SEC-014 (CSP report-to support): defines the named "csp-endpoint"
+            // group referenced by the CSP `report-to` directive above. The Level 3
+            // Reporting API supersedes the older `Report-To` header (note hyphen
+            // case) but Vercel's edge passes both as-is. Browsers that only
+            // support Level 2 (older Safari) fall back to `report-uri` instead;
+            // both directives are emitted in the CSP for max coverage.
+            key: 'Reporting-Endpoints',
+            value: 'csp-endpoint="/api/security/csp-report"',
           },
         ],
       },

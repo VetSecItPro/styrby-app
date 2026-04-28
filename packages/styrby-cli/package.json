@@ -25,7 +25,11 @@
     }
   },
   "files": [
-    "dist",
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.json",
+    "!dist/**/*.map",
+    "!dist/**/*.test.*",
     "LICENSE",
     "README.md",
     "SECURITY.md"
