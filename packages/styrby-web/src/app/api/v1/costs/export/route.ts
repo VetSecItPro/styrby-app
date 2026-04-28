@@ -29,7 +29,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { withApiAuth, addRateLimitHeaders, type ApiAuthContext } from '@/middleware/api-auth';
+import { withApiAuthAndRateLimit, addRateLimitHeaders, type ApiAuthContext } from '@/middleware/api-auth';
 import { z } from 'zod';
 import { rateLimit, RATE_LIMITS } from '@/lib/rateLimit';
 import { normalizeEffectiveTier } from '@/lib/tier-enforcement';
@@ -124,7 +124,7 @@ async function handler(
   request: NextRequest,
   context: ApiAuthContext
 ): Promise<NextResponse> {
-  const { userId, keyId } = context;
+  const { userId, keyId, keyExpiresAt } = context;
 
   // Apply strict rate limiting - 1 export per hour per IP.
   // WHY: A full 365-day export scans up to 50,000 rows. This is orders of
@@ -257,7 +257,7 @@ async function handler(
     },
   });
 
-  return addRateLimitHeaders(response, keyId);
+  return addRateLimitHeaders(response, keyId, keyExpiresAt);
 }
 
-export const GET = withApiAuth(handler);
+export const GET = withApiAuthAndRateLimit(handler);

@@ -23,7 +23,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { withApiAuth, addRateLimitHeaders, type ApiAuthContext } from '@/middleware/api-auth';
+import { withApiAuthAndRateLimit, addRateLimitHeaders, type ApiAuthContext } from '@/middleware/api-auth';
 import { z } from 'zod';
 
 // ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ async function handler(
   request: NextRequest,
   context: ApiAuthContext
 ): Promise<NextResponse> {
-  const { userId, keyId } = context;
+  const { userId, keyId, keyExpiresAt } = context;
 
   // Extract session ID from URL
   const url = new URL(request.url);
@@ -187,7 +187,7 @@ async function handler(
     },
   });
 
-  return addRateLimitHeaders(response, keyId);
+  return addRateLimitHeaders(response, keyId, keyExpiresAt);
 }
 
-export const GET = withApiAuth(handler);
+export const GET = withApiAuthAndRateLimit(handler);
