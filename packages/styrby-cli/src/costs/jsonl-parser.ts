@@ -276,16 +276,17 @@ export async function parseJsonlFile(filePath: string): Promise<TokenUsage[]> {
   // env var. Defaulting to JS keeps CI green without requiring a Rust toolchain.
   if (process.env.STYRBY_NATIVE_PARSER === 'true') {
     try {
-      // WHY: We use a computed module specifier via `Function` to prevent
-      // TypeScript from statically resolving `@styrby/native`. The native
-      // package is an optional peer — it may not be installed in all
-      // environments (e.g., CI without a Rust toolchain). A static `import()`
-      // would cause `tsc --noEmit` to fail with TS2307 if the package isn't
-      // present, blocking typecheck for the entire CLI. Using an indirection
-      // keeps the import fully dynamic at runtime while satisfying TypeScript.
-      const specifier = '@styrby/native';
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval
-      const native = await (new Function('s', 'return import(s)'))(specifier) as {
+      // WHY: `@styrby/native` is an optional peer — it may not be present in
+      // all environments (CI without a Rust toolchain). A static import would
+      // cause `tsc --noEmit` to fail with TS2307 when the package is absent.
+      // The previous workaround used `new Function('s', 'return import(s)')`
+      // which bypasses TypeScript's static-analysis safety net and triggers the
+      // `no-implied-eval` lint rule. The correct fix is a plain `await import()`
+      // suppressed with `@ts-ignore` so TypeScript skips the unresolved-module
+      // check while the import itself remains a native ES dynamic import — no
+      // eval, no shell, no string construction at runtime. (sec H-03)
+      // @ts-ignore — @styrby/native is an optional peer; TS2307 is expected
+      const native = await import('@styrby/native') as {
         isNativeLoaded: boolean;
         parseJsonlFileBatch: (path: string) => Promise<Array<{
           input_tokens: number;
