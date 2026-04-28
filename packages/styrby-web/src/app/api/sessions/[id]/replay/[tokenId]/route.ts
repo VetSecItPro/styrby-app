@@ -88,11 +88,14 @@ export async function DELETE(request: Request, { params }: RouteParams) {
 
   // ── Audit log ─────────────────────────────────────────────────────────────
   // SOC2 CC7.2: Revocation is a controlled access withdrawal event.
+  // WHY resource_type/resource_id: audit_log schema has no 'resource' column;
+  // canonical shape uses resource_type (text) + resource_id (uuid). H27.
   await supabase.from('audit_log').insert({
-    user_id:  user.id,
-    action:   'session_replay_token_revoked',
-    resource: `session:${sessionId}`,
-    metadata: { token_id: tokenId },
+    user_id:       user.id,
+    action:        'session_replay_token_revoked',
+    resource_type: 'session',
+    resource_id:   sessionId,
+    metadata:      { token_id: tokenId },
   });
 
   return NextResponse.json({ success: true });

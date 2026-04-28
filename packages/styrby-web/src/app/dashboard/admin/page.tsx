@@ -47,6 +47,11 @@ import { UserListTable, type AdminUserRow } from '@/components/admin/UserListTab
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
+ * @deprecated H27: escapeIlike is no longer used now that the admin user search
+ * goes through the search_users_by_email_for_admin RPC (migration 062), which
+ * handles ILIKE escaping internally. Kept here temporarily in case other callers
+ * exist; will be removed in the next cleancode pass.
+ *
  * Escapes ILIKE metacharacters so a search string is treated as a literal.
  *
  * WHY: Without escaping, a query like "%" matches all rows (full-table scan),
@@ -101,34 +106,25 @@ async function fetchAdminUsers(query: string, page: number): Promise<AdminUserRo
     return [];
   }
 
-  // WHY createAdminClient (service role): RLS on profiles table filters rows to
-  // auth.uid(). The user-scoped client would only return the admin's own row.
-  // Service role bypasses RLS so we can query any user's profile.
+  // WHY createAdminClient (service role): The search_users_by_email_for_admin
+  // RPC is GRANT EXECUTE TO service_role only. A user-scoped client would
+  // receive permission denied. Service role bypasses RLS. SOC 2 CC6.1.
   const adminDb = createAdminClient();
 
   const PAGE_SIZE = 20;
   const offset = (page - 1) * PAGE_SIZE;
 
-  // WHY ILIKE with % wildcards: case-insensitive substring match so admins can
-  // search by partial email (e.g. "gmail" finds all Gmail users, "alice" finds
-  // alice@example.com). The trigram GIN index on profiles.email (migration
-  // 003/004/005 range) makes this fast even on large tables.
-  const { data, error } = await adminDb
-    .from('profiles')
-    .select(
-      `
-      id,
-      email,
-      created_at,
-      subscriptions!left (
-        tier,
-        override_source
-      )
-    `
-    )
-    .ilike('email', `%${escapeIlike(query.trim())}%`)
-    .order('created_at', { ascending: false })
-    .range(offset, offset + PAGE_SIZE - 1);
+  // WHY search_users_by_email_for_admin RPC (not profiles.email ILIKE):
+  //   profiles has NO email column — email lives in auth.users. The prior
+  //   code did `.from('profiles').select('email').ilike('email', ...)` which
+  //   always returned empty because the column does not exist. Migration 062
+  //   adds this SECURITY DEFINER RPC that JOINs auth.users for email search.
+  //   H27 column-drift fix.
+  const { data, error } = await adminDb.rpc('search_users_by_email_for_admin', {
+    p_query: query.trim(),
+    p_limit: PAGE_SIZE,
+    p_offset: offset,
+  });
 
   if (error) {
     // WHY log, don't throw: an admin query error should surface as an empty
@@ -138,20 +134,19 @@ async function fetchAdminUsers(query: string, page: number): Promise<AdminUserRo
     return [];
   }
 
-  // Flatten the subscriptions join (left join returns array or null).
-  return (data ?? []).map((row) => {
-    const sub = Array.isArray(row.subscriptions)
-      ? row.subscriptions[0]
-      : row.subscriptions;
-
-    return {
-      id: row.id,
-      email: row.email ?? '',
-      created_at: row.created_at ?? '',
-      tier: sub?.tier ?? null,
-      override_source: sub?.override_source ?? null,
-    };
-  });
+  return (data ?? []).map((row: {
+    id: string;
+    email: string | null;
+    created_at: string | null;
+    tier: string | null;
+    override_source: string | null;
+  }) => ({
+    id: row.id,
+    email: row.email ?? '',
+    created_at: row.created_at ?? '',
+    tier: row.tier ?? null,
+    override_source: row.override_source ?? null,
+  }));
 }
 
 // ─── Page Component ───────────────────────────────────────────────────────────

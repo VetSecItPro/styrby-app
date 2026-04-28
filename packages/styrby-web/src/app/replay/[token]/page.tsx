@@ -229,9 +229,16 @@ export default async function ReplayPage({ params }: ReplayPageProps) {
     notFound();
   }
 
+  // WHY message_type not role: session_messages uses message_type ('user'|'assistant'|'tool'|
+  // 'tool_result') as the canonical column name — there is no 'role' column. The
+  // scrubSession helper expects a { role, content } shape, so we adapt at the DB boundary.
+  // WHY content_encrypted not content: messages are E2E encrypted; the plaintext column
+  // does not exist. For public replay we treat content_encrypted as the displayable content
+  // (the owner opted in to sharing when they created the replay token). token_count_input/
+  // token_count_output do not exist — canonical names are input_tokens / output_tokens.
   const { data: rawMessages } = await supabase
     .from('session_messages')
-    .select('id, role, content, created_at, token_count_input, token_count_output')
+    .select('id, message_type, content_encrypted, created_at, input_tokens, output_tokens')
     .eq('session_id', tokenRow.session_id)
     .order('created_at', { ascending: true });
 
@@ -240,8 +247,15 @@ export default async function ReplayPage({ params }: ReplayPageProps) {
   // server in any form when a scrub mask is active. The scrubbed messages
   // are embedded in the initial HTML; the JS bundle contains no raw content.
   const scrubMask = tokenRow.scrub_mask as ScrubMask;
+  // Adapt DB column names to the { role, content } shape ReplayMessage expects.
   const scrubbedMessages = scrubSession(
-    (rawMessages ?? []).map((m) => ({ ...m, content: m.content ?? '' })),
+    (rawMessages ?? []).map((m) => ({
+      ...m,
+      role: m.message_type ?? 'user',
+      content: m.content_encrypted ?? '',
+      token_count_input: m.input_tokens,
+      token_count_output: m.output_tokens,
+    })),
     scrubMask
   );
 
@@ -257,10 +271,13 @@ export default async function ReplayPage({ params }: ReplayPageProps) {
   const viewerIpHash = await hashIp(clientIp);
 
   // Fire-and-forget — do not await (audit failure should not block the viewer)
+  // WHY resource_type/resource_id (not resource): audit_log schema uses two separate
+  // columns — resource_type (text) and resource_id (uuid). There is no 'resource' column.
   supabase.from('audit_log').insert({
-    user_id:  null, // Viewer may not be authenticated
-    action:   'session_replay_viewed',
-    resource: `session:${tokenRow.session_id}`,
+    user_id:      null, // Viewer may not be authenticated
+    action:       'session_replay_viewed',
+    resource_type: 'session',
+    resource_id:   tokenRow.session_id,
     metadata: {
       token_id:        tokenRow.id,
       viewer_ip_hash:  viewerIpHash,

@@ -48,9 +48,13 @@ export interface GroupSession {
   status: 'starting' | 'running' | 'idle' | 'paused' | 'stopped' | 'error' | 'expired';
   /** Working directory path */
   project_path: string | null;
-  /** Total token count (input + output) for cost indicator */
+  /**
+   * Total token count (input + output) for cost indicator.
+   * WHY computed not stored: sessions table has no total_tokens column.
+   * This is derived client-side from total_input_tokens + total_output_tokens.
+   */
   total_tokens: number | null;
-  /** Total cost in USD */
+  /** Total cost in USD — mapped from sessions.total_cost_usd */
   cost_usd: number | null;
   /** ISO 8601 start timestamp */
   started_at: string;
@@ -169,10 +173,14 @@ export function useSessionGroup(groupId: string | null | undefined): UseSessionG
       setGroup(groupData as SessionGroup);
 
       // Fetch member sessions
-      const { data: sessionData, error: sessionFetchError } = await supabase
+      // WHY total_input_tokens + total_output_tokens (not total_tokens): sessions
+      // table has no total_tokens column. We select the two canonical columns and
+      // sum them into GroupSession.total_tokens at the boundary. H27 drift fix.
+      // WHY total_cost_usd (not cost_usd): canonical column name is total_cost_usd. H27.
+      const { data: rawSessionData, error: sessionFetchError } = await supabase
         .from('sessions')
         .select(
-          'id, agent_type, status, project_path, total_tokens, cost_usd, started_at, last_activity_at'
+          'id, agent_type, status, project_path, total_input_tokens, total_output_tokens, total_cost_usd, started_at, last_activity_at'
         )
         .eq('session_group_id', groupId)
         .order('started_at', { ascending: true });
@@ -182,7 +190,22 @@ export function useSessionGroup(groupId: string | null | undefined): UseSessionG
         return;
       }
 
-      setSessions((sessionData ?? []) as GroupSession[]);
+      // Adapt DB column names to GroupSession shape (H27 boundary mapping).
+      const sessionData: GroupSession[] = (rawSessionData ?? []).map((row) => ({
+        id: row.id,
+        agent_type: row.agent_type,
+        status: row.status,
+        project_path: row.project_path,
+        total_tokens:
+          row.total_input_tokens != null || row.total_output_tokens != null
+            ? (row.total_input_tokens ?? 0) + (row.total_output_tokens ?? 0)
+            : null,
+        cost_usd: row.total_cost_usd ?? null,
+        started_at: row.started_at,
+        last_activity_at: row.last_activity_at,
+      }));
+
+      setSessions(sessionData);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error fetching group';
       setError(msg);

@@ -37,6 +37,7 @@
 
 import { notFound } from 'next/navigation';
 import { createAdminClient } from '@/lib/supabase/server';
+import { resolveAdminEmails } from '@/lib/admin/resolveEmails';
 import { UserDossier } from '@/components/admin/UserDossier';
 
 // ─── UUID validation ──────────────────────────────────────────────────────────
@@ -98,9 +99,14 @@ export default async function UserDossierPage({ params }: UserDossierPageProps) 
   // service-role client to look up any user's profile.
   const adminDb = createAdminClient();
 
-  const { data: profile, error } = await adminDb
+  // WHY resolveAdminEmails (not profiles.select('email')): profiles has no email
+  // column — email lives in auth.users and is only reachable via the
+  // resolve_user_emails_for_admin SECURITY DEFINER RPC (migration 043). H27.
+  // The RPC returning a non-empty map entry confirms the user exists in auth.users;
+  // a missing entry means a phantom userId (deleted user or bad UUID).
+  const { data: profileExists, error } = await adminDb
     .from('profiles')
-    .select('id, email')
+    .select('id')
     .eq('id', userId)
     .maybeSingle();
 
@@ -113,10 +119,14 @@ export default async function UserDossierPage({ params }: UserDossierPageProps) 
     notFound();
   }
 
-  if (!profile) {
+  if (!profileExists) {
     // userId is a valid UUID but no matching profile row exists. Return 404.
     notFound();
   }
+
+  // Resolve email via RPC (profiles.email does not exist). H27.
+  const emailMap = await resolveAdminEmails(adminDb, [userId]);
+  const userEmail = emailMap[userId] ?? userId;
 
   // ── 3. Render dossier ─────────────────────────────────────────────────────
 
@@ -125,8 +135,8 @@ export default async function UserDossierPage({ params }: UserDossierPageProps) 
   // don't need a second profiles query inside UserDossier.
   return (
     <UserDossier
-      userId={profile.id}
-      userEmail={profile.email ?? userId}
+      userId={profileExists.id}
+      userEmail={userEmail}
     />
   );
 }

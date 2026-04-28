@@ -28,6 +28,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { createAdminClient } from '@/lib/supabase/server';
+import { resolveAdminEmails } from '@/lib/admin/resolveEmails';
 import { IssueRefundForm, type SubscriptionOption } from '@/components/admin/IssueRefundForm';
 import { issueRefundAction } from '../actions';
 
@@ -61,23 +62,26 @@ export default async function IssueRefundPage({ params }: RefundPageProps) {
   // Service role needed to read any user's rows. SOC 2 CC6.1.
   const adminDb = createAdminClient();
 
-  // Fetch profile for context display
-  const { data: profile } = await adminDb
-    .from('profiles')
-    .select('email')
-    .eq('id', userId)
-    .maybeSingle();
+  // WHY resolveAdminEmails: profiles has no email column. H27 drift fix.
+  const [{ data: profileExists }, emailMap] = await Promise.all([
+    adminDb.from('profiles').select('id').eq('id', userId).maybeSingle(),
+    resolveAdminEmails(adminDb, [userId]),
+  ]);
 
-  if (!profile) {
+  if (!profileExists) {
     notFound();
   }
 
-  // Fetch user's subscriptions to populate the select
+  const profile = { email: emailMap[userId] ?? null };
+
+  // Fetch user's subscriptions to populate the select.
   // WHY select polar_subscription_id: this is the Polar-side reference the admin
   // will cross-reference in the Polar dashboard to get the orderId for refund.
+  // WHY is_annual (not billing_cycle): subscriptions table has no billing_cycle
+  // column — it uses the boolean is_annual flag. H27 drift fix.
   const { data: subRows } = await adminDb
     .from('subscriptions')
-    .select('polar_subscription_id, tier, billing_cycle')
+    .select('polar_subscription_id, tier, is_annual')
     .eq('user_id', userId);
 
   const subscriptionOptions: SubscriptionOption[] = (subRows ?? [])
@@ -86,7 +90,7 @@ export default async function IssueRefundPage({ params }: RefundPageProps) {
     )
     .map((s) => ({
       id: s.polar_subscription_id,
-      label: `${s.tier ?? 'unknown'} — ${s.billing_cycle ?? 'unknown'} (${s.polar_subscription_id})`,
+      label: `${s.tier ?? 'unknown'} — ${s.is_annual ? 'annual' : 'monthly'} (${s.polar_subscription_id})`,
     }));
 
   // WHY bind userId server-side (Fix B pattern from Phase 4.1):

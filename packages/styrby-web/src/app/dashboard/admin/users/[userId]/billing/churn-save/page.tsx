@@ -31,6 +31,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, AlertTriangle } from 'lucide-react';
 import { createAdminClient } from '@/lib/supabase/server';
+import { resolveAdminEmails } from '@/lib/admin/resolveEmails';
 import { SendChurnSaveOfferForm } from '@/components/admin/SendChurnSaveOfferForm';
 import { sendChurnSaveOfferAction } from '../actions';
 
@@ -66,16 +67,17 @@ export default async function SendChurnSaveOfferPage({ params }: ChurnSavePagePr
   const adminDb = createAdminClient();
   const now = new Date().toISOString();
 
-  // Fetch profile for display context
-  const { data: profile } = await adminDb
-    .from('profiles')
-    .select('email')
-    .eq('id', userId)
-    .maybeSingle();
+  // WHY resolveAdminEmails: profiles has no email column — H27 drift fix.
+  const [{ data: profileExists }, emailMap] = await Promise.all([
+    adminDb.from('profiles').select('id').eq('id', userId).maybeSingle(),
+    resolveAdminEmails(adminDb, [userId]),
+  ]);
 
-  if (!profile) {
+  if (!profileExists) {
     notFound();
   }
+
+  const profile = { email: emailMap[userId] ?? null };
 
   // Check for an existing active offer — for UX warning only (not a gate).
   // WHY check here: saves the admin a wasted form submission + server round-trip
@@ -89,10 +91,11 @@ export default async function SendChurnSaveOfferPage({ params }: ChurnSavePagePr
     .gt('expires_at', now)
     .maybeSingle();
 
-  // Fetch subscription tier for context display
+  // Fetch subscription tier for context display.
+  // WHY is_annual (not billing_cycle): subscriptions has no billing_cycle column. H27.
   const { data: sub } = await adminDb
     .from('subscriptions')
-    .select('tier, billing_cycle')
+    .select('tier, is_annual')
     .eq('user_id', userId)
     .maybeSingle();
 
@@ -122,7 +125,7 @@ export default async function SendChurnSaveOfferPage({ params }: ChurnSavePagePr
         <p className="mb-6 text-sm text-zinc-500">
           Current tier:{' '}
           <span className="font-medium text-zinc-300">
-            {sub.tier ?? 'unknown'} / {sub.billing_cycle ?? 'unknown'}
+            {sub.tier ?? 'unknown'} / {sub.is_annual ? 'annual' : 'monthly'}
           </span>
         </p>
       )}
