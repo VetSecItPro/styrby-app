@@ -217,11 +217,14 @@ export async function POST(request: Request, { params }: RouteParams) {
   // ── Audit log ─────────────────────────────────────────────────────────────
   // SOC2 CC7.2: Every token creation is recorded. The raw token is NOT logged;
   // only the token_id UUID is stored so forensics can correlate without replay risk.
+  // WHY resource_type/resource_id: audit_log schema has no 'resource' column;
+  // the canonical shape uses resource_type (text) + resource_id (uuid). H27.
   await supabase.from('audit_log').insert({
-    user_id:    user.id,
-    action:     'session_replay_token_created',
-    resource:   `session:${sessionId}`,
-    metadata:   { token_id: tokenRow.id, duration: body.duration, max_views: maxViews },
+    user_id:       user.id,
+    action:        'session_replay_token_created',
+    resource_type: 'session',
+    resource_id:   sessionId,
+    metadata:      { token_id: tokenRow.id, duration: body.duration, max_views: maxViews },
   });
 
   // ── Build response ────────────────────────────────────────────────────────

@@ -39,6 +39,7 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { ArrowLeft, CreditCard, RotateCcw, Gift, TrendingDown, AlertTriangle } from 'lucide-react';
 import { createAdminClient } from '@/lib/supabase/server';
+import { resolveAdminEmails } from '@/lib/admin/resolveEmails';
 import { fmtDate, fmtDateTime } from '@/components/admin/dossier/formatters';
 
 // ─── UUID validation ──────────────────────────────────────────────────────────
@@ -95,9 +96,11 @@ function SectionSkeleton() {
 async function SubscriptionSection({ userId }: { userId: string }) {
   const adminDb = createAdminClient();
 
+  // WHY is_annual (not billing_cycle): subscriptions table has no billing_cycle
+  // column. It uses the boolean is_annual flag. H27 drift fix.
   const { data: sub, error } = await adminDb
     .from('subscriptions')
-    .select('tier, billing_cycle, current_period_end, override_source, updated_at')
+    .select('tier, is_annual, current_period_end, override_source, updated_at')
     .eq('user_id', userId)
     .maybeSingle();
 
@@ -134,7 +137,7 @@ async function SubscriptionSection({ userId }: { userId: string }) {
             {sub.tier ?? '—'}
           </dd>
           <dt className="text-zinc-500">Billing cycle</dt>
-          <dd className="text-zinc-300">{sub.billing_cycle ?? '—'}</dd>
+          <dd className="text-zinc-300">{sub.is_annual ? 'Annual' : 'Monthly'}</dd>
           <dt className="text-zinc-500">Period end</dt>
           <dd className="text-zinc-300">{fmtDate(sub.current_period_end)}</dd>
           <dt className="text-zinc-500">Override source</dt>
@@ -510,20 +513,25 @@ export default async function BillingDossierPage({ params }: BillingDossierPageP
   // is required to look up any user's profile. SOC 2 CC6.1.
   const adminDb = createAdminClient();
 
-  const { data: profile, error: profileErr } = await adminDb
-    .from('profiles')
-    .select('id, email')
-    .eq('id', userId)
-    .maybeSingle();
+  // WHY resolveAdminEmails (not profiles.select('email')): profiles has no email
+  // column. Email lives in auth.users, accessible only via the
+  // resolve_user_emails_for_admin SECURITY DEFINER RPC (migration 043). H27.
+  const [{ data: profileExists, error: profileErr }, emailMap] = await Promise.all([
+    adminDb.from('profiles').select('id').eq('id', userId).maybeSingle(),
+    resolveAdminEmails(adminDb, [userId]),
+  ]);
 
   if (profileErr) {
     console.error('[BillingDossierPage] profile lookup failed:', profileErr.message);
     notFound();
   }
 
-  if (!profile) {
+  if (!profileExists) {
     notFound();
   }
+
+  // Adapter: expose email in profile-like shape for display below
+  const profile = { id: profileExists.id, email: emailMap[userId] ?? null };
 
   // ── 3. Render ─────────────────────────────────────────────────────────────
 

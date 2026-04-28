@@ -24,6 +24,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { createAdminClient } from '@/lib/supabase/server';
+import { resolveAdminEmails } from '@/lib/admin/resolveEmails';
 import { ResetPasswordForm } from '@/components/admin/ResetPasswordForm';
 import { resetPasswordAction } from '@/app/dashboard/admin/users/[userId]/actions';
 
@@ -59,15 +60,19 @@ export default async function ResetPasswordPage({ params }: ResetPasswordPagePro
   // is required to read the target user's email. SOC 2 CC6.1.
   const adminDb = createAdminClient();
 
-  const { data: profile } = await adminDb
-    .from('profiles')
-    .select('email')
-    .eq('id', userId)
-    .maybeSingle();
+  // WHY resolveAdminEmails (not profiles.select('email')): profiles has no email
+  // column — email lives in auth.users, accessible only via the
+  // resolve_user_emails_for_admin SECURITY DEFINER RPC (migration 043). H27.
+  const [emailMap, { data: profileExists }] = await Promise.all([
+    resolveAdminEmails(adminDb, [userId]),
+    adminDb.from('profiles').select('id').eq('id', userId).maybeSingle(),
+  ]);
 
-  if (!profile) {
+  if (!profileExists) {
     notFound();
   }
+
+  const profile = { email: emailMap[userId] ?? null };
 
   // WHY not render the form without an email: Supabase auth.admin.generateLink()
   // requires a valid email. If the profile has no email (edge case for OAuth-only

@@ -111,6 +111,15 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(),
 }));
 
+// WHY mock resolveAdminEmails: profiles has no email column (H27). The billing
+// page now uses this RPC to get the user's email. We mock it to return a
+// predictable email so tests don't depend on auth.users state.
+vi.mock('@/lib/admin/resolveEmails', () => ({
+  resolveAdminEmails: vi.fn().mockResolvedValue({
+    'a1b2c3d4-e5f6-7890-abcd-ef1234567890': 'user@example.com',
+  }),
+}));
+
 vi.mock('@/components/admin/dossier/formatters', () => ({
   fmtDate: (iso: string | null | undefined) => (iso ? 'Apr 24, 2026' : '—'),
   fmtDateTime: (iso: string | null | undefined) => (iso ? 'Apr 24, 2026, 10:00 AM' : '—'),
@@ -129,8 +138,10 @@ const INVALID_USER_ID = 'not-a-uuid';
 function defaultMockClient(
   overrides: Record<string, { data: unknown; error: unknown }> = {}
 ) {
+  // WHY profiles returns only { id } (not email): profiles has no email column.
+  // Email is now resolved via resolveAdminEmails mock above. H27 drift fix.
   return makeAdminClient({
-    profiles: { data: { id: VALID_USER_ID, email: 'user@example.com' }, error: null },
+    profiles: { data: { id: VALID_USER_ID }, error: null },
     subscriptions: { data: null, error: null },
     polar_refund_events: { data: [], error: null },
     billing_credits: { data: [], error: null },
@@ -160,6 +171,8 @@ describe('BillingDossierPage', () => {
 
   // ── (b) Profile not found ──────────────────────────────────────────────────
   it('(b) calls notFound when profile does not exist', async () => {
+    // WHY profiles returns just id: profiles.email doesn't exist (H27). The
+    // page now does profiles.select('id') and resolveAdminEmails separately.
     mockAdminClientImpl = makeAdminClient({
       profiles: { data: null, error: null },
     });
@@ -228,11 +241,13 @@ describe('BillingDossierPage sections (integration via direct page render)', () 
   // synchronous content in the VDOM since we mock all async operations).
 
   it('(d) subscription section: renders tier when subscription data present', async () => {
+    // WHY is_annual (not billing_cycle): subscriptions has no billing_cycle column.
+    // The page now selects is_annual and derives 'Monthly'/'Annual' text. H27.
     mockAdminClientImpl = defaultMockClient({
       subscriptions: {
         data: {
           tier: 'power',
-          billing_cycle: 'monthly',
+          is_annual: false,
           current_period_end: '2026-05-24T00:00:00Z',
           override_source: null,
           updated_at: '2026-04-24T00:00:00Z',

@@ -32,6 +32,7 @@
 
 import { NextResponse } from 'next/server';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { resolveAdminEmails } from '@/lib/admin/resolveEmails';
 import { sendTeamInvitationEmail } from '@/lib/resend';
 // WHY deep import: checkInviteRateLimit is server-only (imports @upstash/redis).
 // It is intentionally excluded from the @styrby/shared root/team barrels to
@@ -121,9 +122,12 @@ export async function POST(
   //   permission check in Step 3 below at the application layer.
   const adminClient = createAdminClient();
 
+  // WHY profiles(display_name) without email: profiles has no email column (H27).
+  // We join only display_name from profiles; email for the inviter is resolved
+  // via resolveAdminEmails (RPC against auth.users) later in this handler.
   const { data: invitation, error: fetchError } = await adminClient
     .from('team_invitations')
-    .select('id, team_id, email, role, status, expires_at, token_hash, invited_by, teams(name), profiles(display_name, email)')
+    .select('id, team_id, email, role, status, expires_at, token_hash, invited_by, teams(name), profiles(display_name)')
     .eq('id', invitationId)
     .single();
 
@@ -234,13 +238,19 @@ export async function POST(
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://styrbyapp.com';
   const inviteUrl = `${appUrl}/invite/${newRawToken}`;
 
-  // Extract team name and inviter details from the join
+  // Extract team name and inviter details.
   // WHY nested object typing: Supabase join returns nested objects when using
   // the `teams(name)` syntax. TypeScript doesn't infer this type automatically.
   const teamName = (invitation.teams as { name?: string } | null)?.name ?? 'your team';
-  const inviterProfile = invitation.profiles as { display_name?: string | null; email?: string | null } | null;
-  const inviterName = inviterProfile?.display_name ?? inviterProfile?.email ?? 'A team admin';
-  const inviterEmail = inviterProfile?.email ?? '';
+  const inviterProfile = invitation.profiles as { display_name?: string | null } | null;
+
+  // WHY resolveAdminEmails (not inviterProfile.email): profiles has no email column.
+  // The inviter's email must be fetched from auth.users via RPC. H27 drift fix.
+  const inviterEmailMap = invitation.invited_by
+    ? await resolveAdminEmails(adminClient, [invitation.invited_by])
+    : {};
+  const inviterEmail = invitation.invited_by ? (inviterEmailMap[invitation.invited_by] ?? '') : '';
+  const inviterName = inviterProfile?.display_name ?? inviterEmail ?? 'A team admin';
 
   const emailResult = await sendTeamInvitationEmail({
     email: invitation.email,

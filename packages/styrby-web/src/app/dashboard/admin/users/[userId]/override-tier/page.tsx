@@ -22,6 +22,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { createAdminClient } from '@/lib/supabase/server';
+import { resolveAdminEmails } from '@/lib/admin/resolveEmails';
 import { OverrideTierForm } from '@/components/admin/OverrideTierForm';
 import { overrideTierAction } from '@/app/dashboard/admin/users/[userId]/actions';
 
@@ -61,16 +62,26 @@ export default async function OverrideTierPage({ params }: OverrideTierPageProps
     .eq('user_id', userId)
     .maybeSingle();
 
-  const { data: profile } = await adminDb
+  // WHY resolveAdminEmails (not profiles.select('email')): profiles has no email
+  // column. Email lives in auth.users, accessible only via the
+  // resolve_user_emails_for_admin RPC (migration 043). H27 drift fix.
+  const emailMap = await resolveAdminEmails(adminDb, [userId]);
+  const resolvedEmail = emailMap[userId] ?? null;
+
+  // Confirm user exists via profiles table (RPC result alone doesn't guarantee
+  // the profile row exists if auth.users was created but profile trigger failed).
+  const { data: profileExists } = await adminDb
     .from('profiles')
-    .select('email')
+    .select('id')
     .eq('id', userId)
     .maybeSingle();
 
-  if (!profile) {
+  if (!profileExists) {
     // userId is a valid UUID but no profile exists.
     notFound();
   }
+  // Provide email-like object for display purposes
+  const profile = { email: resolvedEmail };
 
   // WHY bind trustedUserId to the action (Fix B):
   //   Next.js 15 Server Action binding passes the userId as the first argument

@@ -22,6 +22,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { createAdminClient } from '@/lib/supabase/server';
+import { resolveAdminEmails } from '@/lib/admin/resolveEmails';
 import { ToggleConsentForm } from '@/components/admin/ToggleConsentForm';
 import { toggleConsentAction } from '@/app/dashboard/admin/users/[userId]/actions';
 
@@ -81,8 +82,11 @@ export default async function ToggleConsentPage({ params }: ToggleConsentPagePro
   // Service role is needed to read the target user's consent state. SOC 2 CC6.1.
   const adminDb = createAdminClient();
 
-  const [{ data: profile }, { data: consentFlag }] = await Promise.all([
-    adminDb.from('profiles').select('email').eq('id', userId).maybeSingle(),
+  // WHY resolveAdminEmails (not profiles.email): profiles has no email column.
+  // Email lives in auth.users and is only accessible via the
+  // resolve_user_emails_for_admin SECURITY DEFINER RPC (migration 043). H27.
+  const [emailMap, { data: consentFlag }] = await Promise.all([
+    resolveAdminEmails(adminDb, [userId]),
     adminDb
       .from('consent_flags')
       .select('granted_at, revoked_at')
@@ -91,11 +95,12 @@ export default async function ToggleConsentPage({ params }: ToggleConsentPagePro
       .maybeSingle(),
   ]);
 
-  if (!profile) {
-    notFound();
-  }
+  // Confirm the user exists by checking if their email resolved (or fall back to userId)
+  const resolvedEmail = emailMap[userId] ?? null;
 
   const currentState = deriveConsentState(consentFlag);
+  // Provide a minimal profile-like object for the display below
+  const profile = { email: resolvedEmail };
 
   // WHY bind trustedUserId to the action (Fix B):
   //   Binds the URL userId server-side so the action can cross-check against

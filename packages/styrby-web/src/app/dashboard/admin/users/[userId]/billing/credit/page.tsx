@@ -20,6 +20,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { createAdminClient } from '@/lib/supabase/server';
+import { resolveAdminEmails } from '@/lib/admin/resolveEmails';
 import { IssueCreditForm } from '@/components/admin/IssueCreditForm';
 import { issueCreditAction } from '../actions';
 
@@ -52,15 +53,17 @@ export default async function IssueCreditPage({ params }: CreditPageProps) {
   // WHY createAdminClient: profiles RLS-scoped to auth.uid(). SOC 2 CC6.1.
   const adminDb = createAdminClient();
 
-  const { data: profile } = await adminDb
-    .from('profiles')
-    .select('email')
-    .eq('id', userId)
-    .maybeSingle();
+  // WHY resolveAdminEmails: profiles has no email column. H27.
+  const [{ data: profileExists }, emailMap] = await Promise.all([
+    adminDb.from('profiles').select('id').eq('id', userId).maybeSingle(),
+    resolveAdminEmails(adminDb, [userId]),
+  ]);
 
-  if (!profile) {
+  if (!profileExists) {
     notFound();
   }
+
+  const profile = { email: emailMap[userId] ?? null };
 
   // WHY bind pattern (Fix B from Phase 4.1): the action is bound with userId so
   // it receives the unforgeable URL param as its first argument. The action's
