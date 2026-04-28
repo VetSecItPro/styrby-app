@@ -138,6 +138,29 @@ export interface BudgetCheckResult {
 }
 
 /**
+ * Pre-resolved Supabase values for non-cost_usd alert types.
+ *
+ * Populated by `checkAllAlerts()` after its bulk pre-fetch step and injected
+ * into `checkAlert()` so the per-alert call can skip the individual Supabase
+ * round-trip that would otherwise be issued by the private helper methods.
+ *
+ * WHY both fields optional: a given alert is exactly one of the three types, so
+ * only the field matching its `alert_type` will be populated on each invocation.
+ */
+export interface PreResolvedAlertValues {
+  /**
+   * Pre-fetched MAX(subscription_fraction_used) for subscription_quota alerts.
+   * When present, `checkAlert()` uses this directly instead of querying Supabase.
+   */
+  fraction?: number;
+  /**
+   * Pre-fetched sum(credits_consumed) for credits alerts.
+   * When present, `checkAlert()` uses this directly instead of querying Supabase.
+   */
+  credits?: number;
+}
+
+/**
  * Configuration for the budget monitor
  */
 export interface BudgetMonitorConfig {
@@ -247,12 +270,18 @@ export class BudgetMonitor {
    *
    * @param alert - Budget alert to check
    * @param currentCosts - Optional pre-fetched cost summary (cost_usd type only).
-   *                       Ignored for subscription_quota and credits alert types
-   *                       because those require Supabase queries not covered by
-   *                       the local JSONL cost summary.
+   *                       Ignored for subscription_quota and credits alert types.
+   * @param preResolved - Optional pre-fetched values for subscription_quota and
+   *                      credits alert types, populated by checkAllAlerts() to
+   *                      avoid N Supabase round-trips when N alerts share the same
+   *                      period+agentType key.
    * @returns Budget check result
    */
-  async checkAlert(alert: BudgetAlert, currentCosts?: CostSummary): Promise<BudgetCheckResult> {
+  async checkAlert(
+    alert: BudgetAlert,
+    currentCosts?: CostSummary,
+    preResolved?: PreResolvedAlertValues
+  ): Promise<BudgetCheckResult> {
     // Resolve the effective alert type, defaulting to 'cost_usd' for pre-023 rows.
     const alertType: BudgetAlertType = alert.alert_type ?? 'cost_usd';
 
@@ -267,7 +296,15 @@ export class BudgetMonitor {
       // all subscription rows in the period, since consecutive sessions accumulate.
       // We then express it as a USD-equivalent percentage of the quota threshold
       // so the generic level-determination logic below works unchanged.
-      const fraction = await this.getSubscriptionFractionForPeriod(alert.period, alert.agent_type ?? undefined);
+      //
+      // WHY preResolved.fraction: checkAllAlerts() pre-fetches one Supabase query
+      // per unique (period, agentType) key and injects the result here. Without
+      // this, N subscription_quota alerts with the same key would each issue their
+      // own Supabase round-trip (N queries instead of 1).
+      const fraction =
+        preResolved?.fraction !== undefined
+          ? preResolved.fraction
+          : await this.getSubscriptionFractionForPeriod(alert.period, alert.agent_type ?? undefined);
       const quotaThreshold = alert.threshold_quota_fraction ?? 0;
 
       // WHY: Represent the fraction as a pseudo-USD so the existing
@@ -285,7 +322,12 @@ export class BudgetMonitor {
       // not USD. We sum credits_consumed for billing_model = 'credit' rows and
       // compare against the integer threshold_credits. We represent credits as
       // a pseudo-USD to reuse the percentUsed / exceeded / remainingUsd math.
-      const creditsConsumed = await this.getCreditsConsumedForPeriod(alert.period, alert.agent_type ?? undefined);
+      //
+      // WHY preResolved.credits: same deduplication rationale as fraction above.
+      const creditsConsumed =
+        preResolved?.credits !== undefined
+          ? preResolved.credits
+          : await this.getCreditsConsumedForPeriod(alert.period, alert.agent_type ?? undefined);
       const creditsThreshold = alert.threshold_credits ?? 0;
 
       spendingUsd = creditsConsumed;
@@ -421,33 +463,27 @@ export class BudgetMonitor {
 
     // WHY: checkAlert calls are independent once caches are populated.
     // Run them in parallel to avoid sequential latency.
+    //
+    // WHY preResolved injection: each alert receives the pre-fetched value for its
+    // (period, agentType) key so checkAlert() uses the cached result directly
+    // instead of issuing a fresh Supabase query per alert. Without this, N alerts
+    // sharing the same key would produce N Supabase round-trips; with it, only
+    // 1 query per unique key was issued in the parallel pre-fetch above.
     const results = await Promise.all(
       alerts.map((alert) => {
         const cacheKey = `${alert.period}:${alert.agent_type ?? 'all'}`;
         const alertType = alert.alert_type ?? 'cost_usd';
 
         if (alertType === 'subscription_quota') {
-          // WHY: Inject the pre-fetched fraction as a synthetic CostSummary so
-          // checkAlert's subscription_quota branch uses cached data instead of
-          // issuing a fresh Supabase query.
-          const fraction = quotaCache.get(cacheKey) ?? 0;
-          // We pass null for currentCosts to force checkAlert to do the Supabase
-          // branch — but we've already pre-fetched; inject via a different strategy:
-          // we call checkAlert without a pre-fetched CostSummary, and it will call
-          // getSubscriptionFractionForPeriod which we can't easily cache-inject.
-          // Instead we use a small inline workaround: pass the cost_usd cache only
-          // for cost_usd type, let subscription/credits re-query via helpers.
-          // WHY this is acceptable: subscription_quota and credits do a single
-          // Supabase query each; the cache above just proves deduplication works,
-          // but for simplicity of the call site we let the helpers run again.
-          // The cost is bounded to O(unique keys) Supabase round-trips total.
-          void fraction; // suppress unused warning
-          return this.checkAlert(alert, undefined);
+          // Pass the pre-fetched fraction so checkAlert skips the Supabase re-query.
+          const preResolved: PreResolvedAlertValues = { fraction: quotaCache.get(cacheKey) ?? 0 };
+          return this.checkAlert(alert, undefined, preResolved);
         }
 
         if (alertType === 'credits') {
-          void creditCache.get(cacheKey);
-          return this.checkAlert(alert, undefined);
+          // Pass the pre-fetched credit total so checkAlert skips the Supabase re-query.
+          const preResolved: PreResolvedAlertValues = { credits: creditCache.get(cacheKey) ?? 0 };
+          return this.checkAlert(alert, undefined, preResolved);
         }
 
         // cost_usd: pass pre-fetched summary to avoid re-reading JSONL
