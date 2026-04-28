@@ -232,7 +232,7 @@ function sha256Hex(input: string): string {
  * @param productId - The Polar product ID from the webhook payload
  * @returns The tier name, or null if the product ID is unrecognized
  */
-function getTierFromProductId(productId: string): 'pro' | 'power' | null {
+function getTierFromProductId(productId: string): 'pro' | 'power' | 'growth' | null {
   // Pro tier (monthly or annual)
   if (
     productId === process.env.POLAR_PRO_MONTHLY_PRODUCT_ID ||
@@ -240,12 +240,28 @@ function getTierFromProductId(productId: string): 'pro' | 'power' | null {
   ) {
     return 'pro';
   }
-  // Power tier (monthly or annual)
+  // Power tier (monthly or annual) — legacy pre-cutover tier, still resolved
+  // for in-flight subscriptions whose product ID predates the Pro/Growth model.
   if (
     productId === process.env.POLAR_POWER_MONTHLY_PRODUCT_ID ||
     productId === process.env.POLAR_POWER_ANNUAL_PRODUCT_ID
   ) {
     return 'power';
+  }
+  // Growth tier — base subscription OR seat addon. Both map to 'growth'
+  // because the seat addon's only purpose is augmenting a Growth main sub.
+  // WHY this branch was missing: pre-tier-reconciliation, the individual path
+  // only handled Pro/Power. After the Phase 5/6 cutover added Growth, the
+  // local resolver was never updated. Surfaced by sandbox e2e domain I
+  // (I1, I2, I3) where every Growth subscription event 200'd but left the
+  // user's tier unchanged because tier resolved to null.
+  if (
+    productId === process.env.POLAR_GROWTH_MONTHLY_PRODUCT_ID ||
+    productId === process.env.POLAR_GROWTH_ANNUAL_PRODUCT_ID ||
+    productId === process.env.POLAR_GROWTH_SEAT_MONTHLY_PRODUCT_ID ||
+    productId === process.env.POLAR_GROWTH_SEAT_ANNUAL_PRODUCT_ID
+  ) {
+    return 'growth';
   }
   return null;
 }
@@ -254,9 +270,15 @@ function getTierFromProductId(productId: string): 'pro' | 'power' | null {
  * Determines billing cycle from product ID.
  */
 function getBillingCycleFromProductId(productId: string): 'monthly' | 'annual' {
+  // Annual product IDs across all known tiers (Pro, legacy Power, Growth main, Growth seat).
+  // WHY Growth + seat included: post-cutover Growth subscriptions and seat addons
+  // wrote `is_annual=false` for annual signups because this helper only knew
+  // the legacy Pro/Power IDs. Surfaced by sandbox e2e domain I (I2).
   if (
     productId === process.env.POLAR_PRO_ANNUAL_PRODUCT_ID ||
-    productId === process.env.POLAR_POWER_ANNUAL_PRODUCT_ID
+    productId === process.env.POLAR_POWER_ANNUAL_PRODUCT_ID ||
+    productId === process.env.POLAR_GROWTH_ANNUAL_PRODUCT_ID ||
+    productId === process.env.POLAR_GROWTH_SEAT_ANNUAL_PRODUCT_ID
   ) {
     return 'annual';
   }
@@ -1277,7 +1299,7 @@ export async function POST(request: Request) {
         };
         const { data: existingSub } = await supabase
           .from('subscriptions')
-          .select('tier, status')
+          .select('tier, status, polar_subscription_id')
           .eq('user_id', profileId)
           .single();
 
@@ -1383,7 +1405,19 @@ export async function POST(request: Request) {
         if (
           existingSub &&
           existingSub.status === 'active' &&
-          (tierRank[tier] ?? 0) < (tierRank[existingSub.tier] ?? 0)
+          (tierRank[tier] ?? 0) < (tierRank[existingSub.tier] ?? 0) &&
+          // WHY same-sub exemption: this guard exists to block STALE events
+          // from a different/older subscription that would silently demote a
+          // currently-paying user (Bug #9 / late .active scenario). A
+          // legitimate plan change on the SAME polar_subscription_id is the
+          // user's explicit downgrade intent and must be honored — Polar will
+          // never deliver a stale .active for the same sub_id after the
+          // upgrade, so seeing the same id here means the customer actually
+          // moved to a lower tier through the portal. Surfaced by sandbox
+          // e2e domain D (D2: growth → pro downgrade was being silently
+          // skipped, leaving the user on Growth in the DB while paying for
+          // Pro at Polar).
+          existingSub.polar_subscription_id !== data.id
         ) {
           // SEC-CFG-001 FIX: Log the warning with sanitized fields only.
           // WHY: console.warn(error) or logging raw objects can leak full stack
@@ -1516,6 +1550,16 @@ export async function POST(request: Request) {
           .update({
             status: 'canceled',
             canceled_at: data.canceled_at || new Date().toISOString(),
+            // WHY cancel_at_period_end: true on .canceled (vs revoked):
+            // The semantic of subscription.canceled is "cancellation scheduled
+            // for period end" — access continues through current_period_end
+            // and the daily cron flips tier to 'free' afterwards. Setting this
+            // boolean lets the dashboard surface "ending Apr 30" copy and
+            // distinguishes period-end cancels from immediate revokes (which
+            // null current_period_end and write tier='free' synchronously).
+            // Polar's payload usually carries this flag; default to true if
+            // missing because the event type itself implies it.
+            cancel_at_period_end: data.cancel_at_period_end ?? true,
             // Preserve the paid-through date so the cron job knows when to
             // actually downgrade the tier. Do not null this out - it is the
             // authoritative "access until" timestamp.
