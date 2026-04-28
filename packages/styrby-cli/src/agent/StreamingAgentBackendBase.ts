@@ -416,11 +416,25 @@ export abstract class StreamingAgentBackendBase implements AgentBackend {
     const agentLabel = this.logTag.replace(/Backend$/, '');
 
     return new Promise<void>((resolve, reject) => {
+      // WHY: A boolean sentinel stops the polling loop from continuing after the
+      // outer timeout fires and calls reject(). Without it the poll closure holds
+      // a strong reference to `this.process` (preventing GC) and keeps scheduling
+      // new 100 ms timers until the agent subprocess eventually dies — which may
+      // never happen for a hung agent. Each leaked timer costs ~40 bytes of
+      // closure state; for agents that time out repeatedly (e.g. Aider on a
+      // large edit) this accumulates and delays graceful CLI shutdown.
+      // See audit finding C-2.
+      let cancelled = false;
+
       const timeout = setTimeout(() => {
+        cancelled = true;
         reject(new Error(`Timeout waiting for ${agentLabel} response`));
       }, timeoutMs);
 
       const poll = (): void => {
+        // Exit immediately if the outer timeout already fired; do not reschedule.
+        if (cancelled) return;
+
         if (!this.process || this.process.killed) {
           clearTimeout(timeout);
           resolve();
