@@ -73,11 +73,17 @@ vi.mock('next/link', () => ({
 const mockMaybeSingle = vi.fn();
 const mockRange = vi.fn();
 const mockLimit = vi.fn();
+// WHY default-resolved rpc: H27 added resolveAdminEmails which calls
+// supabase.rpc('resolve_user_emails_for_admin'); without a default the
+// mock returns undefined and the call-site destructure
+// `const { data, error } = await supabase.rpc(...)` throws TypeError.
+// Default returns empty success — tests that need specific email
+// mappings can override via mockRpc.mockResolvedValueOnce(...).
 
 // WHY chainable mock: Supabase client uses a builder pattern.
 // Each method in the chain returns `this`-like object so the next method
 // can be called on it. We satisfy this with `mockReturnThis()`.
-const mockRpc = vi.fn();
+const mockRpc = vi.fn().mockResolvedValue({ data: [], error: null });
 const mockAdminChain = {
   from: vi.fn().mockReturnThis(),
   select: vi.fn().mockReturnThis(),
@@ -207,6 +213,15 @@ describe('UserDossierPage — UUID validation and existence check', () => {
     // The page does a profiles query; mock it to return a valid profile.
     mockMaybeSingle.mockResolvedValueOnce({
       data: { id: testUserId, email: testEmail },
+      error: null,
+    });
+
+    // After H27, the page also calls resolveAdminEmails which invokes
+    // supabase.rpc('resolve_user_emails_for_admin', { p_user_ids: [...] }).
+    // Override the default empty rpc mock to return the email mapping the
+    // header rendering expects.
+    mockRpc.mockResolvedValueOnce({
+      data: [{ user_id: testUserId, email: testEmail }],
       error: null,
     });
 

@@ -34,6 +34,11 @@ vi.mock('node:fs', () => ({
 
 vi.mock('node:child_process', () => ({
   execSync: vi.fn(),
+  // WHY also spawnSync: the macOS daemon status check was hardened in
+  // sec H-04 (cluster B) to use spawnSync with an argv array instead of
+  // execSync with a template-literal shell pipeline. The status path
+  // therefore now hits spawnSync, not execSync — both must be mocked.
+  spawnSync: vi.fn(),
 }));
 
 vi.mock('node:os', () => ({
@@ -62,7 +67,7 @@ vi.mock('chalk', () => ({
 
 import { platform } from 'node:os';
 import * as fs from 'node:fs';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import { handleDaemon } from '../daemon';
 
 // ============================================================================
@@ -273,8 +278,18 @@ describe('handleDaemon status — macOS, daemon loaded', () => {
     consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     mockPlatform('darwin');
     vi.mocked(fs.existsSync).mockReturnValue(true);
-    // execSync simulates "launchctl list | grep com.styrby.daemon" output
-    vi.mocked(execSync).mockReturnValue('0 - com.styrby.daemon\n');
+    // After sec H-04: status check uses spawnSync('launchctl', ['list'])
+    // and filters stdout in JS. Mock the spawnSync return shape with the
+    // launchctl-list output that would have triggered the "loaded" branch.
+    vi.mocked(spawnSync).mockReturnValue({
+      stdout: '0\t-\tcom.styrby.daemon\n',
+      stderr: '',
+      status: 0,
+      pid: 1,
+      output: ['', '0\t-\tcom.styrby.daemon\n', ''],
+      signal: null,
+    } as ReturnType<typeof spawnSync>);
+    vi.mocked(execSync).mockReturnValue('');
   });
 
   afterEach(() => {

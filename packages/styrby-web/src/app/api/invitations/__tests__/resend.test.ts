@@ -37,12 +37,20 @@ vi.mock('@/lib/supabase/server', () => ({
       const result = mockFromResults.shift() ?? { data: null, error: null };
       return createChainMock(result);
     }),
+    // WHY .rpc: H27 (PR #202) introduced resolveAdminEmails which calls
+    // a SECURITY DEFINER RPC for batch email lookup. Tests that exercise
+    // any code path crossing resolveAdminEmails need an .rpc() stub or
+    // they crash with "supabase.rpc is not a function". Default returns
+    // an empty success — tests can override via mockFromResults if they
+    // need email mapping.
+    rpc: vi.fn().mockResolvedValue({ data: [], error: null }),
   })),
   createAdminClient: vi.fn(() => ({
     from: vi.fn(() => {
       const result = mockFromResults.shift() ?? { data: null, error: null };
       return createChainMock(result);
     }),
+    rpc: vi.fn().mockResolvedValue({ data: [], error: null }),
   })),
 }));
 

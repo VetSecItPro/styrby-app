@@ -515,3 +515,77 @@ describe('AgentSession — reconnected-after-offline event (PR-7)', () => {
     expect(emitted).toHaveLength(1);
   });
 });
+
+// ============================================================================
+// Audit C-1: Unawaited stop() on end_session must not produce unhandled rejection
+// ============================================================================
+
+describe('AgentSession — C-1: end_session stop() failure does not produce unhandled rejection', () => {
+  /**
+   * WHY THIS TEST EXISTS
+   * --------------------
+   * The `handleMobileMessage()` method is called from a synchronous relay event
+   * handler and cannot await `stop()`. The fix (audit C-1) wraps the call in
+   * `void this.stop().catch(...)`. Without the .catch(), any throw inside stop()
+   * becomes an unhandled promise rejection — in Node ≥15 that crashes the process.
+   *
+   * This test:
+   *   1. Monkeypatches stop() to throw synchronously after a microtask.
+   *   2. Fires an end_session command via the relay listener.
+   *   3. Asserts that no unhandled rejection event is fired on the process.
+   *   4. Asserts that stop() was indeed called (not silently skipped).
+   */
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('swallows a stop() rejection instead of producing an unhandled rejection', async () => {
+    const mockRelay = await getMockRelay();
+
+    const relayListeners: Record<string, Array<(...args: unknown[]) => void>> = {};
+    (mockRelay.on as Mock).mockImplementation(
+      (event: string, cb: (...args: unknown[]) => void) => {
+        relayListeners[event] = relayListeners[event] ?? [];
+        relayListeners[event].push(cb);
+      }
+    );
+
+    const { AgentSession } = await import('../agent-session');
+    const session = new AgentSession(makeConfig());
+    await session.start();
+
+    // Track whether stop() was called
+    let stopCalled = false;
+    // Overwrite stop() to reject on the next microtask
+    (session as unknown as Record<string, unknown>).stop = vi.fn().mockImplementation(async () => {
+      stopCalled = true;
+      throw new Error('simulated stop() failure for C-1 test');
+    });
+
+    // Track unhandled rejections during this test
+    const unhandledErrors: Error[] = [];
+    const unhandledHandler = (reason: Error) => unhandledErrors.push(reason);
+    process.on('unhandledRejection', unhandledHandler);
+
+    try {
+      // Simulate the relay delivering an end_session command
+      relayListeners['message']?.forEach((cb) =>
+        cb({ type: 'command', payload: { action: 'end_session' } }),
+      );
+
+      // Flush microtask queue: the rejected promise must have settled here
+      await new Promise((r) => setImmediate(r));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // stop() must have been invoked
+      expect(stopCalled).toBe(true);
+
+      // No unhandled rejection should have escaped
+      expect(unhandledErrors).toHaveLength(0);
+    } finally {
+      process.off('unhandledRejection', unhandledHandler);
+    }
+  });
+});

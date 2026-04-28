@@ -19,7 +19,7 @@ const UUID = '00000000-0000-0000-0000-000000000001';
 
 function makeFetch(
   responses: Array<
-    | { status: 'pending' | 'approved' | 'denied'; approvalId?: string; reason?: string }
+    | { status: 'pending' | 'approved' | 'denied'; approvalId?: string; approvalToken?: string; reason?: string }
     | Error
   >,
 ): { fetchImpl: typeof fetch; calls: Array<{ body: any }> } {
@@ -38,6 +38,7 @@ function makeFetch(
       async json() {
         return {
           approvalId: next.approvalId ?? UUID,
+          approvalToken: next.approvalToken ?? 'stub-token',
           status: next.status,
           reason: next.reason,
         };
@@ -52,6 +53,7 @@ function makeFetch(
 
 const baseInput = {
   sessionId: UUID,
+  teamId: '00000000-0000-0000-0000-000000000002',
   riskLevel: 'high' as const,
   toolName: 'Bash',
   supabaseUrl: 'https://example.supabase.co',

@@ -43,6 +43,16 @@ export interface PolicyEngineInput {
   /** Active Styrby session id. */
   sessionId: string;
 
+  /**
+   * Team ID that owns this session.
+   *
+   * Required by the `resolve-approval` edge function (`handleSubmit`)
+   * to associate the pending approval row with a team and look up the
+   * correct policy + eligible approvers. Callers obtain this from the
+   * session's `team_id` column or from the authenticated user's primary team.
+   */
+  teamId: string;
+
   /** Tool-call risk classification. */
   riskLevel: RiskLevel;
 
@@ -136,6 +146,7 @@ export async function runPolicyEngine(
 ): Promise<PolicyEngineResult> {
   const {
     sessionId,
+    teamId,
     riskLevel,
     toolName,
     estimatedCostUsd,
@@ -182,29 +193,60 @@ export async function runPolicyEngine(
   }
 
   let approvalId: string | undefined;
+  // WHY we store approvalToken separately from approvalId:
+  //   The `resolve-approval` edge function uses HMAC-SHA256 token verification
+  //   on poll and cancel to prevent IDOR — knowing an approvalId UUID alone is
+  //   insufficient to drive the row. The token is returned by submit and must
+  //   be forwarded on every subsequent call (ISO 27001 A.9.1).
+  let approvalToken: string | undefined;
 
   try {
-    // --- Submit the approval request ---------------------------------------
-    // TODO(pr-3): stub until PR #3 adds the `resolve-approval` edge function.
-    //   That PR wires up POST /functions/v1/resolve-approval which (a)
-    //   creates the pending approval row when one doesn't yet exist and
-    //   (b) returns `{ approvalId, status }` on every subsequent poll.
-    //   For now this module calls the endpoint optimistically; in
-    //   unit tests the fetch is stubbed, so no network traffic occurs.
-    const submitResult = await postResolveApproval(fetchImpl, {
-      supabaseUrl,
-      authToken,
-      body: {
-        sessionId,
-        riskLevel,
-        toolName,
-        estimatedCostUsd,
-        requestPayload: requestPayload ?? {},
-        action: 'submit',
-      },
-      signal: controller.signal,
-    });
+    // --- Submit the approval request --------------------------------------
+    // The `resolve-approval` edge function is ACTIVE on Supabase (verified
+    // 2026-04-28). It requires `teamId` to associate the row with a team and
+    // look up the correct policy. On success it returns `{ approvalId,
+    // approvalToken, status }` where approvalToken is HMAC-SHA256(approvalId)
+    // and MUST be forwarded on all poll/cancel calls.
+    //
+    // FAIL-CLOSED policy (OWASP A01 — Broken Access Control):
+    //   Any non-2xx response from the edge function, or a network error,
+    //   results in an explicit DENY rather than a silent pass-through.
+    //   This ensures that if the endpoint is unreachable (503, 404, cold-start
+    //   timeout), tool calls are blocked rather than accidentally allowed.
+    let submitResult: ResolveApprovalResponse;
+    try {
+      submitResult = await postResolveApproval(fetchImpl, {
+        supabaseUrl,
+        authToken,
+        body: {
+          sessionId,
+          teamId,
+          riskLevel,
+          toolName,
+          estimatedCostUsd,
+          requestPayload: requestPayload ?? {},
+          action: 'submit',
+        },
+        signal: controller.signal,
+      });
+    } catch (err) {
+      // Fail closed: any submit failure (network error, 4xx/5xx) is treated
+      // as an explicit denial rather than a pass-through.
+      const reason =
+        err instanceof Error
+          ? `policy engine unavailable — defaulting to deny (${err.message})`
+          : 'policy engine unavailable — defaulting to deny';
+      onStatus(`[policyEngine] Submit failed: ${reason}`);
+      return {
+        exitCode: POLICY_ENGINE_EXIT_CODES.DENIED,
+        status: 'denied',
+        approvalId: undefined,
+        reason,
+      };
+    }
+
     approvalId = submitResult.approvalId;
+    approvalToken = submitResult.approvalToken;
 
     if (submitResult.status === 'approved' || submitResult.status === 'denied') {
       // Server can short-circuit (e.g., policy action = 'block').
@@ -217,7 +259,7 @@ export async function runPolicyEngine(
       const remaining = deadline - Date.now();
       if (remaining <= 0) {
         onStatus(`Approval timed out after ${timeoutMs} ms.`);
-        await safeCancel(fetchImpl, supabaseUrl, authToken, approvalId);
+        await safeCancel(fetchImpl, supabaseUrl, authToken, approvalId, approvalToken);
         return {
           exitCode: POLICY_ENGINE_EXIT_CODES.TIMEOUT,
           status: 'timeout',
@@ -231,12 +273,30 @@ export async function runPolicyEngine(
 
       if (controller.signal.aborted) break;
 
-      const poll = await postResolveApproval(fetchImpl, {
-        supabaseUrl,
-        authToken,
-        body: { approvalId, action: 'poll' },
-        signal: controller.signal,
-      });
+      // Fail-closed on poll errors: a transient network failure during polling
+      // is treated as a denial rather than an optimistic pass-through.
+      let poll: ResolveApprovalResponse;
+      try {
+        poll = await postResolveApproval(fetchImpl, {
+          supabaseUrl,
+          authToken,
+          body: { approvalId, approvalToken, action: 'poll' },
+          signal: controller.signal,
+        });
+      } catch (err) {
+        const reason =
+          err instanceof Error
+            ? `policy engine unavailable during poll — defaulting to deny (${err.message})`
+            : 'policy engine unavailable during poll — defaulting to deny';
+        onStatus(`[policyEngine] Poll failed: ${reason}`);
+        await safeCancel(fetchImpl, supabaseUrl, authToken, approvalId, approvalToken);
+        return {
+          exitCode: POLICY_ENGINE_EXIT_CODES.DENIED,
+          status: 'denied',
+          approvalId,
+          reason,
+        };
+      }
 
       if (poll.status === 'approved' || poll.status === 'denied') {
         return terminalResult(poll.status, approvalId, poll.reason);
@@ -245,7 +305,7 @@ export async function runPolicyEngine(
     }
 
     // --- Cancelled ---------------------------------------------------------
-    await safeCancel(fetchImpl, supabaseUrl, authToken, approvalId);
+    await safeCancel(fetchImpl, supabaseUrl, authToken, approvalId, approvalToken);
     return {
       exitCode: POLICY_ENGINE_EXIT_CODES.CANCELLED,
       status: 'cancelled',
@@ -266,12 +326,24 @@ export async function runPolicyEngine(
 
 /** Payload the `resolve-approval` edge function speaks. */
 interface ResolveApprovalRequest {
+  // submit fields
   sessionId?: string;
+  /** Team ID — required for action="submit" (looked up for policy + approvers). */
+  teamId?: string;
   riskLevel?: RiskLevel;
   toolName?: string;
   estimatedCostUsd?: number;
   requestPayload?: Record<string, unknown>;
+  // poll / cancel fields
   approvalId?: string;
+  /**
+   * HMAC-SHA256 token returned by submit.
+   *
+   * Required for action="poll" and action="cancel" to prevent IDOR:
+   * knowing the approvalId UUID alone is insufficient to drive the row
+   * (ISO 27001 A.9.1 — timing-safe ownership verification).
+   */
+  approvalToken?: string;
   action: 'submit' | 'poll' | 'cancel';
 }
 
@@ -279,6 +351,13 @@ interface ResolveApprovalRequest {
 interface ResolveApprovalResponse {
   approvalId: string;
   status: Approval['status'];
+  /**
+   * HMAC-SHA256 approval token, returned only on action="submit".
+   *
+   * Must be forwarded on all subsequent poll and cancel calls to satisfy
+   * the edge function's IDOR guard.
+   */
+  approvalToken?: string;
   reason?: string;
 }
 
@@ -317,16 +396,20 @@ async function safeCancel(
   supabaseUrl: string,
   authToken: string,
   approvalId: string | undefined,
+  approvalToken: string | undefined,
 ): Promise<void> {
   if (!approvalId) return;
   // WHY we swallow errors here: we are already on the exit path. Failing
   //   to cancel a row is noisy but not fatal — the cron sweeper defined
   //   in migration 021 will mark it 'expired' within 15 minutes.
+  // WHY we pass approvalToken: the edge function verifies it in constant time
+  //   for cancel operations. Omitting it would cause a 403 from the server,
+  //   leaving an orphaned 'pending' row that only the cron sweeper can clean up.
   try {
     await postResolveApproval(fetchImpl, {
       supabaseUrl,
       authToken,
-      body: { approvalId, action: 'cancel' },
+      body: { approvalId, approvalToken, action: 'cancel' },
       signal: neverAbort,
     });
   } catch {

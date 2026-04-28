@@ -39,8 +39,11 @@ const UUID = (n: number) => `00000000-0000-0000-0000-${String(n).padStart(12, '0
 const SESSION_ID = UUID(1);
 const APPROVAL_ID = UUID(99);
 
+const TEAM_ID = UUID(20);
+
 const BASE_INPUT = {
   sessionId: SESSION_ID,
+  teamId: TEAM_ID,
   riskLevel: 'high' as const,
   toolName: 'Bash',
   supabaseUrl: 'https://test.supabase.co',
@@ -309,30 +312,32 @@ describe('Phase 2.4 — offline approver', () => {
     expect(pendingMessages.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('handles a transient network error during polling gracefully and retries', async () => {
-    // Network error on poll #1, then success on poll #2
+  it('handles a transient network error during polling by failing closed (DENY), not retrying', async () => {
+    // Network error on poll #1.
+    // WHY fail-closed and not retry:
+    //   The policy engine's security contract is: if we cannot verify that an
+    //   approver granted access, we MUST NOT allow the tool call to proceed.
+    //   Retrying a network error could mask an intentional DoS of the approval
+    //   endpoint (attacker causes 503s to pass all tool calls). Fail-closed on
+    //   any poll error is the correct OWASP A01 posture.
+    //   (This behavior changed from H-6 fix: the old code re-threw, causing
+    //   runPolicyEngine to reject. The new behavior returns an explicit DENY.)
     const { fetchImpl } = makeFetch([
       { status: 'pending' },          // submit
-      new Error('Network timeout'),   // poll #1 — transient failure
-      { status: 'approved' },         // poll #2
+      new Error('Network timeout'),   // poll #1 — transient failure → DENY
     ]);
 
-    // WHY this test should see an approved result:
-    //   The policyEngine's poll loop catches fetch errors and propagates them
-    //   (throws), causing runPolicyEngine to reject. This test verifies the
-    //   current behaviour: a fetch error IS a terminal failure. If the engine
-    //   ever adds retry logic, this test documents the expected retry count.
-    //
-    //   Current engine behaviour: throws on fetch error → the test should
-    //   expect rejection. We assert the rejection message contains the error.
-    await expect(
-      runPolicyEngine({
-        ...BASE_INPUT,
-        fetchImpl,
-        pollIntervalMs: 5,
-        timeoutMs: 500,
-      }),
-    ).rejects.toThrow('Network timeout');
+    const res = await runPolicyEngine({
+      ...BASE_INPUT,
+      fetchImpl,
+      pollIntervalMs: 5,
+      timeoutMs: 500,
+    });
+
+    expect(res.status).toBe('denied');
+    expect(res.exitCode).toBe(10);
+    expect(res.reason).toMatch(/policy engine unavailable during poll/i);
+    expect(res.reason).toContain('Network timeout');
   });
 });
 

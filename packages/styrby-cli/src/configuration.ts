@@ -71,13 +71,22 @@ export function loadConfig(): StyrbyConfig {
 /**
  * Save configuration to disk.
  *
+ * WHY: We pass `mode: 0o600` so newly created files get owner-only permissions.
+ * However, on Linux/macOS the `mode` flag in writeFileSync is only applied when
+ * the kernel creates a new file (O_CREAT). If config.json already exists from a
+ * previous install that had world-readable permissions, the file inherits its
+ * old mode. The explicit `chmodSync` call below repairs existing-file permissions
+ * on every write, covering the upgrade path. (sec H-05)
+ *
  * @param config - Configuration to save
  */
 export function saveConfig(config: StyrbyConfig): void {
   ensureConfigDir();
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), {
-    mode: 0o600, // Owner read/write only
+    mode: 0o600, // Owner read/write only — applies only to newly created file
   });
+  // Repair permissions on existing files (upgrade path).
+  fs.chmodSync(CONFIG_FILE, 0o600);
 }
 
 /**

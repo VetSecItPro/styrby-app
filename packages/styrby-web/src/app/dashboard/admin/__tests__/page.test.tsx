@@ -54,6 +54,12 @@ vi.mock('next/navigation', () => ({
  */
 const mockSupabaseData = vi.fn();
 const mockAdminClient = {
+  // WHY .rpc: H27 (PR #202) migrated admin user search from a
+  // profiles.ILIKE chain to a SECURITY DEFINER RPC
+  // (`search_users_by_email_for_admin`) that JOINs auth.users for the
+  // email column. The old chain methods (.from/.select/.ilike/.order/.range)
+  // are kept for any non-search code paths that still use the chain pattern.
+  rpc: vi.fn().mockImplementation(() => mockSupabaseData()),
   from: vi.fn().mockReturnThis(),
   select: vi.fn().mockReturnThis(),
   ilike: vi.fn().mockReturnThis(),
@@ -293,14 +299,18 @@ describe('fetchAdminUsers (via createAdminClient mock)', () => {
    */
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset the chain mocks
+    // Reset rpc + chain mocks (chain kept for any non-search code paths).
+    mockAdminClient.rpc.mockImplementation(() => mockSupabaseData());
     mockAdminClient.from.mockReturnThis();
     mockAdminClient.select.mockReturnThis();
     mockAdminClient.ilike.mockReturnThis();
     mockAdminClient.order.mockReturnThis();
   });
 
-  it('queries profiles table with ILIKE for provided query', async () => {
+  it('calls search_users_by_email_for_admin RPC with provided query', async () => {
+    // WHY RPC (not ILIKE chain): H27 migrated admin search to a SECURITY
+    // DEFINER RPC that JOINs auth.users for email — `profiles.email` does
+    // not exist so the old ILIKE chain silently returned empty in prod.
     mockSupabaseData.mockResolvedValue({ data: [], error: null });
 
     // Dynamically import the page module to get the exported fetch function
@@ -308,44 +318,53 @@ describe('fetchAdminUsers (via createAdminClient mock)', () => {
     const { default: Page } = await import('../page');
 
     // Render the server component by calling it as a function (valid in tests)
-    // The page renders nothing DB-errored — we just want to verify the mock calls
     await Page({
       searchParams: Promise.resolve({ q: 'testquery', page: '1' }),
     });
 
-    // Verify the admin client was used (not user-scoped client)
-    expect(mockAdminClient.from).toHaveBeenCalledWith('profiles');
-    expect(mockAdminClient.ilike).toHaveBeenCalledWith('email', '%testquery%');
-    expect(mockAdminClient.order).toHaveBeenCalledWith('created_at', { ascending: false });
+    // Verify the RPC was invoked with the page's contract.
+    expect(mockAdminClient.rpc).toHaveBeenCalledWith(
+      'search_users_by_email_for_admin',
+      expect.objectContaining({
+        p_query: 'testquery',
+        p_limit: 20,
+        p_offset: 0,
+      }),
+    );
   });
 
-  // ── T4 Fix 1: ILIKE metachar escape ──────────────────────────────────────
+  // ── T4 Fix 1: ILIKE metachar handling now lives in the SQL RPC ───────────
 
-  it('(T4-fix1) escapes ILIKE metacharacters before sending query to Supabase', async () => {
-    // WHY: ?q=%foo% must be escaped to \%foo\% so it does NOT match all rows.
-    // Without escaping, the leading and trailing % in the query string collapse
-    // with the surrounding % wildcards and the query returns every user row.
+  it('(T4-fix1) passes raw query through to RPC (escaping handled in SQL)', async () => {
+    // WHY: With H27's migration 064, the SECURITY DEFINER RPC is responsible
+    // for ILIKE-metacharacter escaping inside the SQL function body. The
+    // application layer just forwards the raw user input. Verifying that the
+    // raw `%foo%` reaches the RPC pins the contract — if the migration's SQL
+    // is later changed to expect pre-escaped input, this assertion fails fast.
     mockSupabaseData.mockResolvedValue({ data: [], error: null });
 
-    // Reset mock call counts to isolate this test
-    mockAdminClient.from.mockClear();
-    mockAdminClient.ilike.mockClear();
+    mockAdminClient.rpc.mockClear();
 
     const { default: Page } = await import('../page');
     await Page({ searchParams: Promise.resolve({ q: '%foo%', page: '1' }) });
 
-    // The metacharacters must have been escaped — \%foo\% not %foo%
-    expect(mockAdminClient.ilike).toHaveBeenCalledWith('email', '%\\%foo\\%%');
+    expect(mockAdminClient.rpc).toHaveBeenCalledWith(
+      'search_users_by_email_for_admin',
+      expect.objectContaining({ p_query: '%foo%' }),
+    );
   });
 
-  it('applies correct OFFSET for page 2 (OFFSET 20)', async () => {
+  it('applies correct OFFSET for page 2 (p_offset = 20)', async () => {
     mockSupabaseData.mockResolvedValue({ data: [], error: null });
 
     const { default: Page } = await import('../page');
     await Page({ searchParams: Promise.resolve({ q: 'foo', page: '2' }) });
 
-    // range(20, 39) = OFFSET 20 LIMIT 20
-    expect(mockAdminClient.range).toHaveBeenCalledWith(20, 39);
+    // page=2 → p_offset = (page-1) * PAGE_SIZE = 20
+    expect(mockAdminClient.rpc).toHaveBeenCalledWith(
+      'search_users_by_email_for_admin',
+      expect.objectContaining({ p_offset: 20, p_limit: 20 }),
+    );
   });
 
   it('returns empty array and does not query when query is empty', async () => {
