@@ -40,6 +40,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
+import { checkIdempotency, storeIdempotencyResult } from '@/lib/middleware/idempotency';
 
 /**
  * Handles GDPR data export requests.
@@ -68,6 +69,37 @@ export async function POST(request: Request) {
 
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // ── Idempotency check ────────────────────────────────────────────────────
+
+  // WHY: A GDPR export queues expensive parallel Supabase queries (43 tables).
+  // A CLI retry on transient network error must not re-execute all 43 queries —
+  // instead return the cached export response. The 1 request/hour rate limit
+  // already guards against abuse; idempotency prevents duplicate heavy reads.
+  // OWASP A04:2021 replay protection.
+  //
+  // NOTE: The export response is a JSON blob which can be large. We store it
+  // in the idempotency cache (JSONB in Postgres) only when the client supplies
+  // the Idempotency-Key header, making caching strictly opt-in.
+  const ROUTE_ACCOUNT_EXPORT = '/api/account/export';
+  const idemResult = await checkIdempotency(request, user.id, ROUTE_ACCOUNT_EXPORT);
+  if ('conflict' in idemResult) {
+    return NextResponse.json({ error: 'CONFLICT', message: idemResult.message }, { status: 409 });
+  }
+  if (idemResult.replayed) {
+    // Reconstruct the file download response from the cached body.
+    // The cached body is the full exportData JSON object.
+    const date = new Date().toISOString().split('T')[0];
+    const filename = `styrby-data-export-${date}.json`;
+    return new Response(JSON.stringify(idemResult.body, null, 2), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Cache-Control': 'no-store',
+      },
+    });
   }
 
   try {
@@ -410,6 +442,11 @@ export async function POST(request: Request) {
     // Generate filename with date for user reference
     const date = new Date().toISOString().split('T')[0];
     const filename = `styrby-data-export-${date}.json`;
+
+    // WHY store before returning: caches the exportData object so a CLI retry
+    // on transient network failure receives the cached payload and does not
+    // re-execute 43 parallel Supabase queries. The cache entry lives for 24h.
+    await storeIdempotencyResult(request, user.id, ROUTE_ACCOUNT_EXPORT, 200, exportData);
 
     // Return as downloadable JSON file
     // WHY: Content-Disposition header triggers browser download

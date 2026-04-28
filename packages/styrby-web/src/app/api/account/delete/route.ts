@@ -30,6 +30,7 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
+import { checkIdempotency, storeIdempotencyResult } from '@/lib/middleware/idempotency';
 
 /**
  * Zod schema for delete request validation.
@@ -109,6 +110,23 @@ export async function DELETE(request: Request) {
 
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // ── Idempotency check ────────────────────────────────────────────────────
+
+  // WHY: Account deletion is irreversible within the 30-day grace window.
+  // A CLI retry on transient error must not soft-delete the account again
+  // (which would reset the deleted_at timestamp and defer the hard-delete
+  // deadline). The cached success response lets the client confirm the
+  // deletion without re-executing all the cleanup steps.
+  // OWASP A04:2021 replay protection.
+  const ROUTE_ACCOUNT_DELETE = '/api/account/delete';
+  const idemResult = await checkIdempotency(request, user.id, ROUTE_ACCOUNT_DELETE);
+  if ('conflict' in idemResult) {
+    return NextResponse.json({ error: 'CONFLICT', message: idemResult.message }, { status: 409 });
+  }
+  if (idemResult.replayed) {
+    return NextResponse.json(idemResult.body, { status: idemResult.status });
   }
 
   // Validate request body
@@ -323,11 +341,18 @@ export async function DELETE(request: Request) {
       supabase.auth.signOut(),
     ]);
 
-    return NextResponse.json({
+    const deleteResponseBody = {
       success: true,
       message:
         'Account scheduled for deletion. Data will be permanently removed in 30 days.',
-    });
+    };
+
+    // WHY store before returning: ensures a CLI retry after a transient network
+    // failure receives the cached success response and does not re-execute the
+    // deletion sequence (which would reset deleted_at and the 30-day deadline).
+    await storeIdempotencyResult(request, user.id, ROUTE_ACCOUNT_DELETE, 200, deleteResponseBody);
+
+    return NextResponse.json(deleteResponseBody);
   } catch (error) {
     const isDev = process.env.NODE_ENV === 'development';
     console.error(
