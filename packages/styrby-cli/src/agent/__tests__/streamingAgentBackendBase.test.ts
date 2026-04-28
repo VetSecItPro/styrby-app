@@ -214,7 +214,10 @@ describe('waitForResponseComplete — C-2: polling loop stops after outer timeou
     // Advance past the outer timeout
     vi.advanceTimersByTime(600);
 
-    await expect(promise).rejects.toThrow('Timeout waiting for TestBackend response');
+    // WHY 'Test' not 'TestBackend': StreamingAgentBackendBase strips the
+    // "Backend" suffix from logTag to produce the user-facing agent label
+    // (see line ~416 in the parent class).
+    await expect(promise).rejects.toThrow('Timeout waiting for Test response');
   });
 
   it('stops scheduling new poll ticks after the outer timeout fires', async () => {
