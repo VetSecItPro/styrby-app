@@ -17,6 +17,7 @@ import {
   verifyPolarSignature,
   verifyPolarSignatureOrThrow,
   PolarSignatureError,
+  getPolarWebhookSecret,
 } from '../polar-webhook-signature';
 
 // ============================================================================
@@ -161,6 +162,102 @@ describe('verifyPolarSignatureOrThrow()', () => {
 // ============================================================================
 // PolarSignatureError shape
 // ============================================================================
+
+// ============================================================================
+// Env-aware secret resolution
+// ============================================================================
+
+describe('getPolarWebhookSecret() — env-aware resolution', () => {
+  const PROD_SECRET = 'prod-secret-aaaaaaaaaaaaaaaaaaaa';
+  const SANDBOX_SECRET = 'sandbox-secret-bbbbbbbbbbbbbbbb';
+
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.stubEnv('POLAR_WEBHOOK_SECRET', PROD_SECRET);
+    vi.stubEnv('POLAR_SANDBOX_WEBHOOK_SECRET', SANDBOX_SECRET);
+  });
+
+  it('returns prod secret when POLAR_ENV is unset', () => {
+    vi.stubEnv('POLAR_ENV', '');
+    expect(getPolarWebhookSecret()).toBe(PROD_SECRET);
+  });
+
+  it('returns prod secret when POLAR_ENV=production', () => {
+    vi.stubEnv('POLAR_ENV', 'production');
+    expect(getPolarWebhookSecret()).toBe(PROD_SECRET);
+  });
+
+  it('returns sandbox secret when POLAR_ENV=sandbox', () => {
+    vi.stubEnv('POLAR_ENV', 'sandbox');
+    expect(getPolarWebhookSecret()).toBe(SANDBOX_SECRET);
+  });
+
+  it('returns undefined when sandbox mode but sandbox secret is unset', () => {
+    vi.stubEnv('POLAR_ENV', 'sandbox');
+    vi.stubEnv('POLAR_SANDBOX_WEBHOOK_SECRET', '');
+    expect(getPolarWebhookSecret()).toBeUndefined();
+  });
+
+  it('treats any non-"sandbox" POLAR_ENV value as production (default-deny sandbox)', () => {
+    // WHY: POLAR_ENV is a tri-state in concept but only the literal "sandbox"
+    // string flips behavior. Typos like "Sandbox" or "sandbox " (trailing space
+    // — though getEnv trims) would otherwise default to prod. This test pins
+    // the safer default so a misconfigured env doesn't accidentally read the
+    // sandbox secret in a prod-aimed deploy.
+    vi.stubEnv('POLAR_ENV', 'staging');
+    expect(getPolarWebhookSecret()).toBe(PROD_SECRET);
+  });
+});
+
+describe('verifyPolarSignature() — env-aware secret', () => {
+  const PROD_SECRET = 'prod-secret-aaaaaaaaaaaaaaaaaaaa';
+  const SANDBOX_SECRET = 'sandbox-secret-bbbbbbbbbbbbbbbb';
+
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.stubEnv('POLAR_WEBHOOK_SECRET', PROD_SECRET);
+    vi.stubEnv('POLAR_SANDBOX_WEBHOOK_SECRET', SANDBOX_SECRET);
+  });
+
+  it('verifies a sandbox-signed payload when POLAR_ENV=sandbox', () => {
+    vi.stubEnv('POLAR_ENV', 'sandbox');
+    const sig = makeValidSignature(TEST_BODY, SANDBOX_SECRET);
+    expect(verifyPolarSignature(TEST_BODY, sig)).toBe(true);
+  });
+
+  it('rejects a prod-signed payload when POLAR_ENV=sandbox (cross-env signature)', () => {
+    // WHY: this is the load-bearing isolation guarantee. A real prod webhook
+    // (signed with the prod secret) hitting a sandbox-mode deploy must NOT
+    // be accepted, because the deploy will write into sandbox-isolated state
+    // (test users, sandbox product IDs). Accepting cross-env webhooks is how
+    // sandbox/prod state corruption happens.
+    vi.stubEnv('POLAR_ENV', 'sandbox');
+    const sig = makeValidSignature(TEST_BODY, PROD_SECRET);
+    expect(verifyPolarSignature(TEST_BODY, sig)).toBe(false);
+  });
+
+  it('rejects a sandbox-signed payload when POLAR_ENV is unset (prod default)', () => {
+    // Inverse of the above — sandbox events must not be accepted on prod.
+    vi.stubEnv('POLAR_ENV', '');
+    const sig = makeValidSignature(TEST_BODY, SANDBOX_SECRET);
+    expect(verifyPolarSignature(TEST_BODY, sig)).toBe(false);
+  });
+
+  it('verifies a prod-signed payload when POLAR_ENV is unset', () => {
+    vi.stubEnv('POLAR_ENV', '');
+    const sig = makeValidSignature(TEST_BODY, PROD_SECRET);
+    expect(verifyPolarSignature(TEST_BODY, sig)).toBe(true);
+  });
+
+  it('returns false when POLAR_ENV=sandbox but sandbox secret is missing (does not silently fall back to prod)', () => {
+    // Critical: missing sandbox secret must NOT fall through to prod secret.
+    // Falling back would defeat the whole isolation property.
+    vi.stubEnv('POLAR_ENV', 'sandbox');
+    vi.stubEnv('POLAR_SANDBOX_WEBHOOK_SECRET', '');
+    const sig = makeValidSignature(TEST_BODY, PROD_SECRET);
+    expect(verifyPolarSignature(TEST_BODY, sig)).toBe(false);
+  });
+});
 
 describe('PolarSignatureError', () => {
   it('is an instance of Error', () => {
