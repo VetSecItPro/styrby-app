@@ -131,7 +131,7 @@ function makeTeamUpdatedEvent(overrides?: Record<string, unknown>) {
       id: 'sub_team_abc123',
       status: 'active',
       quantity: 5,
-      metadata: { team_id: 'team-uuid-999' },
+      metadata: { team_id: '00000000-0000-4000-a000-000000000999' },
       prices: [{ product_id: 'prod_team_monthly' }],
       current_period_start: '2026-04-01T00:00:00Z',
       current_period_end: '2026-05-01T00:00:00Z',
@@ -433,7 +433,7 @@ describe('POST /api/webhooks/polar — team subscription events', () => {
           id: 'sub_team_abc123',
           status: 'canceled',
           quantity: 5,
-          metadata: { team_id: 'team-uuid-999' },
+          metadata: { team_id: '00000000-0000-4000-a000-000000000999' },
           prices: [{ product_id: 'prod_team_monthly' }],
           canceled_at: '2026-04-22T10:00:00Z',
         },
@@ -491,7 +491,7 @@ describe('POST /api/webhooks/polar — team subscription events', () => {
           id: 'sub_team_abc123',
           status: 'past_due',
           quantity: 5,
-          metadata: { team_id: 'team-uuid-999' },
+          metadata: { team_id: '00000000-0000-4000-a000-000000000999' },
           prices: [{ product_id: 'prod_team_monthly' }],
         },
       };
@@ -562,7 +562,7 @@ describe('POST /api/webhooks/polar — team subscription events', () => {
     });
 
     it('returns 400 for payload missing the top-level type field', async () => {
-      const missingType = { data: { id: 'sub_abc', metadata: { team_id: 'team-uuid-999' } } };
+      const missingType = { data: { id: 'sub_abc', metadata: { team_id: '00000000-0000-4000-a000-000000000999' } } };
       const req = createTeamWebhookRequest(missingType as Record<string, unknown>);
       const res = await POST(req);
       expect(res.status).toBe(400);
@@ -593,7 +593,7 @@ describe('POST /api/webhooks/polar — team subscription events', () => {
           id: 'sub_team_abc123',
           status: 'active',
           quantity: 5,
-          metadata: { team_id: 'team-uuid-999' },
+          metadata: { team_id: '00000000-0000-4000-a000-000000000999' },
           prices: [{ product_id: 'prod_COMPLETELY_UNKNOWN' }],
           current_period_start: '2026-04-01T00:00:00Z',
           current_period_end: '2026-05-01T00:00:00Z',
@@ -639,7 +639,7 @@ describe('POST /api/webhooks/polar — team subscription events', () => {
           id: 'sub_team_abc123',
           status: 'active',
           quantity: 1, // below team minimum of 3
-          metadata: { team_id: 'team-uuid-999' },
+          metadata: { team_id: '00000000-0000-4000-a000-000000000999' },
           prices: [{ product_id: 'prod_team_monthly' }],
           current_period_start: '2026-04-01T00:00:00Z',
           current_period_end: '2026-05-01T00:00:00Z',
@@ -678,7 +678,7 @@ describe('POST /api/webhooks/polar — team subscription events', () => {
           id: 'sub_biz_abc123',
           status: 'active',
           quantity: 5, // below business minimum of 10
-          metadata: { team_id: 'team-uuid-biz' },
+          metadata: { team_id: '00000000-0000-4000-b000-000000000999' },
           prices: [{ product_id: 'prod_business_monthly' }],
           current_period_start: '2026-04-01T00:00:00Z',
           current_period_end: '2026-05-01T00:00:00Z',
@@ -741,7 +741,7 @@ describe('POST /api/webhooks/polar — team subscription events', () => {
           id: 'sub_biz_abc',
           status: 'active',
           quantity: 10,
-          metadata: { team_id: 'team-uuid-biz' },
+          metadata: { team_id: '00000000-0000-4000-b000-000000000999' },
           prices: [{ product_id: 'prod_business_monthly' }],
           current_period_start: '2026-04-01T00:00:00Z',
           current_period_end: '2026-05-01T00:00:00Z',
@@ -764,7 +764,7 @@ describe('POST /api/webhooks/polar — team subscription events', () => {
           id: 'sub_biz_annual',
           status: 'active',
           quantity: 10,
-          metadata: { team_id: 'team-uuid-biz' },
+          metadata: { team_id: '00000000-0000-4000-b000-000000000999' },
           prices: [{ product_id: 'prod_business_annual' }],
           current_period_start: '2026-04-01T00:00:00Z',
           current_period_end: '2026-05-01T00:00:00Z',
