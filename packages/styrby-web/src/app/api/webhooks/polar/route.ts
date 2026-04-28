@@ -1,9 +1,14 @@
+// WEBHOOK-VERIFIED: polar
+// Inbound webhook from Polar billing platform. HMAC-SHA256 verified via
+// `verifyPolarSignatureOrThrow` (lib/polar-webhook-signature.ts) before any
+// business logic executes. Audited H42 Layer 5 (2026-04-28).
+
 /**
  * Polar Webhook Handler
  *
  * POST /api/webhooks/polar
  *
- * @auth None (public endpoint — secured by HMAC-SHA256 signature verification)
+ * @auth None (public endpoint - secured by HMAC-SHA256 signature verification)
  * @rateLimit 100 requests per 60 seconds per IP (Upstash Redis; skipped in dev/CI)
  *
  * Handles subscription lifecycle events from Polar:

@@ -1,3 +1,9 @@
+// WEBHOOK-INTERNAL: user webhook management
+// This is NOT an inbound vendor webhook receiver. It is Styrby's own REST API
+// for users to create/update/delete their outbound webhook configurations.
+// Every method requires a valid Supabase Auth JWT cookie - no external vendor
+// calls this endpoint. Audited H42 Layer 5 (2026-04-28).
+
 /**
  * User Webhooks API Route
  *
