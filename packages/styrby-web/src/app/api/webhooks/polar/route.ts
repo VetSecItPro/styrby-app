@@ -164,7 +164,14 @@ type PolarEvent =
  * team-tier events from individual-tier events.
  */
 const TeamSubscriptionMetadataSchema = z.object({
-  team_id: z.string().min(1),
+  // WHY .uuid() (not just .min(1)): teams.id is a UUID column in Postgres.
+  // A non-UUID string downstream produces "invalid input syntax for type uuid"
+  // and propagates as a 500. Validating at the schema layer turns malformed
+  // team_id values into a clean 422 with a structured error, surfacing the
+  // misconfiguration in Polar's delivery dashboard instead of crashing the
+  // route. Surfaced by sandbox e2e domain J (J2/J3) when fixtures sent
+  // `team_<random>` strings.
+  team_id: z.string().uuid('team_id must be a UUID'),
 });
 
 /**

@@ -48,10 +48,25 @@ import { getEnv } from './env';
 // ============================================================================
 
 /**
- * Billable team tier — limited to tiers that have Polar product IDs.
- * Enterprise is excluded because enterprise deals use bespoke Polar orders.
+ * Billable tier — any tier that maps to a Polar product ID.
+ *
+ * Includes both the legacy team-pricing tiers (`team`, `business`) and the
+ * post-cutover canonical tiers (`pro`, `growth`). Enterprise is excluded
+ * because enterprise deals use bespoke Polar orders, not catalog products.
+ *
+ * WHY all four are kept: the resolver is bidirectional. Legacy product IDs
+ * still exist in Vercel env scopes for backward compatibility during the
+ * cutover. Removing them would break any in-flight subscription whose
+ * Polar product is still under the legacy schema. Adding `pro` + `growth`
+ * fixes the e2e finding where the team-path resolver returned null for
+ * Growth product IDs, causing 422 + audit-log noise on every Growth
+ * subscription event.
+ *
+ * Historical name retained ("TeamBillingTier") to avoid touching every
+ * consumer in this PR; a future rename to `BillingTier` is tracked
+ * separately in the legacy-shim cleanup task.
  */
-export type TeamBillingTier = 'team' | 'business';
+export type TeamBillingTier = 'team' | 'business' | 'pro' | 'growth';
 
 /**
  * Billing cycle for per-seat subscriptions.
@@ -168,6 +183,14 @@ const PRODUCT_ID_ENV_VAR_MAP: Record<TeamBillingTier, Record<BillingCycle, strin
     monthly: 'POLAR_BUSINESS_MONTHLY_PRODUCT_ID',
     annual: 'POLAR_BUSINESS_ANNUAL_PRODUCT_ID',
   },
+  pro: {
+    monthly: 'POLAR_PRO_MONTHLY_PRODUCT_ID',
+    annual: 'POLAR_PRO_ANNUAL_PRODUCT_ID',
+  },
+  growth: {
+    monthly: 'POLAR_GROWTH_MONTHLY_PRODUCT_ID',
+    annual: 'POLAR_GROWTH_ANNUAL_PRODUCT_ID',
+  },
 };
 
 /**
@@ -225,7 +248,12 @@ export function resolvePolarProductId(
 ): { tier: TeamBillingTier; cycle: BillingCycle } | null {
   if (!productId) return null;
 
-  const tiers: TeamBillingTier[] = ['team', 'business'];
+  // Iterate ALL tiers (both legacy team/business and canonical pro/growth)
+  // so that subscription events using new-tier product IDs resolve correctly
+  // in the team-path code at /api/webhooks/polar/route.ts. Without this,
+  // every Growth subscription event returned 422 with "unknown product_id"
+  // because the resolver only knew about the pre-cutover schema.
+  const tiers: TeamBillingTier[] = ['team', 'business', 'pro', 'growth'];
   const cycles: BillingCycle[] = ['monthly', 'annual'];
 
   for (const tier of tiers) {

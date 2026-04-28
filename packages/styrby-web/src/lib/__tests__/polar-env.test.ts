@@ -22,6 +22,10 @@ const FULL_ENV = {
   POLAR_TEAM_ANNUAL_PRODUCT_ID: 'prod_team_yr_456',
   POLAR_BUSINESS_MONTHLY_PRODUCT_ID: 'prod_biz_mo_789',
   POLAR_BUSINESS_ANNUAL_PRODUCT_ID: 'prod_biz_yr_012',
+  POLAR_PRO_MONTHLY_PRODUCT_ID: 'prod_pro_mo_aaa',
+  POLAR_PRO_ANNUAL_PRODUCT_ID: 'prod_pro_yr_bbb',
+  POLAR_GROWTH_MONTHLY_PRODUCT_ID: 'prod_grw_mo_ccc',
+  POLAR_GROWTH_ANNUAL_PRODUCT_ID: 'prod_grw_yr_ddd',
 };
 
 function stubFullEnv() {
@@ -351,5 +355,31 @@ describe('resolvePolarProductId()', () => {
 
   it('returns null for an empty string', () => {
     expect(resolvePolarProductId('')).toBeNull();
+  });
+
+  // ---------------- canonical (post-cutover) tier resolution ----------------
+  // These pin the fix for the e2e finding where Growth subscription events
+  // returned 422 "unknown product_id" because the resolver only knew the
+  // legacy team/business schema. See route.ts team-path resolver call at
+  // src/app/api/webhooks/polar/route.ts line ~569.
+
+  it('resolves prod_pro_mo_aaa to { tier: pro, cycle: monthly }', () => {
+    const result = resolvePolarProductId('prod_pro_mo_aaa');
+    expect(result).toEqual({ tier: 'pro', cycle: 'monthly' });
+  });
+
+  it('resolves prod_pro_yr_bbb to { tier: pro, cycle: annual }', () => {
+    const result = resolvePolarProductId('prod_pro_yr_bbb');
+    expect(result).toEqual({ tier: 'pro', cycle: 'annual' });
+  });
+
+  it('resolves prod_grw_mo_ccc to { tier: growth, cycle: monthly }', () => {
+    const result = resolvePolarProductId('prod_grw_mo_ccc');
+    expect(result).toEqual({ tier: 'growth', cycle: 'monthly' });
+  });
+
+  it('resolves prod_grw_yr_ddd to { tier: growth, cycle: annual }', () => {
+    const result = resolvePolarProductId('prod_grw_yr_ddd');
+    expect(result).toEqual({ tier: 'growth', cycle: 'annual' });
   });
 });
