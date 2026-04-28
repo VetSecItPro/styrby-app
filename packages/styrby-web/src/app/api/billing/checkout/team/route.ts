@@ -60,6 +60,7 @@ import {
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 import { getAppUrl } from '@/lib/config';
 import { getEnv } from '@/lib/env';
+import { checkIdempotency, storeIdempotencyResult } from '@/lib/middleware/idempotency';
 
 // ============================================================================
 // Polar SDK client
@@ -229,6 +230,22 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  // ── Step 3b: Idempotency check ────────────────────────────────────────────
+
+  // WHY: Team checkout creates a Polar session which initiates a payment flow.
+  // If the CLI retries on a transient network error, a second checkout session
+  // is created for the same payment intent. The idempotency cache returns the
+  // original checkout URL so the user lands on the same Polar page, not a
+  // duplicate. OWASP A04:2021 replay protection.
+  const ROUTE_TEAM_CHECKOUT = '/api/billing/checkout/team';
+  const idemResult = await checkIdempotency(request, user.id, ROUTE_TEAM_CHECKOUT);
+  if ('conflict' in idemResult) {
+    return NextResponse.json({ error: 'CONFLICT', message: idemResult.message }, { status: 409 });
+  }
+  if (idemResult.replayed) {
+    return NextResponse.json(idemResult.body, { status: idemResult.status });
+  }
+
   // ── Step 4: Verify caller is owner/admin of the team ─────────────────────
 
   // WHY user-scoped client (not admin): RLS on team_members ensures the query
@@ -380,5 +397,11 @@ export async function POST(request: Request): Promise<Response> {
 
   // ── Step 9: Return checkout URL ───────────────────────────────────────────
 
-  return NextResponse.json({ checkout_url: checkoutUrl }, { status: 200 });
+  // WHY store before returning: ensures concurrent duplicate requests receive
+  // the cached response on their next retry rather than creating a second
+  // Polar checkout session.
+  const responseBody = { checkout_url: checkoutUrl };
+  await storeIdempotencyResult(request, user.id, ROUTE_TEAM_CHECKOUT, 200, responseBody);
+
+  return NextResponse.json(responseBody, { status: 200 });
 }
