@@ -172,8 +172,12 @@ async function checkApiRateLimit(keyId: string): Promise<{ allowed: boolean; rem
  * so we need service role access to look up keys.
  */
 function createApiAdminClient() {
+  // WHY the URL fallback: Vercel scopes set NEXT_PUBLIC_SUPABASE_URL but
+  // not the bare SUPABASE_URL. Reading SUPABASE_URL! alone made this
+  // throw "URL and Key required" in prod for any well-formed API key,
+  // returning a generic 500 instead of a clean 401.
   return createServerClient(
-    process.env.SUPABASE_URL!,
+    (process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL)!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     {
       cookies: {
