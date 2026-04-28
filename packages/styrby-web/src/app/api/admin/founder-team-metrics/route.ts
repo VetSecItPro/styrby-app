@@ -45,6 +45,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { isAdmin } from '@/lib/admin';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 import type { FounderTeamMetrics, FounderTeamSummary } from '@styrby/shared';
+import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 
 // ============================================================================
 // DB row types (internal, not exported)
@@ -95,6 +96,17 @@ export async function GET(request: NextRequest) {
   const adminStatus = await isAdmin(user.id);
   if (!adminStatus) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  // ── MFA gate — H42 Layer 1 ────────────────────────────────────────────────
+  // OWASP A07:2021, SOC 2 CC6.1.
+  try {
+    await assertAdminMfa(user.id);
+  } catch (err) {
+    if (err instanceof AdminMfaRequiredError) {
+      return NextResponse.json({ error: err.code }, { status: err.statusCode });
+    }
+    throw err;
   }
 
   try {

@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { AdminMfaBanner } from '@/components/admin/AdminMfaBanner';
 
 /**
  * Admin layout gate.
@@ -65,5 +66,36 @@ export default async function AdminLayout({
     redirect('/dashboard');
   }
 
-  return <>{children}</>;
+  // Fetch the admin's MFA grace window for the banner.
+  //
+  // WHY here (layout) not assertAdminMfa(): the layout must NOT call
+  // assertAdminMfa() because that would block the passkey enrollment page
+  // itself — a bootstrap paradox. The layout only reads mfa_grace_until for
+  // the banner; the MFA enforcement happens per-action in each route handler.
+  //
+  // WHY createAdminClient() here: the service-role client is already used above
+  // for the is_site_admin RPC. Reusing it (rather than adding a user-scoped
+  // client) avoids an extra client instantiation and keeps the layout focused
+  // on orchestration.
+  //
+  // WHY maybeSingle + null fallback: if the admin row has no mfa_grace_until
+  // (new admin added after enforcement) or the query fails, graceUntil = null
+  // and the banner is hidden. This is the correct fail-open for UI (the banner
+  // is informational — suppressing it on error is safe).
+  const { data: adminRow } = await adminDb
+    .from('site_admins')
+    .select('mfa_grace_until')
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  const graceUntil = adminRow?.mfa_grace_until ?? null;
+
+  return (
+    <>
+      {/* WHY AdminMfaBanner outside children: the banner is layout-level UI
+          displayed above the admin page content, not injected by each page. */}
+      <AdminMfaBanner graceUntil={graceUntil} />
+      {children}
+    </>
+  );
 }

@@ -46,6 +46,7 @@ import {
   RefundError,
 } from '@/lib/billing/polar-refund';
 import type { AdminActionResult } from '@/app/dashboard/admin/users/[userId]/actions';
+import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 
 // Re-export AdminActionResult so sub-pages can import from this module too.
 export type { AdminActionResult };
@@ -260,6 +261,23 @@ export async function issueRefundAction(
   const idempotencyKey = `${targetUserId}:${subscription_id}:${amount_cents}:${nowRoundedToMinute}`;
 
   // ── 3. Resolve subscription owner + Polar customer + Polar order ───────────
+  // ── MFA gate — H42 Layer 1 ────────────────────────────────────────────────
+  // OWASP A07:2021, SOC 2 CC6.1.
+  {
+    const mfaClient = await createClient();
+    const { data: { user: actingAdmin } } = await mfaClient.auth.getUser();
+    if (actingAdmin) {
+      try {
+        await assertAdminMfa(actingAdmin.id);
+      } catch (err) {
+        if (err instanceof AdminMfaRequiredError) {
+          return { ok: false, error: err.code };
+        }
+        throw err;
+      }
+    }
+  }
+
   // SEC-REFUND-001: The Polar SDK refund API requires a real order ID; the
   // pass-through `orderId: subscription_id` it had before this PR caused Polar
   // to reject every refund with HTTPValidationError. Two-step resolution now:
@@ -574,6 +592,22 @@ export async function issueCreditAction(
   // WHY createClient() (user-scoped): see module JSDoc. SOC 2 CC6.1, CC7.2.
   const supabase = await createClient();
 
+  // ── MFA gate — H42 Layer 1 ────────────────────────────────────────────────
+  // OWASP A07:2021, SOC 2 CC6.1.
+  {
+    const { data: { user: actingAdmin } } = await supabase.auth.getUser();
+    if (actingAdmin) {
+      try {
+        await assertAdminMfa(actingAdmin.id);
+      } catch (err) {
+        if (err instanceof AdminMfaRequiredError) {
+          return { ok: false, error: err.code };
+        }
+        throw err;
+      }
+    }
+  }
+
   const { data: rpcData, error: rpcErr } = await supabase.rpc('admin_issue_credit', {
     p_target_user_id: targetUserId,
     p_amount_cents: amount_cents,
@@ -673,6 +707,22 @@ export async function sendChurnSaveOfferAction(
   // ── 2. Call SECURITY DEFINER RPC ──────────────────────────────────────────
   // WHY createClient() (user-scoped): see module JSDoc. SOC 2 CC6.1, CC7.2.
   const supabase = await createClient();
+
+  // ── MFA gate — H42 Layer 1 ────────────────────────────────────────────────
+  // OWASP A07:2021, SOC 2 CC6.1.
+  {
+    const { data: { user: actingAdmin } } = await supabase.auth.getUser();
+    if (actingAdmin) {
+      try {
+        await assertAdminMfa(actingAdmin.id);
+      } catch (err) {
+        if (err instanceof AdminMfaRequiredError) {
+          return { ok: false, error: err.code };
+        }
+        throw err;
+      }
+    }
+  }
 
   const { data: rpcData, error: rpcErr } = await supabase.rpc('admin_send_churn_save_offer', {
     p_target_user_id: targetUserId,

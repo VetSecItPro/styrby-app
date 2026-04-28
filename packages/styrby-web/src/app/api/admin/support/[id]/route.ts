@@ -21,6 +21,7 @@ import { isAdmin } from '@/lib/admin';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 
 /**
  * Zod schema for PATCH request body validation.
@@ -55,6 +56,19 @@ async function verifyAdmin() {
 
   if (!(await isAdmin(user.id))) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
+  }
+
+  // ── MFA gate — H42 Layer 1 ────────────────────────────────────────────────
+  // WHY in verifyAdmin(): all handlers (GET + PATCH) share this helper,
+  // so adding the MFA check here gates every handler at once.
+  // OWASP A07:2021, SOC 2 CC6.1.
+  try {
+    await assertAdminMfa(user.id);
+  } catch (err) {
+    if (err instanceof AdminMfaRequiredError) {
+      return { error: NextResponse.json({ error: err.code }, { status: err.statusCode }) };
+    }
+    throw err;
   }
 
   return { user };
