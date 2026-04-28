@@ -613,7 +613,19 @@ async function handleTeamSubscriptionEvent(
 
   const seatCount = subscriptionData.quantity;
 
-  if (eventType === 'subscription.updated' && resolvedTier) {
+  // WHY narrow to legacy seat-based tiers: validateSeatCount in
+  // @styrby/shared/billing has signature (tier: 'team' | 'business' | 'enterprise', ...).
+  // Post-cutover the resolver may also return 'pro' or 'growth' (PR #197);
+  // 'pro' has no seat dimension (individual plan), and 'growth' uses
+  // quantity=1 on the main subscription with seat addons modeled as separate
+  // subscriptions — neither needs the legacy seat-count gate. Future cleanup
+  // (H25 legacy shim) collapses this guard once BillableTier is broadened
+  // upstream in the shared package.
+  if (
+    eventType === 'subscription.updated' &&
+    resolvedTier &&
+    (resolvedTier === 'team' || resolvedTier === 'business')
+  ) {
     const validation = validateSeatCount(resolvedTier, seatCount);
     if (!validation.ok) {
       console.error(
