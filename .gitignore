@@ -141,3 +141,5 @@ ARCHITECTURE.md
 .claude/worktrees/
 .claire/
 .copy-reports/
+.db-reports/
+scripts/__pycache__/
