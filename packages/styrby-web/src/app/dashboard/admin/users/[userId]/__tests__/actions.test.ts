@@ -100,6 +100,25 @@ const mockRpc = vi.fn();
 const mockGenerateLink = vi.fn();
 const mockGetUserById = vi.fn();
 
+// WHY mock mfa-gate (H42 Layer 1): every admin action now calls
+// `assertAdminMfa(actingAdmin.id)` before running its RPC. Without this mock
+// the gate would call createAdminClient → site_admins lookup, which is not
+// stubbed at unit-test layer. Mirrors src/__tests__/admin/actions.integration.test.ts.
+// MFA gate behavior itself is covered in src/lib/admin/__tests__/mfa-gate.test.ts;
+// these unit tests assert each action wires the gate correctly via dedicated
+// `(MFA)` test cases below. OWASP A07:2021, SOC 2 CC6.1.
+vi.mock('@/lib/admin/mfa-gate', () => ({
+  assertAdminMfa: vi.fn().mockResolvedValue(undefined),
+  AdminMfaRequiredError: class AdminMfaRequiredError extends Error {
+    statusCode = 403 as const;
+    code = 'ADMIN_MFA_REQUIRED' as const;
+    constructor() {
+      super('Admin MFA required');
+      this.name = 'AdminMfaRequiredError';
+    }
+  },
+}));
+
 vi.mock('@/lib/supabase/server', () => ({
   // WHY createClient is plain vi.fn() here (not .mockResolvedValue):
   //   vi.mock factories are hoisted to the top of the file by Vitest. At hoist
@@ -127,9 +146,29 @@ vi.mock('@/lib/supabase/server', () => ({
 // WHY import after vi.mock: Vitest hoists vi.mock calls to the top, so these
 // imports get the mocked versions regardless of declaration order in the file.
 import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 import type { Mock } from 'vitest';
 
+const ACTING_ADMIN_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Builds an `auth.getUser()` stub for the mocked Supabase client.
+ * WHY: H42 Layer 1 added `supabase.auth.getUser()` calls inside every admin action
+ * to capture the acting admin for the MFA gate. Returning a real admin user
+ * (rather than null) means the gate is genuinely exercised on every test path —
+ * `assertAdminMfa` (mocked at module level) runs and resolves by default,
+ * proving the gate is wired correctly. Per-case overrides simulate gate failure
+ * via `(assertAdminMfa as Mock).mockRejectedValueOnce(new AdminMfaRequiredError())`.
+ */
+function makeAuthMock() {
+  return {
+    getUser: vi.fn().mockResolvedValue({
+      data: { user: { id: ACTING_ADMIN_ID, email: 'admin@styrby.test' } },
+    }),
+  };
+}
 
 /**
  * Builds a FormData object from a plain record.
@@ -156,7 +195,7 @@ describe('overrideTierAction', () => {
     // WHY restore after clearAllMocks: clearAllMocks wipes mockResolvedValue.
     // createClient must return an object with rpc so actions can call it.
     // Fix P0: createClient (user-scoped) is now the RPC client for all admin_* calls.
-    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
+    (createClient as Mock).mockResolvedValue({ rpc: mockRpc, auth: makeAuthMock() });
   });
 
   // ── (a) Zod validation ────────────────────────────────────────────────────
@@ -385,6 +424,24 @@ describe('overrideTierAction', () => {
     //     (createAdminClient has no rpc property in the mock setup).
     expect(mockRpc).toHaveBeenCalledWith('admin_override_tier', expect.any(Object));
   });
+
+  // ── (MFA gate) H42 Layer 1 wiring proof ───────────────────────────────────
+  // WHY this test exists: the action calls assertAdminMfa(actingAdmin.id) before
+  // running the RPC. If a future refactor moves the gate or skips it, this test
+  // catches it — the RPC must NOT execute when the gate throws.
+  it('(MFA gate) returns ADMIN_MFA_REQUIRED and skips RPC when assertAdminMfa throws', async () => {
+    (assertAdminMfa as Mock).mockRejectedValueOnce(new AdminMfaRequiredError());
+
+    const { overrideTierAction } = await import('../actions');
+    const result = await overrideTierAction(
+      VALID_UUID,
+      makeFormData({ targetUserId: VALID_UUID, newTier: 'pro', reason: 'test reason' })
+    );
+
+    expect(result).toEqual({ ok: false, error: 'ADMIN_MFA_REQUIRED' });
+    expect(assertAdminMfa).toHaveBeenCalledWith(ACTING_ADMIN_ID);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
 });
 
 // ─── resetPasswordAction ─────────────────────────────────────────────────────
@@ -394,7 +451,7 @@ describe('resetPasswordAction', () => {
     vi.clearAllMocks();
     // WHY restore after clearAllMocks: createClient must return {rpc} for RPC calls.
     // Fix P0: user-scoped client is now the RPC client for admin_record_password_reset.
-    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
+    (createClient as Mock).mockResolvedValue({ rpc: mockRpc, auth: makeAuthMock() });
     // Restore header mock to return valid values by default.
     mockHeadersGet.mockImplementation((name: string) => {
       if (name === 'x-forwarded-for') return MOCK_XFF;
@@ -703,6 +760,22 @@ describe('resetPasswordAction', () => {
     const [, sentryCtx] = mockSentryCaptureMessage.mock.calls[0];
     expect(sentryCtx.tags.target_status).toBe('deleted');
   });
+
+  // ── (MFA gate) H42 Layer 1 wiring proof ───────────────────────────────────
+  it('(MFA gate) returns ADMIN_MFA_REQUIRED and skips RPC + generateLink when assertAdminMfa throws', async () => {
+    (assertAdminMfa as Mock).mockRejectedValueOnce(new AdminMfaRequiredError());
+
+    const { resetPasswordAction } = await import('../actions');
+    const result = await resetPasswordAction(
+      VALID_UUID,
+      makeFormData({ targetUserId: VALID_UUID, reason: 'forgot password' })
+    );
+
+    expect(result).toEqual({ ok: false, error: 'ADMIN_MFA_REQUIRED' });
+    expect(assertAdminMfa).toHaveBeenCalledWith(ACTING_ADMIN_ID);
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(mockGenerateLink).not.toHaveBeenCalled();
+  });
 });
 
 // ─── toggleConsentAction ─────────────────────────────────────────────────────
@@ -712,7 +785,7 @@ describe('toggleConsentAction', () => {
     vi.clearAllMocks();
     // WHY restore after clearAllMocks: createClient must return {rpc} for RPC calls.
     // Fix P0: user-scoped client is now the RPC client for admin_toggle_consent.
-    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
+    (createClient as Mock).mockResolvedValue({ rpc: mockRpc, auth: makeAuthMock() });
     mockHeadersGet.mockImplementation((name: string) => {
       if (name === 'x-forwarded-for') return MOCK_XFF;
       if (name === 'user-agent') return MOCK_UA;
@@ -924,5 +997,25 @@ describe('toggleConsentAction', () => {
     expect(mockSentryCaptureMessage).toHaveBeenCalledOnce();
     const [, sentryCtx] = mockSentryCaptureMessage.mock.calls[0];
     expect(sentryCtx.tags.admin_action).toBe('toggle_consent');
+  });
+
+  // ── (MFA gate) H42 Layer 1 wiring proof ───────────────────────────────────
+  it('(MFA gate) returns ADMIN_MFA_REQUIRED and skips RPC when assertAdminMfa throws', async () => {
+    (assertAdminMfa as Mock).mockRejectedValueOnce(new AdminMfaRequiredError());
+
+    const { toggleConsentAction } = await import('../actions');
+    const result = await toggleConsentAction(
+      VALID_UUID,
+      makeFormData({
+        targetUserId: VALID_UUID,
+        purpose: 'support_read_metadata',
+        grant: 'true',
+        reason: 'support request',
+      })
+    );
+
+    expect(result).toEqual({ ok: false, error: 'ADMIN_MFA_REQUIRED' });
+    expect(assertAdminMfa).toHaveBeenCalledWith(ACTING_ADMIN_ID);
+    expect(mockRpc).not.toHaveBeenCalled();
   });
 });

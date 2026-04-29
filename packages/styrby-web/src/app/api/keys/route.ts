@@ -306,13 +306,16 @@ export async function POST(request: NextRequest) {
     // Hash the key with bcrypt
     const keyHash = await hashApiKey(plaintextKey);
 
-    // Calculate expiration if specified
-    let expiresAt: string | null = null;
-    if (parseResult.data.expires_in_days) {
-      const expDate = new Date();
-      expDate.setDate(expDate.getDate() + parseResult.data.expires_in_days);
-      expiresAt = expDate.toISOString();
-    }
+    // Calculate expiration.
+    // WHY default to 1 year: Keys without expiry never rotate, which is
+    // a security antipattern (H42 Item 2, SOC2 CC6.1). Defaulting to 365 days
+    // ensures every key has a finite lifetime while remaining practical for
+    // automation use-cases. Users can still specify a shorter window via
+    // expires_in_days. The CLI surfaces a rotation prompt at <30 days remaining.
+    const expiryDays = parseResult.data.expires_in_days ?? 365;
+    const expDate = new Date();
+    expDate.setDate(expDate.getDate() + expiryDays);
+    const expiresAt: string = expDate.toISOString();
 
     // Insert the key
     const { data: keyRecord, error: insertError } = await supabase

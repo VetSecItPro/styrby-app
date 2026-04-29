@@ -29,6 +29,7 @@ import { isAdmin } from '@/lib/admin';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 
 // ---------------------------------------------------------------------------
 // Query Schema
@@ -65,6 +66,17 @@ export async function GET(request: Request) {
   // Verify admin access via site_admins / is_site_admin() RPC (A-001; migration 042 T3.5 cutover)
   if (!(await isAdmin(user.id))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  // ── MFA gate — H42 Layer 1 ────────────────────────────────────────────────
+  // OWASP A07:2021, SOC 2 CC6.1.
+  try {
+    await assertAdminMfa(user.id);
+  } catch (err) {
+    if (err instanceof AdminMfaRequiredError) {
+      return NextResponse.json({ error: err.code }, { status: err.statusCode });
+    }
+    throw err;
   }
 
   // Parse and validate query params via Zod schema (OWASP ASVS V5.1.3)

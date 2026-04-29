@@ -110,6 +110,24 @@ vi.mock('@/lib/rateLimit', () => ({
   ),
 }));
 
+// WHY mock mfa-gate (H42 Layer 1): the route calls assertAdminMfa(user.id) after
+// the isAdmin check. Without this mock the real gate queries the passkeys table
+// via createAdminClient which is not set up in the unit test environment.
+// Gate behaviour is covered by src/lib/admin/__tests__/mfa-gate.test.ts.
+// OWASP A07:2021, SOC 2 CC6.1.
+vi.mock('@/lib/admin/mfa-gate', () => ({
+  assertAdminMfa: vi.fn().mockResolvedValue(undefined),
+  AdminMfaRequiredError: class AdminMfaRequiredError extends Error {
+    statusCode = 403 as const;
+    code = 'ADMIN_MFA_REQUIRED' as const;
+    constructor() {
+      super('Admin MFA required');
+      this.name = 'AdminMfaRequiredError';
+    }
+  },
+}));
+
+import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 import { GET, PATCH } from '../route';
 
 // ============================================================================
@@ -614,6 +632,40 @@ describe('PATCH /api/admin/support/[id]', () => {
 
       const body = await response.json();
       expect(body.error).toBe('Failed to update ticket');
+    });
+  });
+
+  // ── MFA gate wiring (H42 Layer 1) ───────────────────────────────────────────
+
+  // WHY: proves the route calls assertAdminMfa and short-circuits to 403 when
+  // the gate throws AdminMfaRequiredError — DB queries must not run on gate failure.
+  // Applies to both GET and PATCH since the same gate code path is hit for each.
+  // OWASP A07:2021, SOC 2 CC6.1.
+  describe('MFA gate', () => {
+    it('(MFA gate) GET returns 403 ADMIN_MFA_REQUIRED when assertAdminMfa throws', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: ADMIN_USER }, error: null });
+      mockIsAdmin.mockResolvedValue(true);
+      (assertAdminMfa as import('vitest').Mock).mockRejectedValueOnce(new AdminMfaRequiredError());
+
+      const response = await GET(makeGetRequest(), makeContext());
+
+      expect(response.status).toBe(403);
+      const body = await response.json();
+      expect(body.error).toBe('ADMIN_MFA_REQUIRED');
+      // Ensure no DB call was made — adminFromQueue should still be empty.
+      expect(adminFromQueue).toHaveLength(0);
+    });
+
+    it('(MFA gate) PATCH returns 403 ADMIN_MFA_REQUIRED when assertAdminMfa throws', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: ADMIN_USER }, error: null });
+      mockIsAdmin.mockResolvedValue(true);
+      (assertAdminMfa as import('vitest').Mock).mockRejectedValueOnce(new AdminMfaRequiredError());
+
+      const response = await PATCH(makePatchRequest({ status: 'resolved' }), makeContext());
+
+      expect(response.status).toBe(403);
+      const body = await response.json();
+      expect(body.error).toBe('ADMIN_MFA_REQUIRED');
     });
   });
 });

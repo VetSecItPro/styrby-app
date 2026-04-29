@@ -36,6 +36,7 @@ import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { isAdmin } from '@/lib/admin';
 import * as Sentry from '@sentry/nextjs';
+import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 
 // ============================================================================
 // Types
@@ -121,6 +122,17 @@ export async function GET(): Promise<NextResponse> {
   const adminStatus = await isAdmin(user.id);
   if (!adminStatus) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  // ── MFA gate — H42 Layer 1 ────────────────────────────────────────────────
+  // OWASP A07:2021, SOC 2 CC6.1.
+  try {
+    await assertAdminMfa(user.id);
+  } catch (err) {
+    if (err instanceof AdminMfaRequiredError) {
+      return NextResponse.json({ error: err.code }, { status: err.statusCode });
+    }
+    throw err;
   }
 
   // ── Execute RPC ────────────────────────────────────────────────────────────

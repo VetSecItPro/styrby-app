@@ -74,6 +74,24 @@ vi.mock('@/lib/supabase/server', () => ({
   }),
 }));
 
+// WHY mock mfa-gate (H42 Layer 1): every admin action (issueRefundAction)
+// calls assertAdminMfa(actingAdmin.id) after resolving the acting admin via
+// supabase.auth.getUser(). Without this mock the real gate runs createAdminClient
+// to query the passkeys table — which is not set up in the integration test env.
+// MFA gate behaviour is covered in src/lib/admin/__tests__/mfa-gate.test.ts.
+// OWASP A07:2021, SOC 2 CC6.1.
+vi.mock('@/lib/admin/mfa-gate', () => ({
+  assertAdminMfa: vi.fn().mockResolvedValue(undefined),
+  AdminMfaRequiredError: class AdminMfaRequiredError extends Error {
+    statusCode = 403 as const;
+    code = 'ADMIN_MFA_REQUIRED' as const;
+    constructor() {
+      super('Admin MFA required');
+      this.name = 'AdminMfaRequiredError';
+    }
+  },
+}));
+
 // ── Polar refund helper mock ──────────────────────────────────────────────────
 // WHY mock @/lib/billing/polar-refund (not the Polar SDK directly):
 //   The integration boundary we're testing is actions.ts ↔ the refund helper +
@@ -108,6 +126,8 @@ vi.mock('@/lib/billing/polar-refund', () => ({
 // ============================================================================
 // Helpers
 // ============================================================================
+
+import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 
 const ADMIN_UUID  = 'a1b2c3d4-e5f6-7890-abcd-000000000001';
 const TARGET_UUID = 'b2c3d4e5-f6a7-8901-bcde-000000000002';
@@ -148,6 +168,9 @@ describe('issueRefundAction — end-to-end refund flow', () => {
     // SEC-REFUND-001: client now needs both .rpc (audit RPC) and .from (subscription
     // owner + polar_customer_id lookup before the refund). Default the lookup to a
     // valid row owned by TARGET_UUID so happy-path tests don't re-stub the chain.
+    // WHY include auth.getUser: H42 Layer 1 added auth.getUser() calls inside
+    // admin actions to resolve the acting admin for the MFA gate. The mock must
+    // return a valid admin user so assertAdminMfa (mocked above) receives the ID.
     createClient.mockResolvedValue({
       rpc: mockRpc,
       from: vi.fn().mockReturnValue({
@@ -160,6 +183,11 @@ describe('issueRefundAction — end-to-end refund flow', () => {
           }),
         }),
       }),
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: ADMIN_UUID, email: 'admin@styrby.test' } },
+        }),
+      },
     });
     // SEC-REFUND-001: order resolver — default returns ample refundable balance
     // so amount checks don't trip on the default. Tests that want the resolver
@@ -306,7 +334,8 @@ describe('issueRefundAction — end-to-end refund flow', () => {
     const key1 = (mockCreatePolarRefund.mock.calls[0]![0] as Record<string, unknown>).idempotencyKey as string;
 
     vi.clearAllMocks();
-    // Re-stub the full client shape (rpc + from) since clearAllMocks wiped it.
+    // Re-stub the full client shape (rpc + from + auth) since clearAllMocks wiped it.
+    // WHY include auth.getUser: H42 Layer 1 requires auth.getUser() for the MFA gate.
     createClient.mockResolvedValue({
       rpc: mockRpc,
       from: vi.fn().mockReturnValue({
@@ -319,6 +348,11 @@ describe('issueRefundAction — end-to-end refund flow', () => {
           }),
         }),
       }),
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: ADMIN_UUID, email: 'admin@styrby.test' } },
+        }),
+      },
     });
     mockFindRefundableOrder.mockResolvedValue({
       orderId: 'ord_integration_default',
@@ -445,5 +479,26 @@ describe('issueRefundAction — end-to-end refund flow', () => {
     expect(result.error).toBe('Internal error');
     expect(mockRpc).not.toHaveBeenCalled();
     expect(mockSentryCapture).toHaveBeenCalledOnce();
+  });
+
+  // ── (MFA gate) H42 Layer 1 wiring proof ──────────────────────────────────────
+
+  // WHY: proves issueRefundAction calls assertAdminMfa before running the Polar
+  // refund or the RPC. If the gate throws AdminMfaRequiredError, the action must
+  // short-circuit and return { ok: false, error: 'ADMIN_MFA_REQUIRED' } without
+  // calling Polar or the audit RPC.
+  // OWASP A07:2021, SOC 2 CC6.1.
+  it('(MFA gate) issueRefundAction returns ADMIN_MFA_REQUIRED and skips Polar + RPC when assertAdminMfa throws', async () => {
+    (assertAdminMfa as Mock).mockRejectedValueOnce(new AdminMfaRequiredError());
+
+    const result = await issueRefundAction(
+      TARGET_UUID,
+      makeRefundFormData()
+    ) as { ok: boolean; error: string };
+
+    expect(result).toEqual({ ok: false, error: 'ADMIN_MFA_REQUIRED' });
+    expect(assertAdminMfa).toHaveBeenCalledWith(ADMIN_UUID);
+    expect(mockCreatePolarRefund).not.toHaveBeenCalled();
+    expect(mockRpc).not.toHaveBeenCalled();
   });
 });

@@ -21,8 +21,12 @@ const mockAuthContext = {
   scopes: ['read'],
 };
 
+// WHY withApiAuthAndRateLimit (not withApiAuth): H42 Layer 5 replaced withApiAuth
+// with withApiAuthAndRateLimit on all v1 routes to enforce per-key rate limits
+// in addition to auth. Mock the new export so the module resolution succeeds and
+// the handler is invoked with the test auth context. OWASP A07:2021.
 vi.mock('@/middleware/api-auth', () => ({
-  withApiAuth: vi.fn((handler: Function) => {
+  withApiAuthAndRateLimit: vi.fn((handler: Function) => {
     return async (request: NextRequest) => handler(request, mockAuthContext);
   }),
   addRateLimitHeaders: vi.fn((response: NextResponse) => response),
@@ -242,5 +246,29 @@ describe('GET /api/v1/costs/export', () => {
 
     const res = await GET(makeRequest());
     expect(res.status).toBe(429);
+  });
+
+  // --------------------------------------------------------------------------
+  // Auth wiring (H42 Layer 5)
+  // --------------------------------------------------------------------------
+
+  // WHY this test exists: H42 Layer 5 wraps the route with withApiAuthAndRateLimit.
+  // If a future refactor unwraps the route or swaps the middleware, this test
+  // catches it — the handler must NOT execute when the wrapper short-circuits.
+  // OWASP A07:2021, SOC 2 CC6.1.
+  it('returns 401 when withApiAuthAndRateLimit rejects the request', async () => {
+    const { withApiAuthAndRateLimit } = await import('@/middleware/api-auth');
+    vi.mocked(withApiAuthAndRateLimit).mockImplementationOnce(() => async () => {
+      return NextResponse.json(
+        { error: 'Missing Authorization header', code: 'UNAUTHORIZED' },
+        { status: 401 }
+      );
+    });
+
+    vi.resetModules();
+    const { GET: freshGET } = await import('../route');
+
+    const res = await freshGET(makeRequest());
+    expect(res.status).toBe(401);
   });
 });

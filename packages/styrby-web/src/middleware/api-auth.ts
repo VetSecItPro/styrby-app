@@ -6,17 +6,20 @@
  * user context to the request.
  *
  * Authentication Flow:
- * 1. Extract API key from Authorization: Bearer sk_live_xxx header
- * 2. Extract prefix and look up candidate keys in database
- * 3. Verify full key against bcrypt hash
- * 4. Check key is not expired or revoked
- * 5. Update last_used_at tracking
- * 6. Attach user_id to request context
- * 7. Rate limit: 100 requests per minute per key
+ * 1. IP-based pre-auth rate limit (60 req/min/IP) — stops unauthenticated floods
+ * 2. Extract API key from Authorization: Bearer sk_live_xxx header
+ * 3. Extract prefix and look up candidate keys in database
+ * 4. Verify full key against bcrypt hash
+ * 5. Check key is not expired or revoked
+ * 6. Per-key rate limit: 100 requests per minute per key
+ * 7. Update last_used_at tracking
+ * 8. Attach user_id to request context
  *
  * Security Notes:
+ * - IP-based rate limit prevents unauthenticated flood attacks (H42 Layer 1)
+ * - Per-key rate limit prevents abuse by any single credential
  * - Uses bcrypt for constant-time hash comparison
- * - Rate limits prevent brute force attacks
+ * - API keys default to 1-year TTL; near-expiry (<30 days) is signalled in responses
  * - All requests are logged to audit_log
  * - Keys can be revoked instantly
  */
@@ -25,7 +28,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { verifyApiKey } from '@/lib/api-keys';
 import { extractApiKeyPrefix, isValidApiKeyFormat } from '@styrby/shared';
-import { getClientIp } from '@/lib/rateLimit';
+import { getClientIp, rateLimit as checkRateLimit } from '@/lib/rateLimit';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { getEnv, getHttpsUrlEnv } from '@/lib/env';
@@ -52,6 +55,13 @@ export interface ApiAuthContext {
   userId: string;
   keyId: string;
   scopes: string[];
+  /**
+   * ISO 8601 expiration timestamp for the API key, or null if never expires.
+   * Included so route handlers and CLI clients can detect near-expiry (<30 days)
+   * and prompt the user to rotate before the key stops working.
+   * (H42 Item 2)
+   */
+  keyExpiresAt: string | null;
 }
 
 /**
@@ -61,18 +71,49 @@ export type ApiAuthResult =
   | { success: true; context: ApiAuthContext }
   | { success: false; error: string; status: number };
 
+/**
+ * Per-route rate limit override options for withApiAuthAndRateLimit.
+ */
+export interface RateLimitOptions {
+  /** Time window in milliseconds (default: 60000) */
+  windowMs?: number;
+  /** Maximum requests per window (default: 100) */
+  maxRequests?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Rate Limiting
 // ---------------------------------------------------------------------------
 
 /**
- * Rate limit configuration for API keys.
- * 100 requests per minute per key.
+ * Default per-key rate limit: 100 requests per minute.
+ * Applied after authentication (key-level isolation).
  */
 const API_RATE_LIMIT = {
   windowMs: 60000, // 1 minute
   maxRequests: 100,
 };
+
+/**
+ * Pre-auth IP-based rate limit: 60 requests per minute per IP.
+ *
+ * WHY: Applied before we parse the API key. This stops unauthenticated
+ * floods (e.g., key enumeration or DDoS against the auth layer itself)
+ * from ever reaching the bcrypt verification step.
+ * The limit is intentionally lower than the per-key limit so that a
+ * single IP cannot exhaust per-key capacity even if it spreads across keys.
+ * (H42 Layer 1, SOC2 CC6.6)
+ */
+const IP_RATE_LIMIT = {
+  windowMs: 60000, // 1 minute
+  maxRequests: 60,
+};
+
+/**
+ * Days remaining on an API key before we surface a near-expiry warning hint
+ * in API responses. CLI clients check `keyExpiresAt` and prompt rotation.
+ */
+const KEY_EXPIRY_WARNING_DAYS = 30;
 
 /**
  * Distributed rate limiter for API keys (H-001: replaces in-memory Map).
@@ -197,6 +238,9 @@ function createApiAdminClient() {
 /**
  * Authenticates an API request using the Authorization header.
  *
+ * Runs IP-based pre-auth rate limiting before any key lookup so that
+ * unauthenticated floods cannot drive up bcrypt verification cost.
+ *
  * @param request - The incoming HTTP request
  * @returns Authentication result with user context or error
  *
@@ -205,9 +249,21 @@ function createApiAdminClient() {
  * if (!result.success) {
  *   return NextResponse.json({ error: result.error }, { status: result.status });
  * }
- * const { userId, scopes } = result.context;
+ * const { userId, scopes, keyExpiresAt } = result.context;
  */
 export async function authenticateApiRequest(request: NextRequest): Promise<ApiAuthResult> {
+  // Step 0: IP-based pre-auth rate limit (H42 Layer 1)
+  // WHY: Check before we even parse the key so that key enumeration and
+  // unauthenticated floods are stopped at the cheapest possible checkpoint.
+  const ipRateLimitResult = await checkRateLimit(request, IP_RATE_LIMIT, 'api-v1-ip');
+  if (!ipRateLimitResult.allowed) {
+    return {
+      success: false,
+      error: `Rate limit exceeded. Retry after ${ipRateLimitResult.retryAfter ?? 60} seconds`,
+      status: 429,
+    };
+  }
+
   // Step 1: Extract API key from Authorization header
   const authHeader = request.headers.get('authorization');
 
@@ -293,7 +349,7 @@ export async function authenticateApiRequest(request: NextRequest): Promise<ApiA
     };
   }
 
-  // Step 5: Check expiration
+  // Step 5: Check expiration (H42 Item 2 — TTL enforcement)
   if (matchedKey.expires_at) {
     const expiresAt = new Date(matchedKey.expires_at);
     if (expiresAt < new Date()) {
@@ -305,12 +361,12 @@ export async function authenticateApiRequest(request: NextRequest): Promise<ApiA
     }
   }
 
-  // Step 6: Check rate limit (now distributed via Upstash Redis)
-  const rateLimit = await checkApiRateLimit(matchedKey.id);
-  if (!rateLimit.allowed) {
+  // Step 6: Check per-key rate limit (now distributed via Upstash Redis)
+  const keyRateLimit = await checkApiRateLimit(matchedKey.id);
+  if (!keyRateLimit.allowed) {
     return {
       success: false,
-      error: `Rate limit exceeded. Retry after ${rateLimit.retryAfter} seconds`,
+      error: `Rate limit exceeded. Retry after ${keyRateLimit.retryAfter} seconds`,
       status: 429,
     };
   }
@@ -338,6 +394,9 @@ export async function authenticateApiRequest(request: NextRequest): Promise<ApiA
       userId: matchedKey.user_id,
       keyId: matchedKey.id,
       scopes: matchedKey.scopes,
+      // WHY: Expose expiry so route handlers and CLI clients can surface
+      // near-expiry warnings (<30 days) without a separate API call.
+      keyExpiresAt: matchedKey.expires_at,
     },
   };
 }
@@ -347,18 +406,30 @@ export async function authenticateApiRequest(request: NextRequest): Promise<ApiA
  *
  * @param error - The error message
  * @param status - The HTTP status code
+ * @param extraHeaders - Optional additional response headers (e.g. Retry-After)
  * @returns A NextResponse with the error
  */
-export function apiAuthError(error: string, status: number): NextResponse {
+export function apiAuthError(
+  error: string,
+  status: number,
+  extraHeaders?: Record<string, string>
+): NextResponse {
+  const code =
+    status === 401
+      ? 'UNAUTHORIZED'
+      : status === 429
+        ? 'RATE_LIMITED'
+        : status === 423
+          ? 'LOCKED'
+          : 'ERROR';
+
   return NextResponse.json(
-    {
-      error,
-      code: status === 401 ? 'UNAUTHORIZED' : status === 429 ? 'RATE_LIMITED' : 'ERROR',
-    },
+    { error, code },
     {
       status,
       headers: {
         'Content-Type': 'application/json',
+        ...extraHeaders,
       },
     }
   );
@@ -366,6 +437,9 @@ export function apiAuthError(error: string, status: number): NextResponse {
 
 /**
  * Higher-order function that wraps an API route handler with authentication.
+ *
+ * Includes IP-based pre-auth rate limiting (60 req/min/IP) via
+ * authenticateApiRequest, plus per-key rate limiting (100 req/min/key).
  *
  * @param handler - The route handler to wrap
  * @param requiredScopes - Scopes required for this endpoint (default: ['read'])
@@ -410,17 +484,126 @@ export function withApiAuth(
 }
 
 /**
- * Adds rate limit headers to a response.
+ * Higher-order function that wraps an API route handler with authentication
+ * AND per-route rate limit configuration.
+ *
+ * This is the preferred wrapper for all /api/v1/* route handlers. It provides:
+ * - IP-based pre-auth rate limit (default 60 req/min/IP) via authenticateApiRequest
+ * - Per-key rate limit (default 100 req/min/key) via authenticateApiRequest
+ * - Optional per-route override of the per-key rate limit via `options.rateLimit`
+ *
+ * WHY a separate function (rather than mutating withApiAuth): The per-key
+ * rate limiter is initialized at module load time using the default config.
+ * Overriding per-route requires passing config down through auth, which would
+ * change the authenticateApiRequest signature. Instead we compose: run auth
+ * (which always enforces the IP + default per-key limits), then apply an
+ * additional route-level check when the caller specifies a tighter limit.
+ * For routes that want the defaults this wrapper is a clean alias for withApiAuth.
+ *
+ * @param handler - The route handler to wrap
+ * @param requiredScopes - Scopes required for this endpoint (default: ['read'])
+ * @param options - Optional overrides (e.g. tighter rateLimit for export routes)
+ * @returns A wrapped handler that enforces auth + rate limiting
+ *
+ * @example
+ * // Default: 100 req/min per key + 60 req/min per IP
+ * export const GET = withApiAuthAndRateLimit(handler);
+ *
+ * // Custom: 5 req/min per key (export route)
+ * export const GET = withApiAuthAndRateLimit(handler, ['read'], {
+ *   rateLimit: { windowMs: 60000, maxRequests: 5 },
+ * });
+ */
+export function withApiAuthAndRateLimit(
+  handler: (request: NextRequest, context: ApiAuthContext) => Promise<NextResponse>,
+  requiredScopes: string[] = ['read'],
+  options?: { rateLimit?: RateLimitOptions }
+): (request: NextRequest) => Promise<NextResponse> {
+  return async (request: NextRequest) => {
+    const authResult = await authenticateApiRequest(request);
+
+    if (!authResult.success) {
+      return apiAuthError(authResult.error, authResult.status);
+    }
+
+    // Check required scopes
+    const hasRequiredScopes = requiredScopes.every((scope) =>
+      authResult.context.scopes.includes(scope)
+    );
+
+    if (!hasRequiredScopes) {
+      return apiAuthError(
+        `Insufficient permissions. Required scopes: ${requiredScopes.join(', ')}`,
+        403
+      );
+    }
+
+    // Apply per-route rate limit override when caller requests a tighter window.
+    // WHY: authenticateApiRequest already enforces the default 100 req/min/key.
+    // Some routes (e.g., data export) need stricter limits. We apply an
+    // additional check here using the shared checkRateLimit utility keyed by
+    // key ID so the override is per-credential, not per-IP.
+    if (options?.rateLimit) {
+      const { windowMs = 60000, maxRequests = 100 } = options.rateLimit;
+      const routeLimit = await checkRateLimit(
+        request,
+        { windowMs, maxRequests },
+        `api-v1-route:${authResult.context.keyId}`
+      );
+      if (!routeLimit.allowed) {
+        return apiAuthError(
+          `Rate limit exceeded. Retry after ${routeLimit.retryAfter ?? 60} seconds`,
+          429
+        );
+      }
+    }
+
+    return handler(request, authResult.context);
+  };
+}
+
+/**
+ * Determines if an API key is near expiry (within KEY_EXPIRY_WARNING_DAYS days).
+ *
+ * Used by route handlers to include a hint in API responses so CLI clients
+ * can prompt the user to rotate the key before it stops working.
+ *
+ * @param expiresAt - ISO 8601 expiration timestamp, or null if no expiry
+ * @returns true if the key expires within 30 days, false otherwise
+ *
+ * @example
+ * if (isKeyNearExpiry(context.keyExpiresAt)) {
+ *   response.headers.set('X-Api-Key-Expires-At', context.keyExpiresAt!);
+ *   response.headers.set('X-Api-Key-Expiry-Warning', 'true');
+ * }
+ */
+export function isKeyNearExpiry(expiresAt: string | null): boolean {
+  if (!expiresAt) return false;
+  const msUntilExpiry = new Date(expiresAt).getTime() - Date.now();
+  return msUntilExpiry > 0 && msUntilExpiry < KEY_EXPIRY_WARNING_DAYS * 24 * 60 * 60 * 1000;
+}
+
+/**
+ * Adds rate limit headers to a response, and optionally a key-expiry warning.
  *
  * WHY: When using Upstash Redis, the in-memory store may not have the entry.
  * We still set the Limit header so clients know the policy, and best-effort
  * the Remaining/Reset values from the in-memory fallback when available.
  *
+ * If `keyExpiresAt` is supplied and the key is within KEY_EXPIRY_WARNING_DAYS
+ * days of expiry, we set X-Api-Key-Expiry-Warning and X-Api-Key-Expires-At
+ * so CLI clients can surface a rotation prompt. (H42 Item 2)
+ *
  * @param response - The response to add headers to
  * @param keyId - The API key ID for rate limit lookup
- * @returns The response with rate limit headers
+ * @param keyExpiresAt - Optional ISO 8601 expiry timestamp from the auth context
+ * @returns The response with rate limit and optional expiry headers
  */
-export function addRateLimitHeaders(response: NextResponse, keyId: string): NextResponse {
+export function addRateLimitHeaders(
+  response: NextResponse,
+  keyId: string,
+  keyExpiresAt?: string | null
+): NextResponse {
   response.headers.set('X-RateLimit-Limit', String(API_RATE_LIMIT.maxRequests));
 
   const entry = apiRateLimitStore.get(keyId);
@@ -429,6 +612,12 @@ export function addRateLimitHeaders(response: NextResponse, keyId: string): Next
     const resetAt = Math.ceil(entry.resetAt / 1000); // Unix timestamp
     response.headers.set('X-RateLimit-Remaining', String(remaining));
     response.headers.set('X-RateLimit-Reset', String(resetAt));
+  }
+
+  // Near-expiry warning headers for CLI rotation prompt (H42 Item 2)
+  if (keyExpiresAt && isKeyNearExpiry(keyExpiresAt)) {
+    response.headers.set('X-Api-Key-Expires-At', keyExpiresAt);
+    response.headers.set('X-Api-Key-Expiry-Warning', 'true');
   }
 
   return response;
