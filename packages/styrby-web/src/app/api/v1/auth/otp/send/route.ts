@@ -51,34 +51,7 @@ import { z } from 'zod';
 import * as Sentry from '@sentry/nextjs';
 import { createAdminClient } from '@/lib/supabase/server';
 import { rateLimit, rateLimitResponse } from '@/lib/rateLimit';
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-/**
- * Rate limit: 3 requests per minute per IP.
- *
- * WHY 3/min (not 10 like oauth/start): each request to this endpoint triggers
- * an actual email send via Supabase. Supabase itself imposes per-email throttle
- * limits; if we allow high volume at the API layer we burn Supabase quota and
- * expose users to OTP-spam attacks. 3/min is deliberately aggressive because
- * a human re-requesting an OTP within a minute is a UX edge case, not the norm.
- * Any rate above 3/min from a single IP is a signal for automation/abuse
- * (OWASP A07:2021 — brute-force / DoS via email send).
- */
-export const OTP_SEND_RATE_LIMIT = { windowMs: 60_000, maxRequests: 3 };
-
-/**
- * RFC 5321 maximum email address length (local-part@domain).
- *
- * WHY 320: RFC 5321 §4.5.3.1.1 specifies the maximum path length as
- * 256 characters, but the SMTP max email address is commonly cited as 320
- * (64 local-part + 1 @ + 255 domain). This is the broadly accepted ceiling
- * for input validation. Rejecting longer values prevents resource-exhaustion
- * via oversized strings while being generous for all real-world addresses.
- */
-export const MAX_EMAIL_LENGTH = 320;
+import { OTP_SEND_RATE_LIMIT, hashEmail, MAX_EMAIL_LENGTH } from '@/lib/auth/api-config';
 
 // ============================================================================
 // Zod Schema
@@ -145,7 +118,7 @@ function okInvariantResponse(): NextResponse {
  * @param request - The incoming NextRequest from the CLI.
  * @returns 200 { ok: true } for all non-error outcomes (enumeration defense).
  */
-export async function handlePost(request: NextRequest): Promise<NextResponse> {
+async function handlePost(request: NextRequest): Promise<NextResponse> {
   // ── 1. IP-based rate limit ─────────────────────────────────────────────────
   // WHY aggressive 3/min: each call triggers an email send + burns Supabase
   // quota. High rate from one IP = OTP-spam or email enumeration attempt.
@@ -286,44 +259,6 @@ export async function handlePost(request: NextRequest): Promise<NextResponse> {
   // that change the response shape affect ALL paths simultaneously, preventing
   // silent invariance breakage (OWASP A01:2021).
   return okInvariantResponse();
-}
-
-// ============================================================================
-// Internal helpers
-// ============================================================================
-
-/**
- * Produces a short, deterministic hash of an email address for Sentry tags.
- *
- * WHY hash (not raw email): GDPR Art 5(1)(c) data minimization — Sentry is a
- * third-party telemetry service. The raw email is PII; the hash is sufficient
- * for correlating repeated failures from the same address without exfiltrating
- * PII to Sentry's servers.
- *
- * WHY djb2 (not crypto hash): no Node crypto import needed; the hash is used
- * only for correlation tagging, not security. A fast non-crypto hash is
- * appropriate and keeps the bundle lightweight.
- *
- * @param email - Raw email string.
- * @returns Short hexadecimal string (8 chars).
- */
-export function hashEmail(email: string): string {
-  // WHY lowercase before hashing: email addresses are case-insensitive in the
-  // domain part and effectively case-insensitive in practice for the local part.
-  // Without normalization, 'User@Example.com' and 'user@example.com' produce
-  // different hashes, breaking Sentry correlation across case variations of the
-  // same address (e.g. client typo vs stored canonical form).
-  // NOTE: we do NOT lowercase the email before passing it to signInWithOtp —
-  // Supabase handles its own normalization; we only normalize for the hash.
-  const normalized = email.toLowerCase();
-
-  // djb2 hash over the normalized email
-  let hash = 5381;
-  for (let i = 0; i < normalized.length; i++) {
-    hash = (hash * 33) ^ normalized.charCodeAt(i);
-  }
-  // >>> 0 converts to unsigned 32-bit int; .toString(16) gives hex
-  return (hash >>> 0).toString(16).slice(0, 8);
 }
 
 // ============================================================================

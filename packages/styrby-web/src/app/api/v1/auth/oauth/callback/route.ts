@@ -71,32 +71,10 @@ import { createAdminClient } from '@/lib/supabase/server';
 import { rateLimit, rateLimitResponse } from '@/lib/rateLimit';
 import { hashApiKey } from '@/lib/api-keys';
 import { generateApiKey } from '@styrby/shared';
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-/**
- * Rate limit: 5 requests per minute per IP.
- *
- * WHY 5/min (not 10 like /oauth/start): the callback is a one-shot operation.
- * A single OAuth session produces exactly one code — retrying with the same
- * code will fail on the Supabase side (codes are single-use). High request
- * rates from a single IP indicate brute-force or enumeration, not legitimate
- * retries. We are more aggressive here than on /start because the stakes are
- * higher — a successful exchange grants a 365-day API key (OWASP A07:2021).
- */
-export const OAUTH_CALLBACK_RATE_LIMIT = { windowMs: 60_000, maxRequests: 5 };
-
-/**
- * Default API key lifetime in days.
- *
- * WHY 365 days: H42 Layer 5 standard from migrations/067_api_key_expires_at_ensure.sql.
- * Keys without expiry never rotate (security antipattern, SOC 2 CC6.1). 365 days
- * is practical for automation while ensuring eventual rotation. The CLI will surface
- * a renewal prompt when the key has <30 days remaining.
- */
-export const KEY_TTL_DAYS = 365;
+import {
+  OAUTH_CALLBACK_RATE_LIMIT,
+  KEY_TTL_DAYS,
+} from '@/lib/auth/api-config';
 
 // ============================================================================
 // Zod Schema

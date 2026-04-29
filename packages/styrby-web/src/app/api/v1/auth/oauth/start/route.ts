@@ -69,66 +69,13 @@ import { z } from 'zod';
 import * as Sentry from '@sentry/nextjs';
 import { createAdminClient } from '@/lib/supabase/server';
 import { rateLimit, rateLimitResponse } from '@/lib/rateLimit';
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-/**
- * Rate limit: 10 requests per minute per IP.
- *
- * WHY 10/min: A human user needs at most 1-2 OAuth initiations per retry
- * cycle. 10/min is generous for retries (e.g. port conflict on callback
- * server) but aggressive enough to block automated state-flooding attacks,
- * which would force Supabase to generate thousands of PKCE code_verifiers
- * (server resource consumption).
- */
-export const OAUTH_START_RATE_LIMIT = { windowMs: 60_000, maxRequests: 10 };
-
-/**
- * Maximum length of the redirect_to URL in bytes.
- *
- * WHY 2048: Standard browser URL length limit. Longer URLs are almost
- * certainly injection attempts or misconfigured clients; reject them early
- * to prevent downstream surprises.
- */
-export const MAX_REDIRECT_URL_LENGTH = 2048;
-
-/**
- * Allowlist of origins that redirect_to may point to.
- *
- * WHY an allowlist: OWASP A01:2021 — without this, an attacker could call
- * this endpoint with `redirect_to: "https://attacker.com/steal-code"`,
- * craft a phishing link containing a real Supabase authorization URL that
- * redirects to their domain after the user authenticates, and steal the
- * authorization code. The authorization code alone is useless without
- * the PKCE code_verifier (Supabase PKCE mitigates the worst case), but
- * a naive exchange can still leak session data.
- *
- * Patterns:
- *   - `localhost` / `127.0.0.1` — CLI callback server
- *   - `styrbyapp.com` — production web app deep-link
- *   - `*.vercel.app` — Vercel preview deployments
- *   - `exp://` scheme — Expo Go deep-link during development
- */
-export const OAUTH_ALLOWED_REDIRECT_ORIGINS: Array<string | RegExp> = [
-  // CLI local callback server
-  /^http:\/\/localhost(:\d+)?$/,
-  /^http:\/\/127\.0\.0\.1(:\d+)?$/,
-  // Production domain
-  'https://styrbyapp.com',
-  // Vercel preview deployments — dash-joined deployment alias format
-  /^https:\/\/[a-zA-Z0-9-]+-vetsecitpro\.vercel\.app$/,
-  /^https:\/\/styrby-[a-zA-Z0-9-]+\.vercel\.app$/,
-  // Vercel preview deployments — dot-subdomain PR format (e.g. pr-123.styrby-web.vercel.app)
-  // WHY second pattern: Vercel uses two distinct URL formats for preview deployments.
-  // The dash-joined alias (above) covers deployment aliases; the dot-subdomain pattern
-  // covers PR preview URLs like pr-123.styrby-web.vercel.app. Without this, legitimate
-  // PR preview OAuth flows would be blocked with REDIRECT_NOT_ALLOWED (OWASP A01:2021).
-  /^https:\/\/[a-zA-Z0-9-]+\.styrby-[a-zA-Z0-9-]+\.vercel\.app$/,
-  // Expo Go / mobile dev (exp:// deep-link)
-  /^exp:\/\//,
-];
+import {
+  OAUTH_START_RATE_LIMIT,
+  OAUTH_ALLOWED_REDIRECT_ORIGINS,
+  MAX_REDIRECT_URL_LENGTH,
+  isAllowedRedirectOrigin,
+  extractStateFromAuthUrl,
+} from '@/lib/auth/api-config';
 
 // ============================================================================
 // Zod Schema
@@ -161,55 +108,6 @@ const OAuthStartSchema = z
   .strict();
 
 type OAuthStartBody = z.infer<typeof OAuthStartSchema>;
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-/**
- * Validates that a redirect_to URL's origin is in the allowlist.
- *
- * WHY a dedicated function (not inline): this is a security-critical check.
- * Isolating it makes unit testing trivial and keeps the handler readable.
- *
- * @param url - The parsed URL to check.
- * @returns true if the origin is allowed, false otherwise.
- */
-export function isAllowedRedirectOrigin(url: URL): boolean {
-  const origin = url.origin; // e.g. "http://localhost:3333"
-  const href = url.href;     // for exp:// which has no "origin"
-
-  for (const allowed of OAUTH_ALLOWED_REDIRECT_ORIGINS) {
-    if (typeof allowed === 'string') {
-      if (origin === allowed) return true;
-    } else {
-      // RegExp — test against origin first, then full href for non-http schemes
-      if (allowed.test(origin) || allowed.test(href)) return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Extracts the `state` parameter from a Supabase authorization URL.
- *
- * WHY extract from URL (not from Supabase response): Supabase's
- * `signInWithOAuth` return value has `data.url` but does NOT expose
- * the state separately. We parse it from the URL query string.
- * The state is unguessable (Supabase generates it internally); we only
- * need to pluck and forward it so the CLI can validate CSRF on callback.
- *
- * @param authUrl - The full authorization URL from Supabase.
- * @returns The state string, or undefined if not present.
- */
-export function extractStateFromAuthUrl(authUrl: string): string | undefined {
-  try {
-    const url = new URL(authUrl);
-    return url.searchParams.get('state') ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 // ============================================================================
 // Handler

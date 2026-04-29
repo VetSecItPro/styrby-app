@@ -76,43 +76,10 @@ import { createAdminClient } from '@/lib/supabase/server';
 import { rateLimit, rateLimitResponse } from '@/lib/rateLimit';
 import { hashApiKey } from '@/lib/api-keys';
 import { generateApiKey } from '@styrby/shared';
-// WHY import from send/route (not duplicated): hashEmail is already exported from the
-// adjacent Task 8 route. Both live in the same otp/ sub-tree and serve the same
-// GDPR Art 5(1)(c) purpose (Sentry tag correlation without PII leakage). If a future
-// caller outside otp/ needs this helper, extract it to lib/auth/email-hash.ts then.
-import { hashEmail } from '../send/route';
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-/**
- * Rate limit: 10 requests per minute per IP.
- *
- * WHY 10/min (more permissive than otp/send's 3/min): legitimate users may
- * retype a code after a misread or paste error. At 10/min, a single mistaken
- * entry can be corrected within the same OTP TTL window without triggering the
- * limit. Aggressive enough: brute-forcing a 6-digit OTP (10^6 combinations) at
- * 10/min takes ~16.7 hours per IP — well beyond Supabase's 5-15 min OTP TTL,
- * making exhaustive brute-force practically infeasible (OWASP A07:2021).
- */
-export const OTP_VERIFY_RATE_LIMIT = { windowMs: 60_000, maxRequests: 10 };
-
-/**
- * Default API key lifetime in days.
- *
- * WHY 365 days: consistent with /oauth/callback (Task 7) and the H42 Layer 5
- * standard from migrations/067_api_key_expires_at_ensure.sql. Keys without
- * expiry never rotate (security antipattern, SOC 2 CC6.1). The CLI will surface
- * a renewal prompt when the key has <30 days remaining.
- */
-export const KEY_TTL_DAYS = 365;
-
-/**
- * RFC 5321 maximum email address length.
- * Consistent with otp/send (Task 8) — same input, same ceiling.
- */
-const MAX_EMAIL_LENGTH = 320;
+// WHY import from lib/auth/api-config (not send/route): Next.js 16 forbids non-HTTP-method
+// exports from route files. hashEmail, OTP_VERIFY_RATE_LIMIT, and KEY_TTL_DAYS now live
+// in the shared lib file that is their canonical home (Strategy C Phase 2 CI fix).
+import { hashEmail, OTP_VERIFY_RATE_LIMIT, KEY_TTL_DAYS, MAX_EMAIL_LENGTH } from '@/lib/auth/api-config';
 
 // ============================================================================
 // Zod Schema
@@ -167,7 +134,7 @@ type OtpVerifyBody = z.infer<typeof OtpVerifySchema>;
  * @param request - The incoming NextRequest from the CLI.
  * @returns 200 { styrby_api_key, expires_at } on success.
  */
-export async function handlePost(request: NextRequest): Promise<NextResponse> {
+async function handlePost(request: NextRequest): Promise<NextResponse> {
   // ── 1. IP-based rate limit ─────────────────────────────────────────────────
   // WHY separate try/catch: a throw from rateLimit (e.g. Redis unreachable) is a
   // TRUE infrastructure failure. It must surface as 500 rather than silently

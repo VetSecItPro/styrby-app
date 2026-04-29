@@ -271,7 +271,7 @@ interface TemplateRow {
  * @security SOC 2 CC6.1 - 'write' scope required; user_id from auth context only
  * @security GDPR Art 6(1)(a) - lawful basis: user consent via API key issuance
  */
-export async function handlePost(request: NextRequest, authContext: ApiAuthContext): Promise<NextResponse> {
+async function handlePost(request: NextRequest, authContext: ApiAuthContext): Promise<NextResponse> {
   const { userId } = authContext;
 
   // -------------------------------------------------------------------------

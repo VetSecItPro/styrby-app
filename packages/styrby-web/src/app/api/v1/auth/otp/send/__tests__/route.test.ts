@@ -98,7 +98,12 @@ vi.mock('@/lib/supabase/server', () => ({
 // Import handler AFTER mocks are set up
 // ============================================================================
 
-import { POST, handlePost, OTP_SEND_RATE_LIMIT, MAX_EMAIL_LENGTH, hashEmail } from '../route';
+import { POST } from '../route';
+import { OTP_SEND_RATE_LIMIT, hashEmail, MAX_EMAIL_LENGTH } from '@/lib/auth/api-config';
+
+// WHY alias: tests were written using `handlePost` name for clarity; `POST = handlePost`
+// so aliasing keeps test descriptions accurate without re-exporting from route.
+const handlePost = POST;
 import * as Sentry from '@sentry/nextjs';
 import { rateLimit } from '@/lib/rateLimit';
 

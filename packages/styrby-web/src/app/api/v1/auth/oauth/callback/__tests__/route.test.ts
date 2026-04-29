@@ -167,7 +167,8 @@ vi.mock('@/lib/supabase/server', () => ({
 // Import handler AFTER mocks are set up
 // ============================================================================
 
-import { POST, OAUTH_CALLBACK_RATE_LIMIT, KEY_TTL_DAYS } from '../route';
+import { POST } from '../route';
+import { OAUTH_CALLBACK_RATE_LIMIT, KEY_TTL_DAYS } from '@/lib/auth/api-config';
 import * as Sentry from '@sentry/nextjs';
 import { rateLimit } from '@/lib/rateLimit';
 import { generateApiKey } from '@styrby/shared';
