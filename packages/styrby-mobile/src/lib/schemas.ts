@@ -133,6 +133,13 @@ export const SessionSchema = z.object({
   message_count: z.number(),
   /** Team ID if this is a team session, null for personal */
   team_id: z.string().nullable().optional(),
+  /**
+   * ISO 8601 timestamp of the most recent CLI heartbeat for this session.
+   * Null if no heartbeat has ever been emitted (pre-heartbeat sessions).
+   * Optional to allow forward-compatibility: rows selected without this column
+   * (e.g. in Realtime events before the payload includes it) will default to null.
+   */
+  last_heartbeat_at: z.string().nullable().optional(),
 });
 
 /** Inferred TypeScript type for a validated session row. */

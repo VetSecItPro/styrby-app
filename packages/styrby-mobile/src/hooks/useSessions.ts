@@ -75,6 +75,17 @@ export interface SessionRow {
   message_count: number;
   /** Team ID if this is a team session (null for personal sessions, optional if not selected) */
   team_id?: string | null;
+  /**
+   * ISO 8601 timestamp of the most recent CLI heartbeat for this session.
+   * Null if no heartbeat has ever been emitted (pre-heartbeat sessions).
+   *
+   * WHY: The CLI daemon emits a heartbeat every 30s. When the daemon stops
+   * abnormally (e.g. forced logout, crash) the heartbeat ceases but the session
+   * status remains 'running' in Supabase. The SessionOrphanedBanner compares
+   * this timestamp against Date.now() and shows a warning if the delta exceeds
+   * 90s (three missed heartbeats).
+   */
+  last_heartbeat_at: string | null;
 }
 
 /**
@@ -228,7 +239,8 @@ export function useSessions(): UseSessionsReturn {
         .select(
           'id, user_id, machine_id, agent_type, status, title, summary, ' +
           'total_input_tokens, total_output_tokens, total_cost_usd, ' +
-          'started_at, ended_at, tags, updated_at, message_count, team_id',
+          'started_at, ended_at, tags, updated_at, message_count, team_id, ' +
+          'last_heartbeat_at',
         )
         .is('deleted_at', null)
         .order('updated_at', { ascending: false })
