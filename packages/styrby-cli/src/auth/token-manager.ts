@@ -132,6 +132,11 @@ export class TokenManager extends EventEmitter {
 
   private constructor() {
     super();
+    // WHY: TokenManager is a long-lived singleton; subscribers (daemon, hooks)
+    // may register/unregister across the process lifetime. Default 10 is too
+    // tight; 20 leaves headroom while still flagging genuine listener leaks
+    // via Node's warning.
+    this.setMaxListeners(20);
     // Load persisted tokens on initialization
     this.loadFromPersistence();
   }

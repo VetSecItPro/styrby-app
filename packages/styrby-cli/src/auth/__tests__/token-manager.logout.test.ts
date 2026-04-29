@@ -226,4 +226,55 @@ describe('TokenManager.clearTokens()', () => {
 
     expect(stateAtEventTime).toBe(false);
   });
+
+  // --------------------------------------------------------------------------
+  // 7. Double-call idempotency — second clearTokens() emits { userId: null }
+  // --------------------------------------------------------------------------
+  it('double-call idempotency: second clearTokens() emits { userId: null } without crashing', () => {
+    const manager = resetSingleton();
+    armWithSession(manager, 'user-A');
+
+    const listener = vi.fn();
+    manager.on('logout', listener);
+
+    // First call — session was active; payload carries the real userId
+    manager.clearTokens();
+    expect(listener).toHaveBeenNthCalledWith(1, { userId: 'user-A' });
+
+    // Second call — state was already cleared; payload must be { userId: null }
+    manager.clearTokens();
+    expect(listener).toHaveBeenNthCalledWith(2, { userId: null });
+
+    // Both calls must have emitted exactly one event each (2 total)
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  // --------------------------------------------------------------------------
+  // 8. Combined regression: timer cancelled AND logout event fires in one call
+  // --------------------------------------------------------------------------
+  it('clearTokens() cancels refresh timer AND fires logout event in the same call', () => {
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+    const manager = resetSingleton();
+
+    manager.setTokens({
+      accessToken: 'at-combined',
+      refreshToken: 'rt-combined',
+      expiresIn: 3600,
+      userId: 'user-combined',
+    });
+    mockSavePersistedData.mockClear();
+
+    const listener = vi.fn();
+    manager.on('logout', listener);
+
+    manager.clearTokens();
+
+    // Timer must have been cancelled
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+    // Logout event must also have fired — same clearTokens() call
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith({ userId: 'user-combined' });
+
+    clearTimeoutSpy.mockRestore();
+  });
 });
