@@ -20,11 +20,13 @@
  *   and potentially deadlock the shutdown or leave the process hanging.
  *   We log the error and resolve regardless so the logout path always completes.
  *
- * WHY fail-safe for stopFlagExists() on malformed JSON:
- *   If the file is corrupt we treat it as absent and let the supervisor
- *   respawn the daemon. Erring toward "restart" is safer than erring toward
- *   "stay stopped" — the user can always run `styrby stop` again, but a daemon
- *   that never restarts after a crash is invisible and confusing.
+ * WHY fail-safe for stopFlagExists() on malformed JSON or unexpected fs errors:
+ *   If the file is corrupt or unreadable (EPERM, EACCES, etc.) we treat it as
+ *   absent and let the supervisor respawn the daemon. Erring toward "restart" is
+ *   safer than erring toward "stay stopped" — the user can always run `styrby
+ *   stop` again, but a daemon that never restarts after a crash is invisible and
+ *   confusing. Non-ENOENT errors are logged at warn level so operators can
+ *   diagnose permission damage on ~/.styrby/ without silent infinite respawns.
  *
  * SOC 2 CC7.2 (Reliability of Processing): The stop-flag is operational
  * hygiene that ensures intentional stops are durable across restarts and that
@@ -177,8 +179,19 @@ export async function stopFlagExists(): Promise<boolean> {
     // genuine intentional-stop signal — treat it as absent and allow respawn.
     const parsed = JSON.parse(raw) as Partial<StopFlagPayload>;
     return parsed.intentional === true;
-  } catch {
-    // File absent, unreadable, or malformed JSON — fail-safe to false.
+  } catch (err) {
+    // WHY discriminated catch: ENOENT is the common case (file doesn't exist yet)
+    // and should stay silent to avoid noisy logs on every supervisor poll cycle.
+    // Any other code (EPERM, EACCES, etc.) indicates an unexpected fs condition
+    // such as permission damage on ~/.styrby/ — log at warn so operators can
+    // diagnose silent infinite-respawn loops caused by filesystem issues.
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') {
+      logger.warn('Unexpected error checking stop-flag', {
+        code,
+        error: (err as Error).message,
+      });
+    }
     return false;
   }
 }

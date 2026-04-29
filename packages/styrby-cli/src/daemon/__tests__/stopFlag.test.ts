@@ -9,6 +9,7 @@
  * 4. consumeStopFlag() is idempotent — no error if file already absent
  * 5. writeStopFlag() resolves silently on fs write failure — logs warn, no throw escapes
  * 6. stopFlagExists() returns false for malformed JSON (fail-safe to "no flag")
+ * 7. stopFlagExists() returns false AND logs warn for non-ENOENT errors (e.g. EPERM)
  *
  * WHY tmp dir per test + _setStopFlagPathForTest:
  *   Node ESM module namespaces are not configurable — vi.spyOn cannot patch
@@ -154,6 +155,27 @@ describe('stopFlag', () => {
 
     // Must fail-safe to false rather than throwing or returning true.
     expect(await stopFlagExists()).toBe(false);
+  });
+
+  // --------------------------------------------------------------------------
+  // 7. stopFlagExists returns false AND logs warn on non-ENOENT error (e.g. EPERM)
+  // --------------------------------------------------------------------------
+  it('scenario 7 — stopFlagExists returns false and logs warn when readFile throws EPERM', async () => {
+    const warnSpy = vi.spyOn(logger, 'warn');
+
+    // Simulate a permission-denied failure on readFile (not ENOENT).
+    vi.spyOn(fs.promises, 'readFile').mockRejectedValueOnce(
+      Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' }),
+    );
+
+    // Must still fail-safe to false (supervisor remain able to respawn).
+    expect(await stopFlagExists()).toBe(false);
+
+    // Must log a warning so operators can diagnose the fs issue.
+    expect(warnSpy).toHaveBeenCalledOnce();
+    const [msg, meta] = warnSpy.mock.calls[0] as [string, Record<string, unknown>];
+    expect(msg).toMatch(/stop-flag/i);
+    expect((meta as Record<string, unknown>).code).toBe('EPERM');
   });
 
   // --------------------------------------------------------------------------
