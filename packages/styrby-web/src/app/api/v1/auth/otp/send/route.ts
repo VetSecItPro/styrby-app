@@ -168,7 +168,16 @@ export async function handlePost(request: NextRequest): Promise<NextResponse> {
   }
 
   if (!rateLimitResult.allowed) {
-    return rateLimitResponse(rateLimitResult.retryAfter ?? 60);
+    // WHY NextResponse.json instead of rateLimitResponse(): the helper returns
+    // a plain Response, but Next.js route handlers infer NextResponse<unknown>
+    // from earlier branches. Returning Response here triggers TS2739 because
+    // NextResponse adds .cookies and [INTERNALS]. Inline the equivalent
+    // NextResponse to keep the return type uniform across all branches.
+    const retryAfter = rateLimitResult.retryAfter ?? 60;
+    return NextResponse.json(
+      { error: 'RATE_LIMITED' },
+      { status: 429, headers: { 'Retry-After': String(retryAfter) } },
+    );
   }
 
   // ── 2. Parse and validate request body ────────────────────────────────────

@@ -184,7 +184,15 @@ export async function handlePost(request: NextRequest): Promise<NextResponse> {
   }
 
   if (!rateLimitResult.allowed) {
-    return rateLimitResponse(rateLimitResult.retryAfter ?? 60);
+    // WHY NextResponse.json instead of rateLimitResponse(): see otp/send/route.ts
+    // for the full reasoning. Inline NextResponse keeps the return type
+    // uniform across all branches (TS2739 otherwise — NextResponse adds
+    // .cookies and [INTERNALS] not present on bare Response).
+    const retryAfter = rateLimitResult.retryAfter ?? 60;
+    return NextResponse.json(
+      { error: 'RATE_LIMITED' },
+      { status: 429, headers: { 'Retry-After': String(retryAfter) } },
+    );
   }
 
   // ── 2. Parse and validate request body ────────────────────────────────────
