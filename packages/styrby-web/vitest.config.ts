@@ -33,6 +33,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // WHY: @styrby/shared dist/ is not pre-built in dev/test environments.
+      // Pointing vitest directly to the TypeScript source avoids the "Failed
+      // to resolve import" error during test collection. The mock layer
+      // (vi.mock('@styrby/shared')) still intercepts at runtime as expected.
+      '@styrby/shared': path.resolve(__dirname, '../styrby-shared/src/index.ts'),
     },
   },
 });
