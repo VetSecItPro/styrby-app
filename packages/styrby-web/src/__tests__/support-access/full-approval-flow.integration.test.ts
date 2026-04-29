@@ -181,7 +181,7 @@ function makeRequestFormData(overrides: Partial<{
 }
 
 // Acting admin ID for MFA gate wiring tests across all describe blocks.
-const ACTING_ADMIN_ID = 'aabbccdd-eeff-0011-2233-445566778899';
+const ACTING_ADMIN_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
 // ============================================================================
 // Step 1 — Admin requestSupportAccessAction

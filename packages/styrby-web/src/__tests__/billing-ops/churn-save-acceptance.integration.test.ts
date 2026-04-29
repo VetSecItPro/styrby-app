@@ -45,7 +45,7 @@
  * @module __tests__/billing-ops/churn-save-acceptance.integration.test
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock, type MockInstance } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 
 // ============================================================================
 // Mocks

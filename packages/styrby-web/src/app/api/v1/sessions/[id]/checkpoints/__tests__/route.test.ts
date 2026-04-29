@@ -302,4 +302,31 @@ describe('Session Checkpoints API', () => {
       expect(res.status).toBe(200);
     });
   });
+
+  // --------------------------------------------------------------------------
+  // Auth wiring (H42 Layer 5)
+  // --------------------------------------------------------------------------
+
+  // WHY this test exists: H42 Layer 5 wraps GET, POST, and DELETE with
+  // withApiAuthAndRateLimit. If a future refactor unwraps any of them or swaps
+  // the middleware, this test catches it — the handler must NOT execute when
+  // the wrapper short-circuits. One test covers all three verbs since they
+  // share the same wrapper. OWASP A07:2021, SOC 2 CC6.1.
+  describe('auth wiring', () => {
+    it('returns 401 when withApiAuthAndRateLimit rejects the request', async () => {
+      const { withApiAuthAndRateLimit } = await import('@/middleware/api-auth');
+      vi.mocked(withApiAuthAndRateLimit).mockImplementationOnce(() => async () => {
+        return NextResponse.json(
+          { error: 'Missing Authorization header', code: 'UNAUTHORIZED' },
+          { status: 401 }
+        );
+      });
+
+      vi.resetModules();
+      const { GET: freshGET } = await import('../route');
+
+      const res = await freshGET(makeRequest('GET', VALID_SESSION_ID));
+      expect(res.status).toBe(401);
+    });
+  });
 });

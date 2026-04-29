@@ -141,7 +141,7 @@ const VALID_SESSION_ID = 'b2c3d4e5-f6a7-8901-bcde-f12345678901';
 const VALID_GRANT_ID = '42';
 const VALID_USER_ID = 'ccccdddd-eeee-ffff-aaaa-bbbbccccdddd';
 /** Acting admin ID returned by auth.getUser() for assertAdminMfa wiring tests. */
-const ACTING_ADMIN_ID = 'aaaabbbb-cccc-dddd-eeee-ffffaaaabbbb';
+const ACTING_ADMIN_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
 /** Minimal valid form data for happy-path tests. */
 function validFormData(overrides: Record<string, string> = {}): FormData {

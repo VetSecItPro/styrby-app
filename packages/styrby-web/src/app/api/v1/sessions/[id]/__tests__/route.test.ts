@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 
 // ============================================================================
-// Mocks — withApiAuth bypass
+// Mocks — withApiAuthAndRateLimit bypass
 // ============================================================================
 
 const mockAuthContext = {
