@@ -452,6 +452,15 @@ function watchAndRespawn(
     // stop-flag check and all downstream work (respawn, status write) are
     // async. Wrapping in a void-returning async IIFE preserves the correct
     // sequencing without blocking the event loop.
+    // WHY .catch(): The async IIFE returns a Promise that is discarded by
+    // `void`. If consumeStopFlag() (or a future refactor of stopFlagExists)
+    // throws an unexpected error (EACCES, ENOMEM, EBUSY…), the rejection
+    // would be silently swallowed and doRespawn() would never be called —
+    // leaving the daemon dead with no log entry. The fail-safe principle:
+    // an error in the stop-flag path must NEVER prevent crash recovery.
+    // We log the error and fall through to doRespawn(). Worst case is an
+    // unwanted respawn; better than a dead daemon the user didn't intend.
+    // OWASP A07:2021, SOC 2 CC7.2.
     void (async () => {
       // SOC 2 CC7.2: If the stop-flag is present the daemon exited deliberately
       // (via `styrby stop` or the `terminate` IPC command). Consume the flag
@@ -465,7 +474,16 @@ function watchAndRespawn(
       // No stop-flag — treat as an unexpected crash and fall through to the
       // existing respawn logic.
       doRespawn();
-    })();
+    })().catch((err: Error) => {
+      // Fail-safe: log the unexpected error and always fall back to respawn.
+      // If we cannot determine whether shutdown was intentional, default to
+      // "treat as crash → respawn" rather than silently leaving the daemon dead.
+      logger.error('stop-flag check failed unexpectedly; falling back to respawn', {
+        error: err.message,
+        pid,
+      });
+      doRespawn();
+    });
 
     /**
      * Execute the crash-recovery / respawn path.
