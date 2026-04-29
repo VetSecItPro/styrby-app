@@ -349,6 +349,15 @@ export async function handlePost(request: NextRequest, authContext: ApiAuthConte
       content,
       description: description ?? null,
       variables: variables ?? [],
+      // WHY ?? false (not just is_default): supabase-js defaults to
+      // defaultToNull=true for single-row inserts, which means undefined values
+      // are serialized as JSON null — not omitted. Passing null to a BOOLEAN NOT
+      // NULL column (context_templates.is_default, migration
+      // 002_context_templates.sql) would produce a NOT NULL violation. The DB
+      // column default of FALSE only applies when the column is absent from the
+      // INSERT statement, which never happens here because defaultToNull=true
+      // sends every key in the object. The explicit fallback is therefore required
+      // to cover the case where the caller omits is_default from the request body.
       is_default: is_default ?? false,
     })
     .select('id, name, created_at')
