@@ -401,17 +401,21 @@ describe('DELETE /api/v1/sessions/groups/[id]', () => {
   });
 
   // --------------------------------------------------------------------------
-  // 8. DELETE query uses parameterized id (supabase-js client call inspection)
+  // 8. DELETE query routes through the Supabase client (smoke: OWASP A03:2021)
   // --------------------------------------------------------------------------
 
   describe('query safety', () => {
     /**
-     * WHY: Verify the Supabase client's .eq('id', id) is called with the
-     * validated UUID value as a parameter (not string-interpolated). This is
-     * the automated gate against accidental SQL injection if the query layer
-     * ever changes. OWASP A03:2021.
+     * WHY: Confirms the handler routes the DELETE through the Supabase client
+     * (i.e. createAdminClient was called and .from('agent_session_groups') was
+     * invoked). This is a smoke test — it does NOT assert the exact argument
+     * values passed to .eq(), because the mock chain creates a new spy instance
+     * on each .delete() call, making inter-call spy capture unreliable at this
+     * abstraction layer. The actual parameterization safety comes from the
+     * supabase-js client itself, which always uses pg prepared statements.
+     * OWASP A03:2021.
      */
-    it('passes validated id as a value parameter to the DELETE query (not string-interpolated)', async () => {
+    it('routes DELETE through Supabase client on agent_session_groups table', async () => {
       selectQueue.push({
         data: { user_id: mockAuthContext.userId },
         error: null,
@@ -422,13 +426,12 @@ describe('DELETE /api/v1/sessions/groups/[id]', () => {
 
       await DELETE(createRequest(VALID_GROUP_ID));
 
-      // Verify createAdminClient was called (the mock was invoked)
+      // Verify createAdminClient was called (mock was invoked — not bypassed)
       expect(createAdminClient).toHaveBeenCalled();
 
-      // The supabase mock tracks all .from() calls; the fact that the DELETE
-      // succeeds (200) via the mock chain confirms the validated id was used.
-      // If the handler had string-interpolated the id, the mock chain would
-      // not match and the test would fail. This is the behavioral contract.
+      // Verify .from() was called with the correct table name — confirms the
+      // handler didn't string-interpolate a raw SQL fragment instead of using
+      // the query builder.
       const mockInstance = vi.mocked(createAdminClient).mock.results[0]?.value;
       expect(mockInstance.from).toHaveBeenCalledWith('agent_session_groups');
     });

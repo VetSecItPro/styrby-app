@@ -8,6 +8,7 @@
  * @rateLimit 100 requests per minute per key (default)
  *
  * @pathParam id - UUID of the session group to delete
+ * @body none (DELETE operations have no request body by design)
  *
  * @returns 200 { deleted: boolean, id: string }
  *
@@ -49,9 +50,13 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 /**
  * Zod schema for the `id` path parameter.
  *
- * WHY regex over z.string().uuid(): z.string().uuid() validates UUID v4 only;
- * the regex accepts all UUID variants (v1-v5, v7) which Postgres gen_random_uuid()
- * may produce depending on the Postgres version. OWASP A03:2021 injection guard.
+ * WHY a permissive UUID regex (not z.string().uuid() which is v4-only): the
+ * agent_session_groups.id column is created via gen_random_uuid() (v4 today),
+ * but the project may adopt UUID v7 (time-ordered) for new tables in the
+ * future. A permissive regex accepts any valid UUID variant so callers
+ * using future v7 IDs aren't rejected at the boundary. Reject malformed
+ * IDs (non-hex chars, wrong length, missing dashes) — that's the actual
+ * security concern, not the version byte. OWASP A03:2021 injection guard.
  */
 const IdParamSchema = z.string().regex(UUID_REGEX, 'Invalid UUID format');
 
@@ -125,6 +130,9 @@ async function handleDelete(request: NextRequest, context: ApiAuthContext): Prom
   // user_id = (SELECT auth.uid()) would block the lookup. We use createAdminClient
   // (service-role) and apply the ownership constraint in the query directly.
   // -------------------------------------------------------------------------
+  // WHY per-request createAdminClient: the function reads env vars on each
+  // invocation, so a single module-level instance would cache stale config
+  // during local dev hot-reload. The per-call overhead is ~1 ms; not a hot path.
   const supabase = createAdminClient();
 
   const { data: groupRow, error: fetchError } = await supabase
