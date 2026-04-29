@@ -226,7 +226,7 @@ describe('assertAuthContext — auth-context mismatch detection', () => {
     const envelope = makeEnvelope('user-B');
     const result: AuthCheckResult = assertAuthContext(envelope, state);
     // Must tell user what to do next
-    expect(result.message).toMatch(/styrby/i);
+    expect(result.message).toContain('styrby login');
   });
 
   // --------------------------------------------------------------------------
@@ -271,9 +271,9 @@ describe('assertAuthContext — auth-context mismatch detection', () => {
 
   it('AUTH_MISSING message includes styrby login guidance', () => {
     const state = makeDaemonState({ boundUserId: 'user-A', activeSessionCount: 2 });
-    const envelope = makeEnvelope(null as unknown as undefined);
+    const envelope = makeEnvelope(undefined);
     const result: AuthCheckResult = assertAuthContext(envelope, state);
-    expect(result.message).toMatch(/styrby login/i);
+    expect(result.message).toContain('styrby login');
   });
 
   it('AUTH_MISSING fires even if there are active sessions', () => {

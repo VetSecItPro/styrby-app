@@ -518,12 +518,12 @@ function handleIpcCommand(rawMessage: string, conn: net.Socket): void {
     const activeSessionCount = relay ? relay.getConnectedDevices().length : 0;
     const authResult = assertAuthContext(command, { boundUserId, activeSessionCount });
 
-    if (!authResult.ok) {
-      // Narrow: authResult.ok === false discriminant ensures these fields exist.
-      const failResult = authResult as Extract<AuthCheckResult, { ok: false }>;
-
+    if (authResult.ok === false) {
+      // WHY === false: strict equality narrows the discriminated union so TypeScript
+      // resolves `authResult.code`, `.message`, and `.mustTerminate` without a cast.
+      // `!authResult.ok` does not narrow discriminated unions in tsc strict mode.
       structuredLog.warn('daemon.ipc_auth_mismatch', {
-        code: failResult.code,
+        code: authResult.code,
         commandType: command.type,
         hasCallerUserId: Boolean(command.currentUserId),
         activeSessionCount,
@@ -532,11 +532,11 @@ function handleIpcCommand(rawMessage: string, conn: net.Socket): void {
       const refusalResponse = {
         success: false,
         ok: false,
-        code: failResult.code,
-        message: failResult.message,
+        code: authResult.code,
+        message: authResult.message,
       };
 
-      if (failResult.mustTerminate) {
+      if (authResult.mustTerminate) {
         // Silently rebind: respond to caller THEN trigger daemon termination.
         // WHY respond first: the conn write must happen before handleTerminate
         // closes the IPC server; after close() no new writes are accepted.
