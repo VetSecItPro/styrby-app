@@ -18,23 +18,53 @@ import { logger } from '@/ui/logger';
 import { DAEMON_PATHS, type DaemonState } from './run';
 
 /**
+ * Base fields present on every IPC command envelope.
+ *
+ * currentUserId carries the caller's authenticated identity so the daemon
+ * can enforce account-context isolation on every mutable command.
+ *
+ * OWASP A07:2021 — Identification and Authentication Failures:
+ *   The caller is responsible for supplying its current userId. The daemon
+ *   validates it against the account it was bound to at startup.
+ *
+ * SOC 2 CC6.1 — Logical and Physical Access Controls:
+ *   Identity must travel with the command — not assumed from socket ownership —
+ *   so the daemon can distinguish a legitimate same-account call from an
+ *   account-switch scenario that requires a rebind or refusal.
+ *
+ * WHY optional (not required):
+ *   Read-only health-check commands (ping, status) and the terminate command
+ *   are exempt from the auth check. Callers MAY omit currentUserId for those
+ *   command types. The daemon's assertAuthContext skips validation for exempt
+ *   types, so a missing field is harmless for them.
+ */
+interface DaemonCommandBase {
+  /**
+   * The userId of the account currently logged into the CLI on the calling machine.
+   * Populated by TokenManager.getCurrentUserId() before sending any mutable command.
+   * Absent / omitted for exempt commands (daemon.terminate, ping, status).
+   */
+  currentUserId?: string;
+}
+
+/**
  * Commands that can be sent to the daemon via IPC.
  */
 export type DaemonCommand =
-  | { type: 'status' }
-  | { type: 'ping' }
-  | { type: 'stop' }
-  | { type: 'list-sessions' }
-  | { type: 'start-session'; agentType: string; projectPath: string }
-  | { type: 'stop-session'; sessionId: string }
-  | { type: 'send-message'; sessionId: string; message: string }
-  | { type: 'shutdown' }
+  | (DaemonCommandBase & { type: 'status' })
+  | (DaemonCommandBase & { type: 'ping' })
+  | (DaemonCommandBase & { type: 'stop' })
+  | (DaemonCommandBase & { type: 'list-sessions' })
+  | (DaemonCommandBase & { type: 'start-session'; agentType: string; projectPath: string })
+  | (DaemonCommandBase & { type: 'stop-session'; sessionId: string })
+  | (DaemonCommandBase & { type: 'send-message'; sessionId: string; message: string })
+  | (DaemonCommandBase & { type: 'shutdown' })
   /**
    * Re-attach the daemon's RelayClient to an existing session's Realtime channel.
    * The daemon updates `sessions.status = 'running'` and `last_seen_at = now()`.
    * Does NOT spawn a new agent process — relay-reconnect only.
    */
-  | { type: 'attach-relay'; sessionId: string }
+  | (DaemonCommandBase & { type: 'attach-relay'; sessionId: string })
   /**
    * Terminate the daemon process cleanly.
    *
@@ -47,8 +77,10 @@ export type DaemonCommand =
    *
    * Used by `styrby logout` to tear down the daemon before clearing tokens.
    * SOC 2 CC7.2: Ensures no orphaned Realtime subscriptions on logout.
+   * WHY no currentUserId required: daemon.terminate is exempt from auth check —
+   * logout must always be able to stop the daemon regardless of identity state.
    */
-  | { type: 'daemon.terminate' };
+  | (DaemonCommandBase & { type: 'daemon.terminate' });
 
 /**
  * Response received from the daemon via IPC.
