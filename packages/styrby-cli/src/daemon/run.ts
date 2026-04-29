@@ -24,6 +24,7 @@ import * as fs from 'node:fs';
 import * as childProcess from 'node:child_process';
 import { CONFIG_DIR, ensureConfigDir } from '@/configuration';
 import { logger } from '@/ui/logger';
+import { consumeStopFlag, stopFlagExists } from './stopFlag.js';
 
 // ============================================================================
 // Constants
@@ -391,10 +392,24 @@ export function crashSignature(msg: string): string {
  * This prevents infinite boot-loops and lets systemd / launchd take over
  * with their own back-off policies.
  *
+ * SOC 2 CC7.2 (Reliability of Processing): boot-time consume ensures a stale
+ * stop-flag left by a prior daemon run does not suppress the first legitimate
+ * crash-recovery within this supervisor's lifetime.
+ *
  * @returns Promise resolving to the initial daemon state after the first start
  */
 export async function startDaemonSupervised(): Promise<DaemonState> {
   const crashLog: CrashEntry[] = [];
+
+  // WHY boot-time consume: if a stop-flag was written by a previous daemon run
+  // (e.g., the daemon exited intentionally but the supervisor was restarted by
+  // the OS before the flag was cleaned up), we must clear it before entering
+  // the watch loop. Otherwise, the first unexpected crash in this supervisor
+  // session would be misread as "intentional stop" and the daemon would never
+  // auto-recover. consumeStopFlag() is idempotent — it is a no-op when no flag
+  // is present. SOC 2 CC7.2: ensures the supervisor's restart decision always
+  // reflects *this* daemon's shutdown intent, not a prior run's.
+  await consumeStopFlag();
 
   const state = await startDaemon();
   if (!state.running || !state.pid) return state;
@@ -407,6 +422,13 @@ export async function startDaemonSupervised(): Promise<DaemonState> {
 /**
  * Internal helper: poll the daemon PID after each start; if it dies unexpectedly,
  * respawn up to MAX_RESTARTS times within RESTART_WINDOW_MS.
+ *
+ * Stop-flag semantics (SOC 2 CC7.2 — Reliability of Processing):
+ *   When the daemon exits after writing the stop-flag (intentional shutdown via
+ *   `styrby stop` or the `terminate` IPC command), the supervisor detects the flag
+ *   and exits the watch loop cleanly without respawning. This distinguishes
+ *   deliberate shutdowns from unexpected crashes and prevents the supervisor from
+ *   fighting against the user's explicit intent.
  *
  * @param pid - PID of the running daemon to watch
  * @param crashLog - Mutable array to append CrashEntry records to
@@ -423,60 +445,112 @@ function watchAndRespawn(
   const poll = setInterval(() => {
     if (isProcessAlive(pid)) return;
 
-    // Daemon has exited unexpectedly.
+    // Daemon has exited. Check immediately whether it was an intentional stop.
     clearInterval(poll);
 
-    // Prune entries older than the rolling window.
-    const now = Date.now();
-    const recent = crashLog.filter(
-      (e) => now - new Date(e.timestamp).getTime() < RESTART_WINDOW_MS
-    );
-
-    const lastErr = readLastLogLine();
-    const entry: CrashEntry = {
-      timestamp: new Date().toISOString(),
-      exitCode: null,
-      signal: null,
-      restartCount: recent.length + 1,
-      crashSignature: crashSignature(lastErr),
-    };
-    crashLog.push(entry);
-    recent.push(entry);
-
-    logger.debug('Daemon exited unexpectedly', {
-      pid,
-      restartCount: entry.restartCount,
-      crashSignature: entry.crashSignature,
-    });
-
-    if (recent.length > MAX_RESTARTS) {
-      // Transition to error state — too many restarts in the window.
-      logger.error('Daemon restart cap reached; will not respawn', {
-        restartsInWindow: recent.length,
-        windowSec: RESTART_WINDOW_MS / 1000,
-      });
-      writeDaemonStatusFile({
-        pid: -1,
-        startedAt: new Date().toISOString(),
-        connectionState: 'error',
-        activeSessions: 0,
-        lastHeartbeat: new Date().toISOString(),
-        errorMessage: `Daemon crashed ${recent.length} times in ${RESTART_WINDOW_MS / 1000}s — stopped auto-restarting`,
-      });
-      return;
-    }
-
-    // Respawn.
-    logger.debug('Respawning daemon', { attempt: entry.restartCount, crashSignature: entry.crashSignature });
-
-    startDaemon().then((newState) => {
-      if (newState.running && newState.pid) {
-        // Watch the new child too.
-        watchAndRespawn(newState.pid, crashLog);
+    // WHY async IIFE: setInterval callbacks must be synchronous, but the
+    // stop-flag check and all downstream work (respawn, status write) are
+    // async. Wrapping in a void-returning async IIFE preserves the correct
+    // sequencing without blocking the event loop.
+    // WHY .catch(): The async IIFE returns a Promise that is discarded by
+    // `void`. If consumeStopFlag() (or a future refactor of stopFlagExists)
+    // throws an unexpected error (EACCES, ENOMEM, EBUSY…), the rejection
+    // would be silently swallowed and doRespawn() would never be called —
+    // leaving the daemon dead with no log entry. The fail-safe principle:
+    // an error in the stop-flag path must NEVER prevent crash recovery.
+    // We log the error and fall through to doRespawn(). Worst case is an
+    // unwanted respawn; better than a dead daemon the user didn't intend.
+    // OWASP A07:2021, SOC 2 CC7.2.
+    void (async () => {
+      // SOC 2 CC7.2: If the stop-flag is present the daemon exited deliberately
+      // (via `styrby stop` or the `terminate` IPC command). Consume the flag
+      // (single-use sentinel) and exit the supervisor loop — no respawn.
+      if (await stopFlagExists()) {
+        await consumeStopFlag();
+        logger.debug('Daemon stopped intentionally (stop-flag consumed); supervisor exiting', { pid });
+        return;
       }
-    }).catch((err) => {
-      logger.error('Failed to respawn daemon', { error: err.message });
+
+      // No stop-flag — treat as an unexpected crash and fall through to the
+      // existing respawn logic.
+      doRespawn();
+    })().catch((err: Error) => {
+      // Fail-safe: log the unexpected error and always fall back to respawn.
+      // If we cannot determine whether shutdown was intentional, default to
+      // "treat as crash → respawn" rather than silently leaving the daemon dead.
+      logger.error('stop-flag check failed unexpectedly; falling back to respawn', {
+        error: err.message,
+        pid,
+      });
+      doRespawn();
     });
+
+    /**
+     * Execute the crash-recovery / respawn path.
+     *
+     * WHY a nested named function rather than inlining the code after the async
+     * IIFE:  The async IIFE returns a Promise immediately — code written below it
+     * in the setInterval callback would execute *synchronously* before the
+     * awaited stop-flag check resolves.  Wrapping the respawn logic in a named
+     * function and calling it from inside the IIFE ensures it only runs after the
+     * async check confirms there is no intentional-stop flag.
+     *
+     * SOC 2 CC7.2: Only crash paths reach this function; intentional stops have
+     * already returned from the async IIFE above.
+     */
+    function doRespawn(): void {
+      // Prune entries older than the rolling window.
+      const now = Date.now();
+      const recent = crashLog.filter(
+        (e) => now - new Date(e.timestamp).getTime() < RESTART_WINDOW_MS
+      );
+
+      const lastErr = readLastLogLine();
+      const entry: CrashEntry = {
+        timestamp: new Date().toISOString(),
+        exitCode: null,
+        signal: null,
+        restartCount: recent.length + 1,
+        crashSignature: crashSignature(lastErr),
+      };
+      crashLog.push(entry);
+      recent.push(entry);
+
+      logger.debug('Daemon exited unexpectedly', {
+        pid,
+        restartCount: entry.restartCount,
+        crashSignature: entry.crashSignature,
+      });
+
+      if (recent.length > MAX_RESTARTS) {
+        // Transition to error state — too many restarts in the window.
+        logger.error('Daemon restart cap reached; will not respawn', {
+          restartsInWindow: recent.length,
+          windowSec: RESTART_WINDOW_MS / 1000,
+        });
+        writeDaemonStatusFile({
+          pid: -1,
+          startedAt: new Date().toISOString(),
+          connectionState: 'error',
+          activeSessions: 0,
+          lastHeartbeat: new Date().toISOString(),
+          errorMessage: `Daemon crashed ${recent.length} times in ${RESTART_WINDOW_MS / 1000}s — stopped auto-restarting`,
+        });
+        return;
+      }
+
+      // Respawn.
+      logger.debug('Respawning daemon', { attempt: entry.restartCount, crashSignature: entry.crashSignature });
+
+      startDaemon().then((newState) => {
+        if (newState.running && newState.pid) {
+          // Watch the new child too.
+          watchAndRespawn(newState.pid, crashLog);
+        }
+      }).catch((err) => {
+        logger.error('Failed to respawn daemon', { error: err.message });
+      });
+    }
   }, POLL_INTERVAL_MS);
 
   // WHY unref(): The poll interval must not keep the parent CLI process alive

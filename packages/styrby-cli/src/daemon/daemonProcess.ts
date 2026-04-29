@@ -29,6 +29,7 @@ import { createRelayClient, type RelayClient } from 'styrby-shared';
 import { loadDaemonConfig } from './configFile';
 import { WakeDetector } from './wakeDetector';
 import { stateSnapshot } from './stateSnapshot';
+import { writeStopFlag } from './stopFlag';
 
 // ============================================================================
 // Configuration
@@ -843,6 +844,23 @@ export async function handleTerminate(
   // Step 4 — Close IPC server (no new commands accepted after this)
   if (ipcServer) {
     ipcServer.close();
+  }
+
+  // Step 4.5 — Write the stop-flag sentinel immediately before exit.
+  // WHY last-before-exit: the flag signals "intentional shutdown completed
+  // cleanly". Writing it earlier (e.g., before relay disconnect) would let
+  // the supervisor see an "intentional shutdown" marker while the daemon is
+  // still mid-shutdown — a partial teardown that looks like a clean stop.
+  // writeStopFlag() is fail-safe (never throws); the try/catch below is a
+  // defence-in-depth layer in case that contract ever changes.
+  try {
+    await writeStopFlag('daemon.terminate');
+  } catch (err) {
+    structuredLog.error(
+      'daemon.terminate.stop_flag_fail',
+      {},
+      err instanceof Error ? err : new Error(String(err)),
+    );
   }
 
   // Step 5 — Exit cleanly
