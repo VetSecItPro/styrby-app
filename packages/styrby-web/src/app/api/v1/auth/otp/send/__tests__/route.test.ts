@@ -98,7 +98,7 @@ vi.mock('@/lib/supabase/server', () => ({
 // Import handler AFTER mocks are set up
 // ============================================================================
 
-import { POST, handlePost, OTP_SEND_RATE_LIMIT, MAX_EMAIL_LENGTH } from '../route';
+import { POST, handlePost, OTP_SEND_RATE_LIMIT, MAX_EMAIL_LENGTH, hashEmail } from '../route';
 import * as Sentry from '@sentry/nextjs';
 import { rateLimit } from '@/lib/rateLimit';
 
@@ -295,20 +295,24 @@ describe('POST /api/v1/auth/otp/send — 200 + Sentry when signInWithOtp throws'
     expect(body).toEqual({ ok: true });
   });
 
-  it('calls Sentry.captureMessage when signInWithOtp throws', async () => {
+  it('calls Sentry.captureException (not captureMessage) when signInWithOtp throws', async () => {
+    // WHY captureException: preserves full stack trace from the thrown Error for
+    // debugging. captureMessage only logs a string and loses the stack. The err
+    // object does NOT contain the email, so PII hygiene is maintained.
     mockOtpThrows = true;
 
     await POST(makeRequest({ email: 'user@example.com' }));
-    expect(Sentry.captureMessage).toHaveBeenCalledOnce();
+    expect(Sentry.captureException).toHaveBeenCalledOnce();
+    expect(Sentry.captureMessage).not.toHaveBeenCalled();
   });
 
-  it('calls Sentry.captureMessage at warning level when signInWithOtp throws', async () => {
+  it('captureException receives the thrown Error object when signInWithOtp throws', async () => {
     mockOtpThrows = true;
 
     await POST(makeRequest({ email: 'user@example.com' }));
-    const captureCall = (Sentry.captureMessage as ReturnType<typeof vi.fn>).mock.calls[0];
-    const context = captureCall[1] as { level?: string };
-    expect(context?.level).toBe('warning');
+    const [thrownErr] = (Sentry.captureException as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(thrownErr).toBeInstanceOf(Error);
+    expect((thrownErr as Error).message).toBe('Supabase network error');
   });
 });
 
@@ -426,17 +430,20 @@ describe('POST /api/v1/auth/otp/send — Email not in Sentry (PII hygiene)', () 
     expect(argsAsString).not.toContain(SENSITIVE_EMAIL);
   });
 
-  it('does NOT include raw email in Sentry args when signInWithOtp throws', async () => {
+  it('does NOT include raw email in Sentry captureException args when signInWithOtp throws', async () => {
+    // The thrown Error object's message is 'Supabase network error' — it does NOT
+    // contain the email. The extra context is also email-free. Verify both.
     const SENSITIVE_EMAIL = 'sensitive-user@private-domain.example.com';
     mockOtpThrows = true;
 
     await POST(makeRequest({ email: SENSITIVE_EMAIL }));
 
-    expect(Sentry.captureMessage).toHaveBeenCalledOnce();
+    expect(Sentry.captureException).toHaveBeenCalledOnce();
 
-    const allCallArgs = (Sentry.captureMessage as ReturnType<typeof vi.fn>).mock.calls;
-    const argsAsString = JSON.stringify(allCallArgs);
-    expect(argsAsString).not.toContain(SENSITIVE_EMAIL);
+    const allCallArgs = (Sentry.captureException as ReturnType<typeof vi.fn>).mock.calls;
+    // JSON.stringify won't serialize the Error message in [0] but will serialize [1] context
+    const contextArg = allCallArgs[0][1];
+    expect(JSON.stringify(contextArg)).not.toContain(SENSITIVE_EMAIL);
   });
 
   it('Sentry tags include email_hash (for correlation) but NOT raw email', async () => {
@@ -494,7 +501,70 @@ describe('POST /api/v1/auth/otp/send — No auth wrapper', () => {
 });
 
 // ============================================================================
-// 9. Constants
+// 9. hashEmail — case normalization
+// ============================================================================
+
+describe('hashEmail — case normalization', () => {
+  it('returns the same hash for case variations of the same email', () => {
+    // WHY: email addresses are case-insensitive in practice. Without lowercasing,
+    // 'User@Example.com' and 'user@example.com' produce different hashes, which
+    // breaks Sentry correlation across case variations of the same user.
+    expect(hashEmail('User@Example.com')).toBe(hashEmail('user@example.com'));
+    expect(hashEmail('USER@EXAMPLE.COM')).toBe(hashEmail('user@example.com'));
+    expect(hashEmail('uSeR@eXaMpLe.CoM')).toBe(hashEmail('user@example.com'));
+  });
+
+  it('returns different hashes for genuinely different emails', () => {
+    expect(hashEmail('alice@example.com')).not.toBe(hashEmail('bob@example.com'));
+  });
+});
+
+// ============================================================================
+// 10. Unicode / IDN email behavior
+// ============================================================================
+
+describe('POST /api/v1/auth/otp/send — Unicode/IDN email behavior', () => {
+  it('rejects non-ASCII local-part emails (Zod .email() is RFC 5321 ASCII-only)', async () => {
+    // WHY this test exists: documents the ACTUAL behavior of Zod's .email()
+    // validator on internationalized email addresses. If a future Zod version
+    // changes this behavior, the test will fail loudly (explicit > implicit).
+    // If business requirements change to support IDN emails, replace
+    // z.string().email() with z.string().regex(IDN_EMAIL_PATTERN) and update
+    // this test to assert "accept" behavior.
+    const idnEmail = '用户@example.com';
+    const res = await POST(makeRequest({ email: idnEmail }));
+    // Zod's .email() rejects non-ASCII local parts — assert current behavior
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('VALIDATION_ERROR');
+  });
+});
+
+// ============================================================================
+// 11. 500 on rate-limiter infrastructure failure
+// ============================================================================
+
+describe('POST /api/v1/auth/otp/send — 500 on rate-limiter infrastructure failure', () => {
+  it('returns 500 + Sentry.captureException when rate-limit infrastructure throws', async () => {
+    // WHY: a throw from rateLimit itself (e.g. Redis unreachable) is a TRUE
+    // infrastructure failure — not a valid/invalid request outcome. This is the
+    // only 500 path in the dispatch spec (OWASP A07:2021 / availability concern).
+    vi.mocked(rateLimit).mockRejectedValueOnce(new Error('Redis unreachable'));
+
+    const res = await POST(makeRequest({ email: 'user@example.com' }));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe('INTERNAL_ERROR');
+
+    // Sentry must capture the infrastructure exception
+    expect(Sentry.captureException).toHaveBeenCalledOnce();
+    // Supabase must NOT have been called — we failed before reaching OTP dispatch
+    expect(mockSignInWithOtp).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
+// 12. Constants
 // ============================================================================
 
 describe('POST /api/v1/auth/otp/send — Constants', () => {

@@ -113,6 +113,26 @@ const OtpSendSchema = z
 type OtpSendBody = z.infer<typeof OtpSendSchema>;
 
 // ============================================================================
+// Response helpers
+// ============================================================================
+
+/**
+ * Returns the invariant 200 success response for all success-shaped paths.
+ *
+ * WHY a helper (not an inline literal): all three success-shaped paths (Supabase OK,
+ * Supabase returns error, Supabase throws) MUST return an identical response to
+ * maintain the email enumeration defense (OWASP A01:2021). By routing every
+ * success path through this single function, a future edit that needs to change
+ * the response shape (e.g. add a debug field, change ok to true/false) can only
+ * do so in one place — the invariance cannot silently break across three callsites.
+ *
+ * @returns NextResponse with status 200 and body { ok: true }.
+ */
+function okInvariantResponse(): NextResponse {
+  return NextResponse.json({ ok: true }, { status: 200 });
+}
+
+// ============================================================================
 // Handler
 // ============================================================================
 
@@ -130,7 +150,23 @@ export async function handlePost(request: NextRequest): Promise<NextResponse> {
   // WHY aggressive 3/min: each call triggers an email send + burns Supabase
   // quota. High rate from one IP = OTP-spam or email enumeration attempt.
   // The 'otp-send' prefix isolates this bucket from other endpoint buckets.
-  const rateLimitResult = await rateLimit(request, OTP_SEND_RATE_LIMIT, 'otp-send');
+  //
+  // WHY separate try/catch here: a throw from rateLimit (e.g. Redis unreachable)
+  // is a TRUE infrastructure failure distinct from the OTP send errors below.
+  // These MUST surface as 500 (not silently swallowed with the enumeration-defense
+  // 200) because the caller legitimately could not be rate-checked — passing them
+  // through would bypass the rate-limit gate entirely (OWASP A07:2021).
+  let rateLimitResult: Awaited<ReturnType<typeof rateLimit>>;
+  try {
+    rateLimitResult = await rateLimit(request, OTP_SEND_RATE_LIMIT, 'otp-send');
+  } catch (rateLimitErr) {
+    Sentry.captureException(rateLimitErr, {
+      tags: { endpoint: '/api/v1/auth/otp/send' },
+      extra: { context: 'rateLimit infrastructure threw' },
+    });
+    return NextResponse.json({ error: 'INTERNAL_ERROR' }, { status: 500 });
+  }
+
   if (!rateLimitResult.allowed) {
     return rateLimitResponse(rateLimitResult.retryAfter ?? 60);
   }
@@ -213,19 +249,22 @@ export async function handlePost(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     // WHY catch-all without re-throwing: Supabase client can throw on network
     // errors, timeouts, or unexpected server responses. Same invariance applies —
-    // we return 200 + { ok: true } regardless. Sentry captures the raw error
-    // (which will NOT contain the email — it was only passed to Supabase, not
-    // included in any thrown error message).
-    Sentry.captureMessage(
-      `otp-send: signInWithOtp threw unexpectedly: ${err instanceof Error ? err.message : String(err)}`,
-      {
-        level: 'warning',
-        tags: {
-          endpoint: '/api/v1/auth/otp/send',
-          email_hash: hashEmail(body.email),
-        },
-      }
-    );
+    // we return okInvariantResponse() regardless.
+    //
+    // WHY captureException (not captureMessage): thrown errors carry a stack trace
+    // that is invaluable for debugging unexpected Supabase client failures. Using
+    // captureException preserves the full Error object (stack + message) in Sentry.
+    // The err object does NOT contain the email — it was only passed to Supabase,
+    // not included in any thrown Error message — so PII hygiene is maintained.
+    Sentry.captureException(err, {
+      tags: {
+        endpoint: '/api/v1/auth/otp/send',
+        email_hash: hashEmail(body.email),
+      },
+      extra: {
+        context: 'signInWithOtp threw unexpectedly',
+      },
+    });
     // WHY 200 (not 500): this is NOT an infrastructure failure — Supabase
     // responded (or timed out). The caller's request was valid; we just couldn't
     // complete the downstream send. The caller should not be able to distinguish
@@ -233,14 +272,11 @@ export async function handlePost(request: NextRequest): Promise<NextResponse> {
   }
 
   // ── 4. Return invariant success response ──────────────────────────────────
-  // WHY { ok: true } always (barring 400/429 above): enumeration defense.
-  // An attacker watching responses cannot distinguish:
-  //   - OTP sent successfully
-  //   - Supabase rate-limited this email (user exists, too many attempts)
-  //   - Supabase said email not found (or auto-provisioned)
-  //   - Supabase threw an unexpected error
-  // All of these look identical to the caller (OWASP A01:2021).
-  return NextResponse.json({ ok: true }, { status: 200 });
+  // WHY okInvariantResponse() always (barring 400/429 above): enumeration defense.
+  // All success-shaped paths route through this single helper — future edits
+  // that change the response shape affect ALL paths simultaneously, preventing
+  // silent invariance breakage (OWASP A01:2021).
+  return okInvariantResponse();
 }
 
 // ============================================================================
@@ -262,11 +298,20 @@ export async function handlePost(request: NextRequest): Promise<NextResponse> {
  * @param email - Raw email string.
  * @returns Short hexadecimal string (8 chars).
  */
-function hashEmail(email: string): string {
-  // djb2 hash
+export function hashEmail(email: string): string {
+  // WHY lowercase before hashing: email addresses are case-insensitive in the
+  // domain part and effectively case-insensitive in practice for the local part.
+  // Without normalization, 'User@Example.com' and 'user@example.com' produce
+  // different hashes, breaking Sentry correlation across case variations of the
+  // same address (e.g. client typo vs stored canonical form).
+  // NOTE: we do NOT lowercase the email before passing it to signInWithOtp —
+  // Supabase handles its own normalization; we only normalize for the hash.
+  const normalized = email.toLowerCase();
+
+  // djb2 hash over the normalized email
   let hash = 5381;
-  for (let i = 0; i < email.length; i++) {
-    hash = (hash * 33) ^ email.charCodeAt(i);
+  for (let i = 0; i < normalized.length; i++) {
+    hash = (hash * 33) ^ normalized.charCodeAt(i);
   }
   // >>> 0 converts to unsigned 32-bit int; .toString(16) gives hex
   return (hash >>> 0).toString(16).slice(0, 8);
