@@ -42,6 +42,7 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
 import { supabase } from '../../lib/supabase';
+import type { SessionStatus } from 'styrby-shared';
 
 // ============================================================================
 // Constants
@@ -63,9 +64,12 @@ const ORPHAN_HEARTBEAT_THRESHOLD_MS = 90_000;
  *
  * WHY: 'completed' and 'ended' are not valid SessionStatus values in this
  * codebase (see styrby-shared/src/types.ts). Active statuses are the set
- * defined by the shared type: starting, running, idle, paused.
+ * defined by the shared type: starting, running, idle.
+ * WHY 'paused' is excluded: SessionStatus = 'starting' | 'running' | 'idle' |
+ * 'stopped' | 'error'. 'paused' is not in the union; including it would be
+ * dead code that TypeScript cannot guard against at the Set boundary.
  */
-const ACTIVE_STATUSES = new Set(['starting', 'running', 'idle', 'paused']);
+const ACTIVE_STATUSES = new Set<SessionStatus>(['starting', 'running', 'idle']);
 
 // ============================================================================
 // Types
@@ -84,9 +88,11 @@ export interface SessionOrphanedBannerProps {
   /**
    * Current lifecycle status of the session.
    * The banner only renders when this is an active status (starting, running,
-   * idle, paused) AND lastHeartbeatAt is stale.
+   * idle) AND lastHeartbeatAt is stale.
+   * Typed as SessionStatus so TypeScript catches any future invalid values
+   * at compile time — the same guard that was missing when 'paused' slipped in.
    */
-  status: string;
+  status: SessionStatus;
 
   /**
    * ISO 8601 timestamp of the most recent CLI heartbeat for this session,
@@ -98,6 +104,27 @@ export interface SessionOrphanedBannerProps {
    * the banner. Better to miss a true orphan than to show false positives.
    */
   lastHeartbeatAt: string | null;
+
+  /**
+   * Optional clock provider for deterministic time control in tests.
+   * Defaults to () => Date.now() in production.
+   *
+   * WHY: Injecting the clock as a prop eliminates real-clock dependency in
+   * boundary tests. Without this, 89s-vs-90s threshold tests pass a
+   * real-clock-relative offset that can drift on slow CI runners and produce
+   * intermittent failures. Injecting a fixed timestamp makes the test
+   * deterministic regardless of test runner speed.
+   *
+   * @example
+   * // In a test:
+   * const fixedNow = 1_700_000_000_000;
+   * <SessionOrphanedBanner
+   *   timeProvider={() => fixedNow}
+   *   lastHeartbeatAt={new Date(fixedNow - 91_000).toISOString()}
+   *   ...
+   * />
+   */
+  timeProvider?: () => number;
 }
 
 // ============================================================================
@@ -113,15 +140,20 @@ export interface SessionOrphanedBannerProps {
  *
  * Returns false if lastHeartbeatAt is null (cannot determine state).
  *
- * @param status - Session lifecycle status string
+ * @param status - Session lifecycle status (must be a valid SessionStatus)
  * @param lastHeartbeatAt - ISO 8601 timestamp or null
+ * @param now - Current epoch ms; injected so tests can control the clock deterministically
  * @returns true if the session appears orphaned
  */
-function isSessionOrphaned(status: string, lastHeartbeatAt: string | null): boolean {
+function isSessionOrphaned(
+  status: SessionStatus,
+  lastHeartbeatAt: string | null,
+  now: number,
+): boolean {
   if (!ACTIVE_STATUSES.has(status)) return false;
   if (!lastHeartbeatAt) return false;
 
-  const staleDeltaMs = Date.now() - new Date(lastHeartbeatAt).getTime();
+  const staleDeltaMs = now - new Date(lastHeartbeatAt).getTime();
   return staleDeltaMs > ORPHAN_HEARTBEAT_THRESHOLD_MS;
 }
 
@@ -163,6 +195,7 @@ export function SessionOrphanedBanner({
   sessionId,
   status,
   lastHeartbeatAt,
+  timeProvider = () => Date.now(),
 }: SessionOrphanedBannerProps): React.ReactElement | null {
   /**
    * When true the user has dismissed the banner locally.
@@ -180,7 +213,7 @@ export function SessionOrphanedBanner({
   const [endError, setEndError] = useState<string | null>(null);
 
   // --- Orphan detection ---
-  const orphaned = isSessionOrphaned(status, lastHeartbeatAt);
+  const orphaned = isSessionOrphaned(status, lastHeartbeatAt, timeProvider());
 
   // If not orphaned or dismissed, render nothing.
   if (!orphaned || isDismissed) return null;

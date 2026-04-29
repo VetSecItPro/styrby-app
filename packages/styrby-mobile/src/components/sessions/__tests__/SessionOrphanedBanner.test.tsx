@@ -133,6 +133,36 @@ describe('SessionOrphanedBanner', () => {
     expect(queryByTestId('orphaned-banner')).toBeNull();
   });
 
+  it('timeProvider: deterministically shows banner at 90001ms and hides it at 89999ms', () => {
+    /**
+     * WHY: Without timeProvider injection, 89s/90s boundary tests rely on
+     * real-clock offsets that can drift on slow CI runners. By pinning both
+     * "now" (via timeProvider) and lastHeartbeatAt to fixed epoch values we
+     * make the threshold check 100% deterministic regardless of runner speed.
+     */
+    const fixedNow = 1_700_000_000_000; // arbitrary fixed epoch
+
+    // 90001ms delta — just over threshold, banner MUST appear
+    const staleFixed = new Date(fixedNow - 90_001).toISOString();
+    const { queryByTestId: queryStale } = render(
+      <SessionOrphanedBanner
+        {...buildProps({ lastHeartbeatAt: staleFixed, status: 'running' })}
+        timeProvider={() => fixedNow}
+      />,
+    );
+    expect(queryStale('orphaned-banner')).toBeTruthy();
+
+    // 89999ms delta — just under threshold, banner MUST NOT appear
+    const freshFixed = new Date(fixedNow - 89_999).toISOString();
+    const { queryByTestId: queryFresh } = render(
+      <SessionOrphanedBanner
+        {...buildProps({ lastHeartbeatAt: freshFixed, status: 'running' })}
+        timeProvider={() => fixedNow}
+      />,
+    );
+    expect(queryFresh('orphaned-banner')).toBeNull();
+  });
+
   // --------------------------------------------------------------------------
   // Case 2: Stale heartbeat + active status — renders banner
   // --------------------------------------------------------------------------
@@ -146,8 +176,10 @@ describe('SessionOrphanedBanner', () => {
     expect(getByText(/This session's CLI was logged out/i)).toBeTruthy();
   });
 
-  it('renders banner for all active statuses (starting, running, idle, paused)', () => {
-    const activeStatuses = ['starting', 'running', 'idle', 'paused'] as const;
+  it('renders banner for all active statuses (starting, running, idle)', () => {
+    // WHY 'paused' removed: SessionStatus = 'starting' | 'running' | 'idle' |
+    // 'stopped' | 'error'. 'paused' is not in the union; it was dead code.
+    const activeStatuses = ['starting', 'running', 'idle'] as const;
 
     for (const status of activeStatuses) {
       const { getByTestId, unmount } = render(
@@ -170,9 +202,13 @@ describe('SessionOrphanedBanner', () => {
     expect(queryByTestId('orphaned-banner')).toBeNull();
   });
 
-  it('renders nothing when status is expired', () => {
+  it('renders nothing when status is not a recognised active status (e.g. a legacy value)', () => {
+    // WHY cast: 'expired' is not in SessionStatus. The cast simulates a value
+    // arriving from an older Supabase row before a migration cleaned up legacy
+    // status strings. The component must safely return null in this case.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { queryByTestId } = render(
-      <SessionOrphanedBanner {...buildProps({ lastHeartbeatAt: staleHeartbeat(), status: 'expired' })} />,
+      <SessionOrphanedBanner {...buildProps({ lastHeartbeatAt: staleHeartbeat(), status: 'expired' as any })} />,
     );
 
     expect(queryByTestId('orphaned-banner')).toBeNull();
