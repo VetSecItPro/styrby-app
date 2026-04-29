@@ -38,8 +38,27 @@ vi.mock('@sentry/nextjs', () => ({
   captureException: vi.fn(),
 }));
 
+// WHY mock mfa-gate (H42 Layer 1): the route calls assertAdminMfa(user.id) after
+// the isAdmin check. Without this mock the real gate tries to query the DB via
+// createAdminClient which has no passkeys table in the test environment. Mocking
+// at the public contract level keeps the unit test focused on route logic while
+// the MFA gate's own behaviour is covered by src/lib/admin/__tests__/mfa-gate.test.ts.
+// OWASP A07:2021, SOC 2 CC6.1.
+vi.mock('@/lib/admin/mfa-gate', () => ({
+  assertAdminMfa: vi.fn().mockResolvedValue(undefined),
+  AdminMfaRequiredError: class AdminMfaRequiredError extends Error {
+    statusCode = 403 as const;
+    code = 'ADMIN_MFA_REQUIRED' as const;
+    constructor() {
+      super('Admin MFA required');
+      this.name = 'AdminMfaRequiredError';
+    }
+  },
+}));
+
 import { createClient } from '@/lib/supabase/server';
 import { isAdmin } from '@/lib/admin';
+import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 import * as Sentry from '@sentry/nextjs';
 import { GET } from '../route';
 
@@ -270,5 +289,24 @@ describe('GET /api/admin/audit/verify', () => {
         tags: expect.objectContaining({ schema_drift: 'true' }),
       }),
     );
+  });
+
+  // ── (MFA gate) H42 Layer 1 wiring proof ─────────────────────────────────────
+  // WHY: proves the route calls assertAdminMfa and short-circuits to 403 when
+  // the gate throws AdminMfaRequiredError — the RPC must never run on gate failure.
+  // OWASP A07:2021, SOC 2 CC6.1.
+  it('(MFA gate) returns 403 ADMIN_MFA_REQUIRED and skips RPC when assertAdminMfa throws', async () => {
+    (isAdmin as Mock).mockResolvedValue(true);
+    mockSupabaseUser({ id: 'admin-1' });
+    (assertAdminMfa as import('vitest').Mock).mockRejectedValueOnce(new AdminMfaRequiredError());
+
+    const res = await GET();
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe('ADMIN_MFA_REQUIRED');
+    // RPC must not be called when MFA gate fires.
+    // (createClient mock's rpc is not set up in this test path — if the RPC
+    // were called, it would throw, causing a 500 rather than the expected 403.)
   });
 });

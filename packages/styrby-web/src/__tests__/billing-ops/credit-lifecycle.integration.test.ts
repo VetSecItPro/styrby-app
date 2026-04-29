@@ -91,6 +91,24 @@ vi.mock('@/lib/supabase/server', () => ({
   }),
 }));
 
+// WHY mock mfa-gate (H42 Layer 1): every admin action (issueCreditAction)
+// calls assertAdminMfa(actingAdmin.id) after resolving the acting admin via
+// supabase.auth.getUser(). Without this mock the real gate runs createAdminClient
+// to query the passkeys table — which is not set up in the integration test env.
+// MFA gate behaviour is covered in src/lib/admin/__tests__/mfa-gate.test.ts.
+// OWASP A07:2021, SOC 2 CC6.1.
+vi.mock('@/lib/admin/mfa-gate', () => ({
+  assertAdminMfa: vi.fn().mockResolvedValue(undefined),
+  AdminMfaRequiredError: class AdminMfaRequiredError extends Error {
+    statusCode = 403 as const;
+    code = 'ADMIN_MFA_REQUIRED' as const;
+    constructor() {
+      super('Admin MFA required');
+      this.name = 'AdminMfaRequiredError';
+    }
+  },
+}));
+
 // Polar refund helper — not used in credit flow; mock to prevent import errors.
 vi.mock('@/lib/billing/polar-refund', () => ({
   createPolarRefund: vi.fn(),
@@ -107,6 +125,8 @@ vi.mock('@/lib/billing/polar-refund', () => ({
 // ============================================================================
 // Helpers
 // ============================================================================
+
+import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 
 const ADMIN_UUID  = 'a1b2c3d4-e5f6-7890-abcd-000000000011';
 const TARGET_UUID = 'b2c3d4e5-f6a7-8901-bcde-000000000022';
@@ -148,9 +168,17 @@ describe('Credit lifecycle — issue + revoke + RLS', () => {
     const serverModule = await import('@/lib/supabase/server');
     createClient = serverModule.createClient as Mock;
     // Provide both rpc (for mutation tests) and from (for RLS tests).
+    // WHY include auth.getUser: H42 Layer 1 added auth.getUser() calls inside
+    // admin actions to resolve the acting admin for the MFA gate. The mock must
+    // return a valid admin user so assertAdminMfa (mocked above) receives the ID.
     createClient.mockResolvedValue({
       rpc: mockRpc,
       from: mockFrom,
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: ADMIN_UUID, email: 'admin@styrby.test' } },
+        }),
+      },
     });
 
     const actionsModule = await import(
@@ -386,5 +414,24 @@ describe('Credit lifecycle — issue + revoke + RLS', () => {
     expect(result.error).toContain('mismatch');
     expect(mockRpc).not.toHaveBeenCalled();
     expect(mockSentryCaptureMessage).toHaveBeenCalledOnce();
+  });
+
+  // ── (MFA gate) H42 Layer 1 wiring proof ──────────────────────────────────────
+
+  // WHY: proves issueCreditAction calls assertAdminMfa before running the RPC.
+  // If the gate throws AdminMfaRequiredError, the action must short-circuit and
+  // return { ok: false, error: 'ADMIN_MFA_REQUIRED' } without calling the RPC.
+  // OWASP A07:2021, SOC 2 CC6.1.
+  it('(MFA gate) issueCreditAction returns ADMIN_MFA_REQUIRED and skips RPC when assertAdminMfa throws', async () => {
+    (assertAdminMfa as Mock).mockRejectedValueOnce(new AdminMfaRequiredError());
+
+    const result = await issueCreditAction(
+      TARGET_UUID,
+      makeCreditFormData()
+    ) as { ok: boolean; error: string };
+
+    expect(result).toEqual({ ok: false, error: 'ADMIN_MFA_REQUIRED' });
+    expect(assertAdminMfa).toHaveBeenCalledWith(ADMIN_UUID);
+    expect(mockRpc).not.toHaveBeenCalled();
   });
 });
