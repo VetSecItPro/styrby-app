@@ -13,6 +13,7 @@
  * @module auth/token-manager
  */
 
+import { EventEmitter } from 'node:events';
 import { createClient, type SupabaseClient, type Session } from '@supabase/supabase-js';
 import { logger } from '@/ui/logger';
 import { loadPersistedData, savePersistedData, type PersistedData } from '@/persistence';
@@ -49,6 +50,28 @@ export interface TokenState {
   userEmail?: string;
   /** Session persistence setting */
   persistence?: SessionPersistence;
+}
+
+/**
+ * Payload emitted with the 'logout' event.
+ *
+ * WHY (SOC 2 CC6.1): The daemon and other subscribers need to know WHOSE
+ * session ended so they can tear down per-user state (active WebSocket,
+ * push token cache, etc.) without querying stale in-process state.
+ */
+export interface LogoutEventPayload {
+  /** The user ID whose session was cleared, or null if none was active */
+  userId: string | null;
+}
+
+/**
+ * Typed event map for TokenManager's EventEmitter interface.
+ *
+ * WHY: Explicit event map provides type-safe `.on('logout', ...)` callers
+ * without casting, and documents the full public event surface of the class.
+ */
+export interface TokenManagerEvents {
+  logout: (payload: LogoutEventPayload) => void;
 }
 
 /**
@@ -92,15 +115,23 @@ const PERSISTENCE_DURATION_MS: Record<SessionPersistence, number> = {
 /**
  * Manages authentication token lifecycle.
  *
+ * Extends EventEmitter to allow the daemon and other internal subscribers
+ * to react to auth lifecycle transitions (e.g., 'logout') without polling.
+ *
+ * WHY (SOC 2 CC6.1): Auth context changes must be propagated synchronously
+ * at the moment they occur so downstream components (WebSocket manager,
+ * push-token cache) never operate with stale session identity.
+ *
  * Singleton pattern - use TokenManager.getInstance()
  */
-export class TokenManager {
+export class TokenManager extends EventEmitter {
   private static instance: TokenManager;
   private supabase: SupabaseClient | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private state: TokenState = { isAuthenticated: false };
 
   private constructor() {
+    super();
     // Load persisted tokens on initialization
     this.loadFromPersistence();
   }
@@ -296,13 +327,32 @@ export class TokenManager {
 
   /**
    * Clear all tokens and log out.
+   *
+   * WHY (SOC 2 CC6.1 — auth context lifecycle hygiene): Logout must atomically
+   * destroy all auth context so no stale identity can leak into subsequent
+   * operations. Two additions beyond the base implementation:
+   *
+   * 1. `authenticatedAt: undefined` — If omitted from the savePersistedData
+   *    payload, a stale timestamp survives restart and can inflate MFA-grace
+   *    windows or show a misleading "last login" timestamp in the mobile UI.
+   *
+   * 2. Emit 'logout' event AFTER state reset — the daemon and any future
+   *    subscriber must know whose session ended (previousUserId) so they can
+   *    tear down per-user WebSocket connections, push-token cache entries, etc.
+   *    Emitting after reset guarantees subscribers observe the cleared state
+   *    if they call getState() inside their handler.
    */
   clearTokens(): void {
     this.cancelScheduledRefresh();
 
+    // Capture userId BEFORE state reset so the event payload carries the
+    // identity of the session that just ended (null if already logged out).
+    const previousUserId = this.state.userId ?? null;
+
     this.state = { isAuthenticated: false };
 
-    // Clear from persistence
+    // Clear from persistence — authenticatedAt must be explicitly unset;
+    // omitting it leaves the old timestamp on disk (see WHY above).
     savePersistedData({
       accessToken: undefined,
       refreshToken: undefined,
@@ -313,6 +363,9 @@ export class TokenManager {
     setConfigValue('userId', undefined);
 
     logger.debug('Tokens cleared');
+
+    // Emit after all state is cleared so subscribers see a clean slate.
+    this.emit('logout', { userId: previousUserId } satisfies LogoutEventPayload);
   }
 
   // --------------------------------------------------------------------------
