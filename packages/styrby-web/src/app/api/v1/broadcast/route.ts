@@ -127,6 +127,30 @@ interface BroadcastResult {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extracts only the topic suffix from a channel string for safe Sentry logging.
+ *
+ * Channel format: `user:${userId}:<topic>`. Logging the raw channel embeds the
+ * userId (a personal identifier) in Sentry. This helper strips the user-scoped
+ * prefix so Sentry receives only the topic (e.g. "costs", "alerts").
+ *
+ * WHY `<unscoped>` fallback: used in the 403 path where the channel did NOT match
+ * the authenticated user's prefix — logging the actual mismatched channel could
+ * expose another user's UUID. GDPR Art 5(1)(c) — data minimisation.
+ *
+ * @param channel  - Raw Realtime channel name from the request body
+ * @param userId   - Authenticated user's UUID from auth context
+ * @returns The topic suffix, or `<unscoped>` if the channel doesn't match the prefix
+ */
+function channelTopicForLog(channel: string, userId: string): string {
+  const prefix = `user:${userId}:`;
+  return channel.startsWith(prefix) ? channel.slice(prefix.length) : '<unscoped>';
+}
+
+// ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
 
@@ -151,6 +175,21 @@ interface BroadcastResult {
  */
 async function handlePost(request: NextRequest, context: ApiAuthContext): Promise<NextResponse> {
   const { userId } = context;
+
+  // -------------------------------------------------------------------------
+  // Step 0: Defense-in-depth — empty userId guard (OWASP A01:2021)
+  // WHY: Auth middleware should never produce an empty userId, but if it somehow
+  // does, `expectedPrefix` would become `"user::"` and any channel starting with
+  // that would pass the prefix check. Fail-closed with 403 + Sentry error log
+  // rather than silently allowing a dangerously permissive prefix match.
+  // -------------------------------------------------------------------------
+  if (!userId) {
+    Sentry.captureMessage('Broadcast: auth context missing userId', {
+      level: 'error',
+      tags: { endpoint: '/api/v1/broadcast' },
+    });
+    return NextResponse.json({ error: 'Broadcast request rejected' }, { status: 403 });
+  }
 
   // -------------------------------------------------------------------------
   // Step 1: Parse + validate request body
@@ -256,9 +295,10 @@ async function handlePost(request: NextRequest, context: ApiAuthContext): Promis
     Sentry.captureMessage(`Realtime broadcast soft failure: send() returned '${sendStatus}'`, {
       level: 'warning',
       extra: {
-        // WHY only channel + event (not payload): payload may contain user data;
-        // GDPR Art 6 — minimise PII in Sentry context.
-        channel,
+        // WHY channelTopicForLog (not raw channel): channel format is
+        // `user:${userId}:<topic>`, so the raw value embeds the user's UUID.
+        // GDPR Art 5(1)(c) data minimisation — log only the topic suffix.
+        channelTopic: channelTopicForLog(channel, userId),
         event,
         sendStatus,
         route: '/api/v1/broadcast',
@@ -275,7 +315,10 @@ async function handlePost(request: NextRequest, context: ApiAuthContext): Promis
     // trace. OWASP A02:2021 — raw error not returned to caller.
     Sentry.captureException(err instanceof Error ? err : new Error(String(err)), {
       extra: {
-        channel,
+        // WHY channelTopicForLog (not raw channel): GDPR Art 5(1)(c) — strip
+        // userId from channel before sending to Sentry. Same minimisation
+        // principle as the soft-failure path above.
+        channelTopic: channelTopicForLog(channel, userId),
         event,
         route: '/api/v1/broadcast',
       },

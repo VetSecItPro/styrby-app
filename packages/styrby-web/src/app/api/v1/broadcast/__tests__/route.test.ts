@@ -301,7 +301,42 @@ describe('POST /api/v1/broadcast', () => {
   });
 
   // --------------------------------------------------------------------------
-  // 3. Channel-prefix authorization — 403 cases (OWASP A01:2021)
+  // 3. Empty-userId guard (OWASP A01:2021 — defense-in-depth)
+  // --------------------------------------------------------------------------
+
+  describe('empty-userId guard', () => {
+    /**
+     * WHY: If auth middleware somehow produces an empty userId, expectedPrefix
+     * would become `"user::"` and any channel starting with that would pass.
+     * The guard must fail-closed with 403 and log to Sentry before any prefix
+     * check runs. OWASP A01:2021 — defense-in-depth.
+     */
+    it('returns 403 and calls Sentry.captureMessage when authContext.userId is empty string', async () => {
+      const { withApiAuthAndRateLimit } = await import('@/middleware/api-auth');
+      vi.mocked(withApiAuthAndRateLimit).mockImplementationOnce((handler: Function) => {
+        return async (request: NextRequest) =>
+          handler(request, { ...mockAuthContext, userId: '' });
+      });
+
+      vi.resetModules();
+      const { POST: freshPOST } = await import('../route');
+
+      const Sentry = await import('@sentry/nextjs');
+      const response = await freshPOST(createRequest());
+
+      expect(response.status).toBe(403);
+      expect(Sentry.captureMessage).toHaveBeenCalledWith(
+        'Broadcast: auth context missing userId',
+        expect.objectContaining({
+          level: 'error',
+          tags: expect.objectContaining({ endpoint: '/api/v1/broadcast' }),
+        }),
+      );
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // 4. Channel-prefix authorization — 403 cases (OWASP A01:2021)
   // --------------------------------------------------------------------------
 
   describe('channel-prefix authorization (OWASP A01:2021)', () => {
@@ -381,7 +416,7 @@ describe('POST /api/v1/broadcast', () => {
   });
 
   // --------------------------------------------------------------------------
-  // 4. Happy path — 200 + delivered:true
+  // 5. Happy path — 200 + delivered:true
   // --------------------------------------------------------------------------
 
   describe('success cases', () => {
@@ -425,7 +460,7 @@ describe('POST /api/v1/broadcast', () => {
   });
 
   // --------------------------------------------------------------------------
-  // 5. Soft-failure path — 200 + delivered:false (not 500)
+  // 6. Soft-failure path — 200 + delivered:false (not 500)
   // --------------------------------------------------------------------------
 
   describe('soft-failure (delivered:false)', () => {
@@ -453,6 +488,22 @@ describe('POST /api/v1/broadcast', () => {
 
       expect(Sentry.captureMessage).toHaveBeenCalledOnce();
       expect(Sentry.captureException).not.toHaveBeenCalled();
+    });
+
+    /**
+     * WHY: Sentry args must NOT contain the userId substring. Channel format is
+     * `user:${userId}:${topic}`; logging the raw channel embeds the user UUID.
+     * GDPR Art 5(1)(c) data minimisation — only the topic suffix is logged.
+     */
+    it('does not include userId in Sentry captureMessage args on soft failure', async () => {
+      mockSendStatus = 'timed out';
+
+      const Sentry = await import('@sentry/nextjs');
+      await POST(createRequest());
+
+      const callArgs = vi.mocked(Sentry.captureMessage).mock.calls[0];
+      const serialized = JSON.stringify(callArgs);
+      expect(serialized).not.toContain(AUTHED_USER_ID);
     });
 
     /**
@@ -492,7 +543,7 @@ describe('POST /api/v1/broadcast', () => {
   });
 
   // --------------------------------------------------------------------------
-  // 6. Unexpected error path — 500 + Sentry captureException
+  // 7. Unexpected error path — 500 + Sentry captureException
   // --------------------------------------------------------------------------
 
   describe('unexpected errors', () => {
@@ -522,6 +573,22 @@ describe('POST /api/v1/broadcast', () => {
       expect(Sentry.captureMessage).not.toHaveBeenCalled();
     });
 
+    /**
+     * WHY: Same GDPR minimisation requirement as the soft-failure path — the hard-fail
+     * captureException must also strip the userId from the channel before logging.
+     * GDPR Art 5(1)(c).
+     */
+    it('does not include userId in Sentry captureException args on hard failure', async () => {
+      mockSendThrows = true;
+
+      const Sentry = await import('@sentry/nextjs');
+      await POST(createRequest());
+
+      const callArgs = vi.mocked(Sentry.captureException).mock.calls[0];
+      const serialized = JSON.stringify(callArgs);
+      expect(serialized).not.toContain(AUTHED_USER_ID);
+    });
+
     it('does not reveal raw error details in 500 response body', async () => {
       mockSendThrows = true;
 
@@ -535,7 +602,7 @@ describe('POST /api/v1/broadcast', () => {
   });
 
   // --------------------------------------------------------------------------
-  // 7. Rate limiting — 429
+  // 8. Rate limiting — 429
   // --------------------------------------------------------------------------
 
   describe('rate limiting', () => {
@@ -567,7 +634,7 @@ describe('POST /api/v1/broadcast', () => {
   });
 
   // --------------------------------------------------------------------------
-  // 8. Content-Type on all responses
+  // 9. Content-Type on all responses
   // --------------------------------------------------------------------------
 
   describe('response headers', () => {
@@ -594,7 +661,7 @@ describe('POST /api/v1/broadcast', () => {
   });
 
   // --------------------------------------------------------------------------
-  // 9. Supabase client routing
+  // 10. Supabase client routing
   // --------------------------------------------------------------------------
 
   describe('query safety', () => {
