@@ -65,6 +65,24 @@ vi.mock('@/lib/rateLimit', () => ({
   ),
 }));
 
+// WHY mock mfa-gate (H42 Layer 1): the route calls assertAdminMfa(user.id) after
+// the isAdmin check. Without this mock the real gate queries the passkeys table
+// via createAdminClient which is not set up in the unit test environment.
+// Gate behaviour is covered by src/lib/admin/__tests__/mfa-gate.test.ts.
+// OWASP A07:2021, SOC 2 CC6.1.
+vi.mock('@/lib/admin/mfa-gate', () => ({
+  assertAdminMfa: vi.fn().mockResolvedValue(undefined),
+  AdminMfaRequiredError: class AdminMfaRequiredError extends Error {
+    statusCode = 403 as const;
+    code = 'ADMIN_MFA_REQUIRED' as const;
+    constructor() {
+      super('Admin MFA required');
+      this.name = 'AdminMfaRequiredError';
+    }
+  },
+}));
+
+import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 import { GET } from '../route';
 
 // ============================================================================
@@ -229,5 +247,29 @@ describe('GET /api/admin/founder-error-histogram', () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toBe('INTERNAL_ERROR');
+  });
+
+  // --------------------------------------------------------------------------
+  // MFA gate wiring (H42 Layer 1)
+  // --------------------------------------------------------------------------
+
+  // WHY: proves the route calls assertAdminMfa and short-circuits to 403 when
+  // the gate throws AdminMfaRequiredError — the DB query must never run on gate failure.
+  // OWASP A07:2021, SOC 2 CC6.1.
+  it('(MFA gate) returns 403 ADMIN_MFA_REQUIRED and skips DB query when assertAdminMfa throws', async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: 'admin-1', email: 'admin@styrby.test' } },
+      error: null,
+    });
+    mockIsAdmin.mockResolvedValue(true);
+    (assertAdminMfa as import('vitest').Mock).mockRejectedValueOnce(new AdminMfaRequiredError());
+
+    const res = await GET(makeRequest());
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe('ADMIN_MFA_REQUIRED');
+    // The admin DB query must not have been triggered.
+    expect(mockAdminFrom).not.toHaveBeenCalled();
   });
 });

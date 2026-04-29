@@ -118,7 +118,26 @@ vi.mock('@/lib/supabase/server', () => ({
   createAdminClient: vi.fn(),
 }));
 
+// WHY mock mfa-gate (H42 Layer 1): requestSupportAccessAction calls
+// assertAdminMfa(actingAdmin.id) after resolving the acting admin via
+// supabase.auth.getUser(). Without this mock the real gate runs createAdminClient
+// to query the passkeys table — which is not set up in the integration test env.
+// MFA gate behaviour is covered in src/lib/admin/__tests__/mfa-gate.test.ts.
+// OWASP A07:2021, SOC 2 CC6.1.
+vi.mock('@/lib/admin/mfa-gate', () => ({
+  assertAdminMfa: vi.fn().mockResolvedValue(undefined),
+  AdminMfaRequiredError: class AdminMfaRequiredError extends Error {
+    statusCode = 403 as const;
+    code = 'ADMIN_MFA_REQUIRED' as const;
+    constructor() {
+      super('Admin MFA required');
+      this.name = 'AdminMfaRequiredError';
+    }
+  },
+}));
+
 import { createClient } from '@/lib/supabase/server';
+import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 
 // ─── Shared support_tickets mock chain ────────────────────────────────────────
 
@@ -161,6 +180,9 @@ function makeRequestFormData(overrides: Partial<{
   return fd;
 }
 
+// Acting admin ID for MFA gate wiring tests across all describe blocks.
+const ACTING_ADMIN_ID = 'aabbccdd-eeff-0011-2233-445566778899';
+
 // ============================================================================
 // Step 1 — Admin requestSupportAccessAction
 // ============================================================================
@@ -192,8 +214,18 @@ describe('Step 1: Admin requestSupportAccessAction', () => {
     vi.clearAllMocks();
     // WHY include from: the action SELECTs support_tickets to resolve p_user_id
     // server-side before the RPC call (see actions.ts header).
+    // WHY include auth.getUser: H42 Layer 1 added auth.getUser() calls inside
+    // the action to resolve the acting admin for the MFA gate.
     mockFrom.mockImplementation(() => makeTicketFromChain());
-    (createClient as Mock).mockResolvedValue({ rpc: mockRpc, from: mockFrom });
+    (createClient as Mock).mockResolvedValue({
+      rpc: mockRpc,
+      from: mockFrom,
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: ACTING_ADMIN_ID, email: 'admin@styrby.test' } },
+        }),
+      },
+    });
     // Default: both RPCs succeed.
     configureRpcSequence();
   });
@@ -356,6 +388,27 @@ describe('Step 1: Admin requestSupportAccessAction', () => {
     // Sentry captures the stash failure for ops.
     expect(mockSentryCapture).toHaveBeenCalled();
   });
+
+  // ── (MFA gate) H42 Layer 1 wiring proof ──────────────────────────────────────
+
+  // WHY: proves requestSupportAccessAction calls assertAdminMfa before running the
+  // admin_request_support_access RPC. If the gate throws AdminMfaRequiredError,
+  // the action must short-circuit and return { ok: false, error: 'ADMIN_MFA_REQUIRED' }
+  // without calling any RPC. OWASP A07:2021, SOC 2 CC6.1.
+  it('(MFA gate) requestSupportAccessAction returns ADMIN_MFA_REQUIRED and skips RPCs when assertAdminMfa throws', async () => {
+    (assertAdminMfa as Mock).mockRejectedValueOnce(new AdminMfaRequiredError());
+
+    const { requestSupportAccessAction } = await import(
+      '../../app/dashboard/admin/support/[id]/actions'
+    );
+
+    const result = await requestSupportAccessAction(TICKET_ID, makeRequestFormData());
+
+    expect(result).toEqual({ ok: false, error: 'ADMIN_MFA_REQUIRED' });
+    expect(assertAdminMfa).toHaveBeenCalledWith(ACTING_ADMIN_ID);
+    // Neither RPC must have been called when the gate fires.
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
 });
 
 // ============================================================================
@@ -513,8 +566,17 @@ describe('Audit side effects — RPC is the sole audit channel', () => {
     // WHY include from: mockFrom — Fix 1 adds a server-side SELECT on
     // support_tickets. Without this, requestSupportAccessAction returns
     // { ok: false, error: 'Ticket not found' } before calling the RPC.
+    // WHY include auth.getUser: H42 Layer 1 requires auth.getUser() for MFA gate.
     mockFrom.mockImplementation(() => makeTicketFromChain());
-    (createClient as Mock).mockResolvedValue({ rpc: mockRpc, from: mockFrom });
+    (createClient as Mock).mockResolvedValue({
+      rpc: mockRpc,
+      from: mockFrom,
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: ACTING_ADMIN_ID, email: 'admin@styrby.test' } },
+        }),
+      },
+    });
     mockRpc.mockResolvedValue({ data: null, error: null });
   });
 
@@ -538,9 +600,16 @@ describe('Audit side effects — RPC is the sole audit channel', () => {
       update: mockUpdate,
     }));
 
+    // WHY include auth.getUser: H42 Layer 1 requires auth.getUser() so the action
+    // can resolve the acting admin for the MFA gate (assertAdminMfa).
     (createClient as Mock).mockResolvedValue({
       rpc:  mockRpc,
       from: mockFrom,
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: ACTING_ADMIN_ID, email: 'admin@styrby.test' } },
+        }),
+      },
     });
     // WHY two RPC calls now (post SEC-ADV-001):
     //   1. admin_request_support_access — writes grant row + audit entry

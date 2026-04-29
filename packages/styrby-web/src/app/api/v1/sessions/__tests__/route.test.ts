@@ -13,12 +13,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 
 // ============================================================================
-// Mocks — withApiAuth bypass
+// Mocks — withApiAuthAndRateLimit bypass
 // ============================================================================
 
 /**
  * Default auth context injected by the mocked middleware.
- * WHY: v1 routes use API key auth (withApiAuth), not cookie auth.
+ * WHY: v1 routes use API key auth (withApiAuthAndRateLimit), not cookie auth.
  * Mocking the middleware to pass through lets us test the handler logic directly.
  */
 const mockAuthContext = {
@@ -27,8 +27,12 @@ const mockAuthContext = {
   scopes: ['read'],
 };
 
+// WHY withApiAuthAndRateLimit (not withApiAuth): H42 Layer 5 replaced withApiAuth
+// with withApiAuthAndRateLimit on all v1 routes to enforce per-key rate limits
+// in addition to auth. Mock the new export so the module resolution succeeds and
+// the handler is invoked with the test auth context. OWASP A07:2021.
 vi.mock('@/middleware/api-auth', () => ({
-  withApiAuth: vi.fn((handler: Function) => {
+  withApiAuthAndRateLimit: vi.fn((handler: Function) => {
     return async (request: NextRequest) => handler(request, mockAuthContext);
   }),
   addRateLimitHeaders: vi.fn((response: NextResponse) => response),
@@ -148,11 +152,15 @@ describe('GET /api/v1/sessions', () => {
   // --------------------------------------------------------------------------
 
   describe('authentication', () => {
+    // WHY withApiAuthAndRateLimit wiring test: H42 Layer 5 replaced withApiAuth with
+    // withApiAuthAndRateLimit. This test proves the route is wired to the new
+    // middleware — if a future refactor bypasses it, the gate failure stops firing.
+    // OWASP A07:2021, SOC 2 CC6.1.
     it('returns 401 when auth middleware rejects the request', async () => {
       // WHY: Override the mock to simulate auth failure. This tests that the
-      // withApiAuth wrapper correctly short-circuits before reaching the handler.
-      const { withApiAuth } = await import('@/middleware/api-auth');
-      vi.mocked(withApiAuth).mockImplementationOnce(() => async () => {
+      // withApiAuthAndRateLimit wrapper correctly short-circuits before reaching the handler.
+      const { withApiAuthAndRateLimit } = await import('@/middleware/api-auth');
+      vi.mocked(withApiAuthAndRateLimit).mockImplementationOnce(() => async () => {
         return NextResponse.json(
           { error: 'Missing Authorization header', code: 'UNAUTHORIZED' },
           { status: 401 }

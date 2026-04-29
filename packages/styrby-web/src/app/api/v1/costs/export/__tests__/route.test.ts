@@ -21,8 +21,12 @@ const mockAuthContext = {
   scopes: ['read'],
 };
 
+// WHY withApiAuthAndRateLimit (not withApiAuth): H42 Layer 5 replaced withApiAuth
+// with withApiAuthAndRateLimit on all v1 routes to enforce per-key rate limits
+// in addition to auth. Mock the new export so the module resolution succeeds and
+// the handler is invoked with the test auth context. OWASP A07:2021.
 vi.mock('@/middleware/api-auth', () => ({
-  withApiAuth: vi.fn((handler: Function) => {
+  withApiAuthAndRateLimit: vi.fn((handler: Function) => {
     return async (request: NextRequest) => handler(request, mockAuthContext);
   }),
   addRateLimitHeaders: vi.fn((response: NextResponse) => response),

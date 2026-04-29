@@ -101,7 +101,26 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(),
 }));
 
+// WHY mock mfa-gate (H42 Layer 1): requestSupportAccessAction calls
+// assertAdminMfa(actingAdmin.id) after resolving the acting admin via
+// supabase.auth.getUser(). Without this mock the real gate runs createAdminClient
+// to query the passkeys table — which is not set up in the unit test environment.
+// Gate behaviour is covered by src/lib/admin/__tests__/mfa-gate.test.ts.
+// OWASP A07:2021, SOC 2 CC6.1.
+vi.mock('@/lib/admin/mfa-gate', () => ({
+  assertAdminMfa: vi.fn().mockResolvedValue(undefined),
+  AdminMfaRequiredError: class AdminMfaRequiredError extends Error {
+    statusCode = 403 as const;
+    code = 'ADMIN_MFA_REQUIRED' as const;
+    constructor() {
+      super('Admin MFA required');
+      this.name = 'AdminMfaRequiredError';
+    }
+  },
+}));
+
 import { createClient } from '@/lib/supabase/server';
+import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 import type { Mock } from 'vitest';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -121,6 +140,8 @@ const VALID_TICKET_ID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
 const VALID_SESSION_ID = 'b2c3d4e5-f6a7-8901-bcde-f12345678901';
 const VALID_GRANT_ID = '42';
 const VALID_USER_ID = 'ccccdddd-eeee-ffff-aaaa-bbbbccccdddd';
+/** Acting admin ID returned by auth.getUser() for assertAdminMfa wiring tests. */
+const ACTING_ADMIN_ID = 'aaaabbbb-cccc-dddd-eeee-ffffaaaabbbb';
 
 /** Minimal valid form data for happy-path tests. */
 function validFormData(overrides: Record<string, string> = {}): FormData {
@@ -170,7 +191,18 @@ describe('requestSupportAccessAction', () => {
     const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
     mockFrom.mockReturnValue({ select: mockSelect });
 
-    (createClient as Mock).mockResolvedValue({ rpc: mockRpc, from: mockFrom });
+    // WHY include auth.getUser: H42 Layer 1 added auth.getUser() calls inside
+    // admin actions to resolve the acting admin for the MFA gate (assertAdminMfa).
+    // The mock must return a valid admin user so the gate is genuinely exercised.
+    (createClient as Mock).mockResolvedValue({
+      rpc: mockRpc,
+      from: mockFrom,
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: ACTING_ADMIN_ID, email: 'admin@styrby.test' } },
+        }),
+      },
+    });
 
     // Default: both RPCs succeed.
     configureRpc();
@@ -526,5 +558,22 @@ describe('requestSupportAccessAction', () => {
       'admin_request_support_access',
       'admin_stash_grant_token',
     ]);
+  });
+
+  // ── (MFA gate) H42 Layer 1 wiring proof ──────────────────────────────────────
+
+  // WHY: proves requestSupportAccessAction calls assertAdminMfa before running any
+  // RPC. If the gate throws AdminMfaRequiredError, the action must short-circuit
+  // and return { ok: false, error: 'ADMIN_MFA_REQUIRED' } without calling any RPC.
+  // OWASP A07:2021, SOC 2 CC6.1.
+  it('(MFA gate) returns ADMIN_MFA_REQUIRED and skips both RPCs when assertAdminMfa throws', async () => {
+    (assertAdminMfa as Mock).mockRejectedValueOnce(new AdminMfaRequiredError());
+
+    const { requestSupportAccessAction } = await import('../actions');
+    const result = await requestSupportAccessAction(VALID_TICKET_ID, validFormData());
+
+    expect(result).toEqual({ ok: false, error: 'ADMIN_MFA_REQUIRED' });
+    expect(assertAdminMfa).toHaveBeenCalledWith(ACTING_ADMIN_ID);
+    expect(mockRpc).not.toHaveBeenCalled();
   });
 });

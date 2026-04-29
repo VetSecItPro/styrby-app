@@ -45,7 +45,7 @@
  * @module __tests__/billing-ops/churn-save-acceptance.integration.test
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock, type MockInstance } from 'vitest';
 
 // ============================================================================
 // Mocks
@@ -84,6 +84,24 @@ vi.mock('@/lib/supabase/server', () => ({
   createAdminClient: () => ({ auth: { admin: {} } }),
 }));
 
+// WHY mock mfa-gate (H42 Layer 1): every admin action (sendChurnSaveOfferAction)
+// calls assertAdminMfa(actingAdmin.id) after resolving the acting admin via
+// supabase.auth.getUser(). Without this mock the real gate runs createAdminClient
+// to query the passkeys table — which is not set up in the integration test env.
+// MFA gate behaviour is covered in src/lib/admin/__tests__/mfa-gate.test.ts.
+// OWASP A07:2021, SOC 2 CC6.1.
+vi.mock('@/lib/admin/mfa-gate', () => ({
+  assertAdminMfa: vi.fn().mockResolvedValue(undefined),
+  AdminMfaRequiredError: class AdminMfaRequiredError extends Error {
+    statusCode = 403 as const;
+    code = 'ADMIN_MFA_REQUIRED' as const;
+    constructor() {
+      super('Admin MFA required');
+      this.name = 'AdminMfaRequiredError';
+    }
+  },
+}));
+
 // Polar refund helper — not used in churn-save flow; mock to prevent import errors.
 vi.mock('@/lib/billing/polar-refund', () => ({
   createPolarRefund: vi.fn(),
@@ -96,6 +114,8 @@ vi.mock('@/lib/billing/polar-refund', () => ({
     }
   },
 }));
+
+import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 
 // ============================================================================
 // Helpers
@@ -135,7 +155,17 @@ describe('Churn-save lifecycle — send + accept + guards', () => {
 
     const serverModule = await import('@/lib/supabase/server');
     createClient = serverModule.createClient as Mock;
-    createClient.mockResolvedValue({ rpc: mockRpc });
+    // WHY include auth.getUser: H42 Layer 1 added auth.getUser() calls inside
+    // admin actions to resolve the acting admin for the MFA gate. The mock must
+    // return a valid admin user so assertAdminMfa (mocked above) receives the ID.
+    createClient.mockResolvedValue({
+      rpc: mockRpc,
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: ADMIN_UUID, email: 'admin@styrby.test' } },
+        }),
+      },
+    });
 
     const adminActionsModule = await import(
       '../../app/dashboard/admin/users/[userId]/billing/actions'
@@ -291,7 +321,16 @@ describe('Churn-save lifecycle — send + accept + guards', () => {
     ).rejects.toThrow(/NEXT_REDIRECT/);
 
     vi.clearAllMocks();
-    createClient.mockResolvedValue({ rpc: mockRpc });
+    // WHY include auth.getUser: must be present after clearAllMocks to support
+    // the H42 Layer 1 MFA gate (assertAdminMfa) wired into sendChurnSaveOfferAction.
+    createClient.mockResolvedValue({
+      rpc: mockRpc,
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: ADMIN_UUID, email: 'admin@styrby.test' } },
+        }),
+      },
+    });
 
     // Second admin send: RPC returns SQLSTATE 22023 (partial unique index guard).
     // WHY 22023 for duplicate send: admin_send_churn_save_offer raises
@@ -423,5 +462,24 @@ describe('Churn-save lifecycle — send + accept + guards', () => {
     // schema comment in actions.ts.
     const rpcArgs = mockRpc.mock.calls[0]![1] as Record<string, unknown>;
     expect(rpcArgs.p_polar_discount_code).toBeNull();
+  });
+
+  // ── (MFA gate) H42 Layer 1 wiring proof ──────────────────────────────────────
+
+  // WHY: proves sendChurnSaveOfferAction calls assertAdminMfa before running the
+  // RPC. If the gate throws AdminMfaRequiredError, the action must short-circuit
+  // and return { ok: false, error: 'ADMIN_MFA_REQUIRED' } without calling the RPC.
+  // OWASP A07:2021, SOC 2 CC6.1.
+  it('(MFA gate) sendChurnSaveOfferAction returns ADMIN_MFA_REQUIRED and skips RPC when assertAdminMfa throws', async () => {
+    (assertAdminMfa as Mock).mockRejectedValueOnce(new AdminMfaRequiredError());
+
+    const result = await sendChurnSaveOfferAction(TARGET_UUID, makeOfferFormData()) as {
+      ok: boolean;
+      error: string;
+    };
+
+    expect(result).toEqual({ ok: false, error: 'ADMIN_MFA_REQUIRED' });
+    expect(assertAdminMfa).toHaveBeenCalledWith(ADMIN_UUID);
+    expect(mockRpc).not.toHaveBeenCalled();
   });
 });
