@@ -404,6 +404,13 @@ describe('POST /api/v1/auth/otp/verify — 401 on verifyOtp returning error', ()
 // ============================================================================
 
 describe('POST /api/v1/auth/otp/verify — 401 on verifyOtp throw', () => {
+  // NOTE on section 3 vs 4 asymmetry: section 3 (error path) includes an
+  // explicit multi-scenario invariance loop asserting { error: 'AUTH_FAILED' }
+  // across 3 distinct error messages. Section 4 (throw path) omits a parallel
+  // loop because `verifyOtp` throws a single opaque Error — there is no
+  // "different error message" dimension to parameterize. The cross-path
+  // invariance test below (test 2) already proves throw-path == error-path
+  // response shape, making the asymmetry intentional and non-redundant.
   it('returns 401 (not 500) when verifyOtp throws', async () => {
     // WHY 401 (not 500): throws on verifyOtp are treated as auth failure (not
     // infrastructure failure) because the Supabase client can throw under normal
