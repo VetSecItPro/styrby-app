@@ -9,37 +9,45 @@
  * reconnects. On reconnect, the CLI fetches the latest context to restore
  * the agent's working memory without requiring a full session replay.
  *
+ * NOTE: The `version` field is advisory under concurrency. Two concurrent
+ * requests for the same session_group_id can both observe "no row" and both
+ * set version=1. One wins the insert; the other's conflict-update may set
+ * version=1 again. Callers using version for optimistic concurrency must
+ * handle stale-version conflicts at the application layer.
+ *
  * @auth Required - Bearer `styrby_*` API key via withApiAuthAndRateLimit
  * @rateLimit 100 requests per minute per key (default)
  * @idempotency Opt-in via Idempotency-Key header (24h replay window)
  *
  * @body {
- *   session_group_id: string,       // Required — UUID of the owning session group
- *   summary_markdown: string,       // Required — context summary, 1–50,000 chars
- *   file_refs?: FileRef[],          // Optional — files touched in this context window
- *   recent_messages?: RecentMsg[],  // Optional — last N message previews
- *   token_budget?: number,          // Optional — token budget hint, 100–8000 (default 4000)
+ *   session_group_id: string,       // Required - UUID of the owning session group
+ *   summary_markdown: string,       // Required - context summary, 1-50,000 chars
+ *   file_refs?: FileRef[],          // Optional - files touched in this context window
+ *   recent_messages?: RecentMsg[],  // Optional - last N message previews
+ *   token_budget?: number,          // Optional - token budget hint, 100-8000 (default 4000)
  * }
  *
- * @returns 201 { id, session_group_id, version, created_at, updated_at } — first insert
- * @returns 200 { id, session_group_id, version, created_at, updated_at } — update
+ * @returns 201 { id, session_group_id, version, created_at, updated_at } - first insert
+ * @returns 200 { id, session_group_id, version, created_at, updated_at } - update
  *
- * @error 400 { error: string }  — Zod validation failure (incl. unknown fields)
- * @error 401 { error: string }  — Missing or invalid API key
- * @error 404 { error: string }  — session_group_id not found OR belongs to another user (IDOR)
- * @error 409 { error: string }  — Idempotency-Key body mismatch
- * @error 429 { error: string }  — Rate limit exceeded
- * @error 500 { error: string }  — Unexpected database error (sanitized)
+ * @error 400 { error: string }  - Zod validation failure (incl. unknown fields)
+ * @error 401 { error: string }  - Missing or invalid API key
+ * @error 404 { error: string }  - session_group_id not found OR belongs to another user (IDOR)
+ * @error 409 { error: string }  - Idempotency-Key body mismatch
+ * @error 429 { error: string }  - Rate limit exceeded
+ * @error 500 { error: string }  - Unexpected database error (sanitized)
  *
- * @security OWASP A01:2021 (Broken Access Control / IDOR) — ownership check on
+ * @security OWASP A01:2021 (Broken Access Control / IDOR) - ownership check on
  *   agent_session_groups before upsert; 404 for both "not found" and "wrong owner"
  *   so callers cannot distinguish resource existence from ownership failure.
- * @security OWASP A07:2021 (Identification and Authentication Failures) — auth
+ * @security OWASP A07:2021 (Identification and Authentication Failures) - auth
  *   enforced by withApiAuthAndRateLimit wrapper.
- * @security OWASP A03:2021 (Injection / Mass Assignment) — Zod .strict() guard
+ * @security OWASP A03:2021 (Injection / Mass Assignment) - Zod .strict() guard
  *   rejects any fields not in the declared schema.
- * @security SOC 2 CC6.1 (Logical Access Controls) — 'write' scope required;
+ * @security SOC 2 CC6.1 (Logical Access Controls) - 'write' scope required;
  *   service-role with explicit owner check (no RLS dependency).
+ * @security GDPR Art 6(1)(a) - processing is lawful; user has consented to
+ *   context memory writes via authenticated API key issuance.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -67,6 +75,13 @@ import {
  * regardless of where the request is routed. PII hygiene (strips query strings).
  */
 const ROUTE_ID = '/api/v1/contexts';
+
+/**
+ * Default token budget applied when the caller omits token_budget.
+ * WHY 4000: matches the DB column default per migration 039. Aligns with
+ * the CLI daemon's context-compaction target for mid-sized agent sessions.
+ */
+const DEFAULT_TOKEN_BUDGET = 4000;
 
 // ---------------------------------------------------------------------------
 // Zod Schema — OWASP A03:2021 mass-assignment guard
@@ -107,21 +122,29 @@ const ContextBodySchema = z
      */
     file_refs: z
       .array(
-        z.object({
-          /** File path relative to project root. WHY 1024: matches OS PATH_MAX. */
-          path: z.string().max(1024, 'file path must be 1024 characters or fewer'),
-          /**
-           * ISO 8601 timestamp of the last edit event in this context window.
-           * WHY string (not z.date()): the CLI writes ISO strings; coercing to Date
-           * would cause a mismatch when the value is re-read from the DB.
-           */
-          lastTouchedAt: z.string(),
-          /**
-           * Relevance score 0–1 for context compaction ranking.
-           * 0 = least relevant (drop first), 1 = most relevant (keep last).
-           */
-          relevance: z.number().min(0).max(1),
-        }),
+        z
+          .object({
+            /**
+             * File path relative to project root.
+             * WHY min(1): empty paths are nonsensical and would silently write an
+             * empty string to the DB column. WHY max(1024): matches OS PATH_MAX.
+             */
+            path: z.string().min(1, 'file path must not be empty').max(1024, 'file path must be 1024 characters or fewer'),
+            /**
+             * ISO 8601 timestamp of the last edit event in this context window.
+             * WHY string (not z.date()): the CLI writes ISO strings; coercing to Date
+             * would cause a mismatch when the value is re-read from the DB.
+             */
+            lastTouchedAt: z.string(),
+            /**
+             * Relevance score 0-1 for context compaction ranking.
+             * 0 = least relevant (drop first), 1 = most relevant (keep last).
+             */
+            relevance: z.number().min(0).max(1),
+          })
+          // WHY .strict(): rejects unknown nested fields (e.g. injected metadata).
+          // Matches the outer schema's mass-assignment guard. OWASP A03:2021.
+          .strict(),
       )
       .optional(),
 
@@ -132,19 +155,22 @@ const ContextBodySchema = z
      */
     recent_messages: z
       .array(
-        z.object({
-          /**
-           * Message sender role. WHY max(50): mirrors typical role names
-           * ("user", "assistant", "tool") with room for agent-specific variants.
-           */
-          role: z.string().max(50, 'role must be 50 characters or fewer'),
-          /**
-           * Truncated message preview. WHY max(500): enough context for the
-           * reconnect agent without storing full message bodies here
-           * (session_messages table holds those).
-           */
-          preview: z.string().max(500, 'preview must be 500 characters or fewer'),
-        }),
+        z
+          .object({
+            /**
+             * Message sender role. WHY max(50): mirrors typical role names
+             * ("user", "assistant", "tool") with room for agent-specific variants.
+             */
+            role: z.string().max(50, 'role must be 50 characters or fewer'),
+            /**
+             * Truncated message preview. WHY max(500): enough context for the
+             * reconnect agent without storing full message bodies here
+             * (session_messages table holds those).
+             */
+            preview: z.string().max(500, 'preview must be 500 characters or fewer'),
+          })
+          // WHY .strict(): same mass-assignment guard as file_refs items. OWASP A03:2021.
+          .strict(),
       )
       .optional(),
 
@@ -182,9 +208,18 @@ interface ContextRow {
   /** UUID of the owning session group. */
   session_group_id: string;
   /**
-   * Monotonically increasing version counter. Starts at 1 on first insert
-   * and increments by 1 on each subsequent upsert. Used by the CLI to detect
-   * if a context snapshot has changed since the last fetch.
+   * @field version - best-effort monotonic counter. Under concurrent
+   * inserts to the same session_group_id, two clients can both observe
+   * "no row exists" and both set version=1. One wins the insert; the
+   * other's conflict-update may set version=1 again. Callers using
+   * version for optimistic concurrency must handle stale-version
+   * conflicts at the application layer.
+   *
+   * WHY this is acceptable: matches the existing CLI optimistic-locking
+   * pattern in commands/context.ts. Stronger atomicity would require a
+   * SECURITY DEFINER stored procedure - the only one in the codebase
+   * for this single field, which is worse than the documented advisory
+   * semantic.
    */
   version: number;
   /** ISO 8601 timestamp when this row was first created. */
@@ -208,18 +243,21 @@ interface ContextRow {
  * Ownership flow:
  *  1. Validate body via Zod .strict()
  *  2. Verify session_group_id exists AND belongs to authenticated user
- *     (IDOR defense — OWASP A01:2021)
+ *     (IDOR defense - OWASP A01:2021)
  *  3. Upsert agent_context_memory on conflict(session_group_id)
  *  4. Return 201 on first insert (version=1), 200 on update (version incremented)
  *
+ * NOTE: version field is advisory under concurrency - see ContextRow JSDoc for details.
+ *
  * @param request - Authenticated NextRequest
- * @param context - Auth context from withApiAuthAndRateLimit (userId, keyId, scopes)
+ * @param authContext - Auth context from withApiAuthAndRateLimit (userId, keyId, scopes)
  * @returns 201/200 with ContextRow fields, or an appropriate error response
  *
- * @security OWASP A01:2021 — IDOR defense: ownership check before upsert; 404 on mismatch
- * @security OWASP A07:2021 — auth enforced by withApiAuthAndRateLimit
- * @security OWASP A03:2021 — mass-assignment blocked by Zod .strict()
- * @security SOC 2 CC6.1 — 'write' scope required; service-role with explicit owner check
+ * @security OWASP A01:2021 - IDOR defense: ownership check before upsert; 404 on mismatch
+ * @security OWASP A07:2021 - auth enforced by withApiAuthAndRateLimit
+ * @security OWASP A03:2021 - mass-assignment blocked by Zod .strict() (top-level and nested)
+ * @security SOC 2 CC6.1 - 'write' scope required; service-role with explicit owner check
+ * @security GDPR Art 6(1)(a) - lawful basis: user consent via API key issuance
  */
 async function handlePost(request: NextRequest, authContext: ApiAuthContext): Promise<NextResponse> {
   const { userId } = authContext;
@@ -343,6 +381,9 @@ async function handlePost(request: NextRequest, authContext: ApiAuthContext): Pr
   // (version=1) or UPDATE (version++ via fetch → increment → update).
   // -------------------------------------------------------------------------
 
+  // TOCTOU: see ContextRow JSDoc - version is advisory under concurrent writes.
+  // Two concurrent requests can both observe "no row" here and both set version=1.
+  // This matches the CLI's own optimistic-locking pattern (commands/context.ts).
   // Check for existing context row so we can determine 201 vs 200 and version.
   const { data: existingContext, error: existingError } = await supabase
     .from('agent_context_memory')
@@ -378,7 +419,7 @@ async function handlePost(request: NextRequest, authContext: ApiAuthContext): Pr
         summary_markdown,
         file_refs: file_refs ?? [],
         recent_messages: recent_messages ?? [],
-        token_budget: token_budget ?? 4000,
+        token_budget: token_budget ?? DEFAULT_TOKEN_BUDGET,
         version: nextVersion,
         updated_at: new Date().toISOString(),
         // WHY user_id from auth context (not body): prevents user_id spoofing.
@@ -412,13 +453,27 @@ async function handlePost(request: NextRequest, authContext: ApiAuthContext): Pr
   // replay returns the exact same row identifier and version, not a newly
   // computed one.
   // -------------------------------------------------------------------------
+
+  // Guard: upsert succeeded (no error) but returned no row. This is an
+  // unexpected DB behaviour (e.g. RETURNING clause suppressed by RLS on the
+  // service role — should never happen, but TypeScript types this as nullable).
+  if (!upsertedRow) {
+    Sentry.captureMessage('Upsert succeeded but returned no row', {
+      level: 'error',
+      tags: { endpoint: ROUTE_ID },
+      extra: { session_group_id },
+    });
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+  }
+
   const responseStatus = isInsert ? 201 : 200;
+  // TS narrowing from the null guard above — no unsafe cast needed.
   const responseBody: ContextRow = {
-    id: (upsertedRow as ContextRow).id,
-    session_group_id: (upsertedRow as ContextRow).session_group_id,
-    version: (upsertedRow as ContextRow).version,
-    created_at: (upsertedRow as ContextRow).created_at,
-    updated_at: (upsertedRow as ContextRow).updated_at,
+    id: upsertedRow.id,
+    session_group_id: upsertedRow.session_group_id,
+    version: upsertedRow.version,
+    created_at: upsertedRow.created_at,
+    updated_at: upsertedRow.updated_at,
   };
 
   await storeIdempotencyResult(request, userId, ROUTE_ID, responseStatus, responseBody);

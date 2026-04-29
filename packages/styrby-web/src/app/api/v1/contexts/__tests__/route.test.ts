@@ -52,6 +52,7 @@ vi.mock('@/middleware/api-auth', () => ({
 
 vi.mock('@sentry/nextjs', () => ({
   captureException: vi.fn(),
+  captureMessage: vi.fn(),
 }));
 
 // ============================================================================
@@ -384,6 +385,52 @@ describe('POST /api/v1/contexts', () => {
       const body = await response.json();
       expect(body.error).toBeDefined();
     });
+
+    /**
+     * IMPORTANT-1: Nested .strict() guard on file_refs items.
+     * An unknown field inside a file_refs element must be rejected. Without .strict()
+     * on the nested schema, mass-assignment via nested object fields is possible.
+     * OWASP A03:2021.
+     */
+    it('returns 400 when a file_refs element contains an unknown field (nested strict guard)', async () => {
+      const response = await POST(
+        createRequest({
+          ...MINIMAL_VALID_BODY,
+          file_refs: [
+            {
+              path: 'src/auth/index.ts',
+              lastTouchedAt: '2026-04-29T10:00:00Z',
+              relevance: 0.9,
+              injectedField: 'should-be-rejected',
+            },
+          ],
+        }),
+      );
+      expect(response.status).toBe(400);
+
+      const body = await response.json();
+      expect(body.error).toBeDefined();
+    });
+
+    /**
+     * IMPORTANT-2: file_refs.path must not be empty string.
+     * An empty path is nonsensical and would write a zero-length string to the
+     * DB column. The .min(1) guard ensures clean validation at the API layer.
+     */
+    it('returns 400 when file_refs contains an element with an empty path', async () => {
+      const response = await POST(
+        createRequest({
+          ...MINIMAL_VALID_BODY,
+          file_refs: [
+            { path: '', lastTouchedAt: '2026-04-29T10:00:00Z', relevance: 0.5 },
+          ],
+        }),
+      );
+      expect(response.status).toBe(400);
+
+      const body = await response.json();
+      expect(body.error).toBeDefined();
+    });
   });
 
   // --------------------------------------------------------------------------
@@ -630,18 +677,29 @@ describe('POST /api/v1/contexts', () => {
 
   describe('rate limiting', () => {
     /**
-     * WHY inline 429 factory: the rate-limit behaviour belongs to the middleware
-     * wrapper, not the handler. We prove the wrapper can produce and surface a
-     * 429 without wiring into the full middleware stack. MINOR-1 pattern.
+     * WHY: Proves the route surfaces 429 + Retry-After when the rate-limiter
+     * inside withApiAuthAndRateLimit denies the request. The middleware mock is
+     * overridden to return a 429 directly; POST() is called normally so the full
+     * handler call path executes. OWASP A07:2021 (flood protection).
      */
-    it('returns 429 when withApiAuthAndRateLimit enforces rate limit', async () => {
-      const rateLimitedResponse = NextResponse.json(
-        { error: 'Rate limit exceeded. Retry after 60 seconds', code: 'RATE_LIMITED' },
-        { status: 429, headers: { 'Retry-After': '60' } },
-      );
+    it('returns 429 with Retry-After header when rate limit is exceeded', async () => {
+      const { withApiAuthAndRateLimit } = await import('@/middleware/api-auth');
+      vi.mocked(withApiAuthAndRateLimit).mockImplementationOnce(() => async () => {
+        return NextResponse.json(
+          { error: 'Rate limit exceeded. Retry after 30 seconds', code: 'RATE_LIMITED' },
+          { status: 429, headers: { 'Retry-After': '30' } },
+        );
+      });
 
-      expect(rateLimitedResponse.status).toBe(429);
-      expect(rateLimitedResponse.headers.get('Retry-After')).toBe('60');
+      vi.resetModules();
+      const { POST: freshPOST } = await import('../route');
+
+      const response = await freshPOST(createRequest());
+      expect(response.status).toBe(429);
+      expect(response.headers.get('Retry-After')).toBe('30');
+
+      const body = await response.json();
+      expect(body.error).toBeDefined();
     });
   });
 
@@ -718,6 +776,33 @@ describe('POST /api/v1/contexts', () => {
 
       expect(response.status).toBe(500);
       expect(Sentry.captureException).toHaveBeenCalledOnce();
+    });
+
+    /**
+     * CRITICAL-2: Upsert returns { data: null, error: null } — success-but-empty.
+     * This is an unexpected DB state (RETURNING suppressed). The handler must catch
+     * it, call Sentry.captureMessage, and return 500 instead of throwing TypeError.
+     */
+    it('returns 500 and calls Sentry.captureMessage when upsert returns null row with no error', async () => {
+      // Ownership check passes
+      groupSelectQueue.push({ data: { user_id: mockAuthContext.userId }, error: null });
+      // Context existence check: no prior row (insert path)
+      // contextSelectQueue empty → mock returns PGRST116 by default
+      // Upsert: success but no row returned
+      upsertQueue.push({ data: null, error: null });
+
+      const Sentry = await import('@sentry/nextjs');
+      const response = await POST(createRequest());
+
+      expect(response.status).toBe(500);
+      expect(Sentry.captureMessage).toHaveBeenCalledOnce();
+      expect(Sentry.captureMessage).toHaveBeenCalledWith(
+        'Upsert succeeded but returned no row',
+        expect.objectContaining({ level: 'error' }),
+      );
+
+      const body = await response.json();
+      expect(body.error).toBe('Internal error');
     });
   });
 
