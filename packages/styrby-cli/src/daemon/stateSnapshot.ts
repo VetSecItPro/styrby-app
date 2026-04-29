@@ -234,6 +234,24 @@ export class StateSnapshotManager extends EventEmitter {
   }
 
   /**
+   * Flush the current snapshot to disk immediately (one-shot, outside the interval).
+   *
+   * WHY: Called from `handleTerminate` before process.exit(0). The periodic
+   * interval may not fire in time between receiving the terminate command and
+   * the process exiting. Calling persistNow() guarantees the final session
+   * state (e.g., sessionStatus: 'idle') is on disk before exit, so the next
+   * daemon start has correct state to reason about.
+   *
+   * SOC 2 CC7.2: Reliable processing requires that clean shutdown leaves
+   * recoverable, consistent state on disk — not a stale 30-second-old snapshot.
+   */
+  persistNow(): void {
+    if (!this.currentSnapshot) return;
+    this.currentSnapshot.lastSeenAt = new Date().toISOString();
+    this._write();
+  }
+
+  /**
    * Return the current in-memory snapshot (for tests).
    */
   getCurrent(): DaemonStateSnapshot | null {

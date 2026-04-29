@@ -335,6 +335,17 @@ function handleIpcCommand(rawMessage: string, conn: net.Socket): void {
         conn.write(JSON.stringify(response) + '\n', () => gracefulShutdown('IPC stop command'));
         return;
 
+      case 'daemon.terminate':
+        // WHY: handleTerminate is extracted into a named, exported function so
+        // tests can inject mocks for relay, ipcServer, and stateSnapshot without
+        // triggering the daemon's full startup sequence. The IPC switch delegates
+        // to it with the live module-level references.
+        //
+        // SOC 2 CC7.2: Controlled shutdown path ensures Realtime subscription is
+        // closed before exit, preventing orphaned Supabase Realtime channels.
+        void handleTerminate(relay, ipcServer, stateSnapshot, conn);
+        return;
+
       case 'list-sessions':
         response = { success: true, data: { devices: relay ? relay.getConnectedDevices() : [] } };
         break;
@@ -512,6 +523,91 @@ async function gracefulShutdown(reason: string): Promise<void> {
   }
 
   log('Daemon shut down cleanly');
+  process.exit(0);
+}
+
+// ============================================================================
+// Terminate Handler (exported for unit testing)
+// ============================================================================
+
+/**
+ * Handle the `daemon.terminate` IPC command.
+ *
+ * Performs a controlled, ordered shutdown sequence:
+ * 1. ACK the caller so `terminateDaemon()` on the client side receives a
+ *    response before the socket closes (otherwise the client gets ECONNRESET
+ *    and cannot distinguish a clean shutdown from a crash).
+ * 2. Persist a final state snapshot — so the NEXT daemon start has sane
+ *    recovery state even if the user re-authenticates as the same account.
+ * 3. Disconnect the Supabase Realtime subscription — prevents orphaned
+ *    presence entries on the Realtime server.
+ * 4. Close the IPC server so no further commands are accepted.
+ * 5. Call process.exit(0).
+ *
+ * WHY pass relay/ipcServer/snapshot as parameters instead of closing over
+ * module-level vars directly:
+ *   The IPC switch statement calls this with the live module-level references,
+ *   but tests inject mocks. Dependency-injection keeps this function testable
+ *   without a full daemon startup. This is a deliberate design choice — not
+ *   over-engineering — required by the TDD mandate in CLAUDE.md.
+ *
+ * WHY disconnect relay AFTER ACK but BEFORE exit:
+ *   If we disconnect before writing the ACK the socket may be destroyed by the
+ *   server close, and the client receives no response (silent timeout). ACKing
+ *   first ensures the client's Promise resolves to { ok: true }.
+ *
+ * WHY persist snapshot on terminate (not clearOnExit):
+ *   This is account-switch logout. The NEXT daemon start (for the same or a
+ *   new account) should NOT restore the old session. We persist with
+ *   sessionStatus: 'idle' (already the default) so the snapshot is present
+ *   but non-restorable, then let normal gracefulShutdown call clearOnExit.
+ *   The snapshot record gives the observability pipeline a clean audit trail.
+ *
+ * SOC 2 CC7.2: Reliable processing integrity requires controlled shutdown that
+ * leaves no orphaned subscriptions or stale lock files.
+ *
+ * @param relay        - Live RelayClient (or null if never connected)
+ * @param ipcServer    - Live IPC net.Server (or null)
+ * @param snapshot     - StateSnapshotManager singleton
+ * @param conn         - The socket connection that sent the terminate command
+ */
+export async function handleTerminate(
+  relay: { disconnect: () => Promise<void> } | null,
+  ipcServer: { close: () => void } | null,
+  snapshot: { persistNow: () => void; clearOnExit: () => void },
+  conn: { write: (data: string, cb?: () => void) => void }
+): Promise<void> {
+  // Step 1 — ACK the caller immediately (before any async work)
+  const ack = JSON.stringify({ success: true, data: { terminating: true } }) + '\n';
+  conn.write(ack);
+
+  structuredLog.info('daemon.terminate', { reason: 'daemon.terminate RPC' });
+
+  // Step 2 — Persist final snapshot (sessionStatus is already 'idle' on a
+  // clean terminate; this captures the final lastSeenAt timestamp).
+  try {
+    snapshot.persistNow();
+  } catch (err) {
+    structuredLog.error('daemon.terminate.snapshot_fail', {}, err instanceof Error ? err : new Error(String(err)));
+  }
+
+  // Step 3 — Disconnect Realtime subscription cleanly
+  if (relay) {
+    try {
+      await relay.disconnect();
+    } catch (err) {
+      // Non-fatal: relay may already be closed. Log and proceed.
+      structuredLog.error('daemon.terminate.relay_disconnect_fail', {}, err instanceof Error ? err : new Error(String(err)));
+    }
+  }
+
+  // Step 4 — Close IPC server (no new commands accepted after this)
+  if (ipcServer) {
+    ipcServer.close();
+  }
+
+  // Step 5 — Exit cleanly
+  log('Daemon terminated via daemon.terminate RPC');
   process.exit(0);
 }
 

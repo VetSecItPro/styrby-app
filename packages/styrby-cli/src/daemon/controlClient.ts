@@ -34,7 +34,21 @@ export type DaemonCommand =
    * The daemon updates `sessions.status = 'running'` and `last_seen_at = now()`.
    * Does NOT spawn a new agent process — relay-reconnect only.
    */
-  | { type: 'attach-relay'; sessionId: string };
+  | { type: 'attach-relay'; sessionId: string }
+  /**
+   * Terminate the daemon process cleanly.
+   *
+   * The daemon will:
+   * 1. ACK this command
+   * 2. Persist a final state snapshot
+   * 3. Close the Realtime subscription
+   * 4. Close the IPC server
+   * 5. Call process.exit(0)
+   *
+   * Used by `styrby logout` to tear down the daemon before clearing tokens.
+   * SOC 2 CC7.2: Ensures no orphaned Realtime subscriptions on logout.
+   */
+  | { type: 'daemon.terminate' };
 
 /**
  * Response received from the daemon via IPC.
@@ -198,7 +212,107 @@ export async function attachRelaySession(sessionId: string): Promise<boolean> {
   }
 }
 
+/**
+ * Send `daemon.terminate` and wait for the daemon to shut down cleanly.
+ *
+ * Behavior:
+ * 1. Sends `{ type: 'daemon.terminate' }` over IPC.
+ * 2. If the daemon ACKs (success: true) within `timeoutMs`, returns `{ ok: true }`.
+ * 3. If no ACK arrives within `timeoutMs`, or the socket is unreachable,
+ *    returns `{ ok: false }`.
+ *
+ * WHY this function doesn't reuse `sendDaemonCommand`:
+ *   `sendDaemonCommand` resolves/rejects based on the JSON response and always
+ *   throws on timeout. `terminateDaemon` needs a different success shape
+ *   (`{ ok: boolean }` not `DaemonResponse`), never throws (callers rely on the
+ *   `ok` flag to decide between graceful shutdown and SIGTERM fallback), and
+ *   uses a caller-supplied timeout rather than the fixed `IPC_TIMEOUT_MS`.
+ *   Fitting all three into `sendDaemonCommand` would have required a brittle
+ *   options bag with three overloads — a separate function is cleaner.
+ *
+ * WHY `{ ok: boolean }` instead of throwing on timeout:
+ *   `styrby logout` needs to distinguish a graceful shutdown from a timeout so
+ *   it can fall back to SIGTERM via PID file. Throwing would conflate both cases
+ *   and force the caller to catch + inspect error messages.
+ *
+ * WHY we use the standard IPC_TIMEOUT_MS from sendDaemonCommand for the socket
+ * read, but `timeoutMs` controls whether we treat that as a timeout result:
+ *   The socket-level timeout is a separate concern (prevents the connection
+ *   from hanging forever). The `timeoutMs` parameter lets callers specify how
+ *   long they are willing to wait for the daemon ACK — distinct from whether
+ *   the socket itself is alive.
+ *
+ * SOC 2 CC7.2: Reliable processing requires that the caller knows whether the
+ * daemon stopped cleanly, so it can apply fallback (SIGTERM) rather than
+ * leaving the daemon running while tokens are wiped.
+ *
+ * @param timeoutMs - Max milliseconds to wait for the daemon to ACK (default 5000)
+ * @returns `{ ok: true }` on graceful shutdown, `{ ok: false }` on timeout or error
+ */
+export async function terminateDaemon(timeoutMs: number = 5_000): Promise<{ ok: boolean }> {
+  const socketPath = DAEMON_PATHS.socketPath;
+
+  return new Promise<{ ok: boolean }>((resolve) => {
+    let buffer = '';
+    let settled = false;
+
+    const settle = (ok: boolean): void => {
+      if (settled) return;
+      settled = true;
+      resolve({ ok });
+    };
+
+    const socket = net.createConnection({ path: socketPath }, () => {
+      socket.write(JSON.stringify({ type: 'daemon.terminate' }) + '\n');
+    });
+
+    // WHY custom timeout here instead of reusing IPC_TIMEOUT_MS:
+    // The caller-supplied timeoutMs governs how long the logout command will wait.
+    // The default socket timeout (IPC_TIMEOUT_MS = 3s) is the inner bound;
+    // terminateDaemon's timeout is the outer bound from the caller's perspective.
+    socket.setTimeout(timeoutMs);
+
+    socket.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString();
+      const newlineIndex = buffer.indexOf('\n');
+      if (newlineIndex !== -1) {
+        const responseLine = buffer.substring(0, newlineIndex).trim();
+        if (responseLine) {
+          socket.destroy();
+          try {
+            const resp = JSON.parse(responseLine) as { success: boolean };
+            settle(resp.success === true);
+          } catch {
+            settle(false);
+          }
+        }
+      }
+    });
+
+    socket.on('timeout', () => {
+      socket.destroy();
+      settle(false);
+    });
+
+    socket.on('error', (err: NodeJS.ErrnoException) => {
+      const code = err.code;
+      if (code === 'ECONNREFUSED' || code === 'ENOENT') {
+        // Daemon not running — treat as ok=false (nothing to terminate)
+        logger.debug('terminateDaemon: daemon not running', { code });
+      }
+      settle(false);
+    });
+
+    socket.on('close', () => {
+      // Socket closed without a response line (e.g., daemon closed it right
+      // after sending the ACK but before our data handler fired). Treat as ok
+      // only if we already settled — otherwise the ACK was lost.
+      if (!settled) settle(false);
+    });
+  });
+}
+
 export default {
   sendDaemonCommand, canConnectToDaemon, getDaemonStatusViaIpc,
-  requestDaemonStop, listConnectedDevices, attachRelaySession,
+  requestDaemonStop, listConnectedDevices, attachRelaySession, terminateDaemon,
 };
