@@ -97,6 +97,25 @@ vi.mock('@sentry/nextjs', () => ({
  *   elsewhere — only the returned object's .rpc/.from need to be reachable
  *   from tests, and that comes via mockRpc (hoisted above).
  */
+// WHY mock mfa-gate (H42 Layer 1): every billing admin action now calls
+// `assertAdminMfa(actingAdmin.id)` before running its RPC. Without this mock
+// the gate would call createAdminClient → site_admins lookup, which is not
+// stubbed at this unit-test layer. MFA gate behavior itself is covered in
+// src/lib/admin/__tests__/mfa-gate.test.ts; these unit tests assert each
+// action wires the gate correctly via dedicated `(MFA)` test cases below.
+// OWASP A07:2021, SOC 2 CC6.1.
+vi.mock('@/lib/admin/mfa-gate', () => ({
+  assertAdminMfa: vi.fn().mockResolvedValue(undefined),
+  AdminMfaRequiredError: class AdminMfaRequiredError extends Error {
+    statusCode = 403 as const;
+    code = 'ADMIN_MFA_REQUIRED' as const;
+    constructor() {
+      super('Admin MFA required');
+      this.name = 'AdminMfaRequiredError';
+    }
+  },
+}));
+
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(),
   createAdminClient: vi.fn(),
@@ -143,9 +162,29 @@ vi.mock('@/lib/billing/polar-refund', () => {
 // Import mocked modules so tests can assert on them.
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { RefundError } from '@/lib/billing/polar-refund';
+import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 import type { Mock } from 'vitest';
 
+const ACTING_ADMIN_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Builds an `auth.getUser()` stub for the mocked Supabase client.
+ * WHY: H42 Layer 1 added `supabase.auth.getUser()` calls inside every admin action
+ * to capture the acting admin for the MFA gate. Returning a real admin user
+ * (rather than null) means the gate is genuinely exercised on every test path —
+ * `assertAdminMfa` (mocked at module level) runs and resolves by default.
+ * Per-case overrides simulate gate failure via
+ * `(assertAdminMfa as Mock).mockRejectedValueOnce(new AdminMfaRequiredError())`.
+ */
+function makeAuthMock() {
+  return {
+    getUser: vi.fn().mockResolvedValue({
+      data: { user: { id: ACTING_ADMIN_ID, email: 'admin@styrby.test' } },
+    }),
+  };
+}
 
 /**
  * Builds a FormData object from a plain record.
@@ -186,6 +225,7 @@ describe('issueRefundAction', () => {
     // DB error) reassign the maybeSingle resolver per-case.
     (createClient as Mock).mockResolvedValue({
       rpc: mockRpc,
+      auth: makeAuthMock(),
       from: vi.fn().mockReturnValue({
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
@@ -604,6 +644,7 @@ describe('issueRefundAction', () => {
     function setSubscriptionLookup(value: { data: unknown; error: unknown }) {
       (createClient as Mock).mockResolvedValue({
         rpc: mockRpc,
+        auth: makeAuthMock(),
         from: vi.fn().mockReturnValue({
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
@@ -746,6 +787,29 @@ describe('issueRefundAction', () => {
       expect(mockRpc).not.toHaveBeenCalled();
     });
   });
+
+  // ── (MFA gate) H42 Layer 1 wiring proof ───────────────────────────────────
+  // WHY: action calls assertAdminMfa(actingAdmin.id) before Polar+RPC. Catches
+  // any future refactor that bypasses the gate.
+  it('(MFA gate) returns ADMIN_MFA_REQUIRED and skips Polar + RPC when assertAdminMfa throws', async () => {
+    (assertAdminMfa as Mock).mockRejectedValueOnce(new AdminMfaRequiredError());
+
+    const { issueRefundAction } = await import('../actions');
+    const result = await issueRefundAction(
+      VALID_UUID,
+      makeFormData({
+        targetUserId: VALID_UUID,
+        subscriptionId: 'sub_polar_123',
+        amount_cents: '4900',
+        reason: 'Customer requested refund for billing error',
+      })
+    );
+
+    expect(result).toEqual({ ok: false, error: 'ADMIN_MFA_REQUIRED' });
+    expect(assertAdminMfa).toHaveBeenCalledWith(ACTING_ADMIN_ID);
+    expect(mockCreatePolarRefund).not.toHaveBeenCalled();
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
 });
 
 // ─── issueCreditAction ────────────────────────────────────────────────────────
@@ -753,7 +817,7 @@ describe('issueRefundAction', () => {
 describe('issueCreditAction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
+    (createClient as Mock).mockResolvedValue({ rpc: mockRpc, auth: makeAuthMock() });
     mockRpc.mockResolvedValue({ data: { audit_id: 10, credit_id: 99 }, error: null });
   });
 
@@ -974,6 +1038,25 @@ describe('issueCreditAction', () => {
     expect(sentryCtx.tags.admin_action).toBe('issue_credit');
     expect(sentryCtx.tags.sqlstate).toBe('P0001');
   });
+
+  // ── (MFA gate) H42 Layer 1 wiring proof ───────────────────────────────────
+  it('(MFA gate) returns ADMIN_MFA_REQUIRED and skips RPC when assertAdminMfa throws', async () => {
+    (assertAdminMfa as Mock).mockRejectedValueOnce(new AdminMfaRequiredError());
+
+    const { issueCreditAction } = await import('../actions');
+    const result = await issueCreditAction(
+      VALID_UUID,
+      makeFormData({
+        targetUserId: VALID_UUID,
+        amount_cents: '1000',
+        reason: 'Valid reason here, 10+ chars',
+      })
+    );
+
+    expect(result).toEqual({ ok: false, error: 'ADMIN_MFA_REQUIRED' });
+    expect(assertAdminMfa).toHaveBeenCalledWith(ACTING_ADMIN_ID);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
 });
 
 // ─── sendChurnSaveOfferAction ─────────────────────────────────────────────────
@@ -981,7 +1064,7 @@ describe('issueCreditAction', () => {
 describe('sendChurnSaveOfferAction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (createClient as Mock).mockResolvedValue({ rpc: mockRpc });
+    (createClient as Mock).mockResolvedValue({ rpc: mockRpc, auth: makeAuthMock() });
     mockRpc.mockResolvedValue({
       data: { audit_id: 20, offer_id: 88 },
       error: null,
@@ -1159,5 +1242,24 @@ describe('sendChurnSaveOfferAction', () => {
     const [, sentryCtx] = mockSentryCapture.mock.calls[0];
     expect(sentryCtx.tags.admin_action).toBe('send_churn_save_offer');
     expect(sentryCtx.tags.sqlstate).toBe('XX999');
+  });
+
+  // ── (MFA gate) H42 Layer 1 wiring proof ───────────────────────────────────
+  it('(MFA gate) returns ADMIN_MFA_REQUIRED and skips RPC when assertAdminMfa throws', async () => {
+    (assertAdminMfa as Mock).mockRejectedValueOnce(new AdminMfaRequiredError());
+
+    const { sendChurnSaveOfferAction } = await import('../actions');
+    const result = await sendChurnSaveOfferAction(
+      VALID_UUID,
+      makeFormData({
+        targetUserId: VALID_UUID,
+        kind: 'monthly_1mo_50pct',
+        reason: 'Valid reason here, 10+ chars',
+      })
+    );
+
+    expect(result).toEqual({ ok: false, error: 'ADMIN_MFA_REQUIRED' });
+    expect(assertAdminMfa).toHaveBeenCalledWith(ACTING_ADMIN_ID);
+    expect(mockRpc).not.toHaveBeenCalled();
   });
 });
