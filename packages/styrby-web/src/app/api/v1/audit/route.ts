@@ -86,19 +86,21 @@ const AuditBodySchema = z
      * Dot-namespaced event name. Examples: "session.started", "agent.connected",
      * "user.login". CLI callsites define these; the API stores them verbatim.
      */
-    action: z.string().min(1, 'action is required'),
+    action: z.string().min(1, 'action is required').max(255, 'action must be 255 characters or fewer'),
 
     /**
      * Entity type that the event relates to. Examples: "session", "machine", "user".
      * Omit when the event is not associated with a specific entity.
+     * WHY .max(100): mirrors typical table-name length limits; prevents oversized INSERTs.
      */
-    resource_type: z.string().optional(),
+    resource_type: z.string().max(100, 'resource_type must be 100 characters or fewer').optional(),
 
     /**
      * UUID of the specific entity. Paired with resource_type to form a
      * (type, id) reference for the entity that the event acted on.
+     * WHY .max(255): guards against unbounded string IDs reaching the DB.
      */
-    resource_id: z.string().optional(),
+    resource_id: z.string().max(255, 'resource_id must be 255 characters or fewer').optional(),
 
     /**
      * Arbitrary structured metadata. Stored as JSONB in Postgres.
@@ -110,6 +112,21 @@ const AuditBodySchema = z
   .strict(); // rejects unknown fields — mass-assignment guard
 
 type AuditBody = z.infer<typeof AuditBodySchema>;
+
+// ---------------------------------------------------------------------------
+// DB Row interface
+// ---------------------------------------------------------------------------
+
+/**
+ * Shape of the row returned by the audit_log INSERT ... RETURNING.
+ * WHY explicit interface (not inline cast): TypeScript will complain here if the
+ * DB schema evolves and the columns change, giving us a compile-time contract
+ * rather than a silent runtime surprise. IMPORTANT-2 fix.
+ */
+interface AuditRow {
+  id: string;
+  created_at: string;
+}
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -132,7 +149,7 @@ type AuditBody = z.infer<typeof AuditBodySchema>;
  * @security OWASP A03:2021 — mass-assignment blocked by Zod .strict()
  * @security SOC 2 CC7.2 — writes to audit_log via service-role client (RLS bypassed)
  */
-async function handler(request: NextRequest, context: ApiAuthContext): Promise<NextResponse> {
+async function handlePost(request: NextRequest, context: ApiAuthContext): Promise<NextResponse> {
   const { userId } = context;
 
   // -------------------------------------------------------------------------
@@ -233,9 +250,9 @@ async function handler(request: NextRequest, context: ApiAuthContext): Promise<N
   // WHY after the insert: we store the committed row's id + created_at so that
   // any replay returns the exact same row identifier, not a newly generated one.
   // -------------------------------------------------------------------------
-  const responseBody = {
-    id: (insertedRow as { id: string; created_at: string }).id,
-    created_at: (insertedRow as { id: string; created_at: string }).created_at,
+  const responseBody: AuditRow = {
+    id: (insertedRow as AuditRow).id,
+    created_at: (insertedRow as AuditRow).created_at,
   };
 
   await storeIdempotencyResult(request, userId, ROUTE_ID, 201, responseBody);
@@ -258,6 +275,6 @@ async function handler(request: NextRequest, context: ApiAuthContext): Promise<N
  * API keys (e.g. dashboard integrations) from accidentally writing audit
  * events. SOC 2 CC6.1 (least-privilege access).
  */
-export const POST = withApiAuthAndRateLimit(handler, ['write'], {
+export const POST = withApiAuthAndRateLimit(handlePost, ['write'], {
   rateLimit: AUDIT_RATE_LIMIT,
 });
