@@ -147,4 +147,3 @@ export async function handleLogout(_args: string[]): Promise<void> {
   process.exit(0);
 }
 
-export default { handleLogout };

@@ -196,14 +196,12 @@ describe('handleLogout — no daemon running (terminateDaemon ok: false)', () =>
 
 describe('handleLogout — daemon terminate timeout (ok: false, SIGTERM fallback)', () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
-  let warnSpy: ReturnType<typeof vi.spyOn>;
   let exitSpy: ReturnType<typeof vi.spyOn>;
   let tm: ReturnType<typeof mockTokenManager>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     exitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: number) => {
       throw new Error(`process.exit(${_code})`);
     });
@@ -217,7 +215,6 @@ describe('handleLogout — daemon terminate timeout (ok: false, SIGTERM fallback
 
   afterEach(() => {
     consoleSpy.mockRestore();
-    warnSpy.mockRestore();
     exitSpy.mockRestore();
   });
 
