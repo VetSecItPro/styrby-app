@@ -37,6 +37,7 @@ import {
   SessionsLoadingState,
   SessionsErrorState,
   SessionsEmptyState,
+  SessionOrphanedBanner,
   groupSessionsByDate,
 } from '../../src/components/sessions';
 import type { AgentType } from 'styrby-shared';
@@ -322,14 +323,28 @@ export default function SessionsScreen() {
         sections={sections}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <SessionCard
-            session={item}
-            onPress={handleSessionPress}
-            isBookmarked={bookmarkedIds.has(item.id)}
-            isTogglingBookmark={togglingIds.has(item.id)}
-            bookmarkError={toggleErrors.get(item.id)}
-            onBookmarkPress={toggleBookmark}
-          />
+          <>
+            {/*
+              WHY: Render the orphaned-session banner immediately above the card
+              for the sessions that are still marked active but whose CLI heartbeat
+              has gone cold. This placement keeps the warning contextually paired
+              with the specific session card without disrupting the rest of the list.
+              The banner self-manages visibility (renders null when not orphaned).
+            */}
+            <SessionOrphanedBanner
+              sessionId={item.id}
+              status={item.status}
+              lastHeartbeatAt={item.last_heartbeat_at ?? null}
+            />
+            <SessionCard
+              session={item}
+              onPress={handleSessionPress}
+              isBookmarked={bookmarkedIds.has(item.id)}
+              isTogglingBookmark={togglingIds.has(item.id)}
+              bookmarkError={toggleErrors.get(item.id)}
+              onBookmarkPress={toggleBookmark}
+            />
+          </>
         )}
         renderSectionHeader={({ section }) => (
           <View

@@ -9,6 +9,7 @@
 export * from './onboard';
 export * from './interactive';
 export * from './install-agent';
+export * from './logout';
 
 /**
  * Re-export commonly used types

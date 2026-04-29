@@ -33,3 +33,5 @@ export {
 } from './constants';
 export { ConnectionStateBadge } from './ConnectionStateBadge';
 export type { ConnectionStateBadgeProps } from './ConnectionStateBadge';
+export { SessionOrphanedBanner } from './SessionOrphanedBanner';
+export type { SessionOrphanedBannerProps } from './SessionOrphanedBanner';

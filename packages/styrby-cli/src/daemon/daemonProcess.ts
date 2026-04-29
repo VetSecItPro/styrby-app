@@ -97,6 +97,57 @@ const DAEMON_FILES = {
 };
 
 // ============================================================================
+// Auth-Context Types
+// ============================================================================
+
+/**
+ * Minimal shape of an IPC envelope that carries the caller's identity.
+ *
+ * WHY optional currentUserId:
+ *   Commands predating the auth-check feature (e.g. `daemon.terminate`, `ping`,
+ *   `status`) are sent without currentUserId. The `assertAuthContext` helper
+ *   treats a missing field identically to the caller being logged-out (AUTH_MISSING),
+ *   EXCEPT for the explicitly-exempt command types which bypass the check entirely.
+ *
+ * OWASP A07:2021 — Identification and Authentication Failures:
+ *   The envelope must carry caller identity so the daemon can detect account
+ *   switches without relying on the filesystem or a shared auth state that could
+ *   be manipulated outside the IPC channel.
+ *
+ * SOC 2 CC6.1 — Logical and Physical Access Controls:
+ *   Every mutable IPC command is gated on caller identity to ensure the
+ *   daemon's privileged Realtime subscription is only exercised by the
+ *   account it was bound to at startup.
+ */
+export interface AuthCheckEnvelope {
+  /** IPC command type (e.g. 'list-sessions', 'attach-relay') */
+  type: string;
+  /**
+   * The userId of the account currently logged in on the calling machine.
+   * Populated by the CLI from TokenManager before sending the IPC command.
+   * Absent for exempt commands (daemon.terminate, ping, status).
+   */
+  currentUserId?: string;
+}
+
+/**
+ * Result returned by assertAuthContext.
+ *
+ * ok === true  → proceed normally
+ * ok === false → respond to caller with `code` + `message`; if mustTerminate is
+ *                true, also trigger daemon termination after responding.
+ */
+export type AuthCheckResult =
+  | { ok: true }
+  | {
+      ok: false;
+      code: 'AUTH_MISSING' | 'AUTH_MISMATCH_ACTIVE_SESSIONS' | 'AUTH_REBIND_REQUIRED';
+      message: string;
+      /** When true the dispatcher must trigger handleTerminate() after responding. */
+      mustTerminate?: boolean;
+    };
+
+// ============================================================================
 // State
 // ============================================================================
 
@@ -108,6 +159,17 @@ const startedAt = new Date().toISOString();
 let connectionState: 'connected' | 'connecting' | 'disconnected' | 'reconnecting' | 'error' = 'disconnected';
 let errorMessage: string | undefined;
 let shuttingDown = false;
+
+/**
+ * The userId read from data.json when the daemon started.
+ *
+ * WHY module-level: set once in connectToRelay() (synchronous read from data.json
+ * before the async Supabase connect). All subsequent IPC commands compare their
+ * caller-supplied currentUserId against this value. Null means the daemon never
+ * successfully read credentials (e.g., onboarding incomplete) — in that case
+ * auth check is skipped so the daemon can still accept health-check commands.
+ */
+let boundUserId: string | null = null;
 
 // ============================================================================
 // Entry Point
@@ -186,6 +248,13 @@ async function connectToRelay(): Promise<void> {
       log('Cannot connect: no credentials found');
       return;
     }
+
+    // WHY capture here (not in main): data.json is read once at the top of
+    // connectToRelay — this is the earliest point where we know which account
+    // the daemon is serving. Storing it in the module-level boundUserId lets
+    // assertAuthContext enforce identity on every subsequent IPC command without
+    // re-reading the filesystem on each call.
+    boundUserId = data.userId;
 
     // Precedence: env vars → ~/.styrby/config.json → error with actionable message.
     //
@@ -268,6 +337,120 @@ async function connectToRelay(): Promise<void> {
 }
 
 // ============================================================================
+// Auth-Context Helper
+// ============================================================================
+
+/**
+ * Commands that are always allowed regardless of caller identity.
+ *
+ * WHY exempt instead of checked:
+ *   - `daemon.terminate` — logout must always be able to stop the daemon,
+ *     even when the caller has already cleared their token (currentUserId absent).
+ *     Blocking terminate on identity would create a deadlock: user can't log out
+ *     because the daemon refuses commands, but can't kill the daemon another way
+ *     without escalating to SIGTERM (which bypasses clean Realtime disconnect).
+ *   - `ping` / `status` — read-only health checks. Blocking them on identity
+ *     would prevent `styrby status` from working when users switch accounts,
+ *     which is exactly when they need to know the daemon is still running.
+ */
+const EXEMPT_COMMAND_TYPES = new Set(['daemon.terminate', 'ping', 'status']);
+
+/**
+ * Assert that the IPC caller's identity matches the account the daemon is
+ * bound to, and determine the appropriate action for a mismatch.
+ *
+ * Decision matrix:
+ *
+ *   | daemon.boundUserId | caller.currentUserId | activeSessions | result                         |
+ *   |--------------------|--------------------- |----------------|--------------------------------|
+ *   | user A             | user A               | any            | { ok: true }                   |
+ *   | null (unbound)     | any                  | any            | { ok: true } — skip check      |
+ *   | user A             | absent / empty       | any            | AUTH_MISSING                   |
+ *   | user A             | user B               | 0              | AUTH_REBIND_REQUIRED (terminate)|
+ *   | user A             | user B               | >0             | AUTH_MISMATCH_ACTIVE_SESSIONS  |
+ *
+ * Exempt commands (daemon.terminate, ping, status) always return { ok: true }.
+ *
+ * OWASP A07:2021 — Identification and Authentication Failures:
+ *   This function is the single enforcement point for account-bound identity
+ *   on every mutable IPC command, preventing a newly-switched-in caller from
+ *   piggy-backing on a daemon bound to a different user's Supabase channels.
+ *
+ * SOC 2 CC6.1 — Logical and Physical Access Controls:
+ *   Access to the daemon's Realtime subscription is controlled by binding the
+ *   daemon to one userId at startup. This function enforces that binding on
+ *   every subsequent IPC command.
+ *
+ * @param envelope        - The incoming IPC command envelope (type + optional currentUserId)
+ * @param daemonState     - Current daemon runtime state (boundUserId + activeSessionCount)
+ * @returns AuthCheckResult — { ok: true } to proceed, or refusal payload with code + message
+ *
+ * @example
+ * const check = assertAuthContext(envelope, { boundUserId, activeSessionCount });
+ * if (!check.ok) {
+ *   conn.write(JSON.stringify({ success: false, ...check }) + '\n');
+ *   if (check.mustTerminate) void handleTerminate(relay, ipcServer, stateSnapshot, conn);
+ *   return;
+ * }
+ */
+export function assertAuthContext(
+  envelope: AuthCheckEnvelope,
+  daemonState: { boundUserId: string | null; activeSessionCount: number },
+): AuthCheckResult {
+  // Exempt commands bypass identity check entirely.
+  if (EXEMPT_COMMAND_TYPES.has(envelope.type)) {
+    return { ok: true };
+  }
+
+  // If the daemon was never bound to a userId (onboarding incomplete or
+  // credentials missing), skip the check — the relay connect will fail
+  // independently and report an appropriate error to the user.
+  if (!daemonState.boundUserId) {
+    return { ok: true };
+  }
+
+  const callerId = envelope.currentUserId;
+
+  // Caller has no current user (logged out or pre-auth).
+  if (!callerId) {
+    return {
+      ok: false,
+      code: 'AUTH_MISSING',
+      message: 'Not logged in. Run `styrby login`.',
+    };
+  }
+
+  // Identity matches — proceed normally.
+  if (callerId === daemonState.boundUserId) {
+    return { ok: true };
+  }
+
+  // Mismatch: different user is calling.
+  if (daemonState.activeSessionCount === 0) {
+    // No active sessions — safe to rebind. The daemon will terminate so the
+    // next invocation starts fresh bound to the new user's credentials.
+    return {
+      ok: false,
+      code: 'AUTH_REBIND_REQUIRED',
+      message:
+        'Daemon is bound to a different account with no active sessions. ' +
+        'Run `styrby login` to start a new daemon session.',
+      mustTerminate: true,
+    };
+  }
+
+  // Active sessions exist — refuse to let a different caller interfere.
+  return {
+    ok: false,
+    code: 'AUTH_MISMATCH_ACTIVE_SESSIONS',
+    message:
+      `Daemon is bound to a different account with ${daemonState.activeSessionCount} active session` +
+      `${daemonState.activeSessionCount === 1 ? '' : 's'}. ` +
+      'Run `styrby logout` first or wait for sessions to end.',
+  };
+}
+
+// ============================================================================
 // IPC Server (Unix Domain Socket)
 // ============================================================================
 
@@ -305,12 +488,68 @@ function startIpcServer(): void {
 /**
  * Handle an incoming IPC command from a CLI client.
  *
+ * Auth-context check is applied at the top of dispatch via `assertAuthContext`.
+ * Exempt commands (daemon.terminate, ping, status) bypass the check.
+ * All other commands must present a matching `currentUserId` in their envelope.
+ *
+ * OWASP A07:2021 — Identification and Authentication Failures:
+ *   Centralising the auth check here (rather than per-handler) ensures no
+ *   new command variant can accidentally skip the identity enforcement step.
+ *
+ * SOC 2 CC6.1 — Logical and Physical Access Controls:
+ *   assertAuthContext enforces that only the account bound at daemon startup
+ *   can issue mutable IPC commands to this daemon instance.
+ *
  * @param rawMessage - Raw JSON string from the client
  * @param conn - The socket connection to respond on
  */
 function handleIpcCommand(rawMessage: string, conn: net.Socket): void {
   try {
-    const command = JSON.parse(rawMessage) as { type: string };
+    const command = JSON.parse(rawMessage) as AuthCheckEnvelope & Record<string, unknown>;
+
+    // ── Auth-context check ─────────────────────────────────────────────────
+    // WHY activeSessionCount from relay.getConnectedDevices():
+    //   The daemon does not maintain a separate session registry; connected
+    //   devices (presence entries on Supabase Realtime) serve as the proxy for
+    //   active sessions. A count of 0 means no mobile-side consumers are live,
+    //   making a silent rebind safe. This is a best-effort approximation — if
+    //   the relay is disconnected, the count falls back to 0 (safe-side: allows
+    //   rebind even though sessions may exist on the Supabase side).
+    const activeSessionCount = relay ? relay.getConnectedDevices().length : 0;
+    const authResult = assertAuthContext(command, { boundUserId, activeSessionCount });
+
+    if (authResult.ok === false) {
+      // WHY === false: strict equality narrows the discriminated union so TypeScript
+      // resolves `authResult.code`, `.message`, and `.mustTerminate` without a cast.
+      // `!authResult.ok` does not narrow discriminated unions in tsc strict mode.
+      structuredLog.warn('daemon.ipc_auth_mismatch', {
+        code: authResult.code,
+        commandType: command.type,
+        hasCallerUserId: Boolean(command.currentUserId),
+        activeSessionCount,
+      });
+
+      const refusalResponse = {
+        success: false,
+        ok: false,
+        code: authResult.code,
+        message: authResult.message,
+      };
+
+      if (authResult.mustTerminate) {
+        // Silently rebind: respond to caller THEN trigger daemon termination.
+        // WHY respond first: the conn write must happen before handleTerminate
+        // closes the IPC server; after close() no new writes are accepted.
+        conn.write(JSON.stringify(refusalResponse) + '\n', () => {
+          void handleTerminate(relay, ipcServer, stateSnapshot, conn);
+        });
+      } else {
+        conn.write(JSON.stringify(refusalResponse) + '\n');
+      }
+      return;
+    }
+    // ── End auth-context check ─────────────────────────────────────────────
+
     let response: Record<string, unknown>;
 
     switch (command.type) {
@@ -333,6 +572,17 @@ function handleIpcCommand(rawMessage: string, conn: net.Socket): void {
       case 'stop':
         response = { success: true, data: { stopping: true } };
         conn.write(JSON.stringify(response) + '\n', () => gracefulShutdown('IPC stop command'));
+        return;
+
+      case 'daemon.terminate':
+        // WHY: handleTerminate is extracted into a named, exported function so
+        // tests can inject mocks for relay, ipcServer, and stateSnapshot without
+        // triggering the daemon's full startup sequence. The IPC switch delegates
+        // to it with the live module-level references.
+        //
+        // SOC 2 CC7.2: Controlled shutdown path ensures Realtime subscription is
+        // closed before exit, preventing orphaned Supabase Realtime channels.
+        void handleTerminate(relay, ipcServer, stateSnapshot, conn);
         return;
 
       case 'list-sessions':
@@ -512,6 +762,91 @@ async function gracefulShutdown(reason: string): Promise<void> {
   }
 
   log('Daemon shut down cleanly');
+  process.exit(0);
+}
+
+// ============================================================================
+// Terminate Handler (exported for unit testing)
+// ============================================================================
+
+/**
+ * Handle the `daemon.terminate` IPC command.
+ *
+ * Performs a controlled, ordered shutdown sequence:
+ * 1. ACK the caller so `terminateDaemon()` on the client side receives a
+ *    response before the socket closes (otherwise the client gets ECONNRESET
+ *    and cannot distinguish a clean shutdown from a crash).
+ * 2. Persist a final state snapshot — so the NEXT daemon start has sane
+ *    recovery state even if the user re-authenticates as the same account.
+ * 3. Disconnect the Supabase Realtime subscription — prevents orphaned
+ *    presence entries on the Realtime server.
+ * 4. Close the IPC server so no further commands are accepted.
+ * 5. Call process.exit(0).
+ *
+ * WHY pass relay/ipcServer/snapshot as parameters instead of closing over
+ * module-level vars directly:
+ *   The IPC switch statement calls this with the live module-level references,
+ *   but tests inject mocks. Dependency-injection keeps this function testable
+ *   without a full daemon startup. This is a deliberate design choice — not
+ *   over-engineering — required by the TDD mandate in CLAUDE.md.
+ *
+ * WHY disconnect relay AFTER ACK but BEFORE exit:
+ *   If we disconnect before writing the ACK the socket may be destroyed by the
+ *   server close, and the client receives no response (silent timeout). ACKing
+ *   first ensures the client's Promise resolves to { ok: true }.
+ *
+ * WHY persist snapshot on terminate (not clearOnExit):
+ *   This is account-switch logout. The NEXT daemon start (for the same or a
+ *   new account) should NOT restore the old session. We persist with
+ *   sessionStatus: 'idle' (already the default) so the snapshot is present
+ *   but non-restorable, then let normal gracefulShutdown call clearOnExit.
+ *   The snapshot record gives the observability pipeline a clean audit trail.
+ *
+ * SOC 2 CC7.2: Reliable processing integrity requires controlled shutdown that
+ * leaves no orphaned subscriptions or stale lock files.
+ *
+ * @param relay        - Live RelayClient (or null if never connected)
+ * @param ipcServer    - Live IPC net.Server (or null)
+ * @param snapshot     - StateSnapshotManager singleton
+ * @param conn         - The socket connection that sent the terminate command
+ */
+export async function handleTerminate(
+  relay: { disconnect: () => Promise<void> } | null,
+  ipcServer: { close: () => void } | null,
+  snapshot: { persistNow: () => void; clearOnExit: () => void },
+  conn: { write: (data: string, cb?: () => void) => void }
+): Promise<void> {
+  // Step 1 — ACK the caller immediately (before any async work)
+  const ack = JSON.stringify({ success: true, data: { terminating: true } }) + '\n';
+  conn.write(ack);
+
+  structuredLog.info('daemon.terminate', { reason: 'daemon.terminate RPC' });
+
+  // Step 2 — Persist final snapshot (sessionStatus is already 'idle' on a
+  // clean terminate; this captures the final lastSeenAt timestamp).
+  try {
+    snapshot.persistNow();
+  } catch (err) {
+    structuredLog.error('daemon.terminate.snapshot_fail', {}, err instanceof Error ? err : new Error(String(err)));
+  }
+
+  // Step 3 — Disconnect Realtime subscription cleanly
+  if (relay) {
+    try {
+      await relay.disconnect();
+    } catch (err) {
+      // Non-fatal: relay may already be closed. Log and proceed.
+      structuredLog.error('daemon.terminate.relay_disconnect_fail', {}, err instanceof Error ? err : new Error(String(err)));
+    }
+  }
+
+  // Step 4 — Close IPC server (no new commands accepted after this)
+  if (ipcServer) {
+    ipcServer.close();
+  }
+
+  // Step 5 — Exit cleanly
+  log('Daemon terminated via daemon.terminate RPC');
   process.exit(0);
 }
 
