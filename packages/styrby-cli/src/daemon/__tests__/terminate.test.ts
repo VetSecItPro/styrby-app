@@ -76,6 +76,14 @@ vi.mock('node:os', () => ({
   networkInterfaces: vi.fn(() => ({})),
 }));
 
+vi.mock('../stopFlag.js', () => ({
+  writeStopFlag: vi.fn().mockResolvedValue(undefined),
+  stopFlagExists: vi.fn().mockResolvedValue(false),
+  consumeStopFlag: vi.fn().mockResolvedValue(undefined),
+  getStopFlagPath: vi.fn(() => '/tmp/styrby-test/daemon.stop-flag'),
+  _setStopFlagPathForTest: vi.fn(),
+}));
+
 vi.mock('../wakeDetector.js', () => ({
   WakeDetector: vi.fn().mockImplementation(() => ({
     on: vi.fn(),
@@ -436,6 +444,9 @@ describe('handleTerminate (daemon IPC handler)', () => {
         conn: typeof mockConn
       ) => Promise<void>;
     };
+    const { writeStopFlag } = await import('../stopFlag.js') as {
+      writeStopFlag: ReturnType<typeof vi.fn>;
+    };
 
     await handleTerminate(mockRelay, mockIpcServer, mockStateSnapshot, mockConn);
 
@@ -446,18 +457,27 @@ describe('handleTerminate (daemon IPC handler)', () => {
     ) as { success: boolean };
     expect(ackJson.success).toBe(true);
 
-    // Verify strict invocation order: ACK → relay.disconnect → ipcServer.close → process.exit
+    // Verify strict invocation order:
+    // connWrite < snapshotPersistNow < relayDisconnect < ipcServerClose < writeStopFlag < process.exit
     const connWriteMock = mockConn.write as ReturnType<typeof vi.fn>;
+    const snapshotPersistNowMock = mockStateSnapshot.persistNow as ReturnType<typeof vi.fn>;
     const relayDisconnectMock = mockRelay.disconnect as ReturnType<typeof vi.fn>;
     const ipcServerCloseMock = mockIpcServer.close as ReturnType<typeof vi.fn>;
+    const writeStopFlagMock = writeStopFlag as ReturnType<typeof vi.fn>;
 
     expect(connWriteMock.mock.invocationCallOrder[0]).toBeLessThan(
+      snapshotPersistNowMock.mock.invocationCallOrder[0]
+    );
+    expect(snapshotPersistNowMock.mock.invocationCallOrder[0]).toBeLessThan(
       relayDisconnectMock.mock.invocationCallOrder[0]
     );
     expect(relayDisconnectMock.mock.invocationCallOrder[0]).toBeLessThan(
       ipcServerCloseMock.mock.invocationCallOrder[0]
     );
     expect(ipcServerCloseMock.mock.invocationCallOrder[0]).toBeLessThan(
+      writeStopFlagMock.mock.invocationCallOrder[0]
+    );
+    expect(writeStopFlagMock.mock.invocationCallOrder[0]).toBeLessThan(
       exitSpy.mock.invocationCallOrder[0]
     );
   });
@@ -529,6 +549,57 @@ describe('handleTerminate (daemon IPC handler)', () => {
 
     // IPC must close even after relay error
     expect(mockIpcServer.close).toHaveBeenCalledOnce();
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it('writes stop-flag with reason "daemon.terminate" before process.exit', async () => {
+    // WHY: the stop-flag sentinel must carry exactly 'daemon.terminate' so the
+    // supervisor can distinguish an IPC-initiated stop from other shutdown paths
+    // (SIGTERM writes 'SIGTERM', gracefulShutdown writes 'user-stop', etc.).
+    const { handleTerminate } = await import('../daemonProcess.js') as {
+      handleTerminate: (
+        relay: typeof mockRelay | null,
+        ipcServer: typeof mockIpcServer | null,
+        snapshot: typeof mockStateSnapshot,
+        conn: typeof mockConn
+      ) => Promise<void>;
+    };
+    const { writeStopFlag } = await import('../stopFlag.js') as {
+      writeStopFlag: ReturnType<typeof vi.fn>;
+    };
+
+    await handleTerminate(mockRelay, mockIpcServer, mockStateSnapshot, mockConn);
+
+    expect(writeStopFlag).toHaveBeenCalledOnce();
+    expect(writeStopFlag).toHaveBeenCalledWith('daemon.terminate');
+    // Must fire before process.exit
+    expect(writeStopFlag.mock.invocationCallOrder[0]).toBeLessThan(
+      exitSpy.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('still proceeds with process.exit(0) if writeStopFlag rejects', async () => {
+    // WHY: writeStopFlag() is designed to never throw (fail-safe). This test adds
+    // a defence-in-depth layer: if that contract is ever broken, handleTerminate's
+    // try/catch wrapping the writeStopFlag call must catch the rejection and still
+    // call process.exit(0) — a failed sentinel write must not deadlock shutdown.
+    const { writeStopFlag } = await import('../stopFlag.js') as {
+      writeStopFlag: ReturnType<typeof vi.fn>;
+    };
+    writeStopFlag.mockRejectedValueOnce(new Error('ENOSPC: no space left on device'));
+
+    const { handleTerminate } = await import('../daemonProcess.js') as {
+      handleTerminate: (
+        relay: typeof mockRelay | null,
+        ipcServer: typeof mockIpcServer | null,
+        snapshot: typeof mockStateSnapshot,
+        conn: typeof mockConn
+      ) => Promise<void>;
+    };
+
+    await handleTerminate(mockRelay, mockIpcServer, mockStateSnapshot, mockConn);
+
+    // Shutdown must complete even when the stop-flag write fails
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 });
