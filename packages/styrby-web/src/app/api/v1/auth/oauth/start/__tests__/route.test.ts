@@ -267,6 +267,18 @@ describe('POST /api/v1/auth/oauth/start — Happy path (GitHub)', () => {
       })
     );
   });
+
+  it('creates a fresh admin client per request (PKCE flowType is set at client instantiation — OWASP A07:2021)', async () => {
+    // CRITICAL: PKCE (code-interception defense) is configured at the createAdminClient
+    // layer via `auth: { flowType: 'pkce' }` in src/lib/supabase/server.ts.
+    // Supabase's signInWithOAuth options type does not expose flowType as a per-call
+    // option; it is client-level config. This test verifies createAdminClient is called
+    // once per request (fresh instance per invocation — no cross-request state leakage),
+    // which is the correct layer for the PKCE guarantee.
+    const { createAdminClient } = await import('@/lib/supabase/server');
+    await POST(makeRequest({ provider: 'github', redirect_to: 'http://localhost:12345/callback' }));
+    expect(createAdminClient).toHaveBeenCalledOnce();
+  });
 });
 
 // ============================================================================
@@ -442,8 +454,21 @@ describe('isAllowedRedirectOrigin', () => {
     expect(isAllowedRedirectOrigin(new URL('http://styrbyapp.com/callback'))).toBe(false);
   });
 
-  it('allows Vercel preview deployments', () => {
+  it('allows Vercel preview deployments (dash-joined alias format)', () => {
     expect(isAllowedRedirectOrigin(new URL('https://styrby-abc123-vetsecitpro.vercel.app/cb'))).toBe(true);
+  });
+
+  it('allows Vercel preview deployments (dot-subdomain PR format, e.g. pr-123.styrby-web.vercel.app)', () => {
+    // IMPORTANT: Vercel uses two URL formats. PR preview URLs use the dot-subdomain
+    // pattern. Without this regex, legitimate OAuth flows from PR previews would be
+    // blocked with REDIRECT_NOT_ALLOWED (OWASP A01:2021 — blocked ≠ open redirect).
+    expect(isAllowedRedirectOrigin(new URL('https://pr-123.styrby-web.vercel.app/auth/callback'))).toBe(true);
+  });
+
+  it('allows exp:// deep-links (Expo Go mobile dev)', () => {
+    // FAIL fix: exp:// is in the allowlist but had no positive test exercising it.
+    // Expo Go deep-link URLs include IP + port + /--/ path segment.
+    expect(isAllowedRedirectOrigin(new URL('exp://192.168.1.10:19000/--/auth-callback'))).toBe(true);
   });
 
   it('rejects attacker.com', () => {

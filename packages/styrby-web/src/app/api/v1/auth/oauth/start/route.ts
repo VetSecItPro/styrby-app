@@ -117,9 +117,15 @@ export const OAUTH_ALLOWED_REDIRECT_ORIGINS: Array<string | RegExp> = [
   /^http:\/\/127\.0\.0\.1(:\d+)?$/,
   // Production domain
   'https://styrbyapp.com',
-  // Vercel preview deployments
+  // Vercel preview deployments — dash-joined deployment alias format
   /^https:\/\/[a-zA-Z0-9-]+-vetsecitpro\.vercel\.app$/,
   /^https:\/\/styrby-[a-zA-Z0-9-]+\.vercel\.app$/,
+  // Vercel preview deployments — dot-subdomain PR format (e.g. pr-123.styrby-web.vercel.app)
+  // WHY second pattern: Vercel uses two distinct URL formats for preview deployments.
+  // The dash-joined alias (above) covers deployment aliases; the dot-subdomain pattern
+  // covers PR preview URLs like pr-123.styrby-web.vercel.app. Without this, legitimate
+  // PR preview OAuth flows would be blocked with REDIRECT_NOT_ALLOWED (OWASP A01:2021).
+  /^https:\/\/[a-zA-Z0-9-]+\.styrby-[a-zA-Z0-9-]+\.vercel\.app$/,
   // Expo Go / mobile dev (exp:// deep-link)
   /^exp:\/\//,
 ];
@@ -294,13 +300,11 @@ export async function POST(request: NextRequest) {
         // context. Without this flag, the Supabase client may attempt a redirect
         // that has no effect in a server context but may emit warnings.
         skipBrowserRedirect: true,
-        queryParams: {
-          // WHY flowType pkce: PKCE is mandatory for public clients (CLI / mobile).
-          // The code_verifier never leaves the server's Supabase client; only the
-          // code_challenge is sent to the OAuth provider.
-          // Note: flowType is set via createAdminClient's auth config if applicable;
-          // queryParams can carry additional OAuth params.
-        },
+        // WHY no flowType here: Supabase's signInWithOAuth options type does NOT
+        // expose flowType as a per-call option. flowType is a client-level auth
+        // configuration option that must be set at createAdminClient() instantiation
+        // via the `auth: { flowType: 'pkce' }` config block in src/lib/supabase/server.ts.
+        // It is set there explicitly (OWASP A07:2021 — code-interception defense).
       },
     });
 
