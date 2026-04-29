@@ -37,9 +37,11 @@ const mockAuthContext = {
 };
 
 vi.mock('@/middleware/api-auth', () => ({
-  withApiAuthAndRateLimit: vi.fn((handler: Function) => {
-    return async (request: NextRequest) => handler(request, mockAuthContext);
-  }),
+  withApiAuthAndRateLimit: vi.fn(
+    (handler: (req: NextRequest, ctx: typeof mockAuthContext) => Promise<NextResponse>) => {
+      return async (request: NextRequest) => handler(request, mockAuthContext);
+    },
+  ),
   addRateLimitHeaders: vi.fn((response: NextResponse) => response),
   ApiAuthContext: {},
 }));
@@ -76,7 +78,7 @@ let mockGetUserByIdResult: { data: { user: { id: string; email: string; created_
  * Controls the response for subscriptions query per test.
  * Default: a subscription row with tier 'pro'.
  */
-let mockSubscriptionResult: { data: { tier: string } | null; error: null | { message: string } } = {
+let mockSubscriptionResult: { data: { tier: string } | null; error: null | { message: string; code?: string } } = {
   data: { tier: 'pro' },
   error: null,
 };
@@ -207,6 +209,11 @@ describe('GET /api/v1/account', () => {
         ),
       );
 
+      // WHY vi.resetModules() + fresh import: withApiAuthAndRateLimit is called
+      // at module evaluation time (wraps the handler in the GET export). Without
+      // re-importing the route module, the mockImplementationOnce override would
+      // not take effect on the already-evaluated GET export. A fresh module
+      // ensures the mock runs during the route's wrapper invocation.
       vi.resetModules();
       const { GET: freshGET } = await import('../route');
       const response = await freshGET(createRequest());
@@ -350,19 +357,21 @@ describe('GET /api/v1/account', () => {
   // --------------------------------------------------------------------------
 
   describe('500 error handling', () => {
-    it('returns 500 + captureException when subscriptions query errors', async () => {
-      mockSubscriptionResult = { data: null, error: { message: 'connection timeout' } };
-      // passkeys query would still succeed but we test sub error path separately
-      // For sub errors we continue with default 'free' + log, not return 500
-      // (per implementation: sub error is non-fatal, passkey error is fatal)
+    it('returns 200 with tier: free + captureMessage when subscriptions query returns an error', async () => {
+      mockSubscriptionResult = { data: null, error: { message: 'connection timeout', code: 'PGRST301' } };
+      // WHY 200 not 500: subscription returned-error is non-fatal. The route
+      // defaults tier to 'free', fires a Sentry warning (captureMessage, not
+      // captureException), and continues. The CLI receives a usable response.
       mockAdminClientInstance = createMockAdminClient();
 
       const response = await GET(createRequest());
-      // Sub query error → logs via Sentry but still returns 200 with tier='free'
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body.tier).toBe('free');
-      expect(vi.mocked(Sentry.captureException)).toHaveBeenCalledOnce();
+      // WHY captureMessage (not captureException): a returned DB error on the
+      // subscriptions table is a warning-level signal, not an exception.
+      expect(vi.mocked(Sentry.captureMessage)).toHaveBeenCalledOnce();
+      expect(vi.mocked(Sentry.captureException)).not.toHaveBeenCalled();
     });
 
     it('returns 500 + captureException when passkeys query errors', async () => {
@@ -391,6 +400,87 @@ describe('GET /api/v1/account', () => {
   });
 
   // --------------------------------------------------------------------------
+  // 7b. Subscription query THROWS (network-level) — must still soft-fail to free
+  // --------------------------------------------------------------------------
+
+  describe('subscription throw soft-fail', () => {
+    it('returns 200 with tier: free and Sentry warning when subscription query throws', async () => {
+      // WHY mock setup: override maybeSingle to throw a network-level Error
+      // (not return { error }). This covers the catch branch that previously
+      // returned 500, contradicting the documented soft-fail design.
+      mockAdminClientInstance = {
+        ...createMockAdminClient(),
+        from: vi.fn((table: string) => {
+          if (table === 'subscriptions') {
+            return {
+              select: vi.fn().mockReturnThis(),
+              eq: vi.fn().mockReturnThis(),
+              maybeSingle: vi.fn().mockRejectedValue(new Error('Network timeout')),
+            };
+          }
+          if (table === 'passkeys') {
+            return {
+              select: vi.fn().mockReturnThis(),
+              eq: vi.fn().mockReturnThis(),
+              limit: vi.fn().mockResolvedValue(mockPasskeyResult),
+            };
+          }
+          throw new Error(`Unexpected table: ${table}`);
+        }),
+        auth: createMockAdminClient().auth,
+      };
+
+      const response = await GET(createRequest());
+
+      // IMPORTANT: must be 200, NOT 500 — subscription throw is non-fatal
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.tier).toBe('free');
+
+      // WHY captureMessage (not captureException): a network throw on a
+      // non-critical dependency warrants a warning-level Sentry signal.
+      expect(vi.mocked(Sentry.captureMessage)).toHaveBeenCalledOnce();
+      expect(vi.mocked(Sentry.captureMessage)).toHaveBeenCalledWith(
+        expect.stringContaining('threw'),
+        expect.objectContaining({ level: 'warning' }),
+      );
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // 7c. Phone-only accounts — email is null in auth.users
+  // --------------------------------------------------------------------------
+
+  describe('phone-only account email fallback', () => {
+    it('returns 200 with email: empty string for phone-only account (null email in auth.users)', async () => {
+      // WHY null email: Supabase returns email: null for phone-only accounts
+      // (accounts created via phone OTP without an email address attached).
+      // The route intentionally falls back to '' via `?? ''` — this is NOT
+      // a bug. Returning empty string is the documented signal to the CLI that
+      // this is a phone-only user, without requiring a nullable AccountResponse type.
+      mockGetUserByIdResult = {
+        data: {
+          user: {
+            id: 'test-user-uuid-123',
+            email: null as unknown as string,
+            created_at: '2026-01-01T00:00:00.000Z',
+          },
+        },
+        error: null,
+      };
+      mockAdminClientInstance = createMockAdminClient();
+
+      const response = await GET(createRequest());
+      expect(response.status).toBe(200);
+      const body = await response.json();
+
+      // WHY empty string assertion: this documents that blank email is intentional
+      // for phone-only accounts, not a silent null-leakage bug.
+      expect(body.email).toBe('');
+    });
+  });
+
+  // --------------------------------------------------------------------------
   // 8. Response has EXACTLY 6 fields — no extra PII
   // --------------------------------------------------------------------------
 
@@ -415,6 +505,9 @@ describe('GET /api/v1/account', () => {
       NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 }),
     );
 
+    // WHY vi.resetModules() + fresh import: same reason as the 401 test above —
+    // withApiAuthAndRateLimit wraps the handler at module evaluation time.
+    // Re-importing forces the mock override to apply to the new GET export.
     vi.resetModules();
     const { GET: freshGET } = await import('../route');
     const response = await freshGET(createRequest());
@@ -449,10 +542,17 @@ describe('GET /api/v1/account', () => {
 
   it('returns key_expires_at: null when context keyExpiresAt is null', async () => {
     const { withApiAuthAndRateLimit } = await import('@/middleware/api-auth');
-    vi.mocked(withApiAuthAndRateLimit).mockImplementationOnce((handler: Function) => {
-      return async (request: NextRequest) =>
-        handler(request, { ...mockAuthContext, keyExpiresAt: null });
-    });
+    // WHY explicit cast: the mock type only needs to satisfy the runtime contract.
+    // TypeScript's structural check on withApiAuthAndRateLimit's overloaded
+    // signature is too narrow to accept { keyExpiresAt: null }. The cast is safe
+    // here because the handler receives the context directly at runtime.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (withApiAuthAndRateLimit as any).mockImplementationOnce(
+      (handler: (req: NextRequest, ctx: Record<string, unknown>) => Promise<NextResponse>) => {
+        return async (request: NextRequest) =>
+          handler(request, { ...mockAuthContext, keyExpiresAt: null });
+      },
+    );
 
     vi.resetModules();
     const { GET: freshGET } = await import('../route');

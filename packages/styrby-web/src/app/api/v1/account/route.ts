@@ -137,6 +137,12 @@ async function handleGet(_request: NextRequest, context: ApiAuthContext): Promis
   // In that case we default to 'free'. Never reject the request — the CLI
   // should still display a usable status even on fresh accounts.
   // -------------------------------------------------------------------------
+  // WHY isolated try/catch with soft-fail for BOTH returned-error and network-throw:
+  // Subscription query failures must never block the response. A fresh account
+  // (Polar webhook not yet fired), a transient DB timeout, or a network blip
+  // should all default to 'free' and log a Sentry warning — the CLI still
+  // receives a usable status display. Hard-failing to 500 here would contradict
+  // this documented design and break the CLI on a non-critical dependency.
   let tier = 'free';
 
   try {
@@ -147,17 +153,27 @@ async function handleGet(_request: NextRequest, context: ApiAuthContext): Promis
       .maybeSingle();
 
     if (subError) {
-      // WHY Sentry here but continue: a missing tier is not fatal. The CLI
-      // can still operate; we just default to 'free' and alert for investigation.
-      Sentry.captureException(new Error(`GET /api/v1/account: subscriptions query error: ${subError.message}`), {
-        extra: { userId, route: '/api/v1/account' },
+      // WHY captureMessage (not captureException) + continue: a returned DB error
+      // on the subscriptions table is non-fatal. Log at warning level and default
+      // to 'free' so the CLI is unblocked.
+      Sentry.captureMessage('GET /api/v1/account: subscription query returned error; defaulting to free', {
+        level: 'warning',
+        tags: { endpoint: '/api/v1/account', code: subError.code },
+        extra: { userId, message: subError.message },
       });
     } else if (subRow?.tier) {
       tier = subRow.tier as string;
     }
   } catch (err) {
-    Sentry.captureException(err, { extra: { userId, route: '/api/v1/account', step: 'subscriptions' } });
-    return NextResponse.json({ error: 'Failed to fetch account details' }, { status: 500 });
+    // WHY soft-fail on network throw too: a thrown exception (e.g. connection
+    // refused, DNS failure) has the same consequence as a returned error — we
+    // cannot resolve the tier. Default to 'free' and warn, matching the
+    // documented design. NEVER return 500 here.
+    Sentry.captureMessage('GET /api/v1/account: subscription query threw; defaulting to free', {
+      level: 'warning',
+      tags: { endpoint: '/api/v1/account' },
+      extra: { userId, err: String(err) },
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -206,6 +222,10 @@ async function handleGet(_request: NextRequest, context: ApiAuthContext): Promis
   // -------------------------------------------------------------------------
   const responseBody: AccountResponse = {
     user_id: userId,
+    // WHY `?? ''` (not null): phone-only Supabase accounts have no email field.
+    // Returning an empty string is intentional — it signals "phone-only account"
+    // to the CLI without requiring a nullable type change in AccountResponse.
+    // This is not a silent bug; it is the documented fallback for phone-only users.
     email: authUser.email ?? '',
     tier,
     created_at: authUser.created_at,
