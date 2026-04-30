@@ -16,11 +16,10 @@
  */
 
 import chalk from 'chalk';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '@/ui/logger';
-import { loadPersistedData } from '@/persistence';
-import { config as envConfig } from '@/env';
 import { confirm, prompt } from '@/ui/interactive';
+import { getApiClient, MissingStyrbyKeyError } from '@/api/clientFromPersistence';
+import { StyrbyApiError, type StyrbyApiClient, type TemplateRow, type TemplateSummary } from '@/api/styrbyApiClient';
 import {
   ContextTemplate,
   ContextTemplateRow,
@@ -114,34 +113,29 @@ export async function handleTemplate(args: string[]): Promise<void> {
  * @returns Promise that resolves when list is displayed
  */
 async function handleTemplateList(): Promise<void> {
-  const authResult = await ensureAuthenticated();
-  if ('error' in authResult) {
-    console.log(chalk.red('\n' + authResult.error));
-    process.exit(1);
-  }
-
-  const supabase = authResult.supabase;
+  const apiClient = ensureApiClientOrExit();
 
   console.log(chalk.gray('\nFetching templates...\n'));
 
-  const { data, error } = await supabase
-    .from('context_templates')
-    .select('*')
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    console.log(chalk.red(`Failed to fetch templates: ${error.message}`));
-    logger.debug('Supabase error', { error });
-    process.exit(1);
+  let result: Awaited<ReturnType<StyrbyApiClient['listTemplates']>>;
+  try {
+    result = await apiClient.listTemplates();
+  } catch (err) {
+    handleApiError(err, 'fetch templates');
+    return; // unreachable; handleApiError exits
   }
 
-  if (!data || data.length === 0) {
+  if (result.count === 0) {
     console.log(chalk.yellow('No templates found.'));
     console.log(chalk.gray('\nCreate one with: styrby template create <name>'));
     return;
   }
 
-  const templates = (data as ContextTemplateRow[]).map(contextTemplateFromRow);
+  // WHY transform via row → domain: existing renderContextTemplate / display
+  // helpers all consume the ContextTemplate domain shape, not the row shape.
+  // The /api/v1/templates list returns the same DB columns as the prior direct
+  // .from('context_templates').select('*') — drop in the transform unchanged.
+  const templates = (result.templates as unknown as ContextTemplateRow[]).map(contextTemplateFromRow);
 
   // Display header
   console.log(chalk.bold('Your Templates'));
@@ -185,14 +179,7 @@ async function handleTemplateCreate(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const authResult = await ensureAuthenticated();
-  if ('error' in authResult) {
-    console.log(chalk.red('\n' + authResult.error));
-    process.exit(1);
-  }
-
-  const supabase = authResult.supabase;
-  const userId = authResult.userId;
+  const apiClient = ensureApiClientOrExit();
 
   console.log('');
   console.log(chalk.bold(`Create Template: ${name}`));
@@ -245,19 +232,21 @@ async function handleTemplateCreate(args: string[]): Promise<void> {
   console.log('');
   console.log(chalk.gray('Creating template...'));
 
-  const { error } = await supabase.from('context_templates').insert({
-    user_id: userId,
-    name: name.trim(),
-    description: description || null,
-    content: content.trim(),
-    variables,
-    is_default: isDefault,
-  });
-
-  if (error) {
-    console.log(chalk.red(`\nFailed to create template: ${error.message}`));
-    logger.debug('Supabase error', { error });
-    process.exit(1);
+  // WHY user_id NOT in the body: the /api/v1/templates POST endpoint takes
+  // user_id from the authenticated apiClient context (Bearer styrby_*) and
+  // rejects any user_id in the body via Zod .strict(). Passing it would
+  // produce a 400 mass-assignment-guard rejection.
+  try {
+    await apiClient.createTemplate({
+      name: name.trim(),
+      content: content.trim(),
+      description: description || undefined,
+      variables,
+      is_default: isDefault,
+    });
+  } catch (err) {
+    handleApiError(err, 'create template');
+    return; // unreachable
   }
 
   console.log(chalk.green(`\nTemplate "${name}" created successfully!`));
@@ -286,32 +275,21 @@ async function handleTemplateShow(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const authResult = await ensureAuthenticated();
-  if ('error' in authResult) {
-    console.log(chalk.red('\n' + authResult.error));
+  const apiClient = ensureApiClientOrExit();
+
+  // WHY list+filter (not GET by name): /api/v1/templates/[id] takes a UUID,
+  // not a name. The existing CLI ergonomics use `styrby template show <name>`
+  // — we keep that UX by listing the user's templates (typically <50) and
+  // filtering case-insensitively client-side. Server-side name filtering
+  // would need a new endpoint; the list is small enough that this is fine.
+  const row = await findTemplateByName(apiClient, name);
+  if (!row) {
+    console.log(chalk.red(`\nTemplate "${name}" not found.`));
+    console.log(chalk.gray('Use "styrby template list" to see available templates.'));
     process.exit(1);
   }
 
-  const supabase = authResult.supabase;
-
-  const { data, error } = await supabase
-    .from('context_templates')
-    .select('*')
-    .ilike('name', name)
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') {
-      console.log(chalk.red(`\nTemplate "${name}" not found.`));
-      console.log(chalk.gray('Use "styrby template list" to see available templates.'));
-    } else {
-      console.log(chalk.red(`\nFailed to fetch template: ${error.message}`));
-      logger.debug('Supabase error', { error });
-    }
-    process.exit(1);
-  }
-
-  const template = contextTemplateFromRow(data as ContextTemplateRow);
+  const template = contextTemplateFromRow(row as unknown as ContextTemplateRow);
 
   // Display template details
   console.log('');
@@ -366,13 +344,7 @@ async function handleTemplateUse(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const authResult = await ensureAuthenticated();
-  if ('error' in authResult) {
-    console.log(chalk.red('\n' + authResult.error));
-    process.exit(1);
-  }
-
-  const supabase = authResult.supabase;
+  const apiClient = ensureApiClientOrExit();
 
   // Parse variable overrides from command line (--varname=value)
   const variableOverrides: Record<string, string> = {};
@@ -386,24 +358,14 @@ async function handleTemplateUse(args: string[]): Promise<void> {
     }
   }
 
-  const { data, error } = await supabase
-    .from('context_templates')
-    .select('*')
-    .ilike('name', name)
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') {
-      console.log(chalk.red(`\nTemplate "${name}" not found.`));
-      console.log(chalk.gray('Use "styrby template list" to see available templates.'));
-    } else {
-      console.log(chalk.red(`\nFailed to fetch template: ${error.message}`));
-      logger.debug('Supabase error', { error });
-    }
+  const row = await findTemplateByName(apiClient, name);
+  if (!row) {
+    console.log(chalk.red(`\nTemplate "${name}" not found.`));
+    console.log(chalk.gray('Use "styrby template list" to see available templates.'));
     process.exit(1);
   }
 
-  const template = contextTemplateFromRow(data as ContextTemplateRow);
+  const template = contextTemplateFromRow(row as unknown as ContextTemplateRow);
 
   // Collect variable values
   const values: Record<string, string> = { ...variableOverrides };
@@ -452,36 +414,20 @@ async function handleTemplateDelete(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const authResult = await ensureAuthenticated();
-  if ('error' in authResult) {
-    console.log(chalk.red('\n' + authResult.error));
-    process.exit(1);
-  }
+  const apiClient = ensureApiClientOrExit();
 
-  const supabase = authResult.supabase;
-
-  // First, verify the template exists
-  const { data, error: fetchError } = await supabase
-    .from('context_templates')
-    .select('id, name')
-    .ilike('name', name)
-    .single();
-
-  if (fetchError) {
-    if (fetchError.code === 'PGRST116') {
-      console.log(chalk.red(`\nTemplate "${name}" not found.`));
-      console.log(chalk.gray('Use "styrby template list" to see available templates.'));
-    } else {
-      console.log(chalk.red(`\nFailed to fetch template: ${fetchError.message}`));
-      logger.debug('Supabase error', { error: fetchError });
-    }
+  // First, find the template (case-insensitive name match via list filter).
+  const row = await findTemplateByName(apiClient, name);
+  if (!row) {
+    console.log(chalk.red(`\nTemplate "${name}" not found.`));
+    console.log(chalk.gray('Use "styrby template list" to see available templates.'));
     process.exit(1);
   }
 
   // Confirm deletion
   console.log('');
   const confirmed = await confirm(
-    `Delete template "${chalk.bold(data.name)}"? This cannot be undone.`,
+    `Delete template "${chalk.bold(row.name)}"? This cannot be undone.`,
     false
   );
 
@@ -490,19 +436,14 @@ async function handleTemplateDelete(args: string[]): Promise<void> {
     return;
   }
 
-  // Delete the template
-  const { error: deleteError } = await supabase
-    .from('context_templates')
-    .delete()
-    .eq('id', data.id);
-
-  if (deleteError) {
-    console.log(chalk.red(`\nFailed to delete template: ${deleteError.message}`));
-    logger.debug('Supabase error', { error: deleteError });
-    process.exit(1);
+  try {
+    await apiClient.deleteTemplate(row.id);
+  } catch (err) {
+    handleApiError(err, 'delete template');
+    return; // unreachable
   }
 
-  console.log(chalk.green(`\nTemplate "${data.name}" deleted successfully.`));
+  console.log(chalk.green(`\nTemplate "${row.name}" deleted successfully.`));
   console.log('');
 }
 
@@ -511,43 +452,78 @@ async function handleTemplateDelete(args: string[]): Promise<void> {
 // ============================================================================
 
 /**
- * Ensure the user is authenticated and return a configured Supabase client.
+ * Get an authenticated apiClient, or print a friendly error and exit.
  *
- * @returns Authentication result with Supabase client and user ID, or error
+ * Replaces the prior `ensureAuthenticated` (which built a Supabase client
+ * from PersistedData.accessToken). Templates now flow through /api/v1/*
+ * with a `styrby_*` Bearer token — Phase 4 of H41.
+ *
+ * @returns A StyrbyApiClient ready for use, or process exits with code 1.
  */
-async function ensureAuthenticated(): Promise<
-  | { success: true; supabase: SupabaseClient; userId: string }
-  | { success: false; error: string; supabase?: never; userId?: never }
-> {
-  const data = loadPersistedData();
-
-  if (!data?.userId || !data?.accessToken) {
-    return {
-      success: false,
-      error: 'Not authenticated. Run "styrby onboard" first.',
-    };
+function ensureApiClientOrExit(): StyrbyApiClient {
+  try {
+    return getApiClient();
+  } catch (err) {
+    if (err instanceof MissingStyrbyKeyError) {
+      console.log(chalk.red('\n' + err.message));
+      process.exit(1);
+    }
+    throw err;
   }
-
-  if (!envConfig.supabaseAnonKey) {
-    return {
-      success: false,
-      error: 'Supabase anonymous key not configured. Set SUPABASE_ANON_KEY.',
-    };
-  }
-
-  const supabase = createClient(envConfig.supabaseUrl, envConfig.supabaseAnonKey, {
-    auth: { persistSession: false },
-    global: {
-      headers: { Authorization: `Bearer ${data.accessToken}` },
-    },
-  });
-
-  return {
-    success: true,
-    supabase,
-    userId: data.userId,
-  };
 }
+
+/**
+ * Find a template by case-insensitive name match.
+ *
+ * The /api/v1/templates list endpoint returns the user's full template set
+ * (no name filter on the server). Matching client-side keeps the existing
+ * `styrby template show <name>` ergonomics while every operation flows
+ * through the typed apiClient. Typical user has < 50 templates so the
+ * list-and-filter pattern is fine.
+ *
+ * @returns The matching TemplateSummary, or null if no name matched.
+ */
+async function findTemplateByName(
+  apiClient: StyrbyApiClient,
+  name: string,
+): Promise<TemplateSummary | null> {
+  let result: Awaited<ReturnType<StyrbyApiClient['listTemplates']>>;
+  try {
+    result = await apiClient.listTemplates();
+  } catch (err) {
+    handleApiError(err, 'fetch template');
+    return null; // unreachable
+  }
+  const lower = name.toLowerCase();
+  return result.templates.find((t) => t.name.toLowerCase() === lower) ?? null;
+}
+
+/**
+ * Print a contextual error from a StyrbyApiError (or any error) and exit.
+ *
+ * WHY a single helper: every callsite in this file wraps an apiClient call
+ * with the same chalk-red error display. Extracting the pattern keeps the
+ * handler bodies focused on flow, not error-formatting boilerplate.
+ *
+ * @param err - The thrown error from an apiClient call
+ * @param verb - Action description used in the error message ("create template",
+ *               "fetch templates", etc.)
+ */
+function handleApiError(err: unknown, verb: string): never {
+  if (err instanceof StyrbyApiError) {
+    console.log(chalk.red(`\nFailed to ${verb}: ${err.message}`));
+    logger.debug('StyrbyApiError', { status: err.status, code: err.code });
+  } else if (err instanceof Error) {
+    console.log(chalk.red(`\nFailed to ${verb}: ${err.message}`));
+  } else {
+    console.log(chalk.red(`\nFailed to ${verb}: unknown error`));
+  }
+  process.exit(1);
+}
+
+// Suppress unused TemplateRow import — kept for type compatibility with
+// future callers that need the full row shape outside the summary endpoint.
+void (null as unknown as TemplateRow | undefined);
 
 /**
  * Prompt for multiline input.
