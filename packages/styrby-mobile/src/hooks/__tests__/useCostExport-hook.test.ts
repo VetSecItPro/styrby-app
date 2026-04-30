@@ -26,7 +26,7 @@ jest.mock('../../lib/supabase', () => ({
 // We augment that mock by adding Share, ActionSheetIOS, and overriding Platform.
 // jest.requireActual('react-native') is NOT used here because react-native ships
 // ESM which cannot be parsed in the node test environment.
-const mockShare = jest.fn<Promise<any>, any[]>(async () => ({ action: 'sharedAction' }));
+const mockShare = jest.fn<unknown, unknown[]>(async () => ({ action: 'sharedAction' }));
 jest.mock('react-native', () => ({
   Share: { share: (...args: unknown[]) => mockShare(...args) },
   Alert: { alert: jest.fn() },
@@ -59,7 +59,7 @@ function mockAuthed(token = 'test-token') {
 }
 
 function mockFetch(status: number, body: unknown = '') {
-  global.fetch = jest.fn<Promise<any>, any[]>(async () => ({
+  global.fetch = jest.fn<unknown, unknown[]>(async () => ({
     ok: status >= 200 && status < 300,
     status,
     json: async () => body,

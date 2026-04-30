@@ -125,6 +125,24 @@ exports[`Login screen — passkey support snapshot — initial login state with 
       </Text>
     </Pressable>
     <Pressable
+      accessibilityLabel="Continue with Google"
+      accessibilityRole="button"
+      className="flex-row items-center justify-center py-4 rounded-xl bg-zinc-800 mb-3"
+      disabled={false}
+      onPress={[Function]}
+    >
+      <Ionicons
+        color="#EA4335"
+        name="logo-google"
+        size={20}
+      />
+      <Text
+        className="text-white font-semibold text-base ml-3"
+      >
+        Continue with Google
+      </Text>
+    </Pressable>
+    <Pressable
       accessibilityLabel="Continue with GitHub"
       accessibilityRole="button"
       className="flex-row items-center justify-center py-4 rounded-xl bg-zinc-800"

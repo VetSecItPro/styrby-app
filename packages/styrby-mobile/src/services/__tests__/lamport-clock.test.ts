@@ -33,11 +33,11 @@
 
 /** In-memory store simulating the lamport_clock_state table */
 let clockStore: Record<number, number> = {};
-let tableExists = false;
+let _tableExists = false;
 
 const mockRunAsync = jest.fn(async (sql: string, params: unknown[] = []) => {
   if (sql.includes('CREATE TABLE')) {
-    tableExists = true;
+    _tableExists = true;
     return { changes: 0 };
   }
   if (sql.includes('INSERT OR IGNORE')) {
@@ -62,7 +62,7 @@ const mockGetFirstAsync = jest.fn(async (_sql: string, params: unknown[] = []) =
 const mockExecAsync = jest.fn(async (sql: string) => {
   // Handle combined CREATE + INSERT in a single execAsync call
   if (sql.includes('CREATE TABLE')) {
-    tableExists = true;
+    _tableExists = true;
     if (!(1 in clockStore)) clockStore[1] = 0;
   }
 });
@@ -97,7 +97,7 @@ function freshClock(): LamportClock {
 describe('LamportClock.tick()', () => {
   beforeEach(() => {
     clockStore = {};
-    tableExists = false;
+    _tableExists = false;
     jest.clearAllMocks();
   });
 
@@ -176,7 +176,7 @@ describe('LamportClock.tick()', () => {
 describe('LamportClock.receive()', () => {
   beforeEach(() => {
     clockStore = {};
-    tableExists = false;
+    _tableExists = false;
     jest.clearAllMocks();
   });
 
@@ -240,7 +240,7 @@ describe('LamportClock.receive()', () => {
 describe('LamportClock.peek()', () => {
   beforeEach(() => {
     clockStore = {};
-    tableExists = false;
+    _tableExists = false;
     jest.clearAllMocks();
   });
 

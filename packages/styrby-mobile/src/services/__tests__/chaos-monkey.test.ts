@@ -577,9 +577,7 @@ describe('Chaos Scenario 4: Kill during markFailed (retry counter update)', () =
     // Simulate crash during first markFailed:
     // We patch runAsync to throw SimulatedCrash when it's the markFailed UPDATE.
     const originalRunAsync = dbMock.runAsync as jest.Mock;
-    let callCount = 0;
     originalRunAsync.mockImplementation(async (sql: string, params: unknown[]) => {
-      callCount++;
       // The 5th call is typically the markFailed UPDATE (after INSERT, two index
       // creates, and the status='sending' UPDATE). We crash on the markFailed write.
       if (sql.includes('attempts') && sql.includes('UPDATE command_queue')) {

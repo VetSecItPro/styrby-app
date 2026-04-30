@@ -27,6 +27,7 @@ import React from 'react';
 import { render, fireEvent, act, waitFor } from '@testing-library/react-native';
 import { SessionOrphanedBanner } from '../SessionOrphanedBanner';
 import type { SessionOrphanedBannerProps } from '../SessionOrphanedBanner';
+import type { SessionStatus } from 'styrby-shared';
 
 // ============================================================================
 // Supabase mock
@@ -203,12 +204,17 @@ describe('SessionOrphanedBanner', () => {
   });
 
   it('renders nothing when status is not a recognised active status (e.g. a legacy value)', () => {
-    // WHY cast: 'expired' is not in SessionStatus. The cast simulates a value
-    // arriving from an older Supabase row before a migration cleaned up legacy
-    // status strings. The component must safely return null in this case.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // WHY cast through unknown to SessionStatus: 'expired' is not in the
+    // SessionStatus union. The cast simulates a value arriving from an older
+    // Supabase row before a migration cleaned up legacy status strings. The
+    // component must safely return null in this case.
     const { queryByTestId } = render(
-      <SessionOrphanedBanner {...buildProps({ lastHeartbeatAt: staleHeartbeat(), status: 'expired' as any })} />,
+      <SessionOrphanedBanner
+        {...buildProps({
+          lastHeartbeatAt: staleHeartbeat(),
+          status: 'expired' as unknown as SessionStatus,
+        })}
+      />,
     );
 
     expect(queryByTestId('orphaned-banner')).toBeNull();

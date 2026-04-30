@@ -31,7 +31,7 @@ jest.mock('react-native', () => ({
 const mockFetchAgentConfig = jest.fn();
 const mockInsertAgentConfig = jest.fn();
 const mockUpdateAgentConfig = jest.fn();
-const mockBuildRow = jest.fn<any, any[]>(() => ({}));
+const mockBuildRow = jest.fn<unknown, unknown[]>(() => ({}));
 const mockMapRowToState = jest.fn();
 
 jest.mock('../agent-config-io', () => ({
@@ -42,7 +42,7 @@ jest.mock('../agent-config-io', () => ({
   mapRowToState: (...args: unknown[]) => mockMapRowToState(...args),
 }));
 
-import { Alert, Keyboard } from 'react-native';
+import { Alert } from 'react-native';
 
 // ============================================================================
 // Imports

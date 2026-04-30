@@ -278,7 +278,7 @@ describe('StorageQuotaGuard — getStorageQuota()', () => {
 
 describe('StorageQuotaGuard — clearNonCriticalQueueItems()', () => {
   /** Build an in-memory SQLite mock with controlled rows */
-  function buildMockDb(pendingCount: number, failedCount: number, sendingCount: number) {
+  function buildMockDb(pendingCount: number, _failedCount: number, _sendingCount: number) {
     const countResult = { total: pendingCount };
     const deleteResult = { changes: Math.min(pendingCount, 50) };
 

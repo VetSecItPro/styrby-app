@@ -22,7 +22,6 @@ import { SessionReplay, type ReplayMessageData } from '../../src/components/Sess
 import { SessionTagEditor } from '../../src/components/SessionTagEditor';
 import { ContextBreakdown } from '../../src/components/ContextBreakdown';
 import { SessionCheckpoints } from '../../src/components/SessionCheckpoints';
-import { formatCost } from '../../src/hooks/useCosts';
 import type { AgentType, SessionExport, SessionExportMetadata, SessionExportMessage, SessionExportCost, BillingModel, CostSource } from 'styrby-shared';
 import { CostPill } from '../../src/components/costs/CostPill';
 

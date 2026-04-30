@@ -40,7 +40,7 @@ function mockAuthed(token = 'test-token') {
 }
 
 function mockFetch(status: number, body: unknown) {
-  global.fetch = jest.fn<Promise<any>, any[]>(async () => ({
+  global.fetch = jest.fn<unknown, unknown[]>(async () => ({
     ok: status >= 200 && status < 300,
     status,
     json: async () => body,
@@ -71,7 +71,7 @@ describe('useBookmarks', () => {
 
   it('starts with isLoading true and empty bookmarkedIds', () => {
     mockAuthed();
-    global.fetch = jest.fn<any, any[]>(() => new Promise(() => {})) as jest.Mock;
+    global.fetch = jest.fn<unknown, unknown[]>(() => new Promise(() => {})) as jest.Mock;
     mockGetSession.mockReturnValue(new Promise(() => {}));
 
     const { result } = renderHook(() => useBookmarks());
@@ -157,7 +157,7 @@ describe('useBookmarks', () => {
     expect(result.current.bookmarkedIds.has('s-1')).toBe(true);
 
     // Next fetch: DELETE success
-    global.fetch = jest.fn<Promise<any>, any[]>(async () => ({
+    global.fetch = jest.fn<unknown, unknown[]>(async () => ({
       ok: true,
       status: 200,
       json: async () => ({}),
@@ -182,7 +182,7 @@ describe('useBookmarks', () => {
     await act(async () => {});
 
     // Toggle fails
-    global.fetch = jest.fn<Promise<any>, any[]>(async () => ({
+    global.fetch = jest.fn<unknown, unknown[]>(async () => ({
       ok: false,
       status: 429,
       json: async () => ({ error: 'Limit reached' }),
@@ -205,7 +205,7 @@ describe('useBookmarks', () => {
     const { result } = renderHook(() => useBookmarks());
     await act(async () => {});
 
-    global.fetch = jest.fn<Promise<any>, any[]>(async () => ({
+    global.fetch = jest.fn<unknown, unknown[]>(async () => ({
       ok: false,
       status: 500,
       json: async () => ({ error: 'Oops' }),

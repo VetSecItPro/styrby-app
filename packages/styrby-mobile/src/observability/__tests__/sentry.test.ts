@@ -29,7 +29,6 @@ jest.mock('@styrby/shared/logging', () => ({
 import { initMobileSentry, getMobileSentryAdapter } from '../sentry';
 
 // Retrieve bound mock references after registration.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const SentryMock = jest.requireMock('@sentry/react-native') as {
   init: jest.Mock;
   addBreadcrumb: jest.Mock;

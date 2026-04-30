@@ -130,6 +130,13 @@ export function MobileDeleteSection({ userEmail, userDisplayName }: MobileDelete
           </Pressable>
         ) : (
           <View className="px-4 py-4">
+            {/* WHY: Surface the account identity in the info step so the user
+                can confirm they are deleting the right account before they
+                commit. Documented in the component contract above. */}
+            <Text className="text-xs text-zinc-500 mb-1">Account</Text>
+            <Text className="text-sm text-zinc-200 mb-3">
+              {userDisplayName ? `${userDisplayName} (${userEmail})` : userEmail}
+            </Text>
             <Text className="text-sm font-semibold text-red-400 mb-2">
               What will be deleted:
             </Text>

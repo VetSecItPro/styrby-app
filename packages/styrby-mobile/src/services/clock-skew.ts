@@ -95,7 +95,7 @@ const SKEW_DETECTION_THRESHOLD_MS = 1_000;
  */
 export function normalizeOrderingTimestamp(
   key: MessageOrderingKey,
-  nowMs = Date.now()
+  _nowMs = Date.now()
 ): NormalizedOrderingResult {
   // WHY serverSequence first: A monotonic counter assigned by the relay backend
   // is entirely immune to clock skew. We convert it to an ISO string by using

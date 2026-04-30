@@ -141,7 +141,6 @@ import {
   InviteInvalidState,
   InviteErrorState,
 } from '../index';
-import { InviteAcceptScreen } from '../InviteAcceptScreen';
 
 // ============================================================================
 // InviteLoadingState

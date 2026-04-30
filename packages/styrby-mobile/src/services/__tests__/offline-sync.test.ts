@@ -22,9 +22,12 @@ import type { StoredCommand } from '../offline-storage';
 // Mock offline-storage
 // ============================================================================
 
+// WHY explicit return types: tests use mockResolvedValue with concrete
+// payloads (StoredCommand[], number); without these generics the impl-inferred
+// return narrows to never and rejects mockResolvedValue arguments at typecheck.
 const mockGetPendingCommands = jest.fn<Promise<StoredCommand[]>, unknown[]>(async () => []);
-const mockMarkSynced = jest.fn(async () => {});
-const mockClearSynced = jest.fn(async () => 0);
+const mockMarkSynced = jest.fn<Promise<void>, unknown[]>(async () => {});
+const mockClearSynced = jest.fn<Promise<number>, unknown[]>(async () => 0);
 
 jest.mock('../offline-storage', () => ({
   getPendingCommands: (...args: unknown[]) => mockGetPendingCommands(...(args as [])),
@@ -53,12 +56,12 @@ jest.mock('../../lib/supabase', () => {
   return {
     supabase: {
       auth: {
-        getUser: jest.fn(async () => ({
+        getUser: jest.fn<unknown, unknown[]>(async () => ({
           data: { user: mockAuthUser },
           error: mockAuthError,
         })),
       },
-      from: jest.fn(() => createChain()),
+      from: jest.fn<unknown, unknown[]>(() => createChain()),
     },
   };
 });
@@ -637,9 +640,7 @@ describe('Offline Sync Service', () => {
       ]);
 
       // All Supabase inserts return an error
-      let callCount = 0;
       (supabase.from as jest.Mock).mockImplementation(() => {
-        callCount++;
         const chain: Record<string, unknown> = {
           insert: jest.fn().mockReturnThis(),
         };

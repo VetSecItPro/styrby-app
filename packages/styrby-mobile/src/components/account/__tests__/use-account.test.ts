@@ -19,7 +19,7 @@
 const mockUpdateDisplayName = jest.fn();
 const mockRequestEmailChange = jest.fn();
 const mockRequestPasswordReset = jest.fn();
-const mockFetchMonthlySpend = jest.fn<Promise<any>, any[]>(async () => 12.5);
+const mockFetchMonthlySpend = jest.fn<unknown, unknown[]>(async () => 12.5);
 const mockExportAccountData = jest.fn();
 const mockPerformSignOut = jest.fn();
 const mockDeleteAccount = jest.fn();
@@ -53,7 +53,7 @@ function buildArgs(overrides: Partial<UseAccountArgs> = {}): UseAccountArgs {
   return {
     userId: 'user-1',
     userDisplayName: 'Test User',
-    refreshUser: jest.fn<Promise<any>, any[]>(async () => {}),
+    refreshUser: jest.fn<Promise<void>, unknown[]>(async () => {}),
     ...overrides,
   };
 }
@@ -115,7 +115,7 @@ describe('useAccount', () => {
 
   it('saveDisplayName calls updateDisplayName and refreshUser on success', async () => {
     mockUpdateDisplayName.mockResolvedValue({ ok: true, data: undefined });
-    const refreshUser = jest.fn<Promise<any>, any[]>(async () => {});
+    const refreshUser = jest.fn<Promise<void>, unknown[]>(async () => {});
     const { result } = renderHook(() => useAccount(buildArgs({ refreshUser })));
     await act(async () => {});
 
