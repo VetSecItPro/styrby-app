@@ -90,6 +90,25 @@ vi.mock('@/api/api', () => ({
   })),
 }));
 
+// ── clientFromPersistence mock ─────────────────────────────────────────────
+// H41 Phase 4-step3: handleMulti now resolves the StyrbyApiClient via
+// getApiClient() before passing it to the orchestrator. Provide a sentinel
+// stub so tests don't blow up at the boundary check.
+
+class MockMissingStyrbyKeyError extends Error {
+  constructor(msg = 'Run `styrby onboard` to provision an API key.') {
+    super(msg);
+    this.name = 'MissingStyrbyKeyError';
+  }
+}
+
+const mockGetApiClient = vi.fn(() => ({}) as unknown as import('@/api/styrbyApiClient').StyrbyApiClient);
+
+vi.mock('@/api/clientFromPersistence', () => ({
+  getApiClient: () => mockGetApiClient(),
+  MissingStyrbyKeyError: MockMissingStyrbyKeyError,
+}));
+
 // ── MultiAgentOrchestrator mock ────────────────────────────────────────────
 
 const mockOrchestratorStart = vi.fn();
@@ -122,6 +141,7 @@ describe('handleMulti', () => {
     });
     mockApiConnect.mockResolvedValue(undefined);
     mockApiDisconnect.mockResolvedValue(undefined);
+    mockGetApiClient.mockReturnValue({} as unknown as import('@/api/styrbyApiClient').StyrbyApiClient);
   });
 
   // ── Argument errors → exit(2) ──────────────────────────────────────────

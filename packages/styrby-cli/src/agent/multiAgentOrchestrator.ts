@@ -33,6 +33,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { StyrbyApi } from '@/api/api';
+import type { StyrbyApiClient } from '@/api/styrbyApiClient';
+import { StyrbyApiError } from '@/api/styrbyApiClient';
 import type { AgentId } from '@/agent/core/AgentBackend';
 import { ApiSessionManager } from '@/api/apiSession';
 import { logger } from '@/ui/logger';
@@ -45,7 +47,21 @@ import { logger } from '@/ui/logger';
  * Configuration for spawning a multi-agent group.
  */
 export interface MultiAgentConfig {
-  /** Authenticated Supabase client */
+  /**
+   * Authenticated StyrbyApiClient for /api/v1/* calls.
+   *
+   * H41 Phase 4-step3: every Postgres operation owned by this file (group
+   * create, session attach, focus update, audit log) flows through /api/v1
+   * via this client. Direct supabase usage in those paths is gone.
+   */
+  httpClient: StyrbyApiClient;
+  /**
+   * Authenticated Supabase client.
+   *
+   * Still required for the downstream ApiSessionManager.startManagedSession
+   * call, which Phase 4 deliberately leaves unchanged (its swap is tracked
+   * separately). When that swap lands this field can be deleted.
+   */
   supabase: SupabaseClient;
   /** Connected StyrbyApi relay instance */
   api: StyrbyApi;
@@ -198,6 +214,7 @@ export class MultiAgentOrchestrator {
    */
   async start(config: MultiAgentConfig): Promise<MultiAgentGroup> {
     const {
+      httpClient,
       supabase,
       api,
       agentIds,
@@ -238,39 +255,39 @@ export class MultiAgentOrchestrator {
       groupName ||
       (prompt ? `${prompt.slice(0, 60)}${prompt.length > 60 ? '...' : ''}` : 'Multi-agent group');
 
-    // ── 2. Create agent_session_groups row ────────────────────────────────────
-    const groupId = crypto.randomUUID();
-
-    const { error: groupInsertError } = await supabase
-      .from('agent_session_groups')
-      .insert({
-        id: groupId,
-        user_id: userId,
-        name: resolvedGroupName,
-      });
-
-    if (groupInsertError) {
-      throw new Error(`Failed to create session group: ${groupInsertError.message}`);
+    // ── 2. Create agent_session_groups row via /api/v1 ───────────────────────
+    // WHY server-generated id: POST /api/v1/sessions/groups returns its own
+    // group_id. We accept that ID rather than client-minting a UUID — keeps
+    // the create call idempotency-key safe and avoids ID-collision risk.
+    let groupId: string;
+    try {
+      const created = await httpClient.createSessionGroup({ name: resolvedGroupName });
+      groupId = created.group_id;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'unknown';
+      throw new Error(`Failed to create session group: ${msg}`);
     }
 
     logger.info('Session group created', { groupId, agentCount: agentIds.length });
 
     // Write audit log entry for group creation.
     // WHY non-fatal: audit log failure must not block the agent sessions.
-    await supabase.from('audit_log').insert({
-      user_id: userId,
-      action: 'session_group_created',
-      metadata: {
-        group_id: groupId,
-        agent_ids: agentIds,
-        project_path: projectPath,
-        group_name: resolvedGroupName,
-      },
-    }).then(({ error }) => {
-      if (error) {
-        logger.debug('Failed to write session_group_created audit log', { error: error.message });
-      }
-    });
+    await httpClient
+      .writeAuditEvent({
+        action: 'session_group_created',
+        resource_type: 'agent_session_group',
+        resource_id: groupId,
+        metadata: {
+          group_id: groupId,
+          agent_ids: agentIds,
+          project_path: projectPath,
+          group_name: resolvedGroupName,
+        },
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'unknown';
+        logger.debug('Failed to write session_group_created audit log', { error: msg });
+      });
 
     // ── 3. Spawn agents ───────────────────────────────────────────────────────
     const { initializeAgents, agentRegistry } = await import('@/agent/index');
@@ -287,7 +304,13 @@ export class MultiAgentOrchestrator {
         for (const spawned of spawnedAgents) {
           await spawned.stop().catch(() => {});
         }
-        await supabase.from('agent_session_groups').delete().eq('id', groupId);
+        // WHY catch+ignore: rollback is best-effort; the throw below is the
+        // primary signal. A failed delete here just leaves an orphaned group
+        // row that gets pruned by background cleanup or the next /multi run.
+        await httpClient.deleteSessionGroup(groupId).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : 'unknown';
+          logger.debug('Failed to roll back session group', { groupId, error: msg });
+        });
         throw new Error(
           `Agent "${agentId}" is not available. Install with: styrby install ${agentId}`
         );
@@ -332,18 +355,19 @@ export class MultiAgentOrchestrator {
         projectPath,
       });
 
-      // Link the session to its group
-      await supabase
-        .from('sessions')
-        .update({ session_group_id: groupId })
-        .eq('id', activeSession.sessionId)
-        .then(({ error }) => {
-          if (error) {
-            logger.debug('Failed to set session_group_id on session', {
-              sessionId: activeSession.sessionId,
-              error: error.message,
-            });
-          }
+      // Link the session to its group via PATCH /api/v1/sessions/[id].
+      // WHY non-fatal debug-log: a failed link doesn't break the running
+      // session. The mobile UI can still address the session directly; only
+      // the multi-agent group view loses one of its members. We surface the
+      // error in debug logs for forensics rather than aborting the spawn loop.
+      await httpClient
+        .updateSession(activeSession.sessionId, { session_group_id: groupId })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : 'unknown';
+          logger.debug('Failed to set session_group_id on session', {
+            sessionId: activeSession.sessionId,
+            error: msg,
+          });
         });
 
       // Send initial prompt to this agent if provided
@@ -375,14 +399,11 @@ export class MultiAgentOrchestrator {
 
     // ── 4. Set initial focus to first agent ───────────────────────────────────
     if (spawnedAgents.length > 0) {
-      await supabase
-        .from('agent_session_groups')
-        .update({ active_agent_session_id: spawnedAgents[0].sessionId })
-        .eq('id', groupId)
-        .then(({ error }) => {
-          if (error) {
-            logger.debug('Failed to set initial active_agent_session_id', { error: error.message });
-          }
+      await httpClient
+        .setSessionGroupFocus(groupId, spawnedAgents[0].sessionId)
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : 'unknown';
+          logger.debug('Failed to set initial active_agent_session_id', { error: msg });
         });
     }
 
@@ -434,30 +455,36 @@ export class MultiAgentOrchestrator {
           );
         }
 
-        const { error } = await supabase
-          .from('agent_session_groups')
-          .update({ active_agent_session_id: sessionId })
-          .eq('id', groupId);
-
-        if (error) {
-          throw new Error(`Failed to update focus: ${error.message}`);
+        // WHY throw on focus error: the focus method is the public contract
+        // for switching active agents; the caller (e.g. mobile tap handler)
+        // needs to know if the change took effect. Unlike the initial-focus
+        // call above (which is best-effort), this is user-driven and must
+        // surface failure.
+        try {
+          await httpClient.setSessionGroupFocus(groupId, sessionId);
+        } catch (err) {
+          const msg =
+            err instanceof StyrbyApiError ? err.message : err instanceof Error ? err.message : 'unknown';
+          throw new Error(`Failed to update focus: ${msg}`);
         }
 
-        // Write audit log for focus change
-        await supabase.from('audit_log').insert({
-          user_id: userId,
-          action: 'session_group_focus_changed',
-          metadata: {
-            group_id: groupId,
-            focused_session_id: sessionId,
-          },
-        }).then(({ error: auditError }) => {
-          if (auditError) {
-            logger.debug('Failed to write session_group_focus_changed audit log', {
-              error: auditError.message,
-            });
-          }
-        });
+        // Write audit log for focus change. Best-effort; the focus operation
+        // already succeeded — losing the audit entry is an observability gap,
+        // not a correctness one.
+        await httpClient
+          .writeAuditEvent({
+            action: 'session_group_focus_changed',
+            resource_type: 'agent_session_group',
+            resource_id: groupId,
+            metadata: {
+              group_id: groupId,
+              focused_session_id: sessionId,
+            },
+          })
+          .catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : 'unknown';
+            logger.debug('Failed to write session_group_focus_changed audit log', { error: msg });
+          });
 
         logger.info('Group focus updated', { groupId, sessionId });
       },

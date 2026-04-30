@@ -103,8 +103,37 @@ function makeMockApi() {
   };
 }
 
+/**
+ * Builds a deeply-mocked StyrbyApiClient stub.
+ *
+ * H41 Phase 4-step3: orchestrator now uses StyrbyApiClient for every Postgres
+ * op (group create, session attach, focus, audit). The mock returns the
+ * minimal shapes consumed inside start()/focus() so tests can run without a
+ * real /api/v1 server.
+ */
+function makeMockHttpClient(overrides: { createGroupError?: Error } = {}) {
+  return {
+    createSessionGroup: vi.fn(async () => {
+      if (overrides.createGroupError) throw overrides.createGroupError;
+      return { group_id: GROUP_ID, name: 'mock', created_at: new Date().toISOString() };
+    }),
+    deleteSessionGroup: vi.fn(async () => ({ deleted: true, id: GROUP_ID })),
+    updateSession: vi.fn(async () => ({
+      id: 'mock-session-123',
+      session_group_id: GROUP_ID,
+      updated_at: new Date().toISOString(),
+    })),
+    setSessionGroupFocus: vi.fn(async () => ({
+      group_id: GROUP_ID,
+      active_agent_session_id: 'mock-session-123',
+    })),
+    writeAuditEvent: vi.fn(async () => ({ id: 'audit-1', created_at: new Date().toISOString() })),
+  } as unknown as import('@/api/styrbyApiClient').StyrbyApiClient;
+}
+
 function makeConfig(agentIds: AgentId[] = ['claude', 'codex']) {
   return {
+    httpClient: makeMockHttpClient(),
     supabase: makeMockSupabase() as unknown as import('@supabase/supabase-js').SupabaseClient,
     api: makeMockApi() as unknown as import('@/api/api').StyrbyApi,
     agentIds,
@@ -153,11 +182,16 @@ describe('MultiAgentOrchestrator', () => {
 
   // ── Dry-run mode ────────────────────────────────────────────────────────
 
-  it('dry-run returns a group with agents and does not write to Supabase', async () => {
+  it('dry-run returns a group with agents and does not call any backend', async () => {
     const orchestrator = new MultiAgentOrchestrator();
     const mockSupa = makeMockSupabase();
-    const config = { ...makeConfig(['claude', 'codex']), dryRun: true };
-    config.supabase = mockSupa as unknown as import('@supabase/supabase-js').SupabaseClient;
+    const mockHttp = makeMockHttpClient();
+    const config = {
+      ...makeConfig(['claude', 'codex']),
+      dryRun: true,
+      supabase: mockSupa as unknown as import('@supabase/supabase-js').SupabaseClient,
+      httpClient: mockHttp,
+    };
 
     const group = await orchestrator.start(config);
 
@@ -165,8 +199,9 @@ describe('MultiAgentOrchestrator', () => {
     expect(group.agents).toHaveLength(2);
     expect(group.agents[0].agentId).toBe('claude');
     expect(group.agents[1].agentId).toBe('codex');
-    // Supabase.from should NOT have been called in dry-run
+    // Neither supabase nor the http client should have been touched in dry-run.
     expect(mockSupa.from).not.toHaveBeenCalled();
+    expect(mockHttp.createSessionGroup).not.toHaveBeenCalled();
   });
 
   it('dry-run stop() is a no-op', async () => {
