@@ -550,6 +550,164 @@ describe('StyrbyApiClient', () => {
     });
   });
 
+  describe('updateSession', () => {
+    it('PATCHes /api/v1/sessions/[id] with body and returns the updated row', async () => {
+      const { fetch: fakeFetch, calls } = makeFetch([
+        {
+          status: 200,
+          body: { id: 's-1', session_group_id: 'g-1', updated_at: '2026-04-30T00:00:00Z' },
+        },
+      ]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      const r = await c.updateSession('s-1', { session_group_id: 'g-1' });
+
+      expect(r.id).toBe('s-1');
+      expect(r.session_group_id).toBe('g-1');
+      expect(calls[0].init.method).toBe('PATCH');
+      expect(calls[0].url).toContain('/api/v1/sessions/s-1');
+      expect(calls[0].init.body).toBe(JSON.stringify({ session_group_id: 'g-1' }));
+    });
+
+    it('passes null session_group_id (detach) through to the server', async () => {
+      const { fetch: fakeFetch, calls } = makeFetch([
+        {
+          status: 200,
+          body: { id: 's-1', session_group_id: null, updated_at: '2026-04-30T00:00:00Z' },
+        },
+      ]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      const r = await c.updateSession('s-1', { session_group_id: null });
+
+      expect(r.session_group_id).toBeNull();
+      expect(calls[0].init.body).toBe(JSON.stringify({ session_group_id: null }));
+    });
+
+    it('attaches Idempotency-Key when supplied', async () => {
+      const { fetch: fakeFetch, calls } = makeFetch([
+        { status: 200, body: { id: 's', session_group_id: null, updated_at: 't' } },
+      ]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      await c.updateSession('s', { session_group_id: null }, { idempotencyKey: 'idem-up-1' });
+      const headers = calls[0].init.headers as Headers;
+      expect(headers.get('Idempotency-Key')).toBe('idem-up-1');
+    });
+  });
+
+  describe('getNotificationPreferences', () => {
+    it('GETs /api/v1/notification_preferences and returns the preferences row', async () => {
+      const row = {
+        id: 'p-1',
+        push_enabled: true,
+        push_permission_requests: true,
+        push_session_errors: true,
+        push_budget_alerts: true,
+        push_session_complete: false,
+        email_enabled: true,
+        email_weekly_summary: true,
+        email_budget_alerts: true,
+        quiet_hours_enabled: false,
+        quiet_hours_start: null,
+        quiet_hours_end: null,
+        quiet_hours_timezone: 'UTC',
+        priority_threshold: 3,
+        priority_rules: [],
+        push_agent_finished: true,
+        push_budget_threshold: true,
+        push_weekly_summary: true,
+        weekly_digest_email: true,
+        push_predictive_alert: true,
+        created_at: 't',
+        updated_at: 't',
+      };
+      const { fetch: fakeFetch, calls } = makeFetch([
+        { status: 200, body: { preferences: row } },
+      ]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      const r = await c.getNotificationPreferences();
+
+      expect(r.preferences).toBeDefined();
+      expect(r.preferences?.push_enabled).toBe(true);
+      expect(r.preferences?.priority_threshold).toBe(3);
+      expect(calls[0].init.method).toBe('GET');
+      expect(calls[0].url).toContain('/api/v1/notification_preferences');
+    });
+
+    it('returns preferences=null when the row has not been created yet', async () => {
+      const { fetch: fakeFetch } = makeFetch([
+        { status: 200, body: { preferences: null } },
+      ]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      const r = await c.getNotificationPreferences();
+
+      expect(r.preferences).toBeNull();
+    });
+  });
+
+  describe('recordCost', () => {
+    it('POSTs /api/v1/cost-records with body and returns { id, recorded_at }', async () => {
+      const { fetch: fakeFetch, calls } = makeFetch([
+        {
+          status: 201,
+          body: { id: 'c-1', recorded_at: '2026-04-30T12:00:00Z' },
+        },
+      ]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      const r = await c.recordCost({
+        session_id: '00000000-0000-0000-0000-000000000001',
+        agent_type: 'claude',
+        model: 'claude-sonnet-4',
+        input_tokens: 1000,
+        output_tokens: 500,
+        cost_usd: 0.125,
+      });
+
+      expect(r.id).toBe('c-1');
+      expect(r.recorded_at).toBe('2026-04-30T12:00:00Z');
+      expect(calls[0].init.method).toBe('POST');
+      expect(calls[0].url).toContain('/api/v1/cost-records');
+    });
+
+    it('attaches Idempotency-Key when supplied', async () => {
+      const { fetch: fakeFetch, calls } = makeFetch([
+        { status: 201, body: { id: 'c-2', recorded_at: 't' } },
+      ]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      await c.recordCost(
+        {
+          session_id: '00000000-0000-0000-0000-000000000001',
+          agent_type: 'claude',
+          model: 'claude-sonnet-4',
+          input_tokens: 100,
+          output_tokens: 50,
+          cost_usd: 0.01,
+        },
+        { idempotencyKey: 'idem-cost-1' },
+      );
+      const headers = calls[0].init.headers as Headers;
+      expect(headers.get('Idempotency-Key')).toBe('idem-cost-1');
+    });
+
+    it('surfaces 404 (cross-user session) as StyrbyApiError', async () => {
+      const { fetch: fakeFetch } = makeFetch([
+        { status: 404, body: { error: 'Not found' } },
+      ]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch, maxAttempts: 1 });
+      const err = await c
+        .recordCost({
+          session_id: '00000000-0000-0000-0000-000000000001',
+          agent_type: 'claude',
+          model: 'claude-sonnet-4',
+          input_tokens: 1,
+          output_tokens: 1,
+          cost_usd: 0,
+        })
+        .catch((e) => e);
+
+      expect(err).toBeInstanceOf(StyrbyApiError);
+      expect(err.status).toBe(404);
+    });
+  });
+
   describe('deleteSessionCheckpoint', () => {
     it('throws synchronously when neither name nor checkpointId is provided', async () => {
       const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: makeFetch([]).fetch });
