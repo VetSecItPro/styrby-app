@@ -33,9 +33,7 @@
  */
 
 import chalk from 'chalk';
-import { createClient } from '@supabase/supabase-js';
 import { loadPersistedData } from '@/persistence';
-import { config as envConfig } from '@/env';
 import { logger } from '@/ui/logger';
 import { runStdioServer } from '@/mcp/server';
 import { createSupabaseApprovalHandler } from '@/mcp/approvalHandler';
@@ -93,23 +91,25 @@ async function handleMcpServe(): Promise<void> {
     process.exit(1);
   }
 
-  if (!envConfig.supabaseAnonKey) {
-    logger.error('Supabase anonymous key not configured. Set SUPABASE_ANON_KEY.');
-    process.exit(1);
+  // H41 Phase 4-step4: load the styrby_* key and build a typed apiClient.
+  // Replaces the prior direct-Supabase auth path (no more anon-key + JWT
+  // dance for the MCP server). MissingStyrbyKeyError fires if the user
+  // ran the CLI before Phase 5's exchange flow minted the key — fix is to
+  // re-onboard.
+  let apiClient: import('@/api/styrbyApiClient').StyrbyApiClient;
+  try {
+    const { getApiClient } = await import('@/api/clientFromPersistence');
+    apiClient = getApiClient();
+  } catch (err) {
+    const { MissingStyrbyKeyError } = await import('@/api/clientFromPersistence');
+    if (err instanceof MissingStyrbyKeyError) {
+      logger.error(err.message);
+      process.exit(1);
+    }
+    throw err;
   }
 
-  // WHY persistSession=false: this is a one-shot server process bound to
-  // a specific token already held in memory. Letting Supabase's auth
-  // module re-persist the session would race with the daemon process
-  // that owns persistence in the typical multi-process CLI deployment.
-  const supabase = createClient(envConfig.supabaseUrl, envConfig.supabaseAnonKey, {
-    auth: { persistSession: false },
-    global: {
-      headers: { Authorization: `Bearer ${data.accessToken}` },
-    },
-  });
-
-  const handler = createSupabaseApprovalHandler(supabase, data.userId, data.machineId);
+  const handler = createSupabaseApprovalHandler(apiClient, data.userId, data.machineId);
 
   // Banner goes to stderr — invisible to the JSON-RPC protocol on stdout.
   logger.info(chalk.bold.cyan('Styrby MCP server starting on stdio…'));

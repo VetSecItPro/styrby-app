@@ -32,9 +32,9 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ApprovalHandler } from './server.js';
 import type { RequestApprovalInput, RequestApprovalOutput } from './tools.js';
+import type { StyrbyApiClient } from '@/api/styrbyApiClient';
 
 // ============================================================================
 // Constants
@@ -115,21 +115,32 @@ interface DecisionMetadata {
 // ============================================================================
 
 /**
- * Creates a Supabase-backed ApprovalHandler.
+ * Creates an apiClient-backed ApprovalHandler (H41 Phase 4-step4).
  *
- * The handler is bound to a single user + machine context so the audit
- * row can identify whose mobile device should receive the push.
+ * Replaces the prior Supabase-backed implementation. All audit_log reads
+ * and writes now flow through /api/v1/audit (POST for inserts, GET for the
+ * polling read loop). The handler is bound to a single user + machine
+ * context so the audit row can identify whose mobile device should receive
+ * the push.
  *
- * @param supabase - Authenticated Supabase client
- * @param userId - The Styrby user ID to push to
- * @param machineId - The CLI machine the agent is running on
- * @returns An ApprovalHandler ready to be passed to createStyrbyMcpServer
+ * Note: the `userId` parameter is no longer used inside the handler — the
+ * apiClient's bearer key already identifies the user server-side. We keep
+ * the parameter in the signature for source-compat with existing callers
+ * (a follow-up pass can drop it). `machineId` is still embedded in the
+ * metadata so push-trigger logic can target the right device.
+ *
+ * @param apiClient - Authenticated StyrbyApiClient with the user's styrby_* key
+ * @param userId - Styrby user ID (kept for caller-compat; unused internally)
+ * @param machineId - CLI machine ID for push target attribution
  */
 export function createSupabaseApprovalHandler(
-  supabase: SupabaseClient,
+  apiClient: StyrbyApiClient,
   userId: string,
   machineId: string,
 ): ApprovalHandler {
+  // WHY void here: the apiClient's bearer key identifies the user; we don't
+  // pass userId in the body anywhere. Keep the parameter for source-compat.
+  void userId;
   return {
     async request(
       input: RequestApprovalInput,
@@ -150,22 +161,22 @@ export function createSupabaseApprovalHandler(
         context: input.context,
       };
 
-      const { error: insertError } = await supabase.from('audit_log').insert({
-        user_id: userId,
-        action: AUDIT_ACTION_REQUESTED,
-        resource_type: 'mcp_approval',
-        resource_id: approvalId,
-        metadata: requestMetadata,
-      });
-
-      if (insertError) {
-        throw new Error(`Failed to record approval request: ${insertError.message}`);
+      try {
+        await apiClient.writeAuditEvent({
+          action: AUDIT_ACTION_REQUESTED,
+          resource_type: 'mcp_approval',
+          resource_id: approvalId,
+          metadata: requestMetadata as unknown as Record<string, unknown>,
+        });
+      } catch (insertError) {
+        const msg = insertError instanceof Error ? insertError.message : 'unknown';
+        throw new Error(`Failed to record approval request: ${msg}`);
       }
 
       // 2. Poll for the decision row.
       // WHY poll instead of realtime: see module comment. Phase 4 swaps
-      // this for a `supabase.channel(...).on('postgres_changes', ...)`
-      // subscription on the dedicated mcp_approvals table.
+      // this for a Supabase Realtime subscription on the dedicated
+      // mcp_approvals table once that lands.
       // WHY filter by both action and resource_id: action='mcp_approval_decided'
       // catches every decision; resource_id pins the specific approval. The
       // pre-PR code matched on metadata.approval_id post-fetch, which scaled
@@ -173,20 +184,19 @@ export function createSupabaseApprovalHandler(
       // by resource_id returns at most one row per cycle and is index-friendly.
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
-        const { data, error } = await supabase
-          .from('audit_log')
-          .select('metadata, created_at')
-          .eq('user_id', userId)
-          .eq('action', AUDIT_ACTION_DECIDED)
-          .eq('resource_id', approvalId)
-          .order('created_at', { ascending: false })
-          .limit(1);
-
-        if (error) {
-          throw new Error(`Failed to poll for decision: ${error.message}`);
+        let result: Awaited<ReturnType<StyrbyApiClient['searchAuditLog']>>;
+        try {
+          result = await apiClient.searchAuditLog({
+            action: AUDIT_ACTION_DECIDED,
+            resource_id: approvalId,
+            limit: 1,
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'unknown';
+          throw new Error(`Failed to poll for decision: ${msg}`);
         }
 
-        const matched = data?.[0];
+        const matched = result.events[0];
         if (matched) {
           const meta = matched.metadata as DecisionMetadata;
           return {
@@ -209,13 +219,24 @@ export function createSupabaseApprovalHandler(
         decision: 'denied',
         user_message: 'No response — request timed out',
       };
-      await supabase.from('audit_log').insert({
-        user_id: userId,
-        action: AUDIT_ACTION_TIMEOUT,
-        resource_type: 'mcp_approval',
-        resource_id: approvalId,
-        metadata: { ...timeoutMetadata, machine_id: machineId },
-      });
+      // WHY catch+swallow: the timeout-record write is best-effort; the
+      // primary contract (return denied to the agent) must not depend on
+      // the audit-log write succeeding. Logging via console.error is
+      // intentional — the daemon's structured logger isn't wired here and
+      // the timeout path is rare enough that ad-hoc visibility is fine.
+      await apiClient
+        .writeAuditEvent({
+          action: AUDIT_ACTION_TIMEOUT,
+          resource_type: 'mcp_approval',
+          resource_id: approvalId,
+          metadata: { ...timeoutMetadata, machine_id: machineId } as unknown as Record<string, unknown>,
+        })
+        .catch((err) => {
+          // eslint-disable-next-line no-console
+          console.error(
+            `Failed to record approval timeout (non-fatal): ${err instanceof Error ? err.message : 'unknown'}`,
+          );
+        });
 
       return {
         decision: 'denied',
