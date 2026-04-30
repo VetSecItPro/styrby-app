@@ -260,7 +260,25 @@ export async function handleMulti(args: string[]): Promise<void> {
   let group: import('@/agent/multiAgentOrchestrator').MultiAgentGroup;
 
   try {
+    // H41 Phase 4-step3: build the StyrbyApiClient for /api/v1 calls.
+    // ApiSessionManager downstream still consumes the supabase client (its
+    // swap is tracked separately); orchestrator's own Postgres ops now flow
+    // through httpClient.
+    const { getApiClient, MissingStyrbyKeyError } = await import('@/api/clientFromPersistence');
+    let httpClient: import('@/api/styrbyApiClient').StyrbyApiClient;
+    try {
+      httpClient = getApiClient();
+    } catch (err) {
+      if (err instanceof MissingStyrbyKeyError) {
+        console.log(chalk.red('\n' + err.message + '\n'));
+        await apiClient.disconnect();
+        process.exit(1);
+      }
+      throw err;
+    }
+
     group = await orchestrator.start({
+      httpClient,
       supabase,
       api: apiClient,
       agentIds,
