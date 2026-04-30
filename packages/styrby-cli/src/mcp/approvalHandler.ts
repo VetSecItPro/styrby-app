@@ -50,12 +50,20 @@ import type { RequestApprovalInput, RequestApprovalOutput } from './tools.js';
 const POLL_INTERVAL_MS = 1000;
 
 /**
- * Audit-log event names.
- * Stable identifiers used for both writes and reads — changing these
- * breaks the poll loop's lookup, so they live as named constants.
+ * Audit-log action values.
+ *
+ * Stable identifiers used for both writes and reads — changing these breaks
+ * the poll loop's lookup, so they live as named constants.
+ *
+ * WHY enum-friendly snake_case (not dotted): `audit_log.action` is typed
+ * `audit_action` (a Postgres ENUM); enum values cannot contain dots. The
+ * three values below are added by migration 069. Prior versions of this file
+ * wrote `'mcp.approval_requested'` to a non-existent `event_type` column —
+ * see migration 069's preamble for the full backstory.
  */
-const AUDIT_EVENT_REQUESTED = 'mcp.approval_requested';
-const AUDIT_EVENT_DECIDED = 'mcp.approval_decided';
+const AUDIT_ACTION_REQUESTED = 'mcp_approval_requested';
+const AUDIT_ACTION_DECIDED = 'mcp_approval_decided';
+const AUDIT_ACTION_TIMEOUT = 'mcp_approval_timeout';
 
 // ============================================================================
 // Approval row shape
@@ -64,12 +72,31 @@ const AUDIT_EVENT_DECIDED = 'mcp.approval_decided';
 /**
  * Metadata persisted in the audit_log.metadata JSONB column.
  * Keep keys snake_case to match the existing column convention.
+ *
+ * WHY `requested_action` (not `action`): the audit_log row's top-level `action`
+ * column is the lifecycle event (`mcp_approval_requested`/`_decided`/`_timeout`).
+ * The MCP tool's action being approved (e.g. `bash`, `edit`) lives inside
+ * metadata to avoid name collision. Without renaming, the JSONB shape would
+ * shadow the column and confuse readers.
+ *
+ * WHY `machine_id` lives here (not as a column): audit_log has no machine_id
+ * column. Storing it inside metadata preserves the per-machine attribution
+ * for forensics without requiring a schema change.
+ *
+ * WHY `risk` retained as metadata field: the original code passed
+ * `severity` as a top-level column (which doesn't exist). Risk level is more
+ * semantically meaningful here than a fixed `info`/`warning` severity, and
+ * it's exposed to downstream consumers (push trigger, mobile UI) via the
+ * JSONB blob.
  */
 interface ApprovalMetadata {
   approval_id: string;
-  action: string;
+  /** The MCP tool action being approved (e.g. `bash`, `edit`). NOT the audit action. */
+  requested_action: string;
   reason: string;
   risk: string;
+  /** CLI machine that requested approval. Was previously a non-existent top-level column. */
+  machine_id: string;
   context?: Record<string, unknown>;
 }
 
@@ -112,21 +139,22 @@ export function createSupabaseApprovalHandler(
 
       // 1. Insert the request audit row. The push trigger configured in
       //    migration 017 fires on inserts to audit_log with the
-      //    'mcp.approval_requested' event_type and delivers a push to the
+      //    'mcp_approval_requested' action and delivers a push to the
       //    user's device tokens.
       const requestMetadata: ApprovalMetadata = {
         approval_id: approvalId,
-        action: input.action,
+        requested_action: input.action,
         reason: input.reason,
         risk: input.risk,
+        machine_id: machineId,
         context: input.context,
       };
 
       const { error: insertError } = await supabase.from('audit_log').insert({
         user_id: userId,
-        machine_id: machineId,
-        event_type: AUDIT_EVENT_REQUESTED,
-        severity: input.risk === 'high' ? 'warning' : 'info',
+        action: AUDIT_ACTION_REQUESTED,
+        resource_type: 'mcp_approval',
+        resource_id: approvalId,
         metadata: requestMetadata,
       });
 
@@ -138,25 +166,27 @@ export function createSupabaseApprovalHandler(
       // WHY poll instead of realtime: see module comment. Phase 4 swaps
       // this for a `supabase.channel(...).on('postgres_changes', ...)`
       // subscription on the dedicated mcp_approvals table.
+      // WHY filter by both action and resource_id: action='mcp_approval_decided'
+      // catches every decision; resource_id pins the specific approval. The
+      // pre-PR code matched on metadata.approval_id post-fetch, which scaled
+      // poorly and was racy on concurrent approvals. Filtering server-side
+      // by resource_id returns at most one row per cycle and is index-friendly.
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
         const { data, error } = await supabase
           .from('audit_log')
           .select('metadata, created_at')
           .eq('user_id', userId)
-          .eq('event_type', AUDIT_EVENT_DECIDED)
+          .eq('action', AUDIT_ACTION_DECIDED)
+          .eq('resource_id', approvalId)
           .order('created_at', { ascending: false })
-          .limit(50);
+          .limit(1);
 
         if (error) {
           throw new Error(`Failed to poll for decision: ${error.message}`);
         }
 
-        const matched = (data ?? []).find((row) => {
-          const meta = row.metadata as DecisionMetadata | null;
-          return meta?.approval_id === approvalId;
-        });
-
+        const matched = data?.[0];
         if (matched) {
           const meta = matched.metadata as DecisionMetadata;
           return {
@@ -169,8 +199,10 @@ export function createSupabaseApprovalHandler(
         await sleep(POLL_INTERVAL_MS);
       }
 
-      // 3. Timeout — record the timeout as a denial in the audit log so
-      //    the trail is complete, then return denied to the agent.
+      // 3. Timeout — record the timeout in audit_log with the dedicated
+      //    'mcp_approval_timeout' action so forensics can distinguish a
+      //    user-issued denial from a no-response timeout. Return denied to
+      //    the agent regardless (fail-closed).
       const timeoutAt = new Date().toISOString();
       const timeoutMetadata: DecisionMetadata = {
         approval_id: approvalId,
@@ -179,10 +211,10 @@ export function createSupabaseApprovalHandler(
       };
       await supabase.from('audit_log').insert({
         user_id: userId,
-        machine_id: machineId,
-        event_type: AUDIT_EVENT_DECIDED,
-        severity: 'info',
-        metadata: timeoutMetadata,
+        action: AUDIT_ACTION_TIMEOUT,
+        resource_type: 'mcp_approval',
+        resource_id: approvalId,
+        metadata: { ...timeoutMetadata, machine_id: machineId },
       });
 
       return {
