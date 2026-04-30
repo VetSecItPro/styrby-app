@@ -343,6 +343,25 @@ export default function RootLayout() {
             headerShown: false,
           }}
         />
+        {/*
+         * MCP approval deep-link route.
+         * Handles: styrby://mcp-approval/<approvalId>
+         *
+         * Routed to from useNotifications when a push payload arrives with
+         * data.screen='mcp_approval' (sent by the audit_log push trigger after
+         * the CLI's `styrby mcp serve` records mcp_approval_requested).
+         *
+         * `presentation: 'modal'` so a foregrounded user keeps their context
+         * underneath; backgrounded users get a normal stack push from the
+         * deep-link handler.
+         */}
+        <Stack.Screen
+          name="mcp-approval/[approvalId]"
+          options={{
+            title: 'Approval requested',
+            presentation: 'modal',
+          }}
+        />
       </Stack>
     </GestureHandlerRootView>
   );

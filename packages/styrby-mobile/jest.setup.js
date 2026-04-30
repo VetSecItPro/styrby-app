@@ -139,6 +139,27 @@ jest.mock('expo-haptics', () => ({
 }));
 
 // ============================================================================
+// expo-local-authentication
+// ============================================================================
+
+/**
+ * Mock of expo-local-authentication for the MCP approval biometric gate.
+ *
+ * WHY default-success: tests that exercise the high-risk approve path expect
+ * the biometric gate to pass; tests for the deny path or low-risk approve
+ * should never invoke the gate. Tests that need to verify failure-path
+ * behaviour override authenticateAsync via jest.spyOn locally.
+ */
+jest.mock('expo-local-authentication', () => ({
+  hasHardwareAsync: jest.fn(async () => true),
+  isEnrolledAsync: jest.fn(async () => true),
+  supportedAuthenticationTypesAsync: jest.fn(async () => [1, 2]),
+  authenticateAsync: jest.fn(async () => ({ success: true })),
+  AuthenticationType: { FINGERPRINT: 1, FACIAL_RECOGNITION: 2, IRIS: 3 },
+  SecurityLevel: { NONE: 0, SECRET: 1, BIOMETRIC_WEAK: 2, BIOMETRIC_STRONG: 3 },
+}));
+
+// ============================================================================
 // expo-camera
 // ============================================================================
 

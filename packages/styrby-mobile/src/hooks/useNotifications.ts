@@ -34,7 +34,18 @@ import {
  * Supported deep-link screen targets for notification-driven navigation.
  * These correspond to the file-system routes in `app/(tabs)/`.
  */
-type NotificationScreen = 'chat' | 'dashboard' | 'sessions' | 'costs' | 'settings';
+type NotificationScreen =
+  | 'chat'
+  | 'dashboard'
+  | 'sessions'
+  | 'costs'
+  | 'settings'
+  // WHY mcp_approval added in Phase 4-step4 / D-02 closure: the CLI's
+  // `styrby mcp serve` records mcp_approval_requested in audit_log; the
+  // push trigger fans out to the user's devices with data.screen='mcp_approval'
+  // and data.approvalId so this hook can deep-link straight to the
+  // /mcp-approval/[approvalId] screen for sub-second decision UX.
+  | 'mcp_approval';
 
 /**
  * Shape of the `data` payload attached to Styrby push notifications.
@@ -52,6 +63,19 @@ interface NotificationData {
    * Not used for routing but available to the screen for display.
    */
   machineId?: string;
+  /**
+   * Approval ID for screen='mcp_approval' deep links. Forwarded as the
+   * route param so /mcp-approval/[approvalId] can fetch the matching
+   * audit_log row.
+   */
+  approvalId?: string;
+  /**
+   * MCP-approval-only flag. When the audit_log push trigger fires for
+   * action='mcp_approval_requested' the payload carries action='mcp_approval'
+   * for compatibility with the legacy notification type union; the
+   * approvalId field above is the load-bearing routing key.
+   */
+  action?: string;
 }
 
 /**
@@ -75,8 +99,10 @@ const NotificationDataSchema = z.object({
     'budget_alert',
     'daemon_reconnected',
   ]).optional(),
-  screen: z.enum(['chat', 'dashboard', 'sessions', 'costs', 'settings']).optional(),
+  screen: z.enum(['chat', 'dashboard', 'sessions', 'costs', 'settings', 'mcp_approval']).optional(),
   sessionId: z.string().optional(),
+  approvalId: z.string().uuid().optional(),
+  action: z.string().optional(),
 }).passthrough();
 
 /** Return type of the useNotifications hook */
@@ -132,8 +158,20 @@ export function useNotifications(): UseNotificationsResult {
    * @returns true if navigation was handled, false otherwise
    */
   const navigateToScreen = useCallback(
-    (screen: NotificationScreen, sessionId?: string): boolean => {
+    (screen: NotificationScreen, sessionId?: string, approvalId?: string): boolean => {
       switch (screen) {
+        case 'mcp_approval':
+          // WHY guard against missing approvalId: a malformed payload (manual
+          // testing, payload truncation) without the UUID has no useful
+          // destination. Falling through to the dashboard is safer than
+          // pushing a route that immediately renders an error.
+          if (!approvalId) return false;
+          router.push({
+            pathname: '/mcp-approval/[approvalId]',
+            params: { approvalId },
+          });
+          return true;
+
         case 'chat':
           if (sessionId) {
             router.push({
@@ -208,8 +246,20 @@ export function useNotifications(): UseNotificationsResult {
 
       // Strategy 1: Explicit screen field (preferred)
       if (data.screen) {
-        const handled = navigateToScreen(data.screen, data.sessionId);
+        const handled = navigateToScreen(data.screen, data.sessionId, data.approvalId);
         if (handled) return;
+      }
+
+      // Strategy 1b: MCP approval action shortcut.
+      // The audit_log push trigger emits data.action='mcp_approval' alongside
+      // the approvalId. Route directly without requiring screen=mcp_approval
+      // so older trigger versions still resolve correctly.
+      if (data.action === 'mcp_approval' && data.approvalId) {
+        router.push({
+          pathname: '/mcp-approval/[approvalId]',
+          params: { approvalId: data.approvalId },
+        });
+        return;
       }
 
       // Strategy 2: Legacy type-based routing (backwards compatibility)
