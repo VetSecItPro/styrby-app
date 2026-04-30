@@ -76,6 +76,19 @@ export interface SessionRow {
   /** Team ID if this is a team session (null for personal sessions, optional if not selected) */
   team_id?: string | null;
   /**
+   * Multi-agent group this session belongs to, or null for solo sessions.
+   *
+   * WHY exposed at the list level (M1.2 D-01 fix, 2026-04-30): Phase 4-step3
+   * (CLI PR #237) wired multiAgentOrchestrator.ts to populate sessions.session_group_id
+   * via PATCH /api/v1/sessions/[id] when sessions are spawned inside `styrby multi`.
+   * The pre-fix mobile list ignored the column entirely, so group affiliation was
+   * invisible in the primary session list — users had to navigate into the
+   * separate group view (useSessionGroup) to see relationships. This field
+   * lets downstream UI (cards, sections, badges) surface group membership
+   * inline.
+   */
+  session_group_id?: string | null;
+  /**
    * ISO 8601 timestamp of the most recent CLI heartbeat for this session.
    * Null if no heartbeat has ever been emitted (pre-heartbeat sessions).
    *
@@ -240,7 +253,7 @@ export function useSessions(): UseSessionsReturn {
           'id, user_id, machine_id, agent_type, status, title, summary, ' +
           'total_input_tokens, total_output_tokens, total_cost_usd, ' +
           'started_at, ended_at, tags, updated_at, message_count, team_id, ' +
-          'last_heartbeat_at',
+          'last_heartbeat_at, session_group_id',
         )
         .is('deleted_at', null)
         .order('updated_at', { ascending: false })
