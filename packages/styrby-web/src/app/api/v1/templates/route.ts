@@ -1,4 +1,23 @@
 /**
+ * /api/v1/templates  —  GET (list) + POST (create)
+ *
+ * GET — list all templates for the authenticated user, ordered by created_at DESC.
+ *   No pagination yet — typical user has < 50 templates so a flat list is fine.
+ *   When that ceases to be true, add ?limit/&offset (same pattern as /sessions).
+ *
+ * GET @returns 200 { templates: TemplateSummary[], count: number }
+ *   where TemplateSummary = { id, name, description, content, variables,
+ *                             is_default, created_at, updated_at }
+ *
+ * GET @error 401 { error }  - Missing or invalid API key
+ * GET @error 429 { error }  - Rate limit exceeded
+ * GET @error 500 { error }  - Unexpected database error (sanitized)
+ *
+ * GET @security OWASP A01:2021 - SELECT bound to user_id from auth context.
+ * GET @security OWASP A07:2021 - auth enforced by withApiAuthAndRateLimit.
+ *
+ * ──────────────────────────────────────────────────────────────────────────
+ *
  * POST /api/v1/templates
  *
  * INSERT into `context_templates`. Creates a new reusable project context
@@ -425,3 +444,56 @@ async function handlePost(request: NextRequest, authContext: ApiAuthContext): Pr
  * from creating template records. SOC 2 CC6.1 (least-privilege access).
  */
 export const POST = withApiAuthAndRateLimit(handlePost, ['write']);
+
+// ===========================================================================
+// GET /api/v1/templates  —  list user's templates
+// ===========================================================================
+
+/**
+ * Shape of a template row returned by the LIST endpoint.
+ *
+ * WHY explicit interface (not z.infer): the GET response intentionally omits
+ * fields that are private to the server (e.g. user_id) and includes the full
+ * content. Codifying it here makes drift from migration 002_context_templates.sql
+ * surface as a TypeScript error rather than a silent runtime mismatch.
+ */
+interface TemplateSummaryRow {
+  id: string;
+  name: string;
+  description: string | null;
+  content: string;
+  variables: unknown;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+async function handleGet(_request: NextRequest, authContext: ApiAuthContext): Promise<NextResponse> {
+  const { userId } = authContext;
+  const supabase = createAdminClient();
+
+  // WHY: order by is_default first (default templates surface at the top of
+  // the CLI's list view) then by recency. Matches the mobile picker UX.
+  const { data: rows, error } = await supabase
+    .from('context_templates')
+    .select('id, name, description, content, variables, is_default, created_at, updated_at')
+    .eq('user_id', userId)
+    .order('is_default', { ascending: false })
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    Sentry.captureException(new Error(`context_templates list error: ${error.message}`), {
+      extra: { route: ROUTE_ID },
+    });
+    return NextResponse.json({ error: 'Failed to list templates' }, { status: 500 });
+  }
+
+  const templates = (rows ?? []) as TemplateSummaryRow[];
+  // WHY no-store: per-user data; never serve from a shared cache.
+  return NextResponse.json(
+    { templates, count: templates.length },
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
+}
+
+export const GET = withApiAuthAndRateLimit(handleGet, ['read']);

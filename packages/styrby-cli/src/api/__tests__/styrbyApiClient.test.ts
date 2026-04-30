@@ -315,6 +315,102 @@ describe('StyrbyApiClient', () => {
     });
   });
 
+  describe('registerMachine', () => {
+    it('returns isNew=true on 201, false on 200', async () => {
+      const { fetch: fakeFetch } = makeFetch([
+        { status: 201, body: { machine_id: 'm1', name: 'mac', is_new: true, created_at: 't' } },
+      ]);
+      const c1 = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      const r1 = await c1.registerMachine({ machine_fingerprint: '0123456789abcdef', name: 'mac' });
+      expect(r1.isNew).toBe(true);
+      expect(r1.is_new).toBe(true);
+      expect(r1.machine_id).toBe('m1');
+
+      const { fetch: fakeFetch2 } = makeFetch([
+        { status: 200, body: { machine_id: 'm1', name: 'mac', is_new: false, created_at: 't' } },
+      ]);
+      const c2 = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch2 });
+      const r2 = await c2.registerMachine({ machine_fingerprint: '0123456789abcdef', name: 'mac' });
+      expect(r2.isNew).toBe(false);
+      expect(r2.is_new).toBe(false);
+    });
+
+    it('forwards Idempotency-Key when supplied', async () => {
+      const { fetch: fakeFetch, calls } = makeFetch([
+        { status: 201, body: { machine_id: 'm1', name: 'mac', is_new: true, created_at: 't' } },
+      ]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      await c.registerMachine(
+        { machine_fingerprint: '0123456789abcdef', name: 'mac' },
+        { idempotencyKey: 'reg-1' },
+      );
+      const headers = calls[0].init.headers as Headers;
+      expect(headers.get('Idempotency-Key')).toBe('reg-1');
+    });
+
+    it('does NOT retry POST without Idempotency-Key (preserves singular registration)', async () => {
+      const { fetch: fakeFetch, calls } = makeFetch([{ status: 503, body: { error: 'transient' } }]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch, maxAttempts: 3 });
+      await expect(
+        c.registerMachine({ machine_fingerprint: '0123456789abcdef', name: 'mac' }),
+      ).rejects.toBeInstanceOf(StyrbyApiError);
+      expect(calls).toHaveLength(1);
+    });
+  });
+
+  describe('createSessionGroup', () => {
+    it('posts to /api/v1/sessions/groups with optional name', async () => {
+      const { fetch: fakeFetch, calls } = makeFetch([
+        { status: 201, body: { group_id: 'g1', name: 'My Group', created_at: 't' } },
+      ]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      const r = await c.createSessionGroup({ name: 'My Group' });
+      expect(r.group_id).toBe('g1');
+      expect(calls[0].url).toContain('/api/v1/sessions/groups');
+      expect(calls[0].init.method).toBe('POST');
+      expect(JSON.parse(calls[0].init.body as string)).toEqual({ name: 'My Group' });
+    });
+
+    it('accepts an empty input (server defaults name to empty string)', async () => {
+      const { fetch: fakeFetch, calls } = makeFetch([
+        { status: 201, body: { group_id: 'g1', name: '', created_at: 't' } },
+      ]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      const r = await c.createSessionGroup();
+      expect(r.name).toBe('');
+      expect(JSON.parse(calls[0].init.body as string)).toEqual({});
+    });
+  });
+
+  describe('listTemplates', () => {
+    it('returns the templates array and count', async () => {
+      const { fetch: fakeFetch } = makeFetch([
+        {
+          status: 200,
+          body: {
+            templates: [
+              {
+                id: 't1',
+                name: 'Default',
+                description: null,
+                content: 'hello {{var}}',
+                variables: [],
+                is_default: true,
+                created_at: 't',
+                updated_at: 't',
+              },
+            ],
+            count: 1,
+          },
+        },
+      ]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      const r = await c.listTemplates();
+      expect(r.count).toBe(1);
+      expect(r.templates[0].is_default).toBe(true);
+    });
+  });
+
   describe('deleteSessionCheckpoint', () => {
     it('throws synchronously when neither name nor checkpointId is provided', async () => {
       const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: makeFetch([]).fetch });
