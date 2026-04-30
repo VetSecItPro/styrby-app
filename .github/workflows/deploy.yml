@@ -1,0 +1,263 @@
+# Bundle 3 (2026-04-30) — Vercel pre-built deployment driven from GitHub Actions.
+#
+# WHY: Today every PR triggers a Vercel preview build (~3-4 min @ ~$0.20/min)
+# and every merge to main triggers a production build. Across the team this
+# burned ~$168/day in build minutes. Bundles 0-2 cut Vercel rebuilds for
+# non-deployable PRs and added Turbo cache for the rebuilds that remain.
+# Bundle 3 closes the loop: CI builds the .vercel/output artifact (using the
+# Turbo cache populated by Bundle 2) and deploys it via `vercel deploy
+# --prebuilt`. Vercel itself runs zero build steps — it only receives an
+# already-compiled output and serves it.
+#
+# KILL-SWITCH: This workflow's deploy jobs only run when the repo variable
+# VERCEL_PREBUILT_ENABLED == 'true'. Until then the workflow is a no-op,
+# leaving Vercel's git auto-deploy as the source of truth (status quo).
+# This lets the PR ship safely; activation is a separate, reversible toggle.
+#
+# ACTIVATION SEQUENCE (do in this order):
+#   1. Merge this PR.
+#   2. In the Vercel dashboard: styrby-web project → Settings → Git →
+#      "Production Branch" set to none, OR Settings → Git → "Ignored Build
+#      Step" → "Don't build anything". This stops Vercel's git auto-deploys.
+#   3. In GitHub: Settings → Secrets and variables → Actions → Variables →
+#      add VERCEL_PREBUILT_ENABLED = "true".
+#   4. Open a small PR. Verify this workflow runs and posts a preview URL.
+#   5. Merge to main. Verify production deploy fires from this workflow.
+#
+# ROLLBACK: Set VERCEL_PREBUILT_ENABLED back to "false" (or unset) and
+# re-enable Vercel's git auto-deploy in dashboard. No code change needed.
+
+name: Deploy (Vercel pre-built)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Allow manual trigger for first-time validation or recovery.
+  workflow_dispatch:
+
+# Cancel superseded runs on the same branch.
+concurrency:
+  group: deploy-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  # Bundle 2 (Turbo) — share build cache between this workflow and the
+  # main CI workflow so `vercel build` hits cache for unchanged @styrby/shared
+  # and incremental Next.js compiles.
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+  TURBO_TELEMETRY_DISABLED: '1'
+  VERCEL_TELEMETRY_DISABLED: '1'
+
+permissions:
+  contents: read
+  # Required to post preview-URL comment on PRs.
+  pull-requests: write
+
+jobs:
+  # ─── Path-change detection (mirror of ci.yml) ────────────────────────────
+  # Same logic as ci.yml's `changes` job: only deploy when packages/styrby-web,
+  # packages/styrby-shared, lockfile, workspace config, root package.json,
+  # vercel.json, or this workflow itself changed. CLI-only or mobile-only
+  # PRs skip Vercel entirely (those packages aren't deployed by Vercel).
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    # Top-level kill-switch: until VERCEL_PREBUILT_ENABLED is set to "true",
+    # this whole workflow short-circuits. Vercel's git auto-deploy remains
+    # the source of truth.
+    if: vars.VERCEL_PREBUILT_ENABLED == 'true'
+    outputs:
+      should-deploy: ${{ steps.filter.outputs.should-deploy }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute file scope
+        id: filter
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # For push to main, deploy unconditionally — production.
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "Push to main → unconditional production deploy."
+            echo "should-deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # For workflow_dispatch, deploy unconditionally — manual trigger.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual dispatch → unconditional deploy."
+            echo "should-deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # For pull_request, check if any deployable file changed.
+          if [ -z "$PR_BASE" ] || [ -z "$PR_HEAD" ]; then
+            echo "Missing PR SHAs; defaulting to deploy=true."
+            echo "should-deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only "$PR_BASE" "$PR_HEAD" || echo "")
+          echo "Changed files:"
+          echo "$CHANGED" | sed 's/^/  /'
+
+          # Match the same paths Bundle 0's vercel.json ignoreCommand checks.
+          if echo "$CHANGED" | grep -qE '^(packages/styrby-web/|packages/styrby-shared/|pnpm-lock\.yaml|pnpm-workspace\.yaml|package\.json|packages/styrby-web/vercel\.json|\.github/workflows/deploy\.yml)'; then
+            echo "should-deploy=true" >> "$GITHUB_OUTPUT"
+            echo "→ Will deploy."
+          else
+            echo "should-deploy=false" >> "$GITHUB_OUTPUT"
+            echo "→ Skipping (no styrby-web/styrby-shared/lockfile/etc changes)."
+          fi
+
+  # ─── Preview deploy (PRs) ────────────────────────────────────────────────
+  deploy-preview:
+    name: Deploy Preview
+    runs-on: ubuntu-latest
+    needs: changes
+    if: |
+      github.event_name == 'pull_request' &&
+      needs.changes.outputs.should-deploy == 'true'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Pull the project's Vercel env vars + project metadata into
+      # packages/styrby-web/.vercel/. After this, `vercel build` and
+      # `vercel deploy` know which project they're targeting and which env
+      # vars to inject at build time. WHY --environment=preview: PR
+      # deployments use Preview env vars (placeholder Supabase, etc).
+      - name: Pull Vercel env (preview)
+        working-directory: packages/styrby-web
+        run: npx vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+
+      # Build into .vercel/output. This invokes the buildCommand from
+      # vercel.json (which is now `pnpm turbo run build --filter=styrby-web`),
+      # so Turbo cache hits speed up the inner Next.js build.
+      - name: Build (vercel build)
+        working-directory: packages/styrby-web
+        run: npx vercel build --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy preview
+        id: deploy
+        working-directory: packages/styrby-web
+        run: |
+          # Capture the deployment URL stdout while letting any actual error
+          # output flow to stderr.
+          URL=$(npx vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
+          echo "Deployed: $URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      # Post a one-line preview URL comment so reviewers don't have to dig
+      # through Actions logs to find it.
+      - name: Comment preview URL on PR
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        with:
+          script: |
+            const url = '${{ steps.deploy.outputs.url }}';
+            const marker = '<!-- vercel-preview-url -->';
+            const body = `${marker}\n🔗 **Preview deploy ready:** ${url}\n\nPre-built and deployed via GitHub Actions (Bundle 3). Build minutes saved on Vercel: 100% — Vercel only served the artifact, no build ran.`;
+
+            // Try to update an existing comment; otherwise create a new one.
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  # ─── Production deploy (push to main) ────────────────────────────────────
+  deploy-production:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+    needs: changes
+    if: |
+      github.event_name == 'push' &&
+      needs.changes.outputs.should-deploy == 'true'
+    # Production env may be slower to settle; 10 min is generous.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Pull Vercel env (production)
+        working-directory: packages/styrby-web
+        run: npx vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      # WHY --prod: production builds use NODE_ENV=production and
+      # production env vars. Without --prod, vercel build would do a
+      # preview-style compile.
+      - name: Build (vercel build --prod)
+        working-directory: packages/styrby-web
+        run: npx vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy production
+        id: deploy
+        working-directory: packages/styrby-web
+        run: |
+          URL=$(npx vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
+          echo "Deployed: $URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "## 🚀 Production deploy" >> "$GITHUB_STEP_SUMMARY"
+          echo "URL: $URL" >> "$GITHUB_STEP_SUMMARY"
+
+      # Lightweight smoke test: ensure the production URL responds 200 OK
+      # before declaring the deploy successful. Catches edge-runtime config
+      # errors, missing env vars, etc.
+      - name: Smoke test deployment
+        run: |
+          URL='${{ steps.deploy.outputs.url }}'
+          # vercel deploy outputs a deployment URL; the project's primary
+          # domain (styrbyapp.com) is updated server-side a few seconds
+          # later. Probe the deployment URL directly to verify it serves.
+          for i in $(seq 1 10); do
+            STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$URL" || echo "000")
+            if [ "$STATUS" = "200" ] || [ "$STATUS" = "301" ] || [ "$STATUS" = "302" ]; then
+              echo "✅ $URL responded $STATUS"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $STATUS — retrying in 5s"
+            sleep 5
+          done
+          echo "::error::Deployment URL did not return a successful status after 10 attempts."
+          exit 1
