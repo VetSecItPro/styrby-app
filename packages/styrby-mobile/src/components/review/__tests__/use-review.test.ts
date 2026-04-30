@@ -23,7 +23,7 @@ jest.mock('@/lib/supabase', () => ({
   },
 }));
 
-const mockSendMessage = jest.fn<Promise<void>, any[]>(async () => {});
+const mockSendMessage = jest.fn<Promise<void>, unknown[]>(async () => {});
 jest.mock('@/hooks/useRelay', () => ({
   useRelay: () => ({ sendMessage: mockSendMessage }),
 }));

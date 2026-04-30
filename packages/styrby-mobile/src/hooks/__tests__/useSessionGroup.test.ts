@@ -115,7 +115,6 @@ function buildChain(result: { data?: unknown; error?: unknown }) {
 }
 
 function setupSupabaseMock() {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const mod = require('../../lib/supabase');
   const mockFrom = mod.supabase.from as jest.Mock;
   mockFrom.mockImplementation(() => {
@@ -216,7 +215,6 @@ describe('useSessionGroup', () => {
     queryQueue.push({ data: MOCK_GROUP, error: null });
     queryQueue.push({ data: MOCK_SESSIONS, error: null });
 
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const mod = require('../../lib/supabase');
     const channelSpy = mod.supabase.channel as jest.Mock;
 

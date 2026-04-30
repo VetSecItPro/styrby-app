@@ -99,7 +99,7 @@ describe('Login screen — passkey support', () => {
     expect(hasText(tree!.toJSON(), 'Continue with Passkey')).toBe(true);
   });
 
-  it('renders GitHub and email options alongside passkey', () => {
+  it('renders Google, GitHub, and email options alongside passkey', () => {
     let tree: renderer.ReactTestRenderer;
     renderer.act(() => {
       tree = renderer.create(<LoginScreen />);
@@ -107,6 +107,12 @@ describe('Login screen — passkey support', () => {
 
     const texts = collectText(tree!.toJSON());
     expect(texts.some((t) => t.includes('Passkey'))).toBe(true);
+    // WHY Google added (M1.1, 2026-04-30): PR #144 introduced Google SSO on
+    // the login screen but didn't extend this coverage assertion. Snapshot
+    // drift (regenerated below) caught the rendering, but the explicit text
+    // check stays as a regression guard against the button being removed
+    // without a deliberate decision.
+    expect(texts.some((t) => t.includes('Google'))).toBe(true);
     expect(texts.some((t) => t.includes('GitHub'))).toBe(true);
     expect(texts.some((t) => t.includes('Magic Link') || t.includes('Send Magic Link'))).toBe(true);
   });

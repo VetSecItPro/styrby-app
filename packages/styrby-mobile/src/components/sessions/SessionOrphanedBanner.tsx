@@ -39,7 +39,7 @@
  * @module components/sessions/SessionOrphanedBanner
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
 import { supabase } from '../../lib/supabase';
 import type { SessionStatus } from 'styrby-shared';

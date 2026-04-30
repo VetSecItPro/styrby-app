@@ -17,8 +17,6 @@ type StubSessionRow = { id: string; started_at: string };
 const asSessions = (s: StubSessionRow[]) =>
   s as unknown as Parameters<typeof groupSessionsByDate>[0];
 
-const ONE_DAY_MS = 86_400_000;
-
 describe('formatSectionDate', () => {
   beforeEach(() => {
     // Lock "now" so "Today"/"Yesterday" assertions are deterministic.

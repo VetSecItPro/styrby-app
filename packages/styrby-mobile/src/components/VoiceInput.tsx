@@ -40,7 +40,7 @@
  * @module components/VoiceInput
  */
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -154,7 +154,9 @@ type RecordingState = 'idle' | 'recording' | 'transcribing' | 'confirming' | 'er
  */
 export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInputProps) {
   const [state, setState] = useState<RecordingState>('idle');
-  const [transcript, setTranscript] = useState('');
+  // WHY only editedTranscript: the raw transcript is rendered into the
+  // editable TextInput via setEditedTranscript; we never read the unedited
+  // value back, so storing it separately would just trigger extra renders.
   const [editedTranscript, setEditedTranscript] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -164,6 +166,17 @@ export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInpu
   // importing the class at module level (dynamic import keeps bundle lean).
   const recordingRef = useRef<unknown>(null);
   const autoStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // WHY this ref (M1.1, 2026-04-30): the auto-stop setTimeout in
+  // startRecording needs to call the latest stopRecording, but stopRecording
+  // is declared further down (so it can't be in startRecording's deps array
+  // without a TDZ error). We assign this ref's .current at the bottom of the
+  // hook chain (after both startRecording + stopRecording exist) so the
+  // timer always sees the freshest implementation.
+  const stopRecordingRef = useRef<(() => Promise<void>) | null>(null);
+  // Same TDZ avoidance for transcribeAudio (declared after stopRecording).
+  // stopRecording calls transcribeAudio inside its async body; the ref lets
+  // each invocation reach the latest version without a circular dep.
+  const transcribeAudioRef = useRef<((uri: string) => Promise<void>) | null>(null);
 
   // WHY: Use a ref initializer function instead of inline `new Animated.Value(1)`
   // to avoid crashing in test environments where Animated.Value may not be
@@ -278,14 +291,22 @@ export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInpu
       startPulse();
 
       // WHY: Auto-stop after MAX_RECORDING_MS to prevent runaway recordings.
+      // Uses stopRecordingRef so the timer always invokes the latest
+      // stopRecording (see ref initialisation below the stopRecording decl).
       autoStopTimerRef.current = setTimeout(() => {
-        void stopRecording();
+        void stopRecordingRef.current?.();
       }, MAX_RECORDING_MS);
     } catch (err) {
       setState('error');
       setErrorMessage('Could not start recording. Check microphone permissions.');
       if (__DEV__) console.error('[VoiceInput] startRecording error:', err);
     }
+    // WHY stopRecordingRef.current() (M1.1 fix, 2026-04-30): we need to
+    // invoke the latest stopRecording from inside this auto-stop timer,
+    // but stopRecording is declared further down the file and adding it
+    // to this deps array would be a TDZ reference error. The ref pattern
+    // (initialised below where stopRecording exists) lets the timer always
+    // hit the most recent stopRecording without a circular dep.
   }, [disabled, config, startPulse]);
 
   /**
@@ -308,8 +329,10 @@ export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInpu
     try {
       // WHY: AudioRecorder.stop() is the expo-audio replacement for
       // expo-av's stopAndUnloadAsync(). The uri property replaces getURI().
-      const { AudioRecorder } = await import('expo-audio');
-      const recorder = recordingRef.current as InstanceType<typeof AudioRecorder>;
+      // We import the class type from expo-audio (no runtime import needed —
+      // the recorder instance was already created in startRecording).
+      type AudioRecorderInstance = import('expo-audio').AudioRecorder;
+      const recorder = recordingRef.current as AudioRecorderInstance;
       await recorder.stop();
       const uri = recorder.uri;
       recordingRef.current = null;
@@ -320,7 +343,11 @@ export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInpu
         return;
       }
 
-      await transcribeAudio(uri);
+      // WHY transcribeAudioRef.current (M1.1, 2026-04-30): transcribeAudio
+      // is declared further down the file; adding it to deps directly would
+      // be a TDZ reference error. The ref pattern keeps the call always
+      // pointing at the freshest implementation without a circular dep.
+      await transcribeAudioRef.current?.(uri);
     } catch (err) {
       setState('error');
       setErrorMessage('Recording stopped unexpectedly.');
@@ -383,7 +410,6 @@ export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInpu
         return;
       }
 
-      setTranscript(trimmed);
       setEditedTranscript(trimmed);
       setState('confirming');
       setShowConfirmModal(true);
@@ -394,6 +420,18 @@ export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInpu
       if (__DEV__) console.error('[VoiceInput] transcribeAudio error:', err);
     }
   }, [config]);
+
+  // Keep the forward-reference refs in sync with the latest function values.
+  // WHY (M1.1, 2026-04-30): startRecording's auto-stop timer and
+  // stopRecording's transcribe call need to invoke the freshest copies of
+  // stopRecording / transcribeAudio respectively, but those callbacks are
+  // declared after their callers in the file (and across-callback deps would
+  // be TDZ errors). This effect runs every render so the .current always
+  // points at the latest memoised value.
+  useEffect(() => {
+    stopRecordingRef.current = stopRecording;
+    transcribeAudioRef.current = transcribeAudio;
+  });
 
   // --------------------------------------------------------------------------
   // Confirmation Modal Actions
@@ -410,7 +448,6 @@ export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInpu
     }
     setShowConfirmModal(false);
     setState('idle');
-    setTranscript('');
     setEditedTranscript('');
   }, [editedTranscript, onTranscript]);
 
@@ -420,7 +457,6 @@ export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInpu
   const handleDiscard = useCallback(() => {
     setShowConfirmModal(false);
     setState('idle');
-    setTranscript('');
     setEditedTranscript('');
   }, []);
 

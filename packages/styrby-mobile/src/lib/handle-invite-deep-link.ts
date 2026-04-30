@@ -188,7 +188,6 @@ export async function acceptInvitationFromToken(
    * imported (before per-test env overrides take effect). Reading it lazily
    * here ensures each test gets the env value it set.
    */
-  // eslint-disable-next-line prefer-destructuring
   const appUrl = process.env['EXPO_PUBLIC_APP_URL'] ?? 'https://styrbyapp.com';
   const endpoint = `${appUrl}/api/invitations/accept`;
 

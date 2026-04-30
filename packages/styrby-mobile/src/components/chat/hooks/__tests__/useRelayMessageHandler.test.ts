@@ -19,15 +19,15 @@ jest.mock('@/lib/supabase', () => ({
   supabase: { auth: { getUser: jest.fn() }, from: jest.fn() },
 }));
 
-const mockDecryptMessage = jest.fn<Promise<any>, any[]>(async () => 'decrypted-content');
+const mockDecryptMessage = jest.fn<Promise<string>, unknown[]>(async () => 'decrypted-content');
 jest.mock('@/services/encryption', () => ({
   decryptMessage: (...args: unknown[]) => mockDecryptMessage(...args),
 }));
 
-const mockSaveMessageToDb = jest.fn<Promise<any>, any[]>(async () => {});
+const mockSaveMessageToDb = jest.fn<Promise<void>, unknown[]>(async () => {});
 jest.mock('../../chat-session', () => ({
   saveMessageToDb: (...args: unknown[]) => mockSaveMessageToDb(...args),
-  createSession: jest.fn<Promise<any>, any[]>(async () => null),
+  createSession: jest.fn<unknown, unknown[]>(async () => null),
 }));
 
 jest.mock('../../agent-config', () => ({

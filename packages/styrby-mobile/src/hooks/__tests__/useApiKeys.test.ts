@@ -57,7 +57,7 @@ function mockAuthed(token = 'test-token') {
 }
 
 function mockFetch(status: number, body: unknown) {
-  global.fetch = jest.fn<Promise<any>, any[]>(async () => ({
+  global.fetch = jest.fn<unknown, unknown[]>(async () => ({
     ok: status >= 200 && status < 300,
     status,
     json: async () => body,
@@ -84,7 +84,7 @@ describe('useApiKeys', () => {
   it('starts with isLoading true and empty keys', () => {
     mockAuthed();
     // Never-resolving fetch to capture loading state
-    global.fetch = jest.fn<any, any[]>(() => new Promise(() => {})) as jest.Mock;
+    global.fetch = jest.fn<unknown, unknown[]>(() => new Promise(() => {})) as jest.Mock;
     // Prevent getSession from completing by making it hang too
     mockGetSession.mockReturnValue(new Promise(() => {}));
 

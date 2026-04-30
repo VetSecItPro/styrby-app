@@ -63,7 +63,11 @@ jest.mock('react-native', () => ({
 // Imports (after mocks)
 // ============================================================================
 
-import { useQuarantine } from '../useQuarantine';
+// NOTE: This suite intentionally does not import the useQuarantine hook
+// itself — testEnvironment='node' precludes rendering, so we exercise the
+// underlying mocked io helpers (getStats / getFailedItems / etc.) and
+// validate the behavioural contract that the hook enforces. A future pass
+// should add a render-environment suite that actually drives the hook.
 import type { QueuedCommand } from 'styrby-shared';
 
 // ============================================================================
