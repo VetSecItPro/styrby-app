@@ -26,6 +26,11 @@
 #
 # ROLLBACK: Set VERCEL_PREBUILT_ENABLED back to "false" (or unset) and
 # re-enable Vercel's git auto-deploy in dashboard. No code change needed.
+#
+# VERIFICATION 2026-04-30: After PR #231 (TURBO_FORCE=1 fix) and the
+# kill-switch flip back on, this PR re-validates the prebuilt deploy path
+# end-to-end. If the Deploy Preview job below produces a working preview
+# URL, the original Bundle 3 incident is fully closed.
 
 name: Deploy (Vercel pre-built)
 
