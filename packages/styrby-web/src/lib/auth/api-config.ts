@@ -61,6 +61,16 @@ export const OTP_SEND_RATE_LIMIT = { windowMs: 60_000, maxRequests: 3 };
  */
 export const OTP_VERIFY_RATE_LIMIT = { windowMs: 60_000, maxRequests: 10 };
 
+/**
+ * Rate limit for /api/v1/auth/exchange (Supabase JWT → styrby_* key).
+ *
+ * WHY 10/min/IP: exchange should fire ONCE per onboarding (not per user
+ * action). 10/min covers retry-after-network-blip without enabling brute-force
+ * JWT testing. Mirrors OTP_VERIFY's cap since both consume an existing trust
+ * artefact (a Supabase JWT in this case) to mint a key.
+ */
+export const AUTH_EXCHANGE_RATE_LIMIT = { windowMs: 60_000, maxRequests: 10 };
+
 // ============================================================================
 // Key TTL
 // ============================================================================

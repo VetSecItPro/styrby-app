@@ -511,6 +511,45 @@ describe('StyrbyApiClient', () => {
     });
   });
 
+  describe('exchangeSupabaseJwt', () => {
+    it('POSTs to /api/v1/auth/exchange with Bearer Supabase JWT and returns mint result', async () => {
+      const { fetch: fakeFetch, calls } = makeFetch([
+        { status: 200, body: { styrby_api_key: 'styrby_minted_xyz', expires_at: '2027-04-30T00:00:00Z', user_id: 'u-1' } },
+      ]);
+      const c = new StyrbyApiClient({ fetchImpl: fakeFetch });
+      const r = await c.exchangeSupabaseJwt('eyJ.fake.supabase.jwt');
+      expect(r.styrby_api_key).toBe('styrby_minted_xyz');
+      expect(r.user_id).toBe('u-1');
+      expect(calls[0].url).toContain('/api/v1/auth/exchange');
+      expect(calls[0].init.method).toBe('POST');
+      const headers = calls[0].init.headers as Headers;
+      expect(headers.get('Authorization')).toBe('Bearer eyJ.fake.supabase.jwt');
+    });
+
+    it('surfaces 401 AUTH_FAILED as StyrbyApiError', async () => {
+      const { fetch: fakeFetch } = makeFetch([{ status: 401, body: { error: 'AUTH_FAILED' } }]);
+      const c = new StyrbyApiClient({ fetchImpl: fakeFetch });
+      const err = await c.exchangeSupabaseJwt('expired-jwt').catch((e) => e);
+      expect(err).toBeInstanceOf(StyrbyApiError);
+      expect(err.status).toBe(401);
+      expect(err.code).toBe('AUTH_FAILED');
+    });
+
+    it('does NOT attach a styrby_* Bearer header when one is configured (only Supabase JWT)', async () => {
+      // Even if a previously-minted styrby_* key exists in this client, the
+      // exchange endpoint expects the SUPABASE JWT — we must not overwrite it.
+      const { fetch: fakeFetch, calls } = makeFetch([
+        { status: 200, body: { styrby_api_key: 'styrby_new', expires_at: 't', user_id: 'u' } },
+      ]);
+      const c = new StyrbyApiClient({ apiKey: 'styrby_old', fetchImpl: fakeFetch });
+      await c.exchangeSupabaseJwt('supabase-jwt');
+      const headers = calls[0].init.headers as Headers;
+      expect(headers.get('Authorization')).toBe('Bearer supabase-jwt');
+      // Sanity: the client's own styrby_* key was NOT used as Bearer here.
+      expect(headers.get('Authorization')).not.toContain('styrby_old');
+    });
+  });
+
   describe('deleteSessionCheckpoint', () => {
     it('throws synchronously when neither name nor checkpointId is provided', async () => {
       const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: makeFetch([]).fetch });

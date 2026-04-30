@@ -549,6 +549,60 @@ export class StyrbyApiClient {
     });
   }
 
+  /**
+   * Exchange a valid Supabase Auth access token for a fresh `styrby_*` API key.
+   *
+   * Bridge endpoint introduced in H41 Phase 5: lets the existing CLI auth
+   * bootstrap (which mints a Supabase JWT via `supabase.auth.signInWithOtp` /
+   * `signInWithOAuth`) acquire a styrby_* key for use with /api/v1/* without
+   * having to re-prompt the user. The Supabase JWT remains valid for Realtime
+   * subscriptions until Phase 5b replaces that surface.
+   *
+   * The Supabase JWT is sent in the Authorization header (Bearer <jwt>); the
+   * server validates it via `supabase.auth.getUser(jwt)` and mints a key
+   * scoped to that user.
+   *
+   * WHY not retryable: minting is server-side idempotent in the sense that it
+   * doesn't conflict on repeat (each call inserts a fresh row), but a retry
+   * after a 5xx that succeeded would mint a SECOND key — wasteful and
+   * confusing in the user's key list. Caller treats failures as terminal.
+   */
+  async exchangeSupabaseJwt(supabaseAccessToken: string): Promise<AuthCredentialResponse & { user_id: string }> {
+    // The exchange endpoint is unauthenticated wrt our styrby_* key (caller
+    // doesn't have one yet), but it DOES require the Supabase JWT in the
+    // Authorization header. We fall outside the standard request() helper's
+    // header builder because that helper attaches `Bearer <styrby_*>` instead.
+    const url = this.buildUrl('/api/v1/auth/exchange');
+    const headers = new Headers();
+    headers.set('Accept', 'application/json');
+    headers.set('Authorization', `Bearer ${supabaseAccessToken}`);
+
+    const response = await this.fetchWithTimeout(url, {
+      method: 'POST',
+      headers,
+    });
+
+    if (!response.ok) {
+      const body = await this.safeReadJson(response);
+      this.breadcrumb(
+        { method: 'POST', path: '/api/v1/auth/exchange', retryable: false, unauthenticated: true },
+        response.status,
+        1,
+        'error',
+      );
+      throw this.errorFromResponse(response.status, body);
+    }
+
+    const body = (await this.safeReadJson(response)) as AuthCredentialResponse & { user_id: string };
+    this.breadcrumb(
+      { method: 'POST', path: '/api/v1/auth/exchange', retryable: false, unauthenticated: true },
+      response.status,
+      1,
+      'ok',
+    );
+    return body;
+  }
+
   // -------------------------------------------------------------------------
   // Account
   // -------------------------------------------------------------------------

@@ -617,11 +617,50 @@ export async function runOnboard(options: OnboardOptions = {}): Promise<OnboardR
   console.log(chalk.bold('\n  [3/6] Authentication complete!'));
   console.log(`        Welcome, ${authData.userEmail}`);
 
+  // WHY also mint a styrby_* API key (H41 Phase 5):
+  // The CLI's Supabase JWT (authData.accessToken) authenticates Realtime
+  // subscriptions via supabase-js. Strategy C requires every /api/v1/* call
+  // to use a per-user styrby_* key instead of the Supabase JWT. We exchange
+  // the JWT here — single-shot, server-side validated — and persist both
+  // credentials. Subsequent Phase 4 callsite swaps consume styrbyApiKey via
+  // the typed StyrbyApiClient. The Supabase JWT remains the auth surface for
+  // Realtime until Phase 5b replaces that.
+  //
+  // WHY non-fatal: an exchange failure here doesn't break onboarding —
+  // pre-Phase-4, every CLI codepath still uses the Supabase JWT. The styrby
+  // key is purely additive; we surface a warning + Sentry breadcrumb but let
+  // the user keep onboarding. Phase 4 swaps will start failing if the key
+  // is missing; we'll harden this gate then.
+  let mintedStyrbyKey: { styrbyApiKey?: string; expiresAt?: string } = {};
+  try {
+    const { StyrbyApiClient } = await import('@/api/styrbyApiClient');
+    const client = new StyrbyApiClient();
+    const exchanged = await client.exchangeSupabaseJwt(authData.accessToken);
+    mintedStyrbyKey = {
+      styrbyApiKey: exchanged.styrby_api_key,
+      expiresAt: exchanged.expires_at,
+    };
+    logger.debug('Minted styrby_* key', {
+      // WHY only the key prefix in logs: GDPR Art 5(1)(c) data minimisation.
+      // The first 11 chars are public (styrby_xxxx_) per generateApiKey().
+      keyPrefix: exchanged.styrby_api_key.slice(0, 11) + '…',
+    });
+  } catch (exchangeErr) {
+    logger.debug('styrby_* key exchange failed (non-fatal pre-Phase-4)', {
+      error: exchangeErr instanceof Error ? exchangeErr.message : 'unknown',
+    });
+  }
+
   savePersistedData({
     userId: authData.userId,
     accessToken: authData.accessToken,
     refreshToken: authData.refreshToken,
     authenticatedAt: new Date().toISOString(),
+    // WHY undefined-safe: if the exchange failed, we leave styrbyApiKey unset.
+    // savePersistedData merges with existing data, so an undefined value here
+    // does NOT clobber a previously-stored key.
+    ...(mintedStyrbyKey.styrbyApiKey ? { styrbyApiKey: mintedStyrbyKey.styrbyApiKey } : {}),
+    ...(mintedStyrbyKey.expiresAt ? { styrbyKeyExpiresAt: mintedStyrbyKey.expiresAt } : {}),
   });
 
   setConfigValue('userId', authData.userId);

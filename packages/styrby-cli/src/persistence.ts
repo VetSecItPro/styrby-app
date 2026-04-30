@@ -56,14 +56,39 @@ function validateSessionId(sessionId: string): boolean {
 
 /**
  * Persisted data structure for authentication and machine info.
+ *
+ * Two auth credential paradigms coexist on disk during the H41 transition:
+ *
+ *   - `accessToken` / `refreshToken`: legacy Supabase JWT pair (pre-Strategy-C).
+ *     Kept here so existing data.json files don't need migration; readers that
+ *     still depend on Supabase Auth (auth/token-manager.ts) honour them.
+ *
+ *   - `styrbyApiKey` / `styrbyKeyExpiresAt`: per-user `styrby_*` key minted by
+ *     /api/v1/auth/otp/verify or /oauth/callback. The CLI's typed apiClient
+ *     uses this for every /api/v1/* call. End-state: this is the only auth
+ *     credential on disk; the Supabase JWT pair will be deleted during the
+ *     CLI's next clear-and-onboard cycle once Phase 4 lands.
+ *
+ * Reading either field is safe — both are optional. Onboarding paths post-Phase-5
+ * mint and persist the styrby key; callers swapping to apiClient should prefer it.
  */
 export interface PersistedData {
-  /** User ID from Supabase auth */
+  /** User ID — same UUID space whether minted by Supabase Auth or /api/v1/auth/*. */
   userId?: string;
-  /** Access token for Supabase */
+  /** Legacy Supabase access token. Will be cleared on next re-onboard post-Phase-5. */
   accessToken?: string;
-  /** Refresh token for Supabase */
+  /** Legacy Supabase refresh token. Will be cleared on next re-onboard post-Phase-5. */
   refreshToken?: string;
+  /**
+   * Per-user `styrby_*` API key minted by /api/v1/auth/*.
+   * WHY 0o600 file mode (set in savePersistedData below): plaintext key on disk
+   * matches the CLI's threat model — same security posture as the prior
+   * Supabase JWT. Mobile + web use platform secure storage; CLI relies on
+   * file permissions + user-only readable home directory.
+   */
+  styrbyApiKey?: string;
+  /** ISO 8601 expiry for the styrby_* key. CLI re-onboards when this approaches. */
+  styrbyKeyExpiresAt?: string;
   /** Unique machine identifier */
   machineId?: string;
   /** Machine name (hostname) */
