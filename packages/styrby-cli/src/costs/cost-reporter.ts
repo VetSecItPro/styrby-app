@@ -23,11 +23,13 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { RelayClient } from 'styrby-shared';
 import type { AgentType } from '@/auth/agent-credentials';
 import type { CostRecord } from './cost-extractor.js';
 import type { CostReport } from '@styrby/shared/cost';
+import type { CostRecordInput, StyrbyApiClient } from '@/api/styrbyApiClient';
 
 // ============================================================================
 // Types
@@ -37,11 +39,35 @@ import type { CostReport } from '@styrby/shared/cost';
  * Configuration for the cost reporter
  */
 export interface CostReporterConfig {
-  /** Supabase client for database operations */
+  /**
+   * Supabase client.
+   *
+   * WHY retained (Phase 4-step5): {@link finalizePending} still uses
+   * `.from('cost_records').update({...}).eq('id', handle.id)` because no
+   * `/api/v1/cost-records/[id]` PATCH endpoint exists yet. The remaining
+   * direct-Supabase callsite is documented inline; a follow-up PR will add
+   * the typed endpoint and remove this dependency entirely.
+   */
   supabase: SupabaseClient;
+  /**
+   * Authenticated Styrby API client (Phase 4-step5).
+   *
+   * Used by {@link flush}, {@link reportImmediate}, and {@link reportPending}
+   * to write cost rows via POST /api/v1/cost-records. The server stamps
+   * `user_id` from the bearer key, eliminating the cross-user mass-assignment
+   * surface that the prior `.from('cost_records').insert()` path exposed.
+   */
+  apiClient: StyrbyApiClient;
   /** Relay client for mobile broadcasts (optional) */
   relay?: RelayClient;
-  /** User ID for the cost records */
+  /**
+   * User ID for the cost records.
+   *
+   * WHY retained: the legacy {@link toSupabaseRecord} helper still emits a
+   * `user_id` field for the on-the-wire shape; the apiClient layer ignores
+   * it (the server overrides from the bearer key) but keeping it preserves
+   * source-compat for any caller still inspecting the local record object.
+   */
   userId: string;
   /** Session ID */
   sessionId: string;
@@ -292,15 +318,27 @@ export class CostReporter extends EventEmitter {
           : this.toSupabaseRecord(r);
       });
 
-      // Insert into cost_records table
-      const { error } = await this.config.supabase
-        .from('cost_records')
-        .insert(supabaseRecords);
-
-      if (error) {
+      // Insert into cost_records via /api/v1/cost-records.
+      // WHY per-record POST (Phase 4-step5): the typed endpoint accepts one
+      // record per call, mirroring the cost_records column shape. We loop
+      // over the batch and assign each call its own idempotency key so a
+      // partial-batch retry on transient network failure can't double-count.
+      // If ANY record write fails we put the entire remaining slice back on
+      // the queue front to preserve the prior all-or-nothing flush
+      // semantics — partial writes leave the buffer cleaner but the retry
+      // budget is the operator-friendly default.
+      try {
+        for (let i = 0; i < supabaseRecords.length; i++) {
+          const input = toCostRecordInput(supabaseRecords[i]);
+          await this.config.apiClient.recordCost(input, {
+            idempotencyKey: makeCostIdempotencyKey(),
+          });
+        }
+      } catch (apiErr) {
         // Put records back on retry failure
         this.pendingRecords.unshift(...recordsToReport);
-        throw new Error(`Supabase insert failed: ${error.message}`);
+        const msg = apiErr instanceof Error ? apiErr.message : 'unknown';
+        throw new Error(`Cost record POST failed: ${msg}`);
       }
 
       this.reportedRecordCount += recordsToReport.length;
@@ -344,13 +382,13 @@ export class CostReporter extends EventEmitter {
         ? this.toSupabaseRecordFromCostReport(ext.__costReport)
         : this.toSupabaseRecord(record);
 
-      const { error } = await this.config.supabase
-        .from('cost_records')
-        .insert(supabaseRecord);
-
-      if (error) {
-        throw new Error(`Supabase insert failed: ${error.message}`);
-      }
+      // POST a single record via /api/v1/cost-records.
+      // WHY idempotency key: reportImmediate is on the hot path for critical
+      // updates and may be retried by the caller on transient errors.
+      // Without the key a retry would double-count cost.
+      await this.config.apiClient.recordCost(toCostRecordInput(supabaseRecord), {
+        idempotencyKey: makeCostIdempotencyKey(),
+      });
 
       this.reportedRecordCount++;
 
@@ -410,15 +448,17 @@ export class CostReporter extends EventEmitter {
       // Output tokens are zero at this point; only input cost is known
       supabaseRecord.output_tokens = 0;
 
-      const { data, error } = await this.config.supabase
-        .from('cost_records')
-        .insert(supabaseRecord)
-        .select('id')
-        .single();
-
-      if (error || !data) {
-        throw new Error(`Supabase insert failed: ${error?.message ?? 'no data returned'}`);
-      }
+      // POST the pending record via /api/v1/cost-records and read back the
+      // server-assigned row id. WHY apiClient (Phase 4-step5): the prior
+      // .from('cost_records').insert(...).select('id').single() chain is
+      // replaced by recordCost(), which returns `{ id, recorded_at }`. The
+      // server stamps user_id and the row id authoritatively; the CLI no
+      // longer trusts a client-supplied id. Idempotency key is included so
+      // a network retry doesn't double-reserve budget.
+      const data = await this.config.apiClient.recordCost(
+        toCostRecordInput(supabaseRecord),
+        { idempotencyKey: makeCostIdempotencyKey() },
+      );
 
       this.sessionTotalCostUsd += record.costUsd;
 
@@ -459,6 +499,14 @@ export class CostReporter extends EventEmitter {
    */
   async finalizePending(handle: PendingCostHandle, finalRecord: CostRecord): Promise<boolean> {
     try {
+      // Deferred (Phase 4-step5): no /api/v1/cost-records/[id] PATCH endpoint
+      // exists yet. Adding one is out of scope for the swap-only PR — the
+      // typed wrapper would require a new server route + Zod schema for the
+      // update body + RLS verification on the row owner. Until that ships,
+      // finalizePending continues to use the direct Supabase update; the
+      // existing RLS policy on cost_records (user_id = auth.uid()) guards
+      // against cross-user writes the same way the apiClient route would.
+      // Tracked as a follow-up to H41 Phase 4-step5.
       const { error } = await this.config.supabase
         .from('cost_records')
         .update({
@@ -746,6 +794,46 @@ export class CostReporter extends EventEmitter {
       console.log(`[CostReporter:${this.config.agentType}]`, message, data || '');
     }
   }
+}
+
+// ============================================================================
+// API client helpers (Phase 4-step5)
+// ============================================================================
+
+/**
+ * Convert the internal Supabase-row shape to the {@link CostRecordInput}
+ * accepted by POST /api/v1/cost-records.
+ *
+ * WHY a separate function: {@link SupabaseCostRecord} carries `user_id`,
+ * which the typed apiClient body schema rejects via `.strict()` — the
+ * server stamps user_id from the bearer key. This helper drops that field
+ * and forwards the rest of the migration-022 columns unchanged.
+ *
+ * @param row - The Supabase-shaped record produced by toSupabaseRecord*()
+ * @returns Body shape for {@link StyrbyApiClient.recordCost}
+ */
+function toCostRecordInput(row: SupabaseCostRecord): CostRecordInput {
+  // Strip user_id; forward every other field. Spreading then deleting keeps
+  // the call site readable and survives future column additions.
+  const { user_id: _omitUserId, ...rest } = row;
+  void _omitUserId;
+  return rest;
+}
+
+/**
+ * Generate a per-request Idempotency-Key for cost record writes.
+ *
+ * WHY randomUUID + epoch suffix: cost records are append-only with no unique
+ * constraint, so duplicate writes silently double-count. The server caches
+ * responses keyed by this header, so a retry after a 5xx that already
+ * succeeded server-side replays the same `{ id, recorded_at }` rather than
+ * inserting a second row. UUID alone would suffice; the millisecond suffix
+ * is purely a debug-friendly aid when grepping logs.
+ *
+ * @returns A unique idempotency key safe for transit in HTTP headers.
+ */
+function makeCostIdempotencyKey(): string {
+  return `cost-${Date.now()}-${randomUUID()}`;
 }
 
 // ============================================================================

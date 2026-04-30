@@ -13,20 +13,17 @@
  * mean cost records are silently dropped or double-counted, causing
  * billing discrepancies.
  *
- * IMPORTANT CONTRACT NOTES (discovered from reading source):
+ * IMPORTANT CONTRACT NOTES (Phase 4-step5):
  *
- * 1. flush() and reportImmediate() both call:
- *      this.config.supabase.from('cost_records').insert(records)
- *    and directly await the result to get { error }. They do NOT chain .select().
- *    The mock must therefore return a promise that resolves to { error }.
+ * 1. flush(), reportImmediate(), reportPending() all flow through
+ *    apiClient.recordCost(input, { idempotencyKey }) which returns
+ *    { id, recorded_at }.
  *
- * 2. reportPending() chains: .from().insert().select().single()
- *    The mock must return an object with a .select() method for that path.
+ * 2. finalizePending() is the ONLY path still using direct Supabase
+ *    (.from('cost_records').update({...}).eq('id', id)) because no PATCH
+ *    endpoint exists yet. Its tests retain the supabase update mock.
  *
- * 3. finalizePending() calls: .from().update({...}).eq('id', handle.id)
- *    and awaits the result to get { error }.
- *
- * 4. start() uses setInterval; stop() calls clearInterval then flush().
+ * 3. start() uses setInterval; stop() calls clearInterval then flush().
  *    Tests that need timer control use vi.useFakeTimers().
  */
 
@@ -64,67 +61,60 @@ function makeRecord(overrides: Partial<CostRecord> = {}): CostRecord {
 }
 
 // ============================================================================
-// Supabase mock builders
+// Test mock builders (Phase 4-step5)
 //
-// WHY: The reporter uses three distinct Supabase call shapes:
-//
-//   flush / reportImmediate:
-//     const { error } = await supabase.from('cost_records').insert(rows);
-//     → insert() must return a Promise that resolves to { error }.
-//
-//   reportPending:
-//     const { data, error } = await supabase
-//       .from('cost_records').insert(row).select('id').single();
-//     → insert() must return an object with .select() that returns an object
-//       with .single() that is a Promise resolving to { data, error }.
-//
-//   finalizePending:
-//     const { error } = await supabase
-//       .from('cost_records').update({...}).eq('id', id);
-//     → update() must return an object with .eq() that is a Promise resolving
-//       to { error }.
+// flush / reportImmediate / reportPending all flow through
+// apiClient.recordCost(input, { idempotencyKey }) → { id, recorded_at }.
+// finalizePending still uses supabase.from('cost_records').update().eq().
 // ============================================================================
 
-/**
- * Build a Supabase mock for flush() / reportImmediate() success/failure.
- *
- * @param insertError - If set, the insert resolves to { error: { message } }.
- */
-function makeSupabaseForInsert(insertError?: string) {
-  const insertResult = { error: insertError ? { message: insertError } : null };
-  return {
-    from: vi.fn((_table: string) => ({
-      insert: vi.fn().mockResolvedValue(insertResult),
-    })),
-  } as unknown as import('@supabase/supabase-js').SupabaseClient;
+interface CostMockApi {
+  apiClient: import('@/api/styrbyApiClient').StyrbyApiClient;
+  /** Inputs received by recordCost, in call order. */
+  recordCostCalls: Array<{
+    input: import('@/api/styrbyApiClient').CostRecordInput;
+    opts?: { idempotencyKey?: string };
+  }>;
+  /** Spy reference for direct assertions. */
+  recordCost: ReturnType<typeof vi.fn>;
 }
 
 /**
- * Build a Supabase mock for reportPending() — chains insert().select().single().
+ * Build a focused StyrbyApiClient stub for cost-reporter tests.
  *
- * @param pendingId - The DB row ID returned on success.
- * @param insertError - If set, single() resolves with error.
+ * @param opts.recordCostError - When set, recordCost rejects with this error.
+ * @param opts.recordCostId - Override the row id returned on success.
  */
-function makeSupabaseForPending(pendingId: string | null = 'pending-row-id', insertError?: string) {
-  const singleResult = insertError
-    ? { data: null, error: { message: insertError } }
-    : { data: { id: pendingId }, error: null };
+function makeApiClient(opts: {
+  recordCostError?: Error;
+  recordCostId?: string;
+} = {}): CostMockApi {
+  const calls: CostMockApi['recordCostCalls'] = [];
+  const recordCost = vi.fn(async (
+    input: import('@/api/styrbyApiClient').CostRecordInput,
+    callOpts?: { idempotencyKey?: string },
+  ) => {
+    calls.push({ input, opts: callOpts });
+    if (opts.recordCostError) throw opts.recordCostError;
+    return {
+      id: opts.recordCostId ?? 'cost-row-' + calls.length,
+      recorded_at: new Date().toISOString(),
+    };
+  });
 
-  const mockSingle = vi.fn().mockResolvedValue(singleResult);
-  const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-  const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
-
+  const stub = { recordCost };
   return {
-    from: vi.fn((_table: string) => ({ insert: mockInsert })),
-    // Expose internals for assertion convenience.
-    __mockInsert: mockInsert,
-    __mockSelect: mockSelect,
-    __mockSingle: mockSingle,
-  } as unknown as import('@supabase/supabase-js').SupabaseClient;
+    apiClient: stub as unknown as import('@/api/styrbyApiClient').StyrbyApiClient,
+    recordCostCalls: calls,
+    recordCost,
+  };
 }
 
 /**
  * Build a Supabase mock for finalizePending() — chains update().eq().
+ *
+ * Used only by finalizePending tests; flush/reportImmediate/reportPending
+ * use the apiClient mock above.
  *
  * @param updateError - If set, eq() resolves with error.
  */
@@ -135,7 +125,6 @@ function makeSupabaseForUpdate(updateError?: string) {
 
   return {
     from: vi.fn((_table: string) => ({
-      insert: vi.fn().mockResolvedValue({ error: null }), // fallback addRecord path
       update: mockUpdate,
     })),
     __mockUpdate: mockUpdate,
@@ -143,17 +132,32 @@ function makeSupabaseForUpdate(updateError?: string) {
   } as unknown as import('@supabase/supabase-js').SupabaseClient;
 }
 
-/** Build a default CostReporterConfig. */
-function makeConfig(overrides: Partial<CostReporterConfig> = {}): CostReporterConfig {
+/**
+ * Stub Supabase client for tests that don't exercise finalizePending. Most
+ * paths no longer touch supabase at all but the field is still required by
+ * the config type.
+ */
+function makeStubSupabase() {
   return {
-    supabase: makeSupabaseForInsert(),
+    from: vi.fn((_table: string) => ({})),
+  } as unknown as import('@supabase/supabase-js').SupabaseClient;
+}
+
+/** Build a default CostReporterConfig. */
+function makeConfig(
+  overrides: Partial<CostReporterConfig> & { apiClient?: import('@/api/styrbyApiClient').StyrbyApiClient } = {},
+): CostReporterConfig {
+  const { apiClient = makeApiClient().apiClient, ...rest } = overrides;
+  return {
+    supabase: makeStubSupabase(),
+    apiClient,
     userId: VALID_UUID,
     sessionId: SESSION_ID,
     machineId: 'machine-001',
     agentType: 'claude',
     batchIntervalMs: 60_000, // long interval — prevents auto-timer firing in tests
     maxBatchSize: 50,
-    ...overrides,
+    ...rest,
   };
 }
 
@@ -191,13 +195,13 @@ describe('CostReporter lifecycle', () => {
     // would fire on next tick. The test just verifies no throw.
   });
 
-  it('stop() flushes pending records to Supabase', async () => {
-    const supabase = makeSupabaseForInsert();
-    const reporter = new CostReporter(makeConfig({ supabase }));
+  it('stop() flushes pending records via apiClient', async () => {
+    const api = makeApiClient();
+    const reporter = new CostReporter(makeConfig({ apiClient: api.apiClient }));
     reporter.start(); // must start before stop() will flush
     reporter.addRecord(makeRecord());
     await reporter.stop();
-    expect(supabase.from).toHaveBeenCalled();
+    expect(api.recordCost).toHaveBeenCalled();
   });
 
   it('stop() on a non-started reporter does not throw', async () => {
@@ -207,15 +211,15 @@ describe('CostReporter lifecycle', () => {
 
   it('start() begins periodic flushing on batchIntervalMs', async () => {
     vi.useFakeTimers();
-    const supabase = makeSupabaseForInsert();
-    const reporter = new CostReporter(makeConfig({ supabase, batchIntervalMs: 1000 }));
+    const api = makeApiClient();
+    const reporter = new CostReporter(makeConfig({ apiClient: api.apiClient, batchIntervalMs: 1000 }));
     reporter.start();
     reporter.addRecord(makeRecord());
 
     // Advance time by one full interval
     await vi.advanceTimersByTimeAsync(1000);
 
-    expect(supabase.from).toHaveBeenCalled();
+    expect(api.recordCost).toHaveBeenCalled();
     await reporter.stop();
   });
 });
@@ -240,8 +244,8 @@ describe('CostReporter.addRecord', () => {
   });
 
   it('auto-flushes when maxBatchSize records have been queued', async () => {
-    const supabase = makeSupabaseForInsert();
-    const reporter = new CostReporter(makeConfig({ supabase, maxBatchSize: 2 }));
+    const api = makeApiClient();
+    const reporter = new CostReporter(makeConfig({ apiClient: api.apiClient, maxBatchSize: 2 }));
 
     reporter.addRecord(makeRecord());
     reporter.addRecord(makeRecord()); // triggers auto-flush
@@ -249,7 +253,7 @@ describe('CostReporter.addRecord', () => {
     // Wait for the micro-task / promise chain from the async auto-flush.
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(supabase.from).toHaveBeenCalled();
+    expect(api.recordCost).toHaveBeenCalled();
   });
 
   it('caps pending buffer at MAX_PENDING (500) and drops oldest on overflow', () => {
@@ -317,10 +321,9 @@ describe('CostReporter.flush', () => {
     );
   });
 
-  it('restores records to the front of the queue on Supabase failure', async () => {
-    const reporter = new CostReporter(
-      makeConfig({ supabase: makeSupabaseForInsert('DB error') })
-    );
+  it('restores records to the front of the queue on apiClient failure', async () => {
+    const api = makeApiClient({ recordCostError: new Error('DB error') });
+    const reporter = new CostReporter(makeConfig({ apiClient: api.apiClient }));
     // MUST register 'error' listener — EventEmitter throws unhandled 'error' events.
     reporter.on('error', vi.fn());
     reporter.addRecord(makeRecord());
@@ -330,10 +333,9 @@ describe('CostReporter.flush', () => {
     expect(reporter.getPendingCount()).toBe(1); // record was put back
   });
 
-  it('emits an "error" event on Supabase failure', async () => {
-    const reporter = new CostReporter(
-      makeConfig({ supabase: makeSupabaseForInsert('DB error') })
-    );
+  it('emits an "error" event on apiClient failure', async () => {
+    const api = makeApiClient({ recordCostError: new Error('DB error') });
+    const reporter = new CostReporter(makeConfig({ apiClient: api.apiClient }));
     const errorHandler = vi.fn();
     reporter.on('error', errorHandler);
 
@@ -386,12 +388,26 @@ describe('CostReporter.flush', () => {
     expect(reporter.getReportedCount()).toBe(1);
   });
 
-  it('calls Supabase from("cost_records")', async () => {
-    const supabase = makeSupabaseForInsert();
-    const reporter = new CostReporter(makeConfig({ supabase }));
+  it('calls apiClient.recordCost with each record and an idempotency key', async () => {
+    const api = makeApiClient();
+    const reporter = new CostReporter(makeConfig({ apiClient: api.apiClient }));
+    reporter.addRecord(makeRecord());
     reporter.addRecord(makeRecord());
     await reporter.flush();
-    expect(supabase.from).toHaveBeenCalledWith('cost_records');
+    expect(api.recordCost).toHaveBeenCalledTimes(2);
+    // Each call must carry an idempotency key — without it, retries
+    // double-count cost (no unique constraint on cost_records).
+    const firstCall = api.recordCostCalls[0];
+    expect(firstCall.opts?.idempotencyKey).toMatch(/^cost-/);
+  });
+
+  it('does NOT include user_id in the apiClient body (server stamps from bearer)', async () => {
+    const api = makeApiClient();
+    const reporter = new CostReporter(makeConfig({ apiClient: api.apiClient }));
+    reporter.addRecord(makeRecord());
+    await reporter.flush();
+    const sent = api.recordCostCalls[0].input as Record<string, unknown>;
+    expect(sent.user_id).toBeUndefined();
   });
 });
 
@@ -424,9 +440,8 @@ describe('CostReporter.reportImmediate', () => {
   });
 
   it('returns false and queues the record for retry on failure', async () => {
-    const reporter = new CostReporter(
-      makeConfig({ supabase: makeSupabaseForInsert('DB error') })
-    );
+    const api = makeApiClient({ recordCostError: new Error('DB error') });
+    const reporter = new CostReporter(makeConfig({ apiClient: api.apiClient }));
     // MUST register 'error' listener — EventEmitter throws unhandled 'error' events.
     reporter.on('error', vi.fn());
     const ok = await reporter.reportImmediate(makeRecord());
@@ -435,13 +450,19 @@ describe('CostReporter.reportImmediate', () => {
   });
 
   it('emits "error" event on failure', async () => {
-    const reporter = new CostReporter(
-      makeConfig({ supabase: makeSupabaseForInsert('timeout') })
-    );
+    const api = makeApiClient({ recordCostError: new Error('timeout') });
+    const reporter = new CostReporter(makeConfig({ apiClient: api.apiClient }));
     const errorHandler = vi.fn();
     reporter.on('error', errorHandler);
     await reporter.reportImmediate(makeRecord());
     expect(errorHandler).toHaveBeenCalled();
+  });
+
+  it('passes an idempotency key on the apiClient call', async () => {
+    const api = makeApiClient();
+    const reporter = new CostReporter(makeConfig({ apiClient: api.apiClient }));
+    await reporter.reportImmediate(makeRecord());
+    expect(api.recordCostCalls[0].opts?.idempotencyKey).toBeDefined();
   });
 });
 
@@ -450,9 +471,9 @@ describe('CostReporter.reportImmediate', () => {
 // ============================================================================
 
 describe('CostReporter.reportPending', () => {
-  it('returns a PendingCostHandle with the DB row id on success', async () => {
-    const supabase = makeSupabaseForPending('pending-row-id');
-    const reporter = new CostReporter(makeConfig({ supabase }));
+  it('returns a PendingCostHandle with the apiClient-returned row id on success', async () => {
+    const api = makeApiClient({ recordCostId: 'pending-row-id' });
+    const reporter = new CostReporter(makeConfig({ apiClient: api.apiClient }));
 
     const handle = await reporter.reportPending(makeRecord({ costUsd: 0.004 }));
 
@@ -462,17 +483,17 @@ describe('CostReporter.reportPending', () => {
   });
 
   it('increments sessionTotal by the reserved cost on success', async () => {
-    const supabase = makeSupabaseForPending('row-1');
-    const reporter = new CostReporter(makeConfig({ supabase }));
+    const api = makeApiClient({ recordCostId: 'row-1' });
+    const reporter = new CostReporter(makeConfig({ apiClient: api.apiClient }));
 
     await reporter.reportPending(makeRecord({ costUsd: 0.004 }));
 
     expect(reporter.getSessionTotal()).toBeCloseTo(0.004, 10);
   });
 
-  it('returns null and emits error on Supabase failure', async () => {
-    const supabase = makeSupabaseForPending(null, 'DB error');
-    const reporter = new CostReporter(makeConfig({ supabase }));
+  it('returns null and emits error on apiClient failure', async () => {
+    const api = makeApiClient({ recordCostError: new Error('DB error') });
+    const reporter = new CostReporter(makeConfig({ apiClient: api.apiClient }));
     const errorHandler = vi.fn();
     reporter.on('error', errorHandler);
 
@@ -482,16 +503,15 @@ describe('CostReporter.reportPending', () => {
     expect(errorHandler).toHaveBeenCalled();
   });
 
-  it('calls insert with is_pending=true in the payload', async () => {
-    const supabase = makeSupabaseForPending('row-pending');
-    const mockInsert = (supabase as unknown as { __mockInsert: ReturnType<typeof vi.fn> }).__mockInsert;
-    const reporter = new CostReporter(makeConfig({ supabase }));
+  it('calls recordCost with is_pending=true in the payload', async () => {
+    const api = makeApiClient({ recordCostId: 'row-pending' });
+    const reporter = new CostReporter(makeConfig({ apiClient: api.apiClient }));
 
     await reporter.reportPending(makeRecord());
 
-    expect(mockInsert).toHaveBeenCalledWith(
-      expect.objectContaining({ is_pending: true })
-    );
+    expect(api.recordCostCalls[0].input).toMatchObject({ is_pending: true });
+    // Output tokens must be zeroed at reservation time — only input cost is known.
+    expect(api.recordCostCalls[0].input.output_tokens).toBe(0);
   });
 });
 

@@ -12,6 +12,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { RelayClient, AgentType } from 'styrby-shared';
+import type { StyrbyApiClient } from '@/api/styrbyApiClient';
 import type {
   BudgetCheckResult,
   BudgetAlertAction,
@@ -89,9 +90,36 @@ export interface SlowdownConfig {
  * Configuration for budget actions
  */
 export interface BudgetActionsConfig {
-  /** Supabase client for database operations */
+  /**
+   * Supabase client for direct realtime channel broadcast.
+   *
+   * WHY still required (Phase 4-step5): notification preference reads and
+   * audit_log writes have moved to {@link apiClient}, but the Supabase
+   * Realtime channel API (`supabase.channel().send()`) has no equivalent on
+   * the typed apiClient yet. Direct broadcast remains here until a future
+   * step adds a /api/v1/broadcast variant for budget alerts.
+   */
   supabase: SupabaseClient;
-  /** User ID for the current session */
+  /**
+   * Authenticated Styrby API client (Phase 4-step5).
+   *
+   * Used for:
+   *  - {@link StyrbyApiClient.getNotificationPreferences} — read whether the
+   *    user opted in to email budget alerts.
+   *  - {@link StyrbyApiClient.writeAuditEvent} — record the alert in
+   *    audit_log so the send-push-notification Edge Function can fan out
+   *    the email via the user's auth.users address (which the CLI cannot
+   *    read directly under RLS).
+   */
+  apiClient: StyrbyApiClient;
+  /**
+   * User ID for the current session.
+   *
+   * Retained for source-compat with existing callers and for the Supabase
+   * realtime channel name (`user:${userId}:alerts`). The notification
+   * preferences read and audit_log write now identify the user via the
+   * apiClient's bearer key — userId is no longer passed in those payloads.
+   */
   userId: string;
   /** Relay client for real-time notifications */
   relayClient?: RelayClient;
@@ -422,12 +450,14 @@ export class BudgetActions {
    */
   private async queueEmailNotification(result: BudgetCheckResult): Promise<boolean> {
     try {
-      // Check if user has email budget alerts enabled
-      const { data: prefs } = await this.config.supabase
-        .from('notification_preferences')
-        .select('email_budget_alerts')
-        .eq('user_id', this.config.userId)
-        .single();
+      // Check if user has email budget alerts enabled.
+      // WHY apiClient (Phase 4-step5): GET /api/v1/notification_preferences
+      // server-stamps the user_id from the bearer key — no client-side
+      // user_id filter, no RLS round-trip. The endpoint returns
+      // `{ preferences: null }` when the row hasn't been created yet, in
+      // which case we default to allowing the email (matches the legacy
+      // behaviour of treating a missing preference as opt-in).
+      const { preferences: prefs } = await this.config.apiClient.getNotificationPreferences();
 
       if (prefs && !prefs.email_budget_alerts) {
         this.log('User has email budget alerts disabled');
@@ -440,22 +470,35 @@ export class BudgetActions {
       // has service role access and can read the user's email from auth.users.
       this.log(`Budget alert triggered - alert: ${result.alert.name}`);
 
-      // Record the alert in audit_log for the Edge Function to process
-      // WHY: audit_log uses `action` (audit_action enum), not `event_type`.
-      // 'settings_updated' is the closest valid enum value for budget alerts.
-      await this.config.supabase.from('audit_log').insert({
-        user_id: this.config.userId,
-        action: 'settings_updated',
-        resource_type: 'budget_alert',
-        metadata: {
-          alert_name: result.alert.name,
-          threshold_usd: result.alert.threshold_usd.toFixed(2),
-          current_spend_usd: result.currentSpendUsd.toFixed(2),
-          period: result.alert.period,
-          percent_used: Math.round(result.percentUsed),
-          alert_action: result.alert.action,
-        },
-      });
+      // Record the alert in audit_log for the Edge Function to process.
+      // WHY apiClient.writeAuditEvent (Phase 4-step5): POST /api/v1/audit
+      // is the typed equivalent of the prior `.from('audit_log').insert()`.
+      // The server stamps user_id from the bearer key (eliminating the
+      // mass-assignment surface) and validates `action` against the
+      // audit_action ENUM via Zod.
+      // WHY 'settings_updated': audit_log uses an enum and 'settings_updated'
+      // is the closest valid value for budget alerts (no dedicated
+      // 'budget_alert' enum value yet — adding one would need a migration).
+      // WHY non-fatal .catch(): the email queue is best-effort; the realtime
+      // notification path has already fired by the time we get here, so an
+      // audit-log failure must not abort the action pipeline.
+      await this.config.apiClient
+        .writeAuditEvent({
+          action: 'settings_updated',
+          resource_type: 'budget_alert',
+          metadata: {
+            alert_name: result.alert.name,
+            threshold_usd: result.alert.threshold_usd.toFixed(2),
+            current_spend_usd: result.currentSpendUsd.toFixed(2),
+            period: result.alert.period,
+            percent_used: Math.round(result.percentUsed),
+            alert_action: result.alert.action,
+          },
+        })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : 'unknown';
+          this.log(`Audit-log write for budget alert failed (non-fatal): ${msg}`);
+        });
 
       return true;
     } catch (error) {
