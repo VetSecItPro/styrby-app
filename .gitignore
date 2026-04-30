@@ -124,6 +124,8 @@ ARCHITECTURE.md
 !README.md
 !SECURITY.md
 !.github/pull_request_template.md
+# Public-facing CHANGELOG for the published CLI (npm consumes this).
+!packages/styrby-cli/CHANGELOG.md
 # Operational runbooks — committed so on-call has them in the repo (SEC-ADV-006).
 # Lives at packages/styrby-web/runbooks/ (NOT under /docs/, which is fully
 # ignored above). The recursive *.md rule would otherwise hide every runbook,
