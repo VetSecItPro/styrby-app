@@ -396,6 +396,110 @@ export interface CostsSummaryResponse {
   }>;
 }
 
+/**
+ * Body for PATCH /api/v1/sessions/[id].
+ *
+ * Currently only `session_group_id` is mutable via this endpoint. Pass `null`
+ * to detach the session from any group, or a UUID string to (re)assign it to
+ * a group owned by the same user.
+ */
+export interface SessionUpdateInput {
+  session_group_id: string | null;
+}
+
+/**
+ * Response from PATCH /api/v1/sessions/[id]. Returns just the mutated columns
+ * (callers already know the rest of the session record).
+ */
+export interface SessionUpdateResponse {
+  id: string;
+  session_group_id: string | null;
+  updated_at: string;
+}
+
+/**
+ * Shape of a single notification_preferences row, mirroring the columns the
+ * server projects (everything in the table EXCEPT user_id, which is redundant
+ * with the authenticated caller).
+ *
+ * WHY all fields optional/nullable: this row is created lazily; until the user
+ * touches notification settings the row may not exist (callers receive null).
+ * Even when present, columns added by future migrations will be undefined here
+ * until the type is updated — keep callers tolerant.
+ */
+export interface NotificationPreferencesRow {
+  id: string;
+  push_enabled: boolean;
+  push_permission_requests: boolean;
+  push_session_errors: boolean;
+  push_budget_alerts: boolean;
+  push_session_complete: boolean;
+  email_enabled: boolean;
+  email_weekly_summary: boolean;
+  email_budget_alerts: boolean;
+  quiet_hours_enabled: boolean;
+  quiet_hours_start: string | null;
+  quiet_hours_end: string | null;
+  quiet_hours_timezone: string | null;
+  priority_threshold: number;
+  /** JSONB array of priority rules (shape reserved for future use). */
+  priority_rules: unknown;
+  push_agent_finished: boolean;
+  push_budget_threshold: boolean;
+  push_weekly_summary: boolean;
+  weekly_digest_email: boolean;
+  push_predictive_alert: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Response from GET /api/v1/notification_preferences. `preferences` is null
+ * when the row hasn't been created yet — callers apply default values.
+ */
+export interface NotificationPreferencesResponse {
+  preferences: NotificationPreferencesRow | null;
+}
+
+/**
+ * Body for POST /api/v1/cost-records. Mirrors the columns the CLI's cost
+ * reporter writes (see packages/styrby-cli/src/costs/cost-reporter.ts
+ * SupabaseCostRecord), minus `user_id` which is server-stamped from auth.
+ */
+export interface CostRecordInput {
+  session_id: string;
+  agent_type: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  cost_usd: number;
+  price_per_input_token?: number | null;
+  price_per_output_token?: number | null;
+  /** ISO 8601 with offset; server defaults to NOW() when omitted. */
+  recorded_at?: string;
+  /** YYYY-MM-DD; server defaults to CURRENT_DATE when omitted. */
+  record_date?: string;
+  is_pending?: boolean;
+  billing_model?: string;
+  source?: string;
+  raw_agent_payload?: Record<string, unknown> | null;
+  subscription_fraction_used?: number | null;
+  credits_consumed?: number | null;
+  credit_rate_usd?: number | null;
+}
+
+/**
+ * Response from POST /api/v1/cost-records. Returns just the row identifier
+ * and the timestamp the row was recorded under (server-resolved when omitted
+ * from the request).
+ */
+export interface CostRecordResponse {
+  id: string;
+  recorded_at: string;
+}
+
 export interface CostsBreakdownResponse {
   breakdown: Array<{
     agentType: string;
@@ -859,6 +963,37 @@ export class StyrbyApiClient {
     });
   }
 
+  /**
+   * PATCH a session's mutable fields. Currently only `session_group_id` is
+   * accepted by the server; future fields will be added to {@link SessionUpdateInput}.
+   *
+   * Used by the CLI's multi-agent orchestrator (Phase 4-step3) to (re)assign
+   * a session to a group, or detach it by passing `session_group_id: null`.
+   *
+   * WHY retryable only with idempotency key: PATCH is logically idempotent
+   * (same body → same end state) but a network retry that races with another
+   * caller's PATCH could surface inconsistent state. With Idempotency-Key, the
+   * server replays the cached response. Without it, retries are unsafe.
+   *
+   * @param sessionId - UUID of the session to update
+   * @param input - Mutable fields to apply
+   * @param opts - Optional idempotency key for safe retry
+   * @returns The mutated columns plus updated_at
+   */
+  updateSession(
+    sessionId: string,
+    input: SessionUpdateInput,
+    opts?: { idempotencyKey?: string },
+  ): Promise<SessionUpdateResponse> {
+    return this.request<SessionUpdateResponse>({
+      method: 'PATCH',
+      path: `/api/v1/sessions/${encodeURIComponent(sessionId)}`,
+      body: input,
+      retryable: Boolean(opts?.idempotencyKey),
+      idempotencyKey: opts?.idempotencyKey,
+    });
+  }
+
   listSessionMessages(sessionId: string, query: { limit?: number; offset?: number } = {}): Promise<unknown> {
     return this.request<unknown>({
       method: 'GET',
@@ -938,6 +1073,53 @@ export class StyrbyApiClient {
       path: '/api/v1/costs/breakdown',
       query: { period: query.period },
       retryable: true,
+    });
+  }
+
+  /**
+   * GET the authenticated user's notification preferences row, or
+   * `{ preferences: null }` if the row hasn't been created yet (callers apply
+   * default values). Used by the CLI daemon's budget-actions consumer (Phase
+   * 4-step5) to honour user push/quiet-hours settings.
+   *
+   * @returns `{ preferences }` — never throws on a missing row.
+   */
+  getNotificationPreferences(): Promise<NotificationPreferencesResponse> {
+    return this.request<NotificationPreferencesResponse>({
+      method: 'GET',
+      path: '/api/v1/notification_preferences',
+      retryable: true,
+    });
+  }
+
+  /**
+   * POST a single cost record. The CLI's cost reporter
+   * (packages/styrby-cli/src/costs/cost-reporter.ts) calls this for each
+   * agent turn — input cost reservation, finalisation deltas, and the legacy
+   * single-record fast path.
+   *
+   * `user_id` is NOT part of {@link CostRecordInput} — the server stamps it
+   * from the authenticated context to prevent cross-user writes (OWASP A01:2021).
+   *
+   * WHY retryable only with idempotency key: cost records are append-only
+   * (no unique constraint). A retry without the key writes a duplicate row,
+   * which double-counts costs. With the key, the server replays the cached
+   * response so the caller observes the same row identifier.
+   *
+   * @param input - Cost record fields (everything except user_id)
+   * @param opts - Optional idempotency key for safe retry
+   * @returns `{ id, recorded_at }` — server-resolved timestamp when omitted
+   */
+  recordCost(
+    input: CostRecordInput,
+    opts?: { idempotencyKey?: string },
+  ): Promise<CostRecordResponse> {
+    return this.request<CostRecordResponse>({
+      method: 'POST',
+      path: '/api/v1/cost-records',
+      body: input,
+      retryable: Boolean(opts?.idempotencyKey),
+      idempotencyKey: opts?.idempotencyKey,
     });
   }
 
