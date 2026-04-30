@@ -196,6 +196,17 @@ function mapAuditActionToNotificationType(action: string): NotificationType | nu
     case 'login':
     case 'logout':
       return 'info';
+    // WHY map MCP-approval lifecycle to permission_request/info: the audit_log
+    // is the dashboard's notification source-of-truth. Pending requests reuse
+    // the existing permission_request icon (shield-checkmark) to match the
+    // legacy team-approval visual; resolved/timeout rows fall back to info.
+    // Detailed lifecycle rendering (Review button, decision verdict) lives in
+    // McpApprovalEventRow consumed by the dashboard screen, not this mapper.
+    case 'mcp_approval_requested':
+      return 'permission_request';
+    case 'mcp_approval_decided':
+    case 'mcp_approval_timeout':
+      return 'info';
     default:
       return null;
   }
@@ -225,6 +236,12 @@ function mapAuditActionToTitle(action: string): string {
       return 'Login';
     case 'logout':
       return 'Logout';
+    case 'mcp_approval_requested':
+      return 'Approval requested';
+    case 'mcp_approval_decided':
+      return 'Approval decided';
+    case 'mcp_approval_timeout':
+      return 'Approval expired';
     default:
       return action.replace(/_/g, ' ');
   }
@@ -253,6 +270,16 @@ function extractAuditMessage(action: string, metadata: Record<string, unknown> |
   }
   if (action === 'machine_paired' && metadata.device_name) {
     return `Paired with ${String(metadata.device_name)}`;
+  }
+  if (action === 'mcp_approval_requested' && metadata.requested_action) {
+    return `Pending approval - ${String(metadata.requested_action)}`;
+  }
+  if (action === 'mcp_approval_decided' && metadata.requested_action) {
+    const decision = metadata.decision === 'approved' ? 'Approved' : 'Denied';
+    return `${decision} ${String(metadata.requested_action)}`;
+  }
+  if (action === 'mcp_approval_timeout' && metadata.requested_action) {
+    return `Approval expired - ${String(metadata.requested_action)}`;
   }
 
   return mapAuditActionToTitle(action);

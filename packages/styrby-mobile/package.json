@@ -43,6 +43,7 @@
     "expo-font": "~13.0.4",
     "expo-haptics": "^14.0.1",
     "expo-linking": "~7.0.0",
+    "expo-local-authentication": "~15.0.2",
     "expo-notifications": "~0.29.14",
     "expo-passkey": "0.3.12",
     "expo-router": "~4.0.0",
