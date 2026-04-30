@@ -148,10 +148,30 @@ jobs:
         run: npx vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
 
       # Build into .vercel/output. This invokes the buildCommand from
-      # vercel.json (which is now `pnpm turbo run build --filter=styrby-web`),
-      # so Turbo cache hits speed up the inner Next.js build.
+      # vercel.json (`pnpm turbo run build --filter=styrby-web`).
+      #
+      # WHY TURBO_FORCE=1 here (Bundle 3 incident fix, 2026-04-30):
+      # When turbo says "cache hit, replaying logs", it restores .next/ from
+      # the cache AS IT WAS WHEN THE CACHE WAS CREATED. Vercel CLI's `vercel
+      # build` outer wrapper then walks .next/standalone/ to copy runtime
+      # files into .vercel/output/functions/. The standalone bundle holds
+      # references INTO node_modules/.pnpm/next@.../next-server/...; if the
+      # current node_modules tree (freshly installed on this runner) doesn't
+      # match the layout that was present when the cache was created, Vercel
+      # CLI follows a stale reference and fails with ENOENT (observed:
+      # `/node_modules/.pnpm/next@...next-server/server.runtime.prod.js`
+      # missing on the first prod-deploy push to main on 2026-04-30).
+      #
+      # Forcing a fresh build for deploys is correct: deploy artifacts MUST
+      # match the runner's node_modules. We accept the ~2-3 min rebuild as
+      # the price of a deploy, while the regular CI workflow (ci.yml) keeps
+      # turbo cache for fast PR feedback. Net effect on the cost-cut goals
+      # of Bundles 0-2: negligible — those bundles save on the much-more-
+      # frequent CI builds, not the per-deploy build.
       - name: Build (vercel build)
         working-directory: packages/styrby-web
+        env:
+          TURBO_FORCE: 1
         run: npx vercel build --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Deploy preview
@@ -227,8 +247,17 @@ jobs:
       # WHY --prod: production builds use NODE_ENV=production and
       # production env vars. Without --prod, vercel build would do a
       # preview-style compile.
+      #
+      # WHY TURBO_FORCE=1 here (Bundle 3 incident fix, 2026-04-30):
+      # See the Build (preview) step's comment block above for the full
+      # rationale. Same fix applies — deploy artifacts must match the
+      # runner's freshly-installed node_modules; turbo cache replay can
+      # produce stale .next/standalone/ references that Vercel CLI fails to
+      # resolve at the deploy step.
       - name: Build (vercel build --prod)
         working-directory: packages/styrby-web
+        env:
+          TURBO_FORCE: 1
         run: npx vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Deploy production
