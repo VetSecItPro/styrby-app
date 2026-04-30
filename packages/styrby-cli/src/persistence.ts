@@ -80,7 +80,9 @@ export interface PersistedData {
   /** Legacy Supabase refresh token. Will be cleared on next re-onboard post-Phase-5. */
   refreshToken?: string;
   /**
-   * Per-user `styrby_*` API key minted by /api/v1/auth/*.
+   * Per-user `styrby_*` API key minted by /api/v1/auth/* during H41 Phase 5.
+   * Bearer token for every /api/v1/* call.
+   *
    * WHY 0o600 file mode (set in savePersistedData below): plaintext key on disk
    * matches the CLI's threat model — same security posture as the prior
    * Supabase JWT. Mobile + web use platform secure storage; CLI relies on
