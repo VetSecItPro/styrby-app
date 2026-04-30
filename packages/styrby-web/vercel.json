@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "cd ../.. && pnpm install",
-  "buildCommand": "cd ../.. && pnpm --filter @styrby/shared build && pnpm --filter styrby-web build",
+  "buildCommand": "cd ../.. && pnpm turbo run build --filter=styrby-web",
   "outputDirectory": ".next",
   "framework": "nextjs",
   "ignoreCommand": "cd ../.. && bash -c 'git diff --quiet HEAD^ HEAD -- packages/styrby-web packages/styrby-shared pnpm-lock.yaml pnpm-workspace.yaml package.json packages/styrby-web/vercel.json && exit 0 || exit 1'",
