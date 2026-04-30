@@ -207,6 +207,52 @@ export interface MachinesResponse {
   count: number;
 }
 
+export interface MachineRegisterInput {
+  machine_fingerprint: string;
+  name: string;
+  platform?: 'darwin' | 'linux' | 'win32';
+  platform_version?: string;
+  architecture?: 'arm64' | 'x64' | 'x86';
+  hostname?: string;
+  cli_version?: string;
+}
+
+export interface MachineRegisterResponse {
+  machine_id: string;
+  name: string;
+  /** True when the row was newly inserted; false on re-pair (matched by
+   * (user_id, machine_fingerprint) and updated). */
+  is_new: boolean;
+  created_at: string;
+}
+
+export interface SessionGroupCreateInput {
+  /** Optional human label, max 255 chars. Defaults to '' on the server. */
+  name?: string;
+}
+
+export interface SessionGroupCreateResponse {
+  group_id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface TemplateSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  content: string;
+  variables: unknown;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TemplatesListResponse {
+  templates: TemplateSummary[];
+  count: number;
+}
+
 export type SessionStatus = 'starting' | 'running' | 'idle' | 'paused' | 'stopped' | 'error' | 'expired';
 
 export interface SessionListQuery {
@@ -522,6 +568,49 @@ export class StyrbyApiClient {
     return this.request<MachinesResponse>({
       method: 'GET',
       path: '/api/v1/machines',
+      retryable: true,
+    });
+  }
+
+  async registerMachine(
+    input: MachineRegisterInput,
+    opts?: { idempotencyKey?: string },
+  ): Promise<MachineRegisterResponse & { isNew: boolean }> {
+    // The server returns 201 on first registration, 200 on re-pair. We surface
+    // both via the response body's is_new field; isNew is also derivable from
+    // the HTTP status, so we expose both in case future callers want either.
+    const { status, body } = await this.requestRaw<MachineRegisterResponse>({
+      method: 'POST',
+      path: '/api/v1/machines',
+      body: input,
+      // WHY retryable when keyed: machines.upsert is inherently idempotent on
+      // (user_id, machine_fingerprint), and the idempotency middleware caches
+      // the exact 201/200 response so retries don't see is_new flip mid-flight.
+      retryable: Boolean(opts?.idempotencyKey),
+      idempotencyKey: opts?.idempotencyKey,
+    });
+    return { ...body, isNew: status === 201 };
+  }
+
+  createSessionGroup(
+    input: SessionGroupCreateInput = {},
+    opts?: { idempotencyKey?: string },
+  ): Promise<SessionGroupCreateResponse> {
+    return this.request<SessionGroupCreateResponse>({
+      method: 'POST',
+      path: '/api/v1/sessions/groups',
+      body: input,
+      // WHY retryable only with key: bare retries would create duplicate
+      // groups; with the key, the server replays the cached response.
+      retryable: Boolean(opts?.idempotencyKey),
+      idempotencyKey: opts?.idempotencyKey,
+    });
+  }
+
+  listTemplates(): Promise<TemplatesListResponse> {
+    return this.request<TemplatesListResponse>({
+      method: 'GET',
+      path: '/api/v1/templates',
       retryable: true,
     });
   }
