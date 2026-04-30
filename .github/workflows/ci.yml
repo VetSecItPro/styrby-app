@@ -40,9 +40,18 @@ on:
       - 'LICENSE'
       - '.editorconfig'
       - '.nvmrc'
+  # Bundle 1 — merge queue support (2026-04-30):
+  # When the user enables GitHub merge queue (Settings > Branches > Branch
+  # protection rules > "Require merge queue"), queued PRs are batched into
+  # a temporary merge_group/* ref and validated against the actual merge
+  # commit. This trigger lets the same CI workflow gate the queue, so 5
+  # queued PRs become 1 CI run instead of 5. No code changes needed once
+  # the queue is enabled in repo settings.
+  merge_group:
 
 concurrency:
-  group: ci-${{ github.head_ref || github.ref_name }}
+  # Include event_name so PR runs and merge-queue runs don't cancel each other.
+  group: ci-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
@@ -69,6 +78,107 @@ permissions:
   pull-requests: read
 
 jobs:
+  # ─── Path-change detection (Bundle 1 / Tier 4) ───────────────────────────────
+  # Inspects the diff of this PR (or merge group) and emits per-package booleans.
+  # Downstream jobs use these via `if:` to skip when their files weren't touched.
+  #
+  # WHY inline git diff (not dorny/paths-filter):
+  #   The repo pins every action to a SHA for supply-chain safety (SEC-INFRA-001).
+  #   Adding a new third-party action means adding a new trust dependency. The
+  #   inline approach uses only `git diff --name-only` (always-trusted toolchain)
+  #   and is straightforward to audit.
+  #
+  # Logic:
+  #   shared-changed:  any file under packages/styrby-shared/ — fans out to all
+  #                    consumers (web, cli, mobile) so all build/test jobs run
+  #   web-changed:     any file under packages/styrby-web/ OR root deps changed
+  #                    OR vercel.json changed (Vercel-relevant root config)
+  #   cli-changed:     any file under packages/styrby-cli/
+  #   mobile-changed:  any file under packages/styrby-mobile/
+  #   root-changed:    pnpm-lock.yaml, pnpm-workspace.yaml, root package.json,
+  #                    .github/workflows/, .size-limit.js — anything that could
+  #                    affect every package's build → forces all jobs to run
+  #
+  # Quality + security jobs ALWAYS run (lint catches anything; SAST/audit
+  # must gate every PR regardless of scope).
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      cli: ${{ steps.filter.outputs.cli }}
+      mobile: ${{ steps.filter.outputs.mobile }}
+      shared: ${{ steps.filter.outputs.shared }}
+      root: ${{ steps.filter.outputs.root }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Need the full base..head range to diff against; pull_request /
+          # merge_group events provide both SHAs but we still need the commits
+          # locally. fetch-depth: 0 fetches all history (~1-2s extra on this repo).
+          fetch-depth: 0
+
+      - name: Compute file scope
+        id: filter
+        env:
+          # Resolve the comparison base across event types:
+          #   pull_request:   compare PR head against PR base branch tip
+          #   merge_group:    compare merge commit against the queued base
+          #   push (future):  fall back to HEAD^
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          MG_BASE: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD: ${{ github.event.merge_group.head_sha }}
+        run: |
+          if [ -n "$PR_BASE" ] && [ -n "$PR_HEAD" ]; then
+            BASE="$PR_BASE"
+            HEAD="$PR_HEAD"
+          elif [ -n "$MG_BASE" ] && [ -n "$MG_HEAD" ]; then
+            BASE="$MG_BASE"
+            HEAD="$MG_HEAD"
+          else
+            # Fallback (manual dispatch / push). Be conservative: run everything.
+            BASE="HEAD~1"
+            HEAD="HEAD"
+          fi
+
+          echo "Comparing $BASE..$HEAD"
+          CHANGED=$(git diff --name-only "$BASE" "$HEAD" || echo "")
+          echo "Changed files:"
+          echo "$CHANGED" | sed 's/^/  /'
+
+          # Helper: emit "true" if any line matches the regex, else "false".
+          match() {
+            if echo "$CHANGED" | grep -qE "$1"; then echo "true"; else echo "false"; fi
+          }
+
+          # Universal triggers — anything that could affect every package.
+          # When any of these change, force all jobs to run by setting every
+          # output to true. Lockfile/workspace/root-package/workflow changes
+          # all qualify; .size-limit.js affects the bundle-size job's gate.
+          ROOT=$(match '^(pnpm-lock\.yaml|pnpm-workspace\.yaml|package\.json|\.size-limit\.js|\.github/workflows/)')
+
+          if [ "$ROOT" = "true" ]; then
+            echo "Root-level change detected; forcing all package builds."
+            WEB=true; CLI=true; MOBILE=true; SHARED=true
+          else
+            WEB=$(match '^packages/styrby-web/|^packages/styrby-web/vercel\.json$')
+            CLI=$(match '^packages/styrby-cli/')
+            MOBILE=$(match '^packages/styrby-mobile/')
+            SHARED=$(match '^packages/styrby-shared/')
+          fi
+
+          {
+            echo "web=$WEB"
+            echo "cli=$CLI"
+            echo "mobile=$MOBILE"
+            echo "shared=$SHARED"
+            echo "root=$ROOT"
+          } >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "Outputs: web=$WEB cli=$CLI mobile=$MOBILE shared=$SHARED root=$ROOT"
+
   # ─── Dependency review (PRs only) ───
   dependency-review:
     name: Dependency Review
@@ -142,6 +252,10 @@ jobs:
   test-shared:
     name: Shared Unit Tests
     runs-on: ubuntu-latest
+    needs: changes
+    # Only run when @styrby/shared source actually changed. CLI/web/mobile
+    # consume shared via type imports; their own test jobs cover integration.
+    if: needs.changes.outputs.shared == 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -165,7 +279,11 @@ jobs:
   test-cli:
     name: CLI Unit Tests
     runs-on: ubuntu-latest
-    needs: build-shared
+    needs: [changes, build-shared]
+    # Skip on PRs that don't touch CLI or shared (e.g., web-only or mobile-only
+    # PRs). The CLI test suite installs ripgrep + difftastic and runs the
+    # forked Happy Coder tests — heavy and irrelevant to those PRs.
+    if: needs.changes.outputs.cli == 'true' || needs.changes.outputs.shared == 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -217,7 +335,8 @@ jobs:
   test-web:
     name: Web Unit Tests
     runs-on: ubuntu-latest
-    needs: build-shared
+    needs: [changes, build-shared]
+    if: needs.changes.outputs.web == 'true' || needs.changes.outputs.shared == 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -406,7 +525,8 @@ jobs:
   build-web:
     name: Build Web
     runs-on: ubuntu-latest
-    needs: [quality, build-shared]
+    needs: [changes, quality, build-shared]
+    if: needs.changes.outputs.web == 'true' || needs.changes.outputs.shared == 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -462,7 +582,11 @@ jobs:
   build-mobile:
     name: Build Mobile
     runs-on: ubuntu-latest
-    needs: build-shared
+    needs: [changes, build-shared]
+    # Mobile build is the slowest single job (~3-5 min). Skip when mobile
+    # source didn't change. Shared changes still trigger because mobile
+    # imports from @styrby/shared.
+    if: needs.changes.outputs.mobile == 'true' || needs.changes.outputs.shared == 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -507,7 +631,8 @@ jobs:
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
-    needs: build-web
+    needs: [changes, build-web]
+    if: needs.changes.outputs.web == 'true' || needs.changes.outputs.shared == 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -557,7 +682,8 @@ jobs:
   lighthouse:
     name: Lighthouse PWA + FCP Budget
     runs-on: ubuntu-latest
-    needs: build-web
+    needs: [changes, build-web]
+    if: needs.changes.outputs.web == 'true' || needs.changes.outputs.shared == 'true'
     # WHY continue-on-error is REMOVED for the FCP budget assertion (Phase 1.6.12):
     # Previously this job had continue-on-error:true with all performance checks
     # disabled. That meant it could never block the pipeline — it was purely
@@ -724,7 +850,11 @@ jobs:
     # Phase 1.6.12 extends the bundle-size job from web-only chunk inspection
     # to per-package caps via size-limit. We need all three builds present
     # to run size-limit against CLI dist, shared dist, and web chunks together.
-    needs: [build-web, build-shared, build-cli]
+    needs: [changes, build-web, build-shared, build-cli]
+    # Bundle size is gated on web/cli/shared because each entry in
+    # .size-limit.js measures one of those packages. Mobile-only PRs don't
+    # need this check — mobile is measured by perf-budgets instead.
+    if: needs.changes.outputs.web == 'true' || needs.changes.outputs.cli == 'true' || needs.changes.outputs.shared == 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -866,7 +996,10 @@ jobs:
   perf-budgets:
     name: Performance Budgets
     runs-on: ubuntu-latest
-    needs: [build-shared, build-cli, build-mobile]
+    needs: [changes, build-shared, build-cli, build-mobile]
+    # Perf budgets cover CLI startup time + mobile cold-start proxy. Skip
+    # on web-only PRs.
+    if: needs.changes.outputs.cli == 'true' || needs.changes.outputs.mobile == 'true' || needs.changes.outputs.shared == 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -935,7 +1068,7 @@ jobs:
   summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [quality, test-shared, test-cli, test-web, security, build-shared, build-cli, build-web, build-mobile, e2e, bundle-size, lighthouse, perf-budgets]
+    needs: [changes, quality, test-shared, test-cli, test-web, security, build-shared, build-cli, build-web, build-mobile, e2e, bundle-size, lighthouse, perf-budgets]
     if: always()
     steps:
       - name: Evaluate results

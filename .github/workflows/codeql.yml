@@ -21,13 +21,25 @@
 name: CodeQL SAST
 
 on:
+  # Cost-optimization (2026-04-30, Bundle 1):
+  # CodeQL's deep semantic analysis takes ~3-4 min per PR and very rarely
+  # surfaces a new finding (it's catching novel CVE-style bugs, not the
+  # everyday-bug class Semgrep handles). Removing the per-PR trigger saves
+  # ~3-4 min × every PR. Coverage is preserved through:
+  #   1. push to main — every merged PR re-scans the post-merge state, so
+  #      any finding introduced by a PR is caught on merge (Security tab)
+  #   2. merge_group — PRs in the merge queue still get a scan before the
+  #      final merge commit lands
+  #   3. weekly schedule — catches newly disclosed vulnerabilities in
+  #      existing code via CodeQL DB updates
+  #
+  # Net trade-off: a PR can now merge with an unscanned-by-CodeQL diff,
+  # but the same diff is scanned <60s after merge to main. Compared to
+  # the cost (~$15-20/day in CI minutes at current PR velocity), the
+  # ~30-second delay-to-detection is acceptable.
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
-  # WHY weekly schedule: catches newly discovered vulnerabilities in existing
-  # code that passed previous scans (CodeQL database updates over time).
-  # Sunday 00:00 UTC — low-traffic window, does not block human-hours.
+  merge_group:
   schedule:
     - cron: '0 0 * * 0'
 
