@@ -1,5 +1,5 @@
 /**
- * Context Command Handler (Phase 3.5)
+ * Context Command Handler (H41 Phase 4-step2)
  *
  * Implements `styrby context` subcommands for cross-agent context sync:
  *
@@ -10,22 +10,39 @@
  * styrby context import --session <target> --from <source>  Inject another session's memory
  * ```
  *
- * ## WHY
+ * ## H41 Phase 4-step2
+ *
+ * Every Postgres operation now flows through the typed StyrbyApiClient against
+ * /api/v1/* endpoints. The CLI no longer instantiates a Supabase client here —
+ * all auth/rate-limit/RLS enforcement lives server-side, behind the styrby_*
+ * bearer key. See PR notes for the full Strategy C transition plan.
+ *
+ * Notable simplifications versus the pre-swap implementation:
+ *   - Optimistic-locking retry loop removed: POST /api/v1/contexts uses an
+ *     INSERT … ON CONFLICT (session_group_id) DO UPDATE; concurrent writes
+ *     resolve server-side, with the version field acting as a best-effort
+ *     monotonic counter (see contexts route JSDoc for the concurrency model).
+ *   - dbRowToContextMemory still maps the snake_case API row into the camelCase
+ *     domain interface, so callers downstream of `fetchContextMemory` see the
+ *     same shape as before the swap.
+ *
+ * ## Why
  *
  * When a user switches from Claude Code to Codex mid-task, Codex starts cold —
  * no knowledge of what was being worked on, which files were touched, or what
  * the last conversation was about. `styrby context` commands let users inspect,
  * refresh, and transplant context memory so the new agent hits the ground running.
  *
- * The "magic" happens automatically on focus change (POST /api/sessions/groups/[id]/focus),
+ * The "magic" happens automatically on focus change (POST /api/v1/sessions/groups/[id]/focus),
  * but these CLI commands give power users fine-grained control and visibility.
  *
  * ## Security
  *
  * - All context is scrubbed by the Phase 3.3 scrub engine before storing or printing.
- * - Session group membership is verified server-side (RLS + explicit user_id check).
- * - Optimistic locking prevents concurrent sync races from silently clobbering each other.
- * - The `--from` source session must belong to the same authenticated user (server enforces).
+ * - Session group membership is enforced server-side via the API auth middleware
+ *   plus an explicit ownership check on the `agent_session_groups` row.
+ * - Cross-user resource lookups return 404 (not 403) to prevent enumeration.
+ * - The `--from` source session must belong to the authenticated user (server enforced).
  *
  * ## Token budget
  *
@@ -37,10 +54,7 @@
  */
 
 import chalk from 'chalk';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '@/ui/logger';
-import { loadPersistedData } from '@/persistence';
-import { config as envConfig } from '@/env';
 import {
   summarize,
   buildInjectionPrompt,
@@ -56,6 +70,8 @@ import type {
   ContextExportOptions,
   ContextImportOptions,
 } from '@styrby/shared/context-sync';
+import { getApiClient, MissingStyrbyKeyError } from '@/api/clientFromPersistence';
+import { StyrbyApiError, type StyrbyApiClient } from '@/api/styrbyApiClient';
 
 // ============================================================================
 // Constants
@@ -64,18 +80,18 @@ import type {
 /**
  * UUID v4 validation regex for group and session IDs.
  *
- * WHY (SEC-PATH-003): IDs are used in Supabase `.eq('id', id)` queries.
- * Restricting to UUID format prevents unexpected query shapes from user input
- * that might contain SQL special characters.
+ * WHY: IDs are appended into URL paths (e.g. /api/v1/contexts/[group_id]).
+ * Restricting to UUID format prevents path-traversal characters and keeps
+ * 400-error UX consistent across subcommands.
  */
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Maximum number of recent messages fetched from the DB for sync.
+ * Maximum number of recent messages fetched from the API for sync.
  *
  * WHY 40 not 20: We fetch 40 so the summarizer has a larger pool to extract
  * file refs from. The summarizer itself caps the output at CONTEXT_MESSAGE_LIMIT (20).
- * More input → better file ref signal → better context quality.
+ * More input -> better file ref signal -> better context quality.
  */
 const SYNC_FETCH_MESSAGE_LIMIT = 40;
 
@@ -223,79 +239,86 @@ export function parseContextImportArgs(args: string[]): ContextImportOptions | n
 }
 
 // ============================================================================
-// Supabase client factory
+// API client wiring
 // ============================================================================
 
 /**
- * Creates an authenticated Supabase client using the stored user token.
+ * Loads an authenticated StyrbyApiClient or exits the process.
  *
- * WHY inline not imported from a shared helper:
- *   The CLI's Supabase client is constructed differently from the web's
- *   server-side client (cookie-based auth vs. stored token). Reusing the
- *   web helper would introduce a server-only import into the CLI bundle.
+ * Mirrors the helper in commands/template.ts. We re-implement (not import) so
+ * the per-file flow stays self-contained — every CLI command file owns its
+ * authentication failure UX.
  *
- * @returns Authenticated SupabaseClient.
- * @throws {Error} When the user is not authenticated.
+ * @returns A StyrbyApiClient ready for use, or process exits with code 1.
  */
-function createAuthenticatedClient(): SupabaseClient {
-  const persisted = loadPersistedData();
-  if (!persisted?.accessToken) {
-    throw new Error('Not authenticated. Run `styrby auth` first.');
+function ensureApiClientOrExit(): StyrbyApiClient {
+  try {
+    return getApiClient();
+  } catch (err) {
+    if (err instanceof MissingStyrbyKeyError) {
+      console.log(chalk.red('\n' + err.message));
+      process.exit(1);
+    }
+    throw err;
   }
+}
 
-  const client = createClient(envConfig.supabaseUrl, envConfig.supabaseAnonKey, {
-    global: {
-      headers: { Authorization: `Bearer ${persisted.accessToken}` },
-    },
-    auth: { persistSession: false },
-  });
-
-  return client;
+/**
+ * Print a contextual error from a StyrbyApiError (or any error) and exit.
+ *
+ * @param err - The thrown error from an apiClient call.
+ * @param verb - Action description used in the error message.
+ */
+function handleApiError(err: unknown, verb: string): never {
+  if (err instanceof StyrbyApiError) {
+    logger.error(`Failed to ${verb}: ${err.message}`);
+    logger.debug('StyrbyApiError', { status: err.status, code: err.code });
+  } else if (err instanceof Error) {
+    logger.error(`Failed to ${verb}: ${err.message}`);
+  } else {
+    logger.error(`Failed to ${verb}: unknown error`);
+  }
+  process.exit(1);
 }
 
 // ============================================================================
-// DB helpers
+// API helpers
 // ============================================================================
 
 /**
  * Fetches the context memory record for a session group.
  *
- * @param supabase - Authenticated Supabase client.
+ * Returns null when the API responds 404 (no memory yet for this group),
+ * matching the pre-swap behavior where PGRST116 was treated as "no rows".
+ *
+ * @param apiClient - Authenticated StyrbyApiClient.
  * @param groupId - UUID of the session group.
  * @returns The memory record, or null if none exists yet.
- * @throws When the Supabase query itself errors (network, RLS denial, etc.)
+ * @throws StyrbyApiError on non-404 server failures.
  */
 async function fetchContextMemory(
-  supabase: SupabaseClient,
-  groupId: string
+  apiClient: StyrbyApiClient,
+  groupId: string,
 ): Promise<AgentContextMemory | null> {
-  const { data, error } = await supabase
-    .from('agent_context_memory')
-    .select('*')
-    .eq('session_group_id', groupId)
-    .order('version', { ascending: false })
-    .limit(1)
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') {
-      // PostgREST: no rows returned — memory doesn't exist yet
+  try {
+    const { context } = await apiClient.getContext(groupId);
+    return dbRowToContextMemory(context as unknown as Record<string, unknown>);
+  } catch (err) {
+    if (err instanceof StyrbyApiError && err.status === 404) {
       return null;
     }
-    throw new Error(`Failed to fetch context memory: ${error.message}`);
+    throw err;
   }
-
-  // Map snake_case DB columns to camelCase TS interface
-  return dbRowToContextMemory(data as Record<string, unknown>);
 }
 
 /**
- * Maps a DB row from agent_context_memory to the AgentContextMemory interface.
+ * Maps a context API row to the AgentContextMemory interface.
  *
- * WHY explicit mapping: Supabase returns snake_case column names. Using a
- * mapper keeps the interface clean (camelCase) and makes renames auditable.
+ * WHY explicit mapping: the API returns snake_case column names. Keeping the
+ * mapper here means the rest of the CLI works in camelCase and any rename in
+ * the API surface is caught at one location.
  *
- * @param row - Raw DB row from agent_context_memory.
+ * @param row - Raw row from /api/v1/contexts.
  * @returns Typed AgentContextMemory record.
  */
 export function dbRowToContextMemory(row: Record<string, unknown>): AgentContextMemory {
@@ -313,132 +336,168 @@ export function dbRowToContextMemory(row: Record<string, unknown>): AgentContext
 }
 
 /**
- * Fetches recent session messages for a group's active session.
+ * Shape of session_messages rows returned by GET /api/v1/sessions/[id]/messages.
  *
- * Fetches up to SYNC_FETCH_MESSAGE_LIMIT messages from the most recent
- * session in the group. These are used as input to the summarizer.
- *
- * WHY only the active session's messages:
- *   Multi-agent groups can have N concurrent sessions. On sync, we want to
- *   capture what the CURRENTLY ACTIVE agent was doing — not blend all agents'
- *   messages together, which would create a confusing context mix.
- *
- * @param supabase - Authenticated Supabase client.
- * @param groupId - UUID of the session group.
- * @returns Array of summarizer input messages, or empty array if no sessions.
+ * Local declaration because apiClient.listSessionMessages is currently typed
+ * `Promise<unknown>`. We pin the subset we actually consume here, keeping the
+ * rest opaque so future server-side additions don't churn this file.
  */
-async function fetchGroupMessages(
-  supabase: SupabaseClient,
-  groupId: string
-): Promise<SummarizerInputMessage[]> {
-  // Step 1: get the active session for this group
-  const { data: group, error: groupError } = await supabase
-    .from('agent_session_groups')
-    .select('active_agent_session_id')
-    .eq('id', groupId)
-    .single();
-
-  if (groupError || !group || !group.active_agent_session_id) {
-    return [];
-  }
-
-  // Step 2: fetch recent messages from the active session
-  // WHY decrypted_content doesn't exist: session_messages stores E2E-encrypted
-  // content. For sync purposes, we use the token counts + metadata available
-  // in plaintext columns. Full decryption requires the session private key,
-  // which the CLI has in memory but the sync command doesn't re-derive here.
-  //
-  // PRAGMATIC CHOICE (Phase 3.5): We use the message_summary column (if present)
-  // or fall back to the role + token_count as a proxy for message content.
-  // Full decryption-based sync is a Phase 3.6 enhancement.
-  const { data: messages, error: messagesError } = await supabase
-    .from('session_messages')
-    .select('role, message_summary, token_count, created_at')
-    .eq('session_id', group.active_agent_session_id)
-    .order('created_at', { ascending: false })
-    .limit(SYNC_FETCH_MESSAGE_LIMIT);
-
-  if (messagesError || !messages) {
-    return [];
-  }
-
-  // Convert to SummarizerInputMessage (oldest first)
-  return [...messages].reverse().map((row) => ({
-    role: (row.role as string) ?? 'user',
-    content: (row.message_summary as string) ?? `[${row.token_count ?? 0} tokens]`,
-  }));
+interface SessionMessageApiRow {
+  message_type: string;
+  metadata: unknown;
+  input_tokens: number;
+  output_tokens: number;
+  created_at: string;
 }
 
 /**
- * Upserts a context memory record using optimistic locking.
+ * Maps a session_messages.message_type enum to a SummarizerInputMessage role.
  *
- * WHY optimistic locking:
- *   CLI workers can race on sync (e.g. two terminals sharing the same session
- *   group). The optimistic lock ensures the writer with stale data loses
- *   gracefully rather than silently clobbering a newer sync.
+ * The summarizer accepts the union 'user' | 'assistant' | 'tool' | 'tool_result'
+ * (plus arbitrary string fallback). Map agent_response/agent_thinking → assistant
+ * and tool_use → tool so the downstream summary scaffolding is well-formed.
  *
- * @param supabase - Authenticated Supabase client.
+ * WHY: session_messages.message_type is a Postgres enum (see migration 001).
+ * Mapping here keeps the enum-to-role translation testable in one location.
+ */
+function mapMessageTypeToRole(messageType: string): SummarizerInputMessage['role'] {
+  switch (messageType) {
+    case 'user_prompt':
+      return 'user';
+    case 'agent_response':
+    case 'agent_thinking':
+      return 'assistant';
+    case 'tool_use':
+      return 'tool';
+    case 'tool_result':
+      return 'tool_result';
+    default:
+      return 'user';
+  }
+}
+
+/**
+ * Fetches recent session messages from a group's active session.
+ *
+ * Two-step flow because the API surface mirrors the underlying tables:
+ *   1. listSessionGroups() → resolve the group's active_agent_session_id.
+ *   2. listSessionMessages(activeSessionId) → fetch recent rows for summarization.
+ *
+ * WHY only the active session: multi-agent groups can have N concurrent sessions.
+ * On sync, we capture what the *currently active* agent was doing. Blending all
+ * agents would muddle the resulting context with cross-agent state transitions.
+ *
+ * Caveat: session_messages.content_encrypted is end-to-end encrypted with the
+ * session's TweetNaCl key, which the server can't decrypt. We surface a token-count
+ * proxy plus optional `metadata.summary` (when the agent layer chose to write one)
+ * so the summarizer has *something* to chew on without breaking E2E privacy.
+ *
+ * @param apiClient - Authenticated StyrbyApiClient.
  * @param groupId - UUID of the session group.
- * @param memory - The memory to write (current version for conflict detection).
+ * @returns Array of summarizer input messages, or empty array if no active session.
+ */
+async function fetchGroupMessages(
+  apiClient: StyrbyApiClient,
+  groupId: string,
+): Promise<SummarizerInputMessage[]> {
+  // Step 1: locate the active session for this group.
+  let activeSessionId: string | null = null;
+  try {
+    const { groups } = await apiClient.listSessionGroups();
+    const group = groups.find((g) => g.id === groupId);
+    activeSessionId = group?.active_agent_session_id ?? null;
+  } catch (err) {
+    if (err instanceof StyrbyApiError) {
+      logger.debug('listSessionGroups failed', { status: err.status });
+    }
+    return [];
+  }
+
+  if (!activeSessionId) {
+    return [];
+  }
+
+  // Step 2: fetch recent messages from the active session.
+  let payload: { messages?: SessionMessageApiRow[] };
+  try {
+    payload = (await apiClient.listSessionMessages(activeSessionId, {
+      limit: SYNC_FETCH_MESSAGE_LIMIT,
+    })) as { messages?: SessionMessageApiRow[] };
+  } catch (err) {
+    if (err instanceof StyrbyApiError) {
+      logger.debug('listSessionMessages failed', { status: err.status });
+    }
+    return [];
+  }
+
+  const rows = Array.isArray(payload?.messages) ? payload.messages : [];
+
+  // The /messages endpoint orders ascending by sequence_number; keep the order
+  // (oldest first) which is what the summarizer expects.
+  return rows.map((row) => {
+    const tokenCount = (row.input_tokens ?? 0) + (row.output_tokens ?? 0);
+    const metadataSummary =
+      row.metadata && typeof row.metadata === 'object' && 'summary' in row.metadata
+        ? String((row.metadata as { summary: unknown }).summary ?? '')
+        : '';
+    return {
+      role: mapMessageTypeToRole(row.message_type),
+      content: metadataSummary || `[${tokenCount} tokens]`,
+    };
+  });
+}
+
+/**
+ * Upserts a context memory record via POST /api/v1/contexts.
+ *
+ * The API uses INSERT … ON CONFLICT (session_group_id) DO UPDATE, so concurrent
+ * writes resolve server-side. The pre-swap optimistic-locking retry loop is no
+ * longer needed: passing an idempotency key gives us safe retry on transient
+ * network failures without risking duplicate inserts.
+ *
+ * @param apiClient - Authenticated StyrbyApiClient.
+ * @param groupId - UUID of the session group.
  * @param summaryMarkdown - New summary markdown from the summarizer.
  * @param fileRefs - New file refs from the summarizer.
  * @param recentMessages - New message previews from the summarizer.
  * @param tokenBudget - Token budget to store.
- * @returns true if the write succeeded, false if the optimistic lock was violated.
- * @throws On Supabase errors unrelated to optimistic locking.
+ * @returns true on success.
+ * @throws StyrbyApiError on server failure (auth, rate limit, validation, 5xx).
  */
 async function upsertContextMemory(
-  supabase: SupabaseClient,
+  apiClient: StyrbyApiClient,
   groupId: string,
-  existing: AgentContextMemory | null,
   summaryMarkdown: string,
   fileRefs: AgentContextMemory['fileRefs'],
   recentMessages: AgentContextMemory['recentMessages'],
-  tokenBudget: number
+  tokenBudget: number,
 ): Promise<boolean> {
-  if (!existing) {
-    // INSERT — no existing record, no version conflict possible
-    const { error } = await supabase.from('agent_context_memory').insert({
+  await apiClient.upsertContext(
+    {
       session_group_id: groupId,
       summary_markdown: summaryMarkdown,
       file_refs: fileRefs,
       recent_messages: recentMessages,
       token_budget: Math.min(TOKEN_BUDGET_MAX, Math.max(TOKEN_BUDGET_MIN, tokenBudget)),
-      version: 1,
-    });
+    },
+    // WHY a per-call random key: the upsert is idempotent server-side on
+    // (session_group_id), but passing a key allows the apiClient's retry
+    // middleware to safely replay on transient 5xx without creating
+    // double-version-bump artefacts.
+    { idempotencyKey: randomIdempotencyKey() },
+  );
+  return true;
+}
 
-    if (error) {
-      if (error.code === '23505') {
-        // Unique constraint violation — concurrent insert; re-fetch and retry
-        return false;
-      }
-      throw new Error(`Failed to insert context memory: ${error.message}`);
-    }
-    return true;
-  }
-
-  // UPDATE with optimistic lock: WHERE version = existing.version
-  const { data: updated, error } = await supabase
-    .from('agent_context_memory')
-    .update({
-      summary_markdown: summaryMarkdown,
-      file_refs: fileRefs,
-      recent_messages: recentMessages,
-      token_budget: Math.min(TOKEN_BUDGET_MAX, Math.max(TOKEN_BUDGET_MIN, tokenBudget)),
-      version: existing.version + 1,
-    })
-    .eq('session_group_id', groupId)
-    .eq('version', existing.version) // Optimistic lock condition
-    .select('id')
-    .single();
-
-  if (error) {
-    throw new Error(`Failed to update context memory: ${error.message}`);
-  }
-
-  // If updated is null, the WHERE version = <expected> matched 0 rows →
-  // optimistic lock violated (concurrent write won).
-  return updated !== null;
+/**
+ * Generates a per-call idempotency key for upsert operations.
+ *
+ * Random suffix scoped per-process so retried writes within the same call
+ * cycle replay the cached server response, while distinct invocations always
+ * issue a fresh key.
+ */
+function randomIdempotencyKey(): string {
+  return `ctx-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 // ============================================================================
@@ -448,11 +507,11 @@ async function upsertContextMemory(
 /**
  * Handles `styrby context show --group <groupId> [--json]`.
  *
- * Fetches and displays the current context memory for a session group.
- * In default mode, pretty-prints the summary markdown and file refs.
- * In --json mode, outputs raw JSON for scripting.
+ * Fetches and displays the current context memory for a session group. In the
+ * default mode, pretty-prints the summary markdown and file refs. In `--json`
+ * mode, outputs the raw memory record for scripting.
  *
- * @param args - Command arguments.
+ * @param args - Command arguments after `context show`.
  */
 async function handleContextShow(args: string[]): Promise<void> {
   const options = parseContextShowArgs(args);
@@ -460,19 +519,18 @@ async function handleContextShow(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  let supabase: SupabaseClient;
-  try {
-    supabase = createAuthenticatedClient();
-  } catch (err) {
-    logger.error((err as Error).message);
-    process.exit(1);
-  }
+  const apiClient = ensureApiClientOrExit();
 
-  const memory = await fetchContextMemory(supabase, options.groupId);
+  let memory: AgentContextMemory | null;
+  try {
+    memory = await fetchContextMemory(apiClient, options.groupId);
+  } catch (err) {
+    handleApiError(err, 'fetch context memory');
+  }
 
   if (!memory) {
     logger.info(
-      chalk.yellow('No context memory found for this group. Run `styrby context sync` to create one.')
+      chalk.yellow('No context memory found for this group. Run `styrby context sync` to create one.'),
     );
     return;
   }
@@ -482,9 +540,12 @@ async function handleContextShow(args: string[]): Promise<void> {
     return;
   }
 
-  // Pretty-print
-  console.log(chalk.bold.cyan('\n── Context Memory ──────────────────────────────────────'));
-  console.log(chalk.dim(`Group: ${memory.sessionGroupId}  |  Version: ${memory.version}  |  Budget: ${memory.tokenBudget} tokens`));
+  console.log(chalk.bold.cyan('\n-- Context Memory ----------------------------------'));
+  console.log(
+    chalk.dim(
+      `Group: ${memory.sessionGroupId}  |  Version: ${memory.version}  |  Budget: ${memory.tokenBudget} tokens`,
+    ),
+  );
   console.log(chalk.dim(`Last synced: ${new Date(memory.updatedAt).toLocaleString()}`));
   console.log('');
   console.log(memory.summaryMarkdown);
@@ -497,23 +558,23 @@ async function handleContextShow(args: string[]): Promise<void> {
       const empty = '░'.repeat(10 - bar.length);
       console.log(
         chalk.cyan(`  ${bar}${empty}`) +
-        chalk.dim(` ${ref.relevance.toFixed(2)}`) +
-        `  ${ref.path}`
+          chalk.dim(` ${ref.relevance.toFixed(2)}`) +
+          `  ${ref.path}`,
       );
     }
   }
 
-  console.log(chalk.bold.cyan('────────────────────────────────────────────────────────\n'));
+  console.log(chalk.bold.cyan('---------------------------------------------------\n'));
 }
 
 /**
  * Handles `styrby context sync --group <groupId> [--budget <n>]`.
  *
- * Recomputes the context memory from the group's recent session messages
- * and writes it back to agent_context_memory. Uses optimistic locking;
- * retries once on conflict.
+ * Recomputes the context memory from the group's recent session messages and
+ * upserts it via /api/v1/contexts. The server resolves concurrent writes via
+ * INSERT … ON CONFLICT, so the CLI no longer carries an optimistic-lock loop.
  *
- * @param args - Command arguments.
+ * @param args - Command arguments after `context sync`.
  */
 async function handleContextSync(args: string[]): Promise<void> {
   const options = parseContextSyncArgs(args);
@@ -521,92 +582,73 @@ async function handleContextSync(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  let supabase: SupabaseClient;
-  try {
-    supabase = createAuthenticatedClient();
-  } catch (err) {
-    logger.error((err as Error).message);
-    process.exit(1);
-  }
+  const apiClient = ensureApiClientOrExit();
 
-  logger.info(chalk.dim('Fetching session messages…'));
+  logger.info(chalk.dim('Fetching session messages...'));
 
-  const messages = await fetchGroupMessages(supabase, options.groupId);
+  const messages = await fetchGroupMessages(apiClient, options.groupId);
 
   if (messages.length === 0) {
     logger.info(
-      chalk.yellow('No messages found. The session group may have no active session yet.')
+      chalk.yellow('No messages found. The session group may have no active session yet.'),
     );
     return;
   }
 
-  logger.info(chalk.dim(`Summarizing ${messages.length} messages…`));
+  logger.info(chalk.dim(`Summarizing ${messages.length} messages...`));
 
   const summarizerOutput = summarize({
     messages,
     tokenBudget: options.tokenBudget,
   });
 
-  // Fetch existing memory for optimistic locking
-  const existing = await fetchContextMemory(supabase, options.groupId);
-
-  // Retry once on optimistic lock violation
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const existingForWrite = attempt === 0 ? existing : await fetchContextMemory(supabase, options.groupId);
-
-    const success = await upsertContextMemory(
-      supabase,
+  try {
+    await upsertContextMemory(
+      apiClient,
       options.groupId,
-      existingForWrite,
       summarizerOutput.summaryMarkdown,
       summarizerOutput.fileRefs,
       summarizerOutput.recentMessages,
-      options.tokenBudget ?? TOKEN_BUDGET_DEFAULT
+      options.tokenBudget ?? TOKEN_BUDGET_DEFAULT,
     );
-
-    if (success) {
-      logger.info(
-        chalk.green('✓') +
-        ` Context memory synced — ${summarizerOutput.estimatedTokens} tokens, ` +
-        `${summarizerOutput.fileRefs.length} file refs, ` +
-        `${summarizerOutput.recentMessages.length} messages`
-      );
-
-      // Audit log (non-fatal)
-      await supabase.from('audit_log').insert({
-        action: 'context_memory_synced',
-        metadata: {
-          group_id: options.groupId,
-          estimated_tokens: summarizerOutput.estimatedTokens,
-          file_ref_count: summarizerOutput.fileRefs.length,
-          message_count: summarizerOutput.recentMessages.length,
-        },
-      }).then(({ error }) => {
-        if (error) {
-          // WHY non-fatal: audit log failure must not block user operations.
-          logger.warn(`[context sync] Audit log failed: ${error.message}`);
-        }
-      });
-
-      return;
-    }
-
-    if (attempt === 0) {
-      logger.info(chalk.dim('Concurrent write detected — retrying with fresh version…'));
-    }
+  } catch (err) {
+    handleApiError(err, 'sync context memory');
   }
 
-  logger.error('Failed to sync context memory after retry. Please try again.');
-  process.exit(1);
+  logger.info(
+    chalk.green('✓') +
+      ` Context memory synced - ${summarizerOutput.estimatedTokens} tokens, ` +
+      `${summarizerOutput.fileRefs.length} file refs, ` +
+      `${summarizerOutput.recentMessages.length} messages`,
+  );
+
+  // Audit log (non-fatal). WHY catch+swallow: audit failure must not block UX.
+  await apiClient
+    .writeAuditEvent({
+      action: 'context_memory_synced',
+      resource_type: 'agent_session_group',
+      resource_id: options.groupId,
+      metadata: {
+        group_id: options.groupId,
+        estimated_tokens: summarizerOutput.estimatedTokens,
+        file_ref_count: summarizerOutput.fileRefs.length,
+        message_count: summarizerOutput.recentMessages.length,
+      },
+    })
+    .catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'unknown';
+      logger.warn(`[context sync] Audit log failed: ${msg}`);
+    });
 }
 
 /**
  * Handles `styrby context export --session <sessionId> [--json]`.
  *
- * Finds the session's group, fetches the context memory, and prints it.
- * If the session has no group or no memory, prints an informative message.
+ * Resolves the session's group, fetches the group's context memory, and prints
+ * it. If the session has no group or the group has no memory yet, surfaces an
+ * informative message instead of erroring.
  *
- * @param args - Command arguments.
+ * @param args - Command arguments after `context export`.
  */
 async function handleContextExport(args: string[]): Promise<void> {
   const options = parseContextExportArgs(args);
@@ -614,82 +656,90 @@ async function handleContextExport(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  let supabase: SupabaseClient;
+  const apiClient = ensureApiClientOrExit();
+
+  // Resolve session -> group
+  let sessionGroupId: string | null;
   try {
-    supabase = createAuthenticatedClient();
+    const { session } = await apiClient.getSession(options.sessionId);
+    sessionGroupId = session.session_group_id ?? null;
   } catch (err) {
-    logger.error((err as Error).message);
-    process.exit(1);
+    if (err instanceof StyrbyApiError && err.status === 404) {
+      logger.error(`Session not found: ${options.sessionId}`);
+      process.exit(1);
+    }
+    handleApiError(err, 'fetch session');
   }
 
-  // Resolve session → group
-  const { data: session, error: sessionError } = await supabase
-    .from('sessions')
-    .select('id, session_group_id')
-    .eq('id', options.sessionId)
-    .single();
-
-  if (sessionError || !session) {
-    logger.error(`Session not found: ${options.sessionId}`);
-    process.exit(1);
-  }
-
-  if (!session.session_group_id) {
+  if (!sessionGroupId) {
     logger.info(
       chalk.yellow(
         'This session is not part of a session group. ' +
-        'Context sync is available for multi-agent groups started with `styrby multi`.'
-      )
+          'Context sync is available for multi-agent groups started with `styrby multi`.',
+      ),
     );
     return;
   }
 
-  const memory = await fetchContextMemory(supabase, session.session_group_id as string);
+  let memory: AgentContextMemory | null;
+  try {
+    memory = await fetchContextMemory(apiClient, sessionGroupId);
+  } catch (err) {
+    handleApiError(err, 'fetch context memory');
+  }
 
   if (!memory) {
     logger.info(
       chalk.yellow(
-        'No context memory found for this session\'s group. ' +
-        `Run \`styrby context sync --group ${session.session_group_id as string}\` to create one.`
-      )
+        "No context memory found for this session's group. " +
+          `Run \`styrby context sync --group ${sessionGroupId}\` to create one.`,
+      ),
     );
     return;
   }
 
-  // Audit log
-  await supabase.from('audit_log').insert({
-    action: 'context_memory_exported',
-    metadata: { session_id: options.sessionId, group_id: session.session_group_id },
-  }).then(({ error }) => {
-    if (error) logger.warn(`[context export] Audit log failed: ${error.message}`);
-  });
+  // Audit log (non-fatal).
+  await apiClient
+    .writeAuditEvent({
+      action: 'context_memory_exported',
+      resource_type: 'agent_session_group',
+      resource_id: sessionGroupId,
+      metadata: { session_id: options.sessionId, group_id: sessionGroupId },
+    })
+    .catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'unknown';
+      logger.warn(`[context export] Audit log failed: ${msg}`);
+    });
 
   if (options.json) {
     console.log(JSON.stringify(memory, null, 2));
     return;
   }
 
-  // Pretty-print (same as `show`)
   const payload = buildInjectionPrompt(memory);
-  console.log(chalk.bold.cyan('\n── Exported Context (Injection Preview) ────────────────'));
-  console.log(chalk.dim(`~${payload.estimatedTokens} tokens  |  ${payload.messageCount} messages  |  ${payload.includedFileRefs.length} file refs`));
+  console.log(chalk.bold.cyan('\n-- Exported Context (Injection Preview) ------------'));
+  console.log(
+    chalk.dim(
+      `~${payload.estimatedTokens} tokens  |  ${payload.messageCount} messages  |  ${payload.includedFileRefs.length} file refs`,
+    ),
+  );
   console.log('');
   console.log(payload.systemPrompt);
-  console.log(chalk.bold.cyan('────────────────────────────────────────────────────────\n'));
+  console.log(chalk.bold.cyan('---------------------------------------------------\n'));
 }
 
 /**
  * Handles `styrby context import --session <target> --from <source> [--task "..."]`.
  *
  * Copies the context memory from the source session's group to the target
- * session's group. Useful when you want to continue work from one session
- * in a different agent or project context.
+ * session's group. Useful when continuing work from one session in a different
+ * agent or project context.
  *
- * Security:
- *   Both source and target sessions must belong to the authenticated user.
- *   Server-side RLS enforces this; the CLI checks up front for a better error UX.
+ * Security: both source and target sessions are resolved via /api/v1/sessions/[id],
+ * which only returns rows owned by the authenticated user (server-enforced).
+ * Cross-user IDs surface as 404 here, matching the API's enumeration defense.
  *
- * @param args - Command arguments.
+ * @param args - Command arguments after `context import`.
  */
 async function handleContextImport(args: string[]): Promise<void> {
   const options = parseContextImportArgs(args);
@@ -697,50 +747,55 @@ async function handleContextImport(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  let supabase: SupabaseClient;
+  const apiClient = ensureApiClientOrExit();
+
+  // Resolve source session -> group
+  let sourceGroupId: string | null;
   try {
-    supabase = createAuthenticatedClient();
+    const { session } = await apiClient.getSession(options.fromSessionId);
+    sourceGroupId = session.session_group_id ?? null;
   } catch (err) {
-    logger.error((err as Error).message);
+    if (err instanceof StyrbyApiError && err.status === 404) {
+      logger.error(`Source session not found: ${options.fromSessionId}`);
+      process.exit(1);
+    }
+    handleApiError(err, 'fetch source session');
+  }
+  if (!sourceGroupId) {
+    logger.error(`Source session not in a group: ${options.fromSessionId}`);
     process.exit(1);
   }
 
-  // Resolve source session → group
-  const { data: sourceSession, error: sourceError } = await supabase
-    .from('sessions')
-    .select('id, session_group_id')
-    .eq('id', options.fromSessionId)
-    .single();
-
-  if (sourceError || !sourceSession || !sourceSession.session_group_id) {
-    logger.error(
-      `Source session not found or not in a group: ${options.fromSessionId}`
-    );
-    process.exit(1);
+  // Resolve target session -> group
+  let targetGroupId: string | null;
+  try {
+    const { session } = await apiClient.getSession(options.sessionId);
+    targetGroupId = session.session_group_id ?? null;
+  } catch (err) {
+    if (err instanceof StyrbyApiError && err.status === 404) {
+      logger.error(`Target session not found: ${options.sessionId}`);
+      process.exit(1);
+    }
+    handleApiError(err, 'fetch target session');
   }
-
-  // Resolve target session → group
-  const { data: targetSession, error: targetError } = await supabase
-    .from('sessions')
-    .select('id, session_group_id')
-    .eq('id', options.sessionId)
-    .single();
-
-  if (targetError || !targetSession || !targetSession.session_group_id) {
+  if (!targetGroupId) {
     logger.error(
-      `Target session not found or not in a group: ${options.sessionId}. ` +
-      'The target session must be part of a multi-agent group.'
+      `Target session not in a group: ${options.sessionId}. The target session must be part of a multi-agent group.`,
     );
     process.exit(1);
   }
 
   // Fetch source memory
-  const sourceMemory = await fetchContextMemory(supabase, sourceSession.session_group_id as string);
-
+  let sourceMemory: AgentContextMemory | null;
+  try {
+    sourceMemory = await fetchContextMemory(apiClient, sourceGroupId);
+  } catch (err) {
+    handleApiError(err, 'fetch source context memory');
+  }
   if (!sourceMemory) {
     logger.error(
       `No context memory found for source session's group. ` +
-      `Run \`styrby context sync --group ${sourceSession.session_group_id as string}\` first.`
+        `Run \`styrby context sync --group ${sourceGroupId}\` first.`,
     );
     process.exit(1);
   }
@@ -755,47 +810,45 @@ async function handleContextImport(args: string[]): Promise<void> {
     taskOverride: options.task,
   });
 
-  // Fetch existing target memory for optimistic locking
-  const existingTarget = await fetchContextMemory(supabase, targetSession.session_group_id as string);
-
-  const success = await upsertContextMemory(
-    supabase,
-    targetSession.session_group_id as string,
-    existingTarget,
-    importedSummary.summaryMarkdown,
-    importedSummary.fileRefs,
-    importedSummary.recentMessages,
-    sourceMemory.tokenBudget
-  );
-
-  if (!success) {
-    logger.error(
-      'Concurrent write to target group memory detected. Please retry.'
+  try {
+    await upsertContextMemory(
+      apiClient,
+      targetGroupId,
+      importedSummary.summaryMarkdown,
+      importedSummary.fileRefs,
+      importedSummary.recentMessages,
+      sourceMemory.tokenBudget,
     );
-    process.exit(1);
+  } catch (err) {
+    handleApiError(err, 'import context memory');
   }
 
-  // Audit log
-  await supabase.from('audit_log').insert({
-    action: 'context_memory_imported',
-    metadata: {
-      source_session_id: options.fromSessionId,
-      target_session_id: options.sessionId,
-      source_group_id: sourceSession.session_group_id,
-      target_group_id: targetSession.session_group_id,
-      task_override: options.task ?? null,
-    },
-  }).then(({ error }) => {
-    if (error) logger.warn(`[context import] Audit log failed: ${error.message}`);
-  });
+  // Audit log (non-fatal).
+  await apiClient
+    .writeAuditEvent({
+      action: 'context_memory_imported',
+      resource_type: 'agent_session_group',
+      resource_id: targetGroupId,
+      metadata: {
+        source_session_id: options.fromSessionId,
+        target_session_id: options.sessionId,
+        source_group_id: sourceGroupId,
+        target_group_id: targetGroupId,
+        task_override: options.task ?? null,
+      },
+    })
+    .catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'unknown';
+      logger.warn(`[context import] Audit log failed: ${msg}`);
+    });
 
   logger.info(
     chalk.green('✓') +
-    ` Context imported from session ${options.fromSessionId} → ${options.sessionId}. ` +
-    chalk.dim(
-      `~${importedSummary.estimatedTokens} tokens, ` +
-      `${importedSummary.fileRefs.length} file refs`
-    )
+      ` Context imported from session ${options.fromSessionId} -> ${options.sessionId}. ` +
+      chalk.dim(
+        `~${importedSummary.estimatedTokens} tokens, ` +
+          `${importedSummary.fileRefs.length} file refs`,
+      ),
   );
 
   if (options.task) {
@@ -811,10 +864,10 @@ async function handleContextImport(args: string[]): Promise<void> {
  * Dispatches `styrby context <subcommand>` to the correct handler.
  *
  * Subcommands:
- *   show    — Display current context memory for a group
- *   sync    — Recompute and write context memory from recent messages
- *   export  — Print context memory for a session (as markdown or JSON)
- *   import  — Copy context memory from one session's group to another
+ *   show    - Display current context memory for a group
+ *   sync    - Recompute and write context memory from recent messages
+ *   export  - Print context memory for a session (as markdown or JSON)
+ *   import  - Copy context memory from one session's group to another
  *
  * @param args - Arguments after `styrby context`.
  */
@@ -840,7 +893,9 @@ export async function handleContextCommand(args: string[]): Promise<void> {
       break;
 
     default:
-      logger.error(subcommand ? `Unknown context subcommand: ${subcommand}` : 'Usage: styrby context <subcommand>');
+      logger.error(
+        subcommand ? `Unknown context subcommand: ${subcommand}` : 'Usage: styrby context <subcommand>',
+      );
       console.error('');
       console.error('Subcommands:');
       console.error('  show    --group <groupId>                          Show current context memory');
