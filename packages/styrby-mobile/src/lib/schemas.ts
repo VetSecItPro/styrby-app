@@ -140,6 +140,17 @@ export const SessionSchema = z.object({
    * (e.g. in Realtime events before the payload includes it) will default to null.
    */
   last_heartbeat_at: z.string().nullable().optional(),
+  /**
+   * UUID of the agent_session_groups row this session belongs to, or null
+   * for solo sessions. Optional in the schema because Realtime events
+   * predating the explicit selection may not carry the column.
+   *
+   * WHY (M1.2 D-01 fix, 2026-04-30): Phase 4-step3 wired the CLI to populate
+   * this column when sessions are spawned by `styrby multi`. The mobile list
+   * was previously group-blind because the SELECT and the Zod schema both
+   * omitted the field; data was being stripped at the parse boundary.
+   */
+  session_group_id: z.string().nullable().optional(),
 });
 
 /** Inferred TypeScript type for a validated session row. */

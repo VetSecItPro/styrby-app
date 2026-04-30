@@ -294,6 +294,31 @@ describe('SessionSchema', () => {
     const result = SessionSchema.safeParse(makeSession({ tags: 'not-an-array' }));
     expect(result.success).toBe(false);
   });
+
+  // M1.2 D-01 (2026-04-30): session_group_id was added to surface multi-agent
+  // group affiliation in the primary session list. Three cases — UUID present,
+  // explicit null (solo session), and column omitted (Realtime forward-compat).
+  it('accepts session with a session_group_id UUID', () => {
+    const result = SessionSchema.safeParse(
+      makeSession({ session_group_id: '11111111-1111-1111-1111-111111111111' }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.session_group_id).toBe('11111111-1111-1111-1111-111111111111');
+    }
+  });
+
+  it('accepts session with null session_group_id (solo session)', () => {
+    const result = SessionSchema.safeParse(makeSession({ session_group_id: null }));
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts session row without session_group_id (Realtime forward-compat)', () => {
+    const session = makeSession();
+    delete (session as Record<string, unknown>).session_group_id;
+    const result = SessionSchema.safeParse(session);
+    expect(result.success).toBe(true);
+  });
 });
 
 // ============================================================================
