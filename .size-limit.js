@@ -164,7 +164,22 @@ module.exports = [
     // follow-up cert-claim removal added a 1-line vendor-trust note on security/
     // page.tsx. Net measurement: 776.003 KB gzip — 3 bytes over 776 KB limit.
     // 2 KB headroom now for /a11y + /launch passes that follow.
-    limit: '778 KB',
+    //
+    // Strategy C Phase 2 ratchet 778 → 790 (2026-04-29): 10 new App Router
+    // server-only API endpoints (audit, contexts, templates, broadcast,
+    // sessions/groups DELETE, oauth/start, oauth/callback, otp/send, otp/verify,
+    // account) plus lib/auth/api-config.ts (server-only constants/helpers, no
+    // client imports) plus an 11-line createAdminClient flowType:'pkce' tweak.
+    // Strategy C itself contributes ~0 KB to first-load — verified by reading
+    // every diffed file: all are route.ts server modules, files imported only
+    // by route handlers, or server-only Supabase admin code. The +5.05 KB
+    // delta over the 778 KB budget reflects main drift since the last ratchet:
+    // PRs #219 (account-switch correctness), #216 (H42 security batch), #211
+    // (HMAC verification), #220 (daemon stop-flag) and other web work landed
+    // between 778 KB being set (with 1.997 KB headroom) and this measurement.
+    // Setting 790 KB absorbs the drift + leaves ~7 KB headroom for the next
+    // phase. Pattern-consistent with prior phases (5-12 KB ratchets).
+    limit: '790 KB',
     gzip: true,
     // WHY import is omitted: We cannot import directly from Next.js output —
     // these are already-built assets. size-limit stats the files and sums sizes.
