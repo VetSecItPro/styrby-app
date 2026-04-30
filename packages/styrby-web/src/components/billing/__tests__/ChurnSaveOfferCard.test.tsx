@@ -29,7 +29,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import React from 'react';
 import { ChurnSaveOfferCard } from '../ChurnSaveOfferCard';
 import type { AcceptOfferActionResult } from '@/app/billing/offer/[offerId]/actions';
@@ -169,7 +169,15 @@ describe('ChurnSaveOfferCard', () => {
       expect(screen.getByText(/Accepting\.\.\./i)).toBeTruthy();
     });
 
-    resolveAction({ ok: true });
+    // WHY act() + microtask flush: resolveAction() triggers React's startTransition
+    // to flip the pending state back to ready. Without act(), the test exits while
+    // React is mid-transition, causing the "wrap in act()" warning intermittently
+    // and a flaky "(f) was hanging on prior render" failure under CI load.
+    // Awaiting a microtask after resolveAction lets React commit the resolved state.
+    await act(async () => {
+      resolveAction({ ok: true });
+      await Promise.resolve();
+    });
   });
 
   // ── (g) Error banner ───────────────────────────────────────────────────────
