@@ -64,6 +64,17 @@ export function createAdminClient() {
         },
         setAll() {},
       },
+      auth: {
+        // WHY flowType: 'pkce' explicit: PKCE prevents OAuth authorization-code-
+        // interception attacks (OWASP A07:2021). The code_verifier never leaves
+        // the server; only the code_challenge is sent to the OAuth provider.
+        // Explicit > implicit — security-critical mechanisms must be declared in
+        // client config so they survive any future Supabase default changes.
+        // This is the correct layer for flowType: Supabase's signInWithOAuth
+        // options object does not expose flowType directly; it is a client-level
+        // auth configuration option.
+        flowType: 'pkce',
+      },
     }
   );
 }

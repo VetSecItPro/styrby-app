@@ -31,8 +31,27 @@ export default defineConfig({
     globals: true,
   },
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
+    // WHY array form (not object): we need both an exact match for `@styrby/shared`
+    // AND a regex match for subpath imports like `@styrby/shared/logging`,
+    // `@styrby/shared/context-sync`, etc. Object form does prefix matching that
+    // doesn't distinguish these cases cleanly without the broader regex.
+    alias: [
+      { find: '@', replacement: path.resolve(__dirname, './src') },
+      // WHY: @styrby/shared dist/ is not pre-built in dev/test environments.
+      // Pointing vitest directly to the TypeScript source avoids the "Failed
+      // to resolve import" error during test collection. The mock layer
+      // (vi.mock('@styrby/shared')) still intercepts at runtime as expected.
+      {
+        find: /^@styrby\/shared$/,
+        replacement: path.resolve(__dirname, '../styrby-shared/src/index.ts'),
+      },
+      // Subpath imports like `@styrby/shared/logging`, `/context-sync`, `/billing`
+      // resolve to `../styrby-shared/src/<subpath>`. Vite's TypeScript extension
+      // resolution handles `.ts` / `index.ts` automatically.
+      {
+        find: /^@styrby\/shared\/(.*)$/,
+        replacement: path.resolve(__dirname, '../styrby-shared/src/$1'),
+      },
+    ],
   },
 });
