@@ -791,6 +791,30 @@ export class StyrbyApiClient {
     });
   }
 
+  /**
+   * Set the active session within a group (focus transition).
+   *
+   * Used by the CLI's multi-agent orchestrator (Phase 4-step3) to commit a
+   * focus change when the focused session ends and another running session
+   * needs to take over. Mirror of the legacy /api/sessions/groups/[id]/focus
+   * endpoint but authenticated via styrby_* Bearer token.
+   *
+   * WHY retryable=true: the update is idempotent (same group + same session_id
+   * → same end-state, no duplicate side-effects). A retry after a 5xx that
+   * succeeded server-side simply re-applies the same value.
+   */
+  setSessionGroupFocus(
+    groupId: string,
+    sessionId: string,
+  ): Promise<{ group_id: string; active_agent_session_id: string }> {
+    return this.request<{ group_id: string; active_agent_session_id: string }>({
+      method: 'POST',
+      path: `/api/v1/sessions/groups/${encodeURIComponent(groupId)}/focus`,
+      body: { session_id: sessionId },
+      retryable: true,
+    });
+  }
+
   searchAuditLog(query: AuditSearchQuery): Promise<AuditSearchResponse> {
     return this.request<AuditSearchResponse>({
       method: 'GET',
