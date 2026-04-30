@@ -143,3 +143,6 @@ ARCHITECTURE.md
 .copy-reports/
 .db-reports/
 scripts/__pycache__/
+
+# Turborepo local cache (Bundle 2)
+.turbo/

@@ -67,6 +67,17 @@ env:
   EXPO_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
   EXPO_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
   RESEND_API_KEY: re_placeholder_key
+  # Bundle 2 — Turborepo remote cache (2026-04-30):
+  # When TURBO_TOKEN and TURBO_TEAM are set in repo Actions secrets, Turbo
+  # uploads/downloads task outputs from the configured remote cache (Vercel
+  # Remote Cache by default; can be self-hosted). When unset, Turbo falls back
+  # to local-only cache — still useful within a single CI run for tasks that
+  # invoke each other, but no cross-run sharing. Setup: `npx turbo link` once,
+  # then add the resulting token + team slug as repo secrets.
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+  # Per Turbo's recommendation: opt out of telemetry on CI runners.
+  TURBO_TELEMETRY_DISABLED: '1'
 
 # SEC-008 FIX: Explicit least-privilege permissions.
 # WHY: Without a top-level permissions block, GitHub defaults to write access
@@ -228,25 +239,12 @@ jobs:
       - name: Lint (if configured)
         run: pnpm run lint
 
-      # Build shared first so its type declarations are available for CLI typecheck
-      - name: Build shared (type declarations)
-        run: pnpm --filter @styrby/shared build
-
-      - name: Type check shared
-        run: pnpm --filter @styrby/shared run typecheck
-
-      - name: Type check CLI
-        run: pnpm --filter styrby-cli run typecheck
-
-      - name: Type check web
-        run: pnpm --filter styrby-web run typecheck
-
-      - name: Type check mobile
-        # FIXED: React 18 vs 19 type conflict resolved via pnpm.packageExtensions in
-        # root package.json. Each Expo/React Native library now declares @types/react@~18.3.0
-        # as a peer dependency, preventing TypeScript from falling back to the React 19 types
-        # that live in .pnpm/node_modules/@types/react (shared by styrby-web's dependencies).
-        run: pnpm --filter styrby-mobile run typecheck
+      # Bundle 2 (Turbo): typecheck task in turbo.json depends on `^build`, so
+      # turbo automatically builds @styrby/shared before typechecking any consumer.
+      # All four typechecks share the same shared-build cache key — second
+      # invocation hits cache when shared hasn't changed.
+      - name: Type check (all packages, turbo-orchestrated)
+        run: pnpm turbo run typecheck --filter=@styrby/shared --filter=styrby-cli --filter=styrby-web --filter=styrby-mobile
 
   # ─── Shared unit tests ───
   test-shared:
