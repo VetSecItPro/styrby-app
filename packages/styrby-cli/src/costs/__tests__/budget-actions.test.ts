@@ -87,7 +87,14 @@ function makeResult(overrides: Partial<BudgetCheckResult> = {}): BudgetCheckResu
   };
 }
 
-/** Build a minimal Supabase mock that tracks calls. */
+/**
+ * Build a minimal Supabase mock for the realtime channel path only.
+ *
+ * Phase 4-step5: notification preference reads + audit_log writes have moved
+ * to {@link makeApiClient}; this stub only needs to satisfy the realtime
+ * `supabase.channel().send()` chain that BudgetActions uses for in-app
+ * broadcasts.
+ */
 function makeSupabase() {
   const channelMock = {
     subscribe: vi.fn().mockResolvedValue(undefined),
@@ -95,33 +102,79 @@ function makeSupabase() {
     unsubscribe: vi.fn().mockResolvedValue(undefined),
   };
 
-  const selectChain = {
-    eq: vi.fn().mockReturnThis(),
-    single: vi.fn().mockResolvedValue({ data: { email_budget_alerts: true }, error: null }),
-  };
-
-  const insertChain = {
-    error: null,
-    then: vi.fn(),
-  };
-
   return {
     channel: vi.fn(() => channelMock),
-    from: vi.fn((table: string) => {
-      if (table === 'notification_preferences') {
-        return { select: vi.fn(() => selectChain) };
-      }
-      if (table === 'audit_log') {
-        return { insert: vi.fn().mockResolvedValue({ error: null }) };
-      }
-      return {};
-    }),
   } as unknown as import('@supabase/supabase-js').SupabaseClient;
 }
 
+/**
+ * Build a focused StyrbyApiClient stub. Records every writeAuditEvent call
+ * and lets the test override the notification preferences row.
+ *
+ * WHY a focused stub (mirrors approvalHandler.test.ts): the handler only
+ * uses two client methods. A targeted stub keeps signal high and surfaces
+ * accidental dependencies as compile errors via the explicit cast.
+ */
+function makeApiClient(opts: {
+  emailBudgetAlerts?: boolean | null;
+  preferencesNull?: boolean;
+  writeAuditError?: Error;
+  getPreferencesError?: Error;
+} = {}) {
+  const audits: Array<{ action: string; metadata?: Record<string, unknown> }> = [];
+
+  const stub = {
+    getNotificationPreferences: vi.fn(async () => {
+      if (opts.getPreferencesError) throw opts.getPreferencesError;
+      if (opts.preferencesNull) return { preferences: null };
+      // Default: email_budget_alerts=true unless explicitly set false.
+      const enabled = opts.emailBudgetAlerts ?? true;
+      return {
+        preferences: {
+          id: VALID_UUID,
+          push_enabled: true,
+          push_permission_requests: false,
+          push_session_errors: false,
+          push_budget_alerts: false,
+          push_session_complete: false,
+          email_enabled: true,
+          email_weekly_summary: false,
+          email_budget_alerts: enabled,
+          quiet_hours_enabled: false,
+          quiet_hours_start: null,
+          quiet_hours_end: null,
+          quiet_hours_timezone: null,
+          priority_threshold: 0,
+          priority_rules: null,
+          push_agent_finished: false,
+          push_budget_threshold: false,
+          push_weekly_summary: false,
+          weekly_digest_email: false,
+          push_predictive_alert: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      };
+    }),
+    writeAuditEvent: vi.fn(async (event: { action: string; metadata?: Record<string, unknown> }) => {
+      audits.push(event);
+      if (opts.writeAuditError) throw opts.writeAuditError;
+      return { id: 'audit-' + audits.length, created_at: new Date().toISOString() };
+    }),
+  };
+
+  return {
+    apiClient: stub as unknown as import('@/api/styrbyApiClient').StyrbyApiClient,
+    audits,
+    stub,
+  };
+}
+
 function makeConfig(overrides: Partial<BudgetActionsConfig> = {}): BudgetActionsConfig {
+  const { apiClient } = makeApiClient();
   return {
     supabase: makeSupabase(),
+    apiClient,
     userId: VALID_UUID,
     ...overrides,
   };
@@ -378,6 +431,98 @@ describe('BudgetActions slowdown management', () => {
     actions2.triggerSlowdown(makeResult({ level: 'exceeded', percentUsed: 150 }));
 
     expect(actions2.getSlowdownDelay()).toBeGreaterThanOrEqual(actions.getSlowdownDelay());
+  });
+});
+
+// ============================================================================
+// Phase 4-step5: apiClient-backed email queueing
+// ============================================================================
+
+describe('BudgetActions email queue (apiClient)', () => {
+  it('reads notification preferences via apiClient.getNotificationPreferences', async () => {
+    const { apiClient, stub } = makeApiClient({ emailBudgetAlerts: true });
+    const actions = new BudgetActions(makeConfig({ apiClient }));
+    const result = makeResult({
+      level: 'warning',
+      alert: makeAlert({ action: 'notify', notification_channels: ['email'] }),
+      isNewTrigger: true,
+    });
+
+    await actions.executeAction(result);
+
+    expect(stub.getNotificationPreferences).toHaveBeenCalled();
+  });
+
+  it('writes audit event via apiClient.writeAuditEvent when email is enabled', async () => {
+    const { apiClient, audits } = makeApiClient({ emailBudgetAlerts: true });
+    const actions = new BudgetActions(makeConfig({ apiClient }));
+    const result = makeResult({
+      level: 'critical',
+      alert: makeAlert({ action: 'notify', notification_channels: ['email'] }),
+      currentSpendUsd: 9,
+      percentUsed: 90,
+      isNewTrigger: true,
+    });
+
+    await actions.executeAction(result);
+    // Allow the non-fatal .catch() chain a microtask to settle.
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(audits.length).toBe(1);
+    expect(audits[0].action).toBe('settings_updated');
+    expect(audits[0].metadata).toMatchObject({
+      alert_name: 'Test Alert',
+      period: 'daily',
+      alert_action: 'notify',
+    });
+  });
+
+  it('skips audit write when email_budget_alerts is disabled', async () => {
+    const { apiClient, audits } = makeApiClient({ emailBudgetAlerts: false });
+    const actions = new BudgetActions(makeConfig({ apiClient }));
+    const result = makeResult({
+      level: 'warning',
+      alert: makeAlert({ action: 'notify', notification_channels: ['email'] }),
+      isNewTrigger: true,
+    });
+
+    await actions.executeAction(result);
+
+    expect(audits.length).toBe(0);
+  });
+
+  it('treats null preferences (row not yet created) as opt-in', async () => {
+    const { apiClient, audits } = makeApiClient({ preferencesNull: true });
+    const actions = new BudgetActions(makeConfig({ apiClient }));
+    const result = makeResult({
+      level: 'warning',
+      alert: makeAlert({ action: 'notify', notification_channels: ['email'] }),
+      isNewTrigger: true,
+    });
+
+    await actions.executeAction(result);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(audits.length).toBe(1);
+  });
+
+  it('treats audit-log write failure as non-fatal — action still succeeds', async () => {
+    const { apiClient } = makeApiClient({
+      emailBudgetAlerts: true,
+      writeAuditError: new Error('5xx audit write down'),
+    });
+    const actions = new BudgetActions(makeConfig({ apiClient }));
+    const result = makeResult({
+      level: 'warning',
+      alert: makeAlert({ action: 'notify', notification_channels: ['email'] }),
+      isNewTrigger: true,
+    });
+
+    const actionResult = await actions.executeAction(result);
+    // Allow the .catch() to run.
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(actionResult.success).toBe(true);
   });
 });
 
