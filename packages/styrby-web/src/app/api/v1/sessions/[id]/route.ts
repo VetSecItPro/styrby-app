@@ -65,6 +65,7 @@ async function handler(
       `
       id,
       machine_id,
+      session_group_id,
       agent_type,
       model,
       title,

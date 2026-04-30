@@ -335,6 +335,8 @@ export interface SessionListQuery {
 
 export interface SessionSummary {
   id: string;
+  /** Parent session group when the session is part of a multi-agent group; null otherwise. */
+  session_group_id?: string | null;
   agent_type: string;
   model: string | null;
   title: string | null;
