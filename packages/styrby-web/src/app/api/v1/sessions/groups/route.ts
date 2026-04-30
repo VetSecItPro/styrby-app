@@ -121,3 +121,49 @@ async function handlePost(request: NextRequest, authContext: ApiAuthContext): Pr
 }
 
 export const POST = withApiAuthAndRateLimit(handlePost, ['write']);
+
+// ===========================================================================
+// GET /api/v1/sessions/groups  —  list user's session groups
+// ===========================================================================
+
+/**
+ * Shape of a session group row in the list response.
+ *
+ * Includes active_agent_session_id so the CLI / mobile UI can determine which
+ * member session is currently focused without a follow-up query.
+ */
+interface SessionGroupSummary {
+  id: string;
+  name: string;
+  active_agent_session_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+async function handleGet(_request: NextRequest, authContext: ApiAuthContext): Promise<NextResponse> {
+  const { userId } = authContext;
+  const supabase = createAdminClient();
+
+  // WHY ORDER BY created_at DESC: matches the multi-agent session picker UX —
+  // most recent group surfaces first. Most users have < 20 groups, no pagination.
+  const { data: rows, error } = await supabase
+    .from('agent_session_groups')
+    .select('id, name, active_agent_session_id, created_at, updated_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    Sentry.captureException(new Error(`agent_session_groups list error: ${error.message}`), {
+      extra: { route: ROUTE_ID },
+    });
+    return NextResponse.json({ error: 'Failed to list session groups' }, { status: 500 });
+  }
+
+  const groups = (rows ?? []) as SessionGroupSummary[];
+  return NextResponse.json(
+    { groups, count: groups.length },
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
+}
+
+export const GET = withApiAuthAndRateLimit(handleGet, ['read']);

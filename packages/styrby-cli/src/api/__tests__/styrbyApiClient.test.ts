@@ -411,6 +411,106 @@ describe('StyrbyApiClient', () => {
     });
   });
 
+  describe('getTemplate / updateTemplate / deleteTemplate', () => {
+    it('GET /api/v1/templates/[id] returns the row', async () => {
+      const row = {
+        id: 't1', name: 'n', description: null, content: 'c',
+        variables: [], is_default: false, created_at: 'ts', updated_at: 'ts',
+      };
+      const { fetch: fakeFetch, calls } = makeFetch([{ status: 200, body: { template: row } }]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      const r = await c.getTemplate('t1');
+      expect(r.template.id).toBe('t1');
+      expect(calls[0].url).toContain('/api/v1/templates/t1');
+      expect(calls[0].init.method).toBe('GET');
+    });
+
+    it('PATCH sends only the supplied fields and forwards Idempotency-Key', async () => {
+      const updated = { id: 't1', name: 'new', description: null, content: 'c', variables: [], is_default: false, created_at: 'ts', updated_at: 'ts2' };
+      const { fetch: fakeFetch, calls } = makeFetch([{ status: 200, body: { template: updated } }]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      const r = await c.updateTemplate('t1', { name: 'new' }, { idempotencyKey: 'patch-1' });
+      expect(r.template.name).toBe('new');
+      expect(calls[0].init.method).toBe('PATCH');
+      expect(JSON.parse(calls[0].init.body as string)).toEqual({ name: 'new' });
+      expect((calls[0].init.headers as Headers).get('Idempotency-Key')).toBe('patch-1');
+    });
+
+    it('DELETE returns deleted+id', async () => {
+      const { fetch: fakeFetch, calls } = makeFetch([{ status: 200, body: { deleted: true, id: 't1' } }]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      const r = await c.deleteTemplate('t1');
+      expect(r.deleted).toBe(true);
+      expect(r.id).toBe('t1');
+      expect(calls[0].init.method).toBe('DELETE');
+    });
+
+    it('GET /api/v1/templates/[id] surfaces 404 as StyrbyApiError', async () => {
+      const { fetch: fakeFetch } = makeFetch([{ status: 404, body: { error: 'Not found' } }]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch, maxAttempts: 1 });
+      const err = await c.getTemplate('t-missing').catch((e) => e);
+      expect(err).toBeInstanceOf(StyrbyApiError);
+      expect(err.status).toBe(404);
+    });
+  });
+
+  describe('getContext', () => {
+    it('GET /api/v1/contexts/[group] returns the row', async () => {
+      const row = {
+        id: 'c1', session_group_id: 'g1', summary_markdown: '...', file_refs: [],
+        recent_messages: [], token_budget: 4000, version: 1, created_at: 'ts', updated_at: 'ts',
+      };
+      const { fetch: fakeFetch, calls } = makeFetch([{ status: 200, body: { context: row } }]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      const r = await c.getContext('g1');
+      expect(r.context.version).toBe(1);
+      expect(calls[0].url).toContain('/api/v1/contexts/g1');
+    });
+  });
+
+  describe('listSessionGroups', () => {
+    it('GET /api/v1/sessions/groups returns groups + count', async () => {
+      const groups = [
+        { id: 'g1', name: 'A', active_agent_session_id: null, created_at: 't', updated_at: 't' },
+      ];
+      const { fetch: fakeFetch } = makeFetch([{ status: 200, body: { groups, count: 1 } }]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      const r = await c.listSessionGroups();
+      expect(r.count).toBe(1);
+      expect(r.groups[0].id).toBe('g1');
+    });
+  });
+
+  describe('searchAuditLog', () => {
+    it('forwards filters as query params', async () => {
+      const { fetch: fakeFetch, calls } = makeFetch([{ status: 200, body: { events: [], count: 0 } }]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      await c.searchAuditLog({
+        action: 'mcp_approval_decided',
+        resource_id: '00000000-0000-0000-0000-000000000001',
+        limit: 10,
+      });
+      const url = new URL(calls[0].url);
+      expect(url.searchParams.get('action')).toBe('mcp_approval_decided');
+      expect(url.searchParams.get('resource_id')).toBe('00000000-0000-0000-0000-000000000001');
+      expect(url.searchParams.get('limit')).toBe('10');
+      expect(url.searchParams.has('resource_type')).toBe(false);
+      expect(url.searchParams.has('since')).toBe(false);
+    });
+
+    it('returns events array', async () => {
+      const events = [
+        { id: 'e1', action: 'mcp_approval_decided', resource_type: 'mcp_approval',
+          resource_id: 'a1', metadata: {}, created_at: 't' },
+      ];
+      const { fetch: fakeFetch } = makeFetch([{ status: 200, body: { events, count: 1 } }]);
+      const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: fakeFetch });
+      const r = await c.searchAuditLog({ action: 'mcp_approval_decided' });
+      expect(r.count).toBe(1);
+      expect(r.events[0].id).toBe('e1');
+    });
+  });
+
   describe('deleteSessionCheckpoint', () => {
     it('throws synchronously when neither name nor checkpointId is provided', async () => {
       const c = new StyrbyApiClient({ apiKey: 'sk', fetchImpl: makeFetch([]).fetch });

@@ -253,6 +253,76 @@ export interface TemplatesListResponse {
   count: number;
 }
 
+export interface TemplateRow {
+  id: string;
+  name: string;
+  description: string | null;
+  content: string;
+  variables: unknown;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TemplateUpdateInput {
+  name?: string;
+  content?: string;
+  /** null clears, undefined leaves alone. */
+  description?: string | null;
+  variables?: TemplateVariable[];
+  is_default?: boolean;
+}
+
+export interface ContextRow {
+  id: string;
+  session_group_id: string;
+  summary_markdown: string;
+  file_refs: unknown;
+  recent_messages: unknown;
+  token_budget: number;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SessionGroupSummary {
+  id: string;
+  name: string;
+  active_agent_session_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SessionGroupsListResponse {
+  groups: SessionGroupSummary[];
+  count: number;
+}
+
+export interface AuditSearchQuery {
+  /** Required — single audit_action enum value to filter on. */
+  action: string;
+  resource_id?: string;
+  resource_type?: string;
+  /** 1-100, default 50. */
+  limit?: number;
+  /** ISO 8601 timestamp; only rows after this. */
+  since?: string;
+}
+
+export interface AuditEventRow {
+  id: string;
+  action: string;
+  resource_type: string | null;
+  resource_id: string | null;
+  metadata: unknown;
+  created_at: string;
+}
+
+export interface AuditSearchResponse {
+  events: AuditEventRow[];
+  count: number;
+}
+
 export type SessionStatus = 'starting' | 'running' | 'idle' | 'paused' | 'stopped' | 'error' | 'expired';
 
 export interface SessionListQuery {
@@ -611,6 +681,73 @@ export class StyrbyApiClient {
     return this.request<TemplatesListResponse>({
       method: 'GET',
       path: '/api/v1/templates',
+      retryable: true,
+    });
+  }
+
+  getTemplate(id: string): Promise<{ template: TemplateRow }> {
+    return this.request<{ template: TemplateRow }>({
+      method: 'GET',
+      path: `/api/v1/templates/${encodeURIComponent(id)}`,
+      retryable: true,
+    });
+  }
+
+  updateTemplate(
+    id: string,
+    input: TemplateUpdateInput,
+    opts?: { idempotencyKey?: string },
+  ): Promise<{ template: TemplateRow }> {
+    return this.request<{ template: TemplateRow }>({
+      method: 'PATCH',
+      path: `/api/v1/templates/${encodeURIComponent(id)}`,
+      body: input,
+      // WHY retryable only with key: PATCH is logically idempotent (same body =
+      // same result), but a network retry between client and server might race
+      // with another caller's PATCH. Idempotency-Key replays the cached response.
+      retryable: Boolean(opts?.idempotencyKey),
+      idempotencyKey: opts?.idempotencyKey,
+    });
+  }
+
+  deleteTemplate(id: string): Promise<{ deleted: true; id: string }> {
+    return this.request<{ deleted: true; id: string }>({
+      method: 'DELETE',
+      path: `/api/v1/templates/${encodeURIComponent(id)}`,
+      // WHY retryable=true: DELETE is idempotent at the server (already-gone
+      // returns 404, which the caller can treat as success-equivalent if they
+      // want — but we don't auto-retry 404s, only 5xx).
+      retryable: true,
+    });
+  }
+
+  getContext(groupId: string): Promise<{ context: ContextRow }> {
+    return this.request<{ context: ContextRow }>({
+      method: 'GET',
+      path: `/api/v1/contexts/${encodeURIComponent(groupId)}`,
+      retryable: true,
+    });
+  }
+
+  listSessionGroups(): Promise<SessionGroupsListResponse> {
+    return this.request<SessionGroupsListResponse>({
+      method: 'GET',
+      path: '/api/v1/sessions/groups',
+      retryable: true,
+    });
+  }
+
+  searchAuditLog(query: AuditSearchQuery): Promise<AuditSearchResponse> {
+    return this.request<AuditSearchResponse>({
+      method: 'GET',
+      path: '/api/v1/audit',
+      query: {
+        action: query.action,
+        resource_id: query.resource_id,
+        resource_type: query.resource_type,
+        limit: query.limit,
+        since: query.since,
+      },
       retryable: true,
     });
   }

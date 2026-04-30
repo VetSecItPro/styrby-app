@@ -278,3 +278,113 @@ async function handlePost(request: NextRequest, context: ApiAuthContext): Promis
 export const POST = withApiAuthAndRateLimit(handlePost, ['write'], {
   rateLimit: AUDIT_RATE_LIMIT,
 });
+
+// ===========================================================================
+// GET /api/v1/audit  —  search audit log
+// ===========================================================================
+
+/**
+ * Used primarily by the CLI's MCP approval handler to poll for decision rows,
+ * and by founder/admin tooling that needs to inspect a user's audit trail.
+ *
+ * Filtering by `action` is required — we don't expose a raw "give me everything"
+ * read because that would amplify exfiltration risk if a write-scoped key were
+ * compromised (audit_log can carry sensitive metadata).
+ *
+ * @auth Required - Bearer `styrby_*` API key via withApiAuthAndRateLimit
+ * @rateLimit 1000 req/min/key (matches the POST high-volume cap — approval
+ *   polling fires once per second per active approval).
+ *
+ * Query Parameters:
+ * - action: REQUIRED — single audit_action enum value to filter on
+ * - resource_id?: filter by resource_id (e.g. an approval UUID)
+ * - resource_type?: filter by resource_type
+ * - limit?: 1-100, default 50
+ * - since?: ISO 8601 timestamp; only rows created after this
+ *
+ * @returns 200 { events: AuditEventRow[], count }
+ *
+ * @error 400 { error }  - Missing required `action` or invalid query
+ * @error 401 { error }  - Missing or invalid API key
+ * @error 429 { error }  - Rate limit exceeded
+ * @error 500 { error }  - Unexpected database error (sanitized)
+ *
+ * @security OWASP A01:2021 - results scoped to user_id from auth context.
+ * @security OWASP A07:2021 - auth enforced by withApiAuthAndRateLimit.
+ * @security GDPR Art 5(1)(c) - data minimisation: required `action` filter
+ *   prevents wholesale audit-log slurping.
+ * @security SOC 2 CC6.1 - 'read' scope sufficient (no mutation).
+ */
+
+const AuditQuerySchema = z.object({
+  action: z.string().min(1, 'action filter is required').max(100),
+  resource_id: z.string().max(255).optional(),
+  resource_type: z.string().max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  since: z.string().datetime({ offset: true }).optional(),
+});
+
+interface AuditEventRow {
+  id: string;
+  action: string;
+  resource_type: string | null;
+  resource_id: string | null;
+  metadata: unknown;
+  created_at: string;
+}
+
+async function handleGet(request: NextRequest, authContext: ApiAuthContext): Promise<NextResponse> {
+  const { userId } = authContext;
+
+  const url = new URL(request.url);
+  const rawQuery = {
+    action: url.searchParams.get('action') ?? undefined,
+    resource_id: url.searchParams.get('resource_id') ?? undefined,
+    resource_type: url.searchParams.get('resource_type') ?? undefined,
+    limit: url.searchParams.get('limit') ?? undefined,
+    since: url.searchParams.get('since') ?? undefined,
+  };
+
+  const parseResult = AuditQuerySchema.safeParse(rawQuery);
+  if (!parseResult.success) {
+    const msg = parseResult.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ');
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
+  const q = parseResult.data;
+
+  const supabase = createAdminClient();
+
+  // WHY: chain filters server-side to minimize result set. The action filter is
+  // load-bearing for both the index strategy (idx_audit_log_action exists per
+  // migration 001) and for the data-minimisation guarantee.
+  let query = supabase
+    .from('audit_log')
+    .select('id, action, resource_type, resource_id, metadata, created_at')
+    .eq('user_id', userId)
+    .eq('action', q.action)
+    .order('created_at', { ascending: false })
+    .limit(q.limit);
+
+  if (q.resource_id) query = query.eq('resource_id', q.resource_id);
+  if (q.resource_type) query = query.eq('resource_type', q.resource_type);
+  if (q.since) query = query.gte('created_at', q.since);
+
+  const { data: rows, error } = await query;
+
+  if (error) {
+    Sentry.captureException(new Error(`audit_log search error: ${error.message}`), {
+      extra: { route: ROUTE_ID, action: q.action },
+    });
+    return NextResponse.json({ error: 'Failed to search audit log' }, { status: 500 });
+  }
+
+  const events = (rows ?? []) as AuditEventRow[];
+  return NextResponse.json(
+    { events, count: events.length },
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
+}
+
+export const GET = withApiAuthAndRateLimit(handleGet, ['read'], {
+  rateLimit: AUDIT_RATE_LIMIT,
+});
