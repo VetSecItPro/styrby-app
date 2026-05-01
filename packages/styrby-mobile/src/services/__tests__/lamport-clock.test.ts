@@ -33,11 +33,19 @@
 
 /** In-memory store simulating the lamport_clock_state table */
 let clockStore: Record<number, number> = {};
-let _tableExists = false;
+
+/**
+ * Tracks whether the SQLite schema has been provisioned. Read by tests that
+ * guard the crash-safety invariant: every public method (tick / receive /
+ * peek) must call init() before touching the persistence layer, otherwise a
+ * fresh-install boot would write to a non-existent table and silently lose
+ * the clock value across the very first crash.
+ */
+let tableExists = false;
 
 const mockRunAsync = jest.fn(async (sql: string, params: unknown[] = []) => {
   if (sql.includes('CREATE TABLE')) {
-    _tableExists = true;
+    tableExists = true;
     return { changes: 0 };
   }
   if (sql.includes('INSERT OR IGNORE')) {
@@ -62,7 +70,7 @@ const mockGetFirstAsync = jest.fn(async (_sql: string, params: unknown[] = []) =
 const mockExecAsync = jest.fn(async (sql: string) => {
   // Handle combined CREATE + INSERT in a single execAsync call
   if (sql.includes('CREATE TABLE')) {
-    _tableExists = true;
+    tableExists = true;
     if (!(1 in clockStore)) clockStore[1] = 0;
   }
 });
@@ -97,7 +105,7 @@ function freshClock(): LamportClock {
 describe('LamportClock.tick()', () => {
   beforeEach(() => {
     clockStore = {};
-    _tableExists = false;
+    tableExists = false;
     jest.clearAllMocks();
   });
 
@@ -106,6 +114,17 @@ describe('LamportClock.tick()', () => {
     const db = buildMockDb();
     const value = await clock.tick(db);
     expect(value).toBe(1);
+  });
+
+  // Guards against a regression where tick() bypasses init() and writes to a
+  // non-existent table on the first launch after install — silently losing the
+  // initial clock value when the next boot reads an empty store.
+  it('provisions the schema before the first tick (init runs CREATE TABLE)', async () => {
+    const clock = freshClock();
+    const db = buildMockDb();
+    expect(tableExists).toBe(false);
+    await clock.tick(db);
+    expect(tableExists).toBe(true);
   });
 
   it('returns monotonically increasing values on successive ticks', async () => {
@@ -176,8 +195,19 @@ describe('LamportClock.tick()', () => {
 describe('LamportClock.receive()', () => {
   beforeEach(() => {
     clockStore = {};
-    _tableExists = false;
+    tableExists = false;
     jest.clearAllMocks();
+  });
+
+  // Guards the same crash-safety invariant as the tick() schema test: a
+  // first-ever receive() on a fresh install must provision the table itself,
+  // not assume a prior tick() did so.
+  it('provisions the schema before the first receive (init runs CREATE TABLE)', async () => {
+    const clock = freshClock();
+    const db = buildMockDb();
+    expect(tableExists).toBe(false);
+    await clock.receive(db, 5);
+    expect(tableExists).toBe(true);
   });
 
   it('advances to max(local, remote) + 1 when remote > local', async () => {
@@ -240,8 +270,19 @@ describe('LamportClock.receive()', () => {
 describe('LamportClock.peek()', () => {
   beforeEach(() => {
     clockStore = {};
-    _tableExists = false;
+    tableExists = false;
     jest.clearAllMocks();
+  });
+
+  // Guards against a regression where peek() returns the in-memory `current`
+  // (zero on a fresh process) without first hydrating from SQLite — which
+  // would let callers observe a stale value after an app restart.
+  it('provisions the schema before peeking on a fresh instance', async () => {
+    const clock = freshClock();
+    const db = buildMockDb();
+    expect(tableExists).toBe(false);
+    await clock.peek(db);
+    expect(tableExists).toBe(true);
   });
 
   it('returns current value without advancing the clock', async () => {
