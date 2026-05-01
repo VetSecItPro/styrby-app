@@ -277,8 +277,16 @@ describe('StorageQuotaGuard — getStorageQuota()', () => {
 // ============================================================================
 
 describe('StorageQuotaGuard — clearNonCriticalQueueItems()', () => {
-  /** Build an in-memory SQLite mock with controlled rows */
-  function buildMockDb(pendingCount: number, _failedCount: number, _sendingCount: number) {
+  /**
+   * Build an in-memory SQLite mock that returns the given pending-row count
+   * for COUNT queries and a clamped delete-changes value for DELETE queries.
+   *
+   * WHY only pendingCount: clearNonCriticalQueueItems() targets pending rows
+   * exclusively (failed and sending are preserved by design). Tests that need
+   * to verify the WHERE-clause excludes those statuses do so by inspecting the
+   * SQL string, not by seeding rows of those statuses into this fixture.
+   */
+  function buildMockDb(pendingCount: number) {
     const countResult = { total: pendingCount };
     const deleteResult = { changes: Math.min(pendingCount, 50) };
 
@@ -298,7 +306,7 @@ describe('StorageQuotaGuard — clearNonCriticalQueueItems()', () => {
   });
 
   it('returns correct itemsRemoved from db.changes', async () => {
-    const { mockDb } = buildMockDb(30, 5, 2);
+    const { mockDb } = buildMockDb(30);
     (mockDb.runAsync as jest.Mock).mockResolvedValue({ changes: 30 });
 
     const result = await guard.clearNonCriticalQueueItems(mockDb, 50);
@@ -307,7 +315,7 @@ describe('StorageQuotaGuard — clearNonCriticalQueueItems()', () => {
   });
 
   it('returns estimated bytesFreed (2048 per item)', async () => {
-    const { mockDb } = buildMockDb(10, 0, 0);
+    const { mockDb } = buildMockDb(10);
     (mockDb.runAsync as jest.Mock).mockResolvedValue({ changes: 10 });
 
     const result = await guard.clearNonCriticalQueueItems(mockDb, 50);
@@ -316,7 +324,7 @@ describe('StorageQuotaGuard — clearNonCriticalQueueItems()', () => {
   });
 
   it('clears isFull flag after successful clear', async () => {
-    const { mockDb } = buildMockDb(5, 0, 0);
+    const { mockDb } = buildMockDb(5);
     guard.recordQuotaError();
     expect(guard.isFull).toBe(true);
 
@@ -326,7 +334,7 @@ describe('StorageQuotaGuard — clearNonCriticalQueueItems()', () => {
   });
 
   it('DELETE SQL targets only pending status (not failed/sending)', async () => {
-    const { mockDb } = buildMockDb(10, 5, 2);
+    const { mockDb } = buildMockDb(10);
     const runAsyncMock = mockDb.runAsync as jest.Mock;
 
     await guard.clearNonCriticalQueueItems(mockDb, 50);
@@ -345,7 +353,7 @@ describe('StorageQuotaGuard — clearNonCriticalQueueItems()', () => {
   });
 
   it('respects maxItemsToRemove parameter in LIMIT clause', async () => {
-    const { mockDb } = buildMockDb(100, 0, 0);
+    const { mockDb } = buildMockDb(100);
     const runAsyncMock = mockDb.runAsync as jest.Mock;
 
     await guard.clearNonCriticalQueueItems(mockDb, 25);
@@ -359,7 +367,7 @@ describe('StorageQuotaGuard — clearNonCriticalQueueItems()', () => {
   });
 
   it('calls supabase audit_log insert (fire-and-forget)', async () => {
-    const { mockDb } = buildMockDb(20, 0, 0);
+    const { mockDb } = buildMockDb(20);
     (mockDb.runAsync as jest.Mock).mockResolvedValue({ changes: 20 });
 
     await guard.clearNonCriticalQueueItems(mockDb, 50);
@@ -371,7 +379,7 @@ describe('StorageQuotaGuard — clearNonCriticalQueueItems()', () => {
   });
 
   it('uses offline_queue_cleared when all pending items removed', async () => {
-    const { mockDb } = buildMockDb(20, 0, 0);
+    const { mockDb } = buildMockDb(20);
     // getFirstAsync returns total=20, runAsync returns changes=20
     (mockDb.getFirstAsync as jest.Mock).mockResolvedValue({ total: 20 });
     (mockDb.runAsync as jest.Mock).mockResolvedValue({ changes: 20 });
@@ -388,7 +396,7 @@ describe('StorageQuotaGuard — clearNonCriticalQueueItems()', () => {
   });
 
   it('uses offline_queue_partial_clear when only some items removed', async () => {
-    const { mockDb } = buildMockDb(100, 0, 0);
+    const { mockDb } = buildMockDb(100);
     (mockDb.getFirstAsync as jest.Mock).mockResolvedValue({ total: 100 });
     (mockDb.runAsync as jest.Mock).mockResolvedValue({ changes: 25 }); // only 25 of 100 removed
 
@@ -404,7 +412,7 @@ describe('StorageQuotaGuard — clearNonCriticalQueueItems()', () => {
   });
 
   it('swallows audit_log write failures silently', async () => {
-    const { mockDb } = buildMockDb(5, 0, 0);
+    const { mockDb } = buildMockDb(5);
     (mockDb.runAsync as jest.Mock).mockResolvedValue({ changes: 5 });
 
     const fromMock = supabase.from as jest.Mock;

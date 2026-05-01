@@ -79,11 +79,8 @@ jest.mock('../lamport-clock', () => ({
 import * as SQLite from 'expo-sqlite';
 
 const mockRows: Map<string, Record<string, unknown>> = new Map();
-let _sqlCallCount = 0;
 
 const mockRunAsync = jest.fn(async (sql: string, params: unknown[] = []) => {
-  _sqlCallCount++;
-
   if (sql.includes('INSERT INTO command_queue')) {
     // Phase 1.6.3b: INSERT now has 10 params (added idempotency_key, lamport_clock)
     mockRows.set(params[0] as string, {
@@ -334,7 +331,6 @@ describe('Offline Queue Stress Test Harness', () => {
     // module-level implementation afterward.
     jest.resetAllMocks();
     mockRows.clear();
-    _sqlCallCount = 0;
     queue = new SQLiteOfflineQueue();
 
     // Re-apply mock implementations after reset
@@ -342,8 +338,6 @@ describe('Offline Queue Stress Test Harness', () => {
 
     // Restore module-level implementations for the mock DB methods
     mockRunAsync.mockImplementation(async (sql: string, params: unknown[] = []) => {
-      _sqlCallCount++;
-
       if (sql.includes('INSERT INTO command_queue')) {
         mockRows.set(params[0] as string, {
           id: params[0], message: params[1], status: params[2],
