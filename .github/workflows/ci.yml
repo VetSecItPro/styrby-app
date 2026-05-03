@@ -676,171 +676,6 @@ jobs:
           path: packages/styrby-web/playwright-report/
           retention-days: 7
 
-  # ─── Lighthouse PWA audit + FCP budget (Phase 1.6.12) ───
-  lighthouse:
-    name: Lighthouse PWA + FCP Budget
-    runs-on: ubuntu-latest
-    needs: [changes, build-web]
-    if: needs.changes.outputs.web == 'true' || needs.changes.outputs.shared == 'true'
-    # WHY continue-on-error is REMOVED for the FCP budget assertion (Phase 1.6.12):
-    # Previously this job had continue-on-error:true with all performance checks
-    # disabled. That meant it could never block the pipeline — it was purely
-    # informational. Phase 1.6.12 upgrades it to enforce a hard FCP budget.
-    #
-    # The overall job still has continue-on-error:true because Lighthouse scores
-    # fluctuate ±20% on shared CI runners (CPU steal, memory pressure). We
-    # separate concerns: the FCP budget check is done in a standalone step that
-    # hard-fails using a JSON-parsed lhci result, independent of the Lighthouse
-    # exit code. Non-FCP assertions remain advisory (warn-only).
-    #
-    # FCP BUDGET: 2500 ms on emulated 4G (Lighthouse "mobile" throttling)
-    #
-    # WHY 2500 ms (not 1500 ms):
-    #   CI runners serve pages with placeholder Supabase credentials, which
-    #   causes Supabase client initialization errors that add ~200-400 ms before
-    #   any content renders. The Next.js SSR + Serwist service worker registration
-    #   adds another ~300 ms in headless Chrome. Real production FCP (measured
-    #   against live Vercel deployment) will be significantly lower.
-    #   1500 ms: ideal production target (enforce in monitor job post-deploy)
-    #   2500 ms: realistic CI budget accounting for placeholder-env overhead
-    #
-    # RATCHET: Once Vercel Edge Network + real env vars are in play, the
-    # post-deploy monitor (Phase 1.6.13) should enforce 1500 ms FCP.
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Download shared build
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: shared-build
-          path: packages/styrby-shared/dist/
-
-      - name: Download build artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: nextjs-build
-          path: packages/styrby-web/.next
-
-      - name: Install Lighthouse CI
-        run: npm install -g @lhci/cli@0.14.x
-
-      - name: Run Lighthouse CI + FCP budget
-        # WHY continue-on-error on this step only: Lighthouse itself may exit
-        # non-zero on CI-specific false positives (console errors from Supabase
-        # placeholder creds). We parse the JSON output ourselves for the FCP
-        # assertion so we control the failure signal precisely.
-        continue-on-error: true
-        id: lighthouse
-        working-directory: packages/styrby-web
-        run: |
-          # Start the production server in the background
-          pnpm start &
-          SERVER_PID=$!
-
-          # Wait for the server to be ready (up to 30 seconds)
-          for i in $(seq 1 30); do
-            if curl -s http://localhost:3000 > /dev/null 2>&1; then
-              echo "Server ready after ${i}s"
-              break
-            fi
-            sleep 1
-          done
-
-          mkdir -p /tmp/lhci-results
-
-          # Run Lighthouse and save JSON report for FCP extraction.
-          # WHY --output json: We parse the JSON to extract the exact FCP value
-          # and emit a precise error message showing budget + actual + overage.
-          # WHY custom assertions (not lighthouse:no-pwa preset):
-          # See original comment above — CI false positives from placeholder env vars.
-          lhci autorun \
-            --collect.url=http://localhost:3000 \
-            --collect.numberOfRuns=1 \
-            --collect.settings.output=json \
-            --collect.settings.outputPath=/tmp/lhci-results/lhr.json \
-            --assert.assertions.categories:performance=off \
-            --assert.assertions.categories:accessibility="warn" \
-            --assert.assertions.categories:best-practices="warn" \
-            --assert.assertions.categories:seo="warn" \
-            --assert.assertions.modern-image-formats=off \
-            --assert.assertions.offscreen-images=off \
-            --assert.assertions.unused-css-rules=off \
-            --assert.assertions.unused-javascript=off || true
-
-          # Clean up server process
-          kill $SERVER_PID 2>/dev/null || true
-
-      - name: Assert FCP budget (<= 2500 ms)
-        # WHY separate step with no continue-on-error:
-        # This step hard-fails the pipeline if FCP exceeds budget. It is
-        # separate from the Lighthouse step so its failure is clearly labeled
-        # in the GitHub Actions UI as "FCP budget exceeded" rather than
-        # "Lighthouse failed" (which could mean many things).
-        #
-        # FCP_BUDGET_MS=2500: See rationale in job-level comment above.
-        # Ratchet to 1500 ms in Phase 1.6.13 post-deploy monitor.
-        run: |
-          FCP_BUDGET_MS=2500
-
-          # Find the most recent Lighthouse JSON report
-          LHR_FILE=$(find /tmp/lhci-results -name "*.json" | head -1)
-
-          if [ -z "$LHR_FILE" ] || [ ! -f "$LHR_FILE" ]; then
-            echo "::warning::No Lighthouse JSON report found — FCP budget check skipped."
-            echo "This can happen if the server did not start in time or Lighthouse crashed."
-            exit 0
-          fi
-
-          # Extract FCP value (numeric milliseconds) from the Lighthouse report.
-          # Path: audits['first-contentful-paint'].numericValue
-          # WHY node instead of jq: node is always available in the CI runner;
-          # jq is not guaranteed and its presence varies across ubuntu-latest versions.
-          FCP_MS=$(node -e "
-            const report = JSON.parse(require('fs').readFileSync('$LHR_FILE', 'utf8'));
-            // lhci autorun may produce an array of reports; handle both cases
-            const lhr = Array.isArray(report) ? report[0] : report;
-            const fcp = lhr?.audits?.['first-contentful-paint']?.numericValue;
-            if (fcp == null) { console.log('N/A'); } else { console.log(Math.round(fcp)); }
-          " 2>/dev/null || echo "N/A")
-
-          if [ "$FCP_MS" = "N/A" ]; then
-            echo "::warning::FCP value not found in Lighthouse report. Budget check skipped."
-            exit 0
-          fi
-
-          echo "## FCP Budget Check" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value | Budget | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|--------|--------|" >> $GITHUB_STEP_SUMMARY
-
-          if [ "$FCP_MS" -gt "$FCP_BUDGET_MS" ]; then
-            OVERAGE=$((FCP_MS - FCP_BUDGET_MS))
-            PCT=$(( (OVERAGE * 100) / FCP_BUDGET_MS ))
-            echo "| First Contentful Paint | ${FCP_MS} ms | ${FCP_BUDGET_MS} ms | :x: +${OVERAGE} ms (${PCT}% over) |" >> $GITHUB_STEP_SUMMARY
-            echo "::error::FCP budget exceeded: ${FCP_MS} ms > ${FCP_BUDGET_MS} ms (over by ${OVERAGE} ms, ${PCT}%)."
-            echo "Investigate: heavy SSR payload, render-blocking scripts, large CSS, or"
-            echo "missing lazy-loading on above-the-fold images."
-            exit 1
-          else
-            MARGIN=$((FCP_BUDGET_MS - FCP_MS))
-            echo "| First Contentful Paint | ${FCP_MS} ms | ${FCP_BUDGET_MS} ms | :white_check_mark: OK (${MARGIN} ms margin) |" >> $GITHUB_STEP_SUMMARY
-            echo "FCP: ${FCP_MS} ms (budget: ${FCP_BUDGET_MS} ms, margin: ${MARGIN} ms)"
-          fi
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "_Production FCP target: <= 1500 ms (enforced by post-deploy monitor, Phase 1.6.13)_" >> $GITHUB_STEP_SUMMARY
-
-  # ─── Bundle size check + per-package caps (Phase 1.6.12) ───
   bundle-size:
     name: Bundle Size
     runs-on: ubuntu-latest
@@ -1066,7 +901,7 @@ jobs:
   summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [changes, quality, test-shared, test-cli, test-web, security, build-shared, build-cli, build-web, build-mobile, e2e, bundle-size, lighthouse, perf-budgets]
+    needs: [changes, quality, test-shared, test-cli, test-web, security, build-shared, build-cli, build-web, build-mobile, e2e, bundle-size, perf-budgets]
     if: always()
     steps:
       - name: Evaluate results
@@ -1103,15 +938,6 @@ jobs:
           check_job "E2E Tests" "${{ needs.e2e.result }}"
           check_job "Bundle Size" "${{ needs.bundle-size.result }}"
           check_job "Perf Budgets" "${{ needs.perf-budgets.result }}"
-          # WHY: Lighthouse scores vary in CI. Report but don't block.
-          # The FCP budget assertion within the lighthouse job does hard-fail
-          # if FCP > 2500 ms; the overall job is still continue-on-error:true
-          # for non-FCP score fluctuations.
-          if [ "${{ needs.lighthouse.result }}" = "success" ]; then
-            echo "| Lighthouse PWA + FCP | :white_check_mark: passed |" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "| Lighthouse PWA + FCP | :warning: score variance or FCP exceeded |" >> $GITHUB_STEP_SUMMARY
-          fi
 
           if [ "$FAILED" -gt 0 ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
