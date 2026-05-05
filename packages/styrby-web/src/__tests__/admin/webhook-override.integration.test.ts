@@ -53,20 +53,22 @@ vi.mock('@styrby/shared/billing', async (importOriginal) => {
 // for Polar webhook dedup. The chained .select() requires the upsert mock to
 // return an object with a select method, not a plain resolved value.
 const mockUpsertSelectFn = vi.fn();
-const mockSelect  = vi.fn().mockReturnThis();
-const mockEq      = vi.fn().mockReturnThis();
-const mockSingle  = vi.fn();
-const mockUpsert  = vi.fn();
-const mockUpdate  = vi.fn().mockReturnThis();
-const mockInsert  = vi.fn().mockResolvedValue({ data: null, error: null });
+const mockSelect      = vi.fn().mockReturnThis();
+const mockEq          = vi.fn().mockReturnThis();
+const mockSingle      = vi.fn();
+const mockMaybeSingle = vi.fn();
+const mockUpsert      = vi.fn();
+const mockUpdate      = vi.fn().mockReturnThis();
+const mockInsert      = vi.fn().mockResolvedValue({ data: null, error: null });
 
 const mockFrom = vi.fn().mockReturnValue({
-  select:  mockSelect,
-  eq:      mockEq,
-  single:  mockSingle,
-  upsert:  mockUpsert,
-  update:  mockUpdate,
-  insert:  mockInsert,
+  select:      mockSelect,
+  eq:          mockEq,
+  single:      mockSingle,
+  maybeSingle: mockMaybeSingle,
+  upsert:      mockUpsert,
+  update:      mockUpdate,
+  insert:      mockInsert,
 });
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -166,18 +168,32 @@ describe('POST /api/webhooks/polar — manual override honor flow', () => {
 
     // Re-establish mockFrom return value after reset wipes it.
     mockFrom.mockReturnValue({
-      select:  mockSelect,
-      eq:      mockEq,
-      single:  mockSingle,
-      upsert:  mockUpsert,
-      update:  mockUpdate,
-      insert:  mockInsert,
+      select:      mockSelect,
+      eq:          mockEq,
+      single:      mockSingle,
+      maybeSingle: mockMaybeSingle,
+      upsert:      mockUpsert,
+      update:      mockUpdate,
+      insert:      mockInsert,
     });
 
     // Re-establish chainable mocks wiped by resetAllMocks.
     mockSelect.mockReturnThis();
     mockEq.mockReturnThis();
     mockUpdate.mockReturnThis();
+
+    // SEC-FOLLOWUP-3 guard: by default, the subscriptions lookup resolves
+    // to the matching row so the manual-override tests below see the
+    // subscription as known + user-matched, exercising the post-guard path
+    // these tests were written to assert. Tests that want to exercise the
+    // guard's not-found / mismatch branches override this per-test.
+    mockMaybeSingle.mockResolvedValue({
+      data: {
+        user_id: 'user-uuid-integration',
+        polar_subscription_id: 'sub_integration_123',
+      },
+      error: null,
+    });
 
     // Default upsert: the dedup SELECT chain resolves as "new event" (non-empty RETURNING).
     mockUpsertSelectFn.mockResolvedValue({ data: [{ event_id: 'evt_default_new' }], error: null });
