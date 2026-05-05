@@ -172,32 +172,47 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
-    if (!creditsRes.ok || !authKeyRes.ok) {
-      const failing = !creditsRes.ok ? creditsRes : authKeyRes;
-      const which = !creditsRes.ok ? 'credits' : 'auth/key';
-      const text = await failing.text().catch(() => '');
+    // /auth/key is REQUIRED — it carries the cap + cycle metrics that the
+    // alert decision is built on. A failure here is fatal.
+    if (!authKeyRes.ok) {
+      const text = await authKeyRes.text().catch(() => '');
       console.error(
-        '[openrouter-credit-monitor] OpenRouter API failed:',
-        which,
-        failing.status,
+        '[openrouter-credit-monitor] /auth/key failed:',
+        authKeyRes.status,
         text
       );
       await supabase.from('audit_log').insert({
         action: 'openrouter_credit_check',
         metadata: {
           ok: false,
-          endpoint: which,
-          status: failing.status,
+          endpoint: 'auth/key',
+          status: authKeyRes.status,
           error: text.slice(0, 500),
         },
       });
       return NextResponse.json(
-        { error: 'OpenRouter API failed', endpoint: which, status: failing.status },
+        { error: 'OpenRouter API failed', endpoint: 'auth/key', status: authKeyRes.status },
         { status: 502 }
       );
     }
 
-    creditsBody = (await creditsRes.json()) as OpenRouterCreditsResponse;
+    // /credits is OPTIONAL — it requires a "management" (provisioning) key.
+    // Our runtime OPENROUTER_API_KEY only has scope for chat/completions, so
+    // /credits returns 403 'Only management keys can fetch credits'. Lifetime
+    // totals (total_credits, total_usage) are informational; the cap-based
+    // alert decision uses /auth/key data, which works with the runtime key.
+    // Caught 2026-05-05 same root cause as the /api/health fix in PR #259.
+    if (!creditsRes.ok) {
+      const text = await creditsRes.text().catch(() => '');
+      console.warn(
+        '[openrouter-credit-monitor] /credits unavailable (likely runtime key without management scope) — continuing with /auth/key data only:',
+        creditsRes.status,
+        text.slice(0, 200)
+      );
+      creditsBody = { data: { total_credits: 0, total_usage: 0 } };
+    } else {
+      creditsBody = (await creditsRes.json()) as OpenRouterCreditsResponse;
+    }
     authKeyBody = (await authKeyRes.json()) as OpenRouterAuthKeyResponse;
   } catch (err) {
     console.error('[openrouter-credit-monitor] fetch threw:', err);
