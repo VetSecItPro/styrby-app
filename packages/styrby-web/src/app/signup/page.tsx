@@ -481,9 +481,6 @@ function SignUpPageInner() {
                     <Mail className="h-4 w-4" />
                     {loading ? 'Sending...' : 'Continue with Email'}
                   </Button>
-                  <p className="text-center text-xs text-muted-foreground mt-2">
-                    No credit card required
-                  </p>
                 </form>
 
                 {/* Divider */}

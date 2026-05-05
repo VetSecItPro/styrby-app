@@ -258,17 +258,21 @@ export default function ElevenAgentsCheckpointsVoiceOtel() {
 
       <h2>Getting Started</h2>
       <p>
-        Create a free account at{" "}
+        Create your account at{" "}
         <a href="https://styrbyapp.com/signup">styrbyapp.com/signup</a>. Install
         the CLI bridge on any machine where your agents run, connect your first
         agent in under five minutes, and install the mobile app to start
-        receiving push notifications. No credit card required for the Free plan.
+        receiving push notifications. Pro is $39/mo and includes all 11 agents,
+        unlimited sessions, and one year of encrypted history; Growth is
+        $99/mo for 3 seats with team workspaces and audit-log export. Cancel
+        anytime with a 7-day refund window.
       </p>
       <p>
-        If you are already on the Free plan and want to unlock checkpoints,
-        session sharing, or voice commands, upgrade to Pro from the billing
-        settings in your dashboard. Power tier OTEL export requires a one-time
-        endpoint configuration in settings; documentation is at{" "}
+        Pro unlocks checkpoints, session sharing, and voice commands; Growth
+        adds team workspaces, role-based access, per-developer cost rollups,
+        and SOC2-ready audit export. OTEL export to Grafana / Datadog /
+        Honeycomb / New Relic requires a one-time endpoint configuration in
+        settings; documentation is at{" "}
         <a href="https://styrbyapp.com/docs/dashboard">
           styrbyapp.com/docs/dashboard
         </a>
