@@ -60,7 +60,7 @@ export function CTABanner() {
         </div>
 
         <p className="mt-4 text-sm text-muted-foreground/60">
-          Free on one machine. No credit card.
+          Cancel anytime. 7-day refund.
         </p>
       </div>
     </section>
