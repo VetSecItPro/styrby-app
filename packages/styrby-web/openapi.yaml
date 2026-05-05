@@ -1,0 +1,2093 @@
+openapi: 3.1.0
+info:
+  title: Styrby API
+  version: 1.0.0
+  description: Styrby v1 API. Bearer-token authenticated except where noted (/auth/* endpoints are pre-auth). All authenticated endpoints are subject to per-key rate limits surfaced in `X-RateLimit-*` headers.
+  license:
+    name: Proprietary - All Rights Reserved (VetSecItPro)
+servers:
+  - url: https://styrby.com
+    description: Production
+components:
+  securitySchemes:
+    apiKeyBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: styrby_<env>_<random>
+      description: "API key passed as `Authorization: Bearer <key>`. Issued from the dashboard. Subject to per-key rate limits returned in `X-RateLimit-*` response headers."
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Validation failed
+        message:
+          type: string
+      required:
+        - error
+    PaginationMeta:
+      type: object
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          exclusiveMinimum: 0
+        offset:
+          type: integer
+          minimum: 0
+        hasMore:
+          type: boolean
+      required:
+        - total
+        - limit
+        - offset
+        - hasMore
+    Session:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        agent_type:
+          type: string
+          enum: &a2
+            - claude
+            - codex
+            - gemini
+        model:
+          type:
+            - string
+            - "null"
+        title:
+          type:
+            - string
+            - "null"
+        summary:
+          type:
+            - string
+            - "null"
+        project_path:
+          type:
+            - string
+            - "null"
+        git_branch:
+          type:
+            - string
+            - "null"
+        tags:
+          type:
+            - array
+            - "null"
+          items:
+            type: string
+        is_archived:
+          type: boolean
+        status:
+          type: string
+          enum: &a1
+            - starting
+            - running
+            - idle
+            - paused
+            - stopped
+            - error
+            - expired
+        started_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        ended_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        last_activity_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        total_cost_usd:
+          type: number
+        total_input_tokens:
+          type: integer
+        total_output_tokens:
+          type: integer
+        total_cache_tokens:
+          type: integer
+        message_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - agent_type
+        - model
+        - title
+        - summary
+        - project_path
+        - git_branch
+        - tags
+        - is_archived
+        - status
+        - started_at
+        - ended_at
+        - last_activity_at
+        - total_cost_usd
+        - total_input_tokens
+        - total_output_tokens
+        - total_cache_tokens
+        - message_count
+        - created_at
+  parameters: {}
+paths:
+  /api/v1/account:
+    get:
+      summary: Account profile + key metadata for the bearer API key
+      tags:
+        - account
+      security:
+        - apiKeyBearer: []
+      responses:
+        "200":
+          description: Account + key metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                    format: uuid
+                  key_id:
+                    type: string
+                  scopes:
+                    type: array
+                    items:
+                      type: string
+                  key_expires_at:
+                    type:
+                      - string
+                      - "null"
+                    format: date-time
+                required:
+                  - user_id
+                  - key_id
+                  - scopes
+                  - key_expires_at
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/audit:
+    post:
+      summary: Append an audit-log event for the authenticated user
+      tags:
+        - audit
+      security:
+        - apiKeyBearer: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                resource_type:
+                  type: string
+                  maxLength: 100
+                resource_id:
+                  type: string
+                  maxLength: 255
+                metadata:
+                  type: object
+                  additionalProperties: {}
+              required:
+                - action
+      responses:
+        "201":
+          description: Audit event recorded.
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    get:
+      summary: List audit events for an action
+      tags:
+        - audit
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+          required: true
+          name: action
+          in: query
+        - schema:
+            type: string
+            maxLength: 255
+          required: false
+          name: resource_id
+          in: query
+        - schema:
+            type: string
+            maxLength: 100
+          required: false
+          name: resource_type
+          in: query
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          required: false
+          name: limit
+          in: query
+        - schema:
+            type: string
+            format: date-time
+          required: false
+          name: since
+          in: query
+      responses:
+        "200":
+          description: Matching audit events, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: {}
+                required:
+                  - events
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/auth/exchange:
+    post:
+      summary: Exchange a session cookie for a short-lived API token
+      tags:
+        - auth
+      responses:
+        "200":
+          description: Token issued.
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/auth/oauth/start:
+    post:
+      summary: Start an OAuth login flow (Google, GitHub)
+      tags:
+        - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  enum:
+                    - google
+                    - github
+                redirect_to:
+                  type: string
+                  format: uri
+              required:
+                - provider
+                - redirect_to
+      responses:
+        "200":
+          description: OAuth provider URL to redirect the user to.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    format: uri
+                required:
+                  - url
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/auth/oauth/callback:
+    post:
+      summary: Complete OAuth login by exchanging a PKCE code
+      tags:
+        - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                  minLength: 1
+                state:
+                  type: string
+              required:
+                - code
+      responses:
+        "200":
+          description: Session established (cookies set).
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/auth/otp/send:
+    post:
+      summary: Send a one-time password to an email address
+      tags:
+        - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+              required:
+                - email
+      responses:
+        "200":
+          description: OTP dispatched.
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/auth/otp/verify:
+    post:
+      summary: Verify an emailed OTP and establish a session
+      tags:
+        - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                token:
+                  type: string
+                  minLength: 6
+                  maxLength: 10
+              required:
+                - email
+                - token
+      responses:
+        "200":
+          description: Session established (cookies set).
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/broadcast:
+    post:
+      summary: Broadcast a real-time message to the user channel
+      tags:
+        - realtime
+      security:
+        - apiKeyBearer: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                event:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                payload:
+                  type: object
+                  additionalProperties: {}
+              required:
+                - channel
+                - event
+                - payload
+      responses:
+        "200":
+          description: Broadcast accepted.
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/contexts:
+    post:
+      summary: Create a context blob attached to a session group
+      tags:
+        - contexts
+      security:
+        - apiKeyBearer: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                group_id:
+                  type: string
+                  format: uuid
+                kind:
+                  type: string
+                  minLength: 1
+                  maxLength: 50
+                content: {}
+              required:
+                - group_id
+                - kind
+      responses:
+        "201":
+          description: Context created.
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/contexts/{group_id}:
+    get:
+      summary: List contexts for a session group
+      tags:
+        - contexts
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          required: true
+          name: group_id
+          in: path
+      responses:
+        "200":
+          description: Contexts for the group.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contexts:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: {}
+                required:
+                  - contexts
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Group not found or not owned by caller.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/cost-records:
+    post:
+      summary: Append a cost record (token usage) for a session
+      tags:
+        - costs
+      security:
+        - apiKeyBearer: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                session_id:
+                  type: string
+                  format: uuid
+                input_tokens:
+                  type: integer
+                  minimum: 0
+                output_tokens:
+                  type: integer
+                  minimum: 0
+                cache_tokens:
+                  type: integer
+                  minimum: 0
+                model:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                cost_usd:
+                  type: number
+                  minimum: 0
+              required:
+                - session_id
+                - input_tokens
+                - output_tokens
+                - model
+                - cost_usd
+      responses:
+        "201":
+          description: Cost record stored.
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Session not found or not owned by caller.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/costs:
+    get:
+      summary: Aggregated cost summary by period
+      tags:
+        - costs
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: string
+            enum:
+              - daily
+              - weekly
+              - monthly
+            default: monthly
+          required: false
+          name: period
+          in: query
+      responses:
+        "200":
+          description: Cost summary buckets.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  period:
+                    type: string
+                    enum:
+                      - daily
+                      - weekly
+                      - monthly
+                  buckets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        bucket_start:
+                          type: string
+                          format: date-time
+                        total_cost_usd:
+                          type: number
+                        total_input_tokens:
+                          type: integer
+                        total_output_tokens:
+                          type: integer
+                      required:
+                        - bucket_start
+                        - total_cost_usd
+                        - total_input_tokens
+                        - total_output_tokens
+                required:
+                  - period
+                  - buckets
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/costs/breakdown:
+    get:
+      summary: Cost breakdown by agent/model over the last N days
+      tags:
+        - costs
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+          required: false
+          name: days
+          in: query
+      responses:
+        "200":
+          description: Breakdown by agent and model.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  by_agent:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: {}
+                  by_model:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: {}
+                required:
+                  - by_agent
+                  - by_model
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/costs/export:
+    get:
+      summary: Export raw cost records as CSV
+      tags:
+        - costs
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+          required: false
+          name: days
+          in: query
+      responses:
+        "200":
+          description: CSV export of cost records.
+          content:
+            text/csv:
+              schema:
+                type: string
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/machines:
+    get:
+      summary: List registered CLI machines
+      tags:
+        - machines
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: string
+            enum:
+              - "true"
+              - "false"
+            default: "false"
+          required: false
+          name: online_only
+          in: query
+      responses:
+        "200":
+          description: Machines registered to the user.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  machines:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: {}
+                required:
+                  - machines
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      summary: Register a new CLI machine for the authenticated user
+      tags:
+        - machines
+      security:
+        - apiKeyBearer: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hostname:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                platform:
+                  type: string
+                  minLength: 1
+                  maxLength: 50
+                cli_version:
+                  type: string
+                  minLength: 1
+                  maxLength: 50
+                public_key:
+                  type: string
+                  minLength: 1
+              required:
+                - hostname
+                - platform
+                - cli_version
+                - public_key
+      responses:
+        "201":
+          description: Machine registered.
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/notification_preferences:
+    get:
+      summary: Read notification preferences for the user
+      tags:
+        - notifications
+      security:
+        - apiKeyBearer: []
+      responses:
+        "200":
+          description: Notification preferences row.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/sessions:
+    get:
+      summary: List sessions for the authenticated user
+      tags:
+        - sessions
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          required: false
+          name: limit
+          in: query
+        - schema:
+            type:
+              - integer
+              - "null"
+            minimum: 0
+            default: 0
+          required: false
+          name: offset
+          in: query
+        - schema:
+            type: string
+            enum: *a1
+          required: false
+          name: status
+          in: query
+        - schema:
+            type: string
+            enum: *a2
+          required: false
+          name: agent_type
+          in: query
+        - schema:
+            type: string
+            enum:
+              - "true"
+              - "false"
+            default: "false"
+          required: false
+          name: archived
+          in: query
+      responses:
+        "200":
+          description: Paginated session list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Session"
+                  pagination:
+                    $ref: "#/components/schemas/PaginationMeta"
+                required:
+                  - sessions
+                  - pagination
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/sessions/{id}:
+    get:
+      summary: Fetch a single session by ID
+      tags:
+        - sessions
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          required: true
+          name: id
+          in: path
+      responses:
+        "200":
+          description: Session row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not found or not owned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      summary: Update mutable fields on a session
+      tags:
+        - sessions
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          required: true
+          name: id
+          in: path
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  maxLength: 200
+                summary:
+                  type: string
+                tags:
+                  type: array
+                  items:
+                    type: string
+                    maxLength: 50
+                  maxItems: 20
+                is_archived:
+                  type: boolean
+                status:
+                  type: string
+                  enum: *a1
+      responses:
+        "200":
+          description: Updated session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not found or not owned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/sessions/{id}/messages:
+    get:
+      summary: List messages in a session (E2E-encrypted payloads)
+      tags:
+        - sessions
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          required: true
+          name: id
+          in: path
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+          required: false
+          name: limit
+          in: query
+        - schema:
+            type:
+              - integer
+              - "null"
+            minimum: 0
+            default: 0
+          required: false
+          name: offset
+          in: query
+        - schema:
+            type: string
+            enum:
+              - user_prompt
+              - agent_response
+              - agent_thinking
+              - permission_request
+              - permission_response
+              - tool_use
+              - tool_result
+              - error
+              - system
+          required: false
+          name: type
+          in: query
+      responses:
+        "200":
+          description: Paginated message list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: {}
+                  pagination:
+                    $ref: "#/components/schemas/PaginationMeta"
+                required:
+                  - messages
+                  - pagination
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/sessions/{id}/summary:
+    post:
+      summary: Generate (or refresh) the AI-summary for a session
+      tags:
+        - sessions
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          required: true
+          name: id
+          in: path
+      responses:
+        "200":
+          description: Summary generated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: string
+                required:
+                  - summary
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Session not found or not owned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Upstream LLM error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/sessions/{id}/checkpoints:
+    get:
+      summary: List checkpoints for a session
+      tags:
+        - checkpoints
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          required: true
+          name: id
+          in: path
+      responses:
+        "200":
+          description: Checkpoints, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  checkpoints:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: {}
+                required:
+                  - checkpoints
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      summary: Create a named checkpoint at a message sequence position
+      tags:
+        - checkpoints
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          required: true
+          name: id
+          in: path
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  pattern: ^[a-zA-Z0-9 \-_.]+$
+                description:
+                  type:
+                    - string
+                    - "null"
+                messageSequenceNumber:
+                  type: integer
+                  minimum: 0
+                contextSnapshot:
+                  type: object
+                  properties:
+                    totalTokens:
+                      type: integer
+                      minimum: 0
+                      default: 0
+                    fileCount:
+                      type: integer
+                      minimum: 0
+                      default: 0
+              required:
+                - name
+                - messageSequenceNumber
+      responses:
+        "201":
+          description: Checkpoint created.
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      summary: Delete a named checkpoint
+      tags:
+        - checkpoints
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          required: true
+          name: id
+          in: path
+        - schema:
+            type: string
+            format: uuid
+          required: true
+          name: checkpoint_id
+          in: query
+      responses:
+        "204":
+          description: Deleted.
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Checkpoint not found or not owned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/sessions/groups:
+    post:
+      summary: Create a new agent session group
+      tags:
+        - session-groups
+      security:
+        - apiKeyBearer: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                description:
+                  type: string
+                  maxLength: 2000
+              required:
+                - name
+      responses:
+        "201":
+          description: Group created.
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    get:
+      summary: List session groups
+      tags:
+        - session-groups
+      security:
+        - apiKeyBearer: []
+      responses:
+        "200":
+          description: Group list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groups:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: {}
+                required:
+                  - groups
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/sessions/groups/{id}:
+    delete:
+      summary: Delete a session group
+      tags:
+        - session-groups
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          required: true
+          name: id
+          in: path
+      responses:
+        "204":
+          description: Deleted.
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Group not found or not owned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/sessions/groups/{id}/focus:
+    post:
+      summary: Focus a session within a group (handoff target)
+      tags:
+        - session-groups
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          required: true
+          name: id
+          in: path
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                session_id:
+                  type: string
+                  format: uuid
+              required:
+                - session_id
+      responses:
+        "200":
+          description: Focus set.
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Group or session not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/templates:
+    post:
+      summary: Create a prompt template
+      tags:
+        - templates
+      security:
+        - apiKeyBearer: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                content:
+                  type: string
+                  minLength: 1
+                tags:
+                  type: array
+                  items:
+                    type: string
+                    maxLength: 50
+              required:
+                - name
+                - content
+      responses:
+        "201":
+          description: Template created.
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    get:
+      summary: List prompt templates
+      tags:
+        - templates
+      security:
+        - apiKeyBearer: []
+      responses:
+        "200":
+          description: Templates list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  templates:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: {}
+                required:
+                  - templates
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/templates/{id}:
+    get:
+      summary: Read a single template
+      tags:
+        - templates
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          required: true
+          name: id
+          in: path
+      responses:
+        "200":
+          description: Template row.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not found or not owned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      summary: Update a prompt template
+      tags:
+        - templates
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          required: true
+          name: id
+          in: path
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                content:
+                  type: string
+                  minLength: 1
+                tags:
+                  type: array
+                  items:
+                    type: string
+                    maxLength: 50
+      responses:
+        "200":
+          description: Updated.
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not found or not owned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      summary: Delete a prompt template
+      tags:
+        - templates
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          required: true
+          name: id
+          in: path
+      responses:
+        "204":
+          description: Deleted.
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not found or not owned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+webhooks: {}
