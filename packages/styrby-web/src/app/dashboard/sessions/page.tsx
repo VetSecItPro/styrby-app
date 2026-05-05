@@ -63,8 +63,8 @@ export default async function SessionsPage() {
 
     // WHY: We fetch only the session_id from bookmarks so the client can
     // initialise star icons without a client-side round-trip. Capped at 200
-    // because even Power tier users have at most unlimited bookmarks but we
-    // only show INITIAL_PAGE_SIZE sessions; this is a reasonable upper bound.
+    // because even paid-tier users (Pro/Growth) have unlimited bookmarks but
+    // we only show INITIAL_PAGE_SIZE sessions; this is a reasonable upper bound.
     supabase
       .from('session_bookmarks')
       .select('session_id')

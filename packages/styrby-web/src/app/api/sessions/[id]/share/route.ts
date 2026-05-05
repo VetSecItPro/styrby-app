@@ -146,7 +146,7 @@ export async function POST(request: Request, context: RouteContext) {
     const userTierForShare = normalizeEffectiveTier((subscription?.tier as string) || 'free');
     if (userTierForShare !== 'growth' && userTierForShare !== 'pro') {
       return NextResponse.json(
-        { error: 'TIER_RESTRICTED', message: 'Session sharing requires a Power plan. Upgrade at /pricing' },
+        { error: 'TIER_RESTRICTED', message: 'Session sharing requires a Pro or Growth plan. Upgrade at /pricing' },
         { status: 403 }
       );
     }

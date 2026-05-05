@@ -190,7 +190,7 @@ export function SummaryTab({
           </Link>
 
           <p className="text-xs text-zinc-500 mt-3">
-            Available on Pro and Power plans
+            Available on Pro and Growth plans
           </p>
         </div>
       </div>

@@ -54,9 +54,9 @@ describe('calculateMonthlyCostCents', () => {
     expect(calculateMonthlyCostCents('growth', 4)).toBe(11800);
   });
 
-  it('Growth: max seats (100) → $99 + 97 × $19 = $1942/mo', () => {
+  it('Growth: max seats (25) → $99 + 22 × $19 = $517/mo', () => {
     expect(calculateMonthlyCostCents('growth', GROWTH_MAX_SEATS)).toBe(
-      9900 + 97 * 1900,
+      9900 + 22 * 1900,
     );
   });
 

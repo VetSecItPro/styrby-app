@@ -242,7 +242,7 @@ async function postHandler(
   const userTierForCheck = normalizeEffectiveTier((subscription?.tier as string) || 'free');
   if (userTierForCheck !== 'growth' && userTierForCheck !== 'pro') {
     return NextResponse.json(
-      { error: 'Session checkpoints require a Power plan. Upgrade at https://app.styrby.com/pricing' },
+      { error: 'Session checkpoints require a Pro or Growth plan. Upgrade at https://app.styrby.com/pricing' },
       { status: 403 }
     );
   }

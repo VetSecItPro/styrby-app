@@ -30,19 +30,24 @@ interface GrowthTierCardProps {
 /**
  * Pricing card for the **Growth** tier — the team plan.
  *
- * Growth uses the Path A "base + addon" pricing pattern (Decisions #1 / #3
- * / #4 in `.audit/styrby-fulltest.md`):
- *   - $99/mo base product covers {@link GROWTH_BASE_SEATS} (3) seats.
- *   - Each additional seat is $19/mo via the Polar seat add-on product.
- *   - Annual billing uses dedicated annual products (not monthly × 12).
+ * Growth is a SINGLE Polar product with TIERED seat-based pricing
+ * (sandbox-validated 2026-05-04):
+ *   - First {@link GROWTH_BASE_SEATS} (3) seats at $33/seat = $99 base.
+ *   - Seats 4-{@link GROWTH_MAX_SEATS} at $19/seat.
+ *   - Annual billing uses a dedicated annual product (~17% discount baked in,
+ *     not monthly × 12).
  *
- * The card embeds the {@link SeatCountSlider} so visitors can land on the
- * exact monthly total before clicking through to checkout. The CTA carries
- * the chosen seat count via `?seats=N` so the dashboard checkout trigger
- * (`plan-checkout.tsx`) can forward it to the Polar checkout API.
+ * Pricing math is computed locally for display via
+ * `calculateMonthlyCostCents` / `calculateAnnualCostCents` and matches Polar's
+ * actual charge to the cent at every seat count (verified across 3-25).
+ *
+ * The card embeds the {@link SeatCountSlider} so visitors land on the exact
+ * monthly total before clicking through. The CTA carries the chosen seat
+ * count via `?seats=N` so post-signup checkout can forward it to
+ * `/api/billing/checkout`.
  *
  * Replaces the legacy Team / Business / Enterprise cards as part of the
- * Phase 5/6 tier reconciliation (Decision #1).
+ * Phase 5/6 tier reconciliation.
  *
  * @param props - {@link GrowthTierCardProps}
  * @returns The Growth tier pricing card.
@@ -114,13 +119,6 @@ export function GrowthTierCard({
         }}
         aria-hidden="true"
       />
-
-      {/* Most Popular badge */}
-      <div className="mb-5 flex justify-center">
-        <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-amber-400">
-          Most Popular
-        </span>
-      </div>
 
       <div className="text-center">
         <div className="flex items-center justify-center gap-2">

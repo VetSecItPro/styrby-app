@@ -96,6 +96,7 @@ vi.mock('@/components/ui/slider', () => ({
 // Mock lucide-react icons to simple spans
 vi.mock('lucide-react', () => ({
   Check: () => <span data-testid="check-icon" />,
+  User: () => <span data-testid="user-icon" />,
   Users: () => <span data-testid="users-icon" />,
   Calendar: () => <span data-testid="calendar-icon" />,
   DollarSign: () => <span data-testid="dollar-icon" />,
@@ -169,11 +170,6 @@ describe('GrowthTierCard', () => {
   it('renders the Growth heading', () => {
     render(<GrowthTierCard {...defaultProps} />);
     expect(screen.getByRole('heading', { name: 'Growth' })).toBeTruthy();
-  });
-
-  it('renders the "Most Popular" badge', () => {
-    render(<GrowthTierCard {...defaultProps} />);
-    expect(screen.getByText(/most popular/i)).toBeTruthy();
   });
 
   it('renders a seat slider', () => {

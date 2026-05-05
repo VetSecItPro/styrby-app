@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { Check } from 'lucide-react';
+import { Check, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
@@ -86,7 +86,10 @@ export function ProTierCard({ annual }: ProTierCardProps) {
       )}
     >
       <div className="text-center">
-        <h3 className="text-2xl font-bold tracking-tight text-foreground">{tier.name}</h3>
+        <div className="flex items-center justify-center gap-2">
+          <User className="h-5 w-5 text-amber-400" aria-hidden="true" />
+          <h3 className="text-2xl font-bold tracking-tight text-foreground">{tier.name}</h3>
+        </div>
         <p className="mt-1 text-sm text-muted-foreground">{tier.tagline}</p>
       </div>
 

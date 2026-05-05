@@ -104,7 +104,7 @@ describe('LoginPage — email step', () => {
   it('renders the sign-up link', () => {
     setup();
 
-    const link = screen.getByRole('link', { name: 'Start Free' });
+    const link = screen.getByRole('link', { name: 'Sign up' });
     expect(link).toHaveAttribute('href', '/signup');
   });
 

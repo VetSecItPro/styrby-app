@@ -203,15 +203,6 @@ function PricingCard({
         />
       )}
 
-      {/* Most Popular eyebrow badge */}
-      {plan.popular && (
-        <div className="mb-5 flex justify-center">
-          <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-amber-400">
-            Most Popular
-          </span>
-        </div>
-      )}
-
       {/* Plan name + tagline */}
       <div className="text-center">
         <div className="flex items-center justify-center gap-2">

@@ -159,14 +159,15 @@ styrby connect --agent claude --project checkout-redesign`}</code>
         starter than &quot;our Anthropic bill was $800.&quot;
       </p>
 
-      <h2>What Power Tier Costs</h2>
+      <h2>What the Growth Tier Costs</h2>
       <p>
-        The Power tier is $59/month for the account, supporting up to 3 team
-        members. For a three-person team, that is $59/month for cost visibility
-        into $1,000/month of AI spend. The math works if the visibility helps
-        you save more than $59 through better model selection, retry loop
-        detection, and budget enforcement. For most teams at this spend level,
-        it does.
+        The Growth tier is $99/month and includes 3 seats. Each additional
+        seat (up to 25 total) is $19/month. For a three-person team, that
+        is $99/month for cost visibility into $1,000/month of AI spend; for
+        a five-person team, $137/month. The math works when the visibility
+        saves you more than that through better model selection, retry loop
+        detection, and budget enforcement. For most teams at this spend
+        level, it does.
       </p>
     </>
   );

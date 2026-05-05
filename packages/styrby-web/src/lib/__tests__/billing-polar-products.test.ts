@@ -134,13 +134,13 @@ describe('validateSeatCount', () => {
     });
   });
 
-  describe('Growth tier (3-100 seats)', () => {
+  describe('Growth tier (3-25 seats)', () => {
     it(`accepts minimum (${GROWTH_BASE_SEATS})`, () => {
       expect(validateSeatCount('growth', GROWTH_BASE_SEATS)).toBe(true);
     });
 
-    it('accepts middle value (50)', () => {
-      expect(validateSeatCount('growth', 50)).toBe(true);
+    it('accepts middle value (15)', () => {
+      expect(validateSeatCount('growth', 15)).toBe(true);
     });
 
     it(`accepts maximum (${GROWTH_MAX_SEATS})`, () => {
@@ -198,7 +198,7 @@ describe('TIER_DEFINITIONS_CANONICAL', () => {
     expect(TIER_DEFINITIONS_CANONICAL.pro.maxSeats).toBe(1);
   });
 
-  it('Growth has $99/mo base, $19/seat addon, 3-seat min, 100-seat max', () => {
+  it('Growth has $99/mo base, $19/seat addon, 3-seat min, 25-seat max', () => {
     expect(TIER_DEFINITIONS_CANONICAL.growth.baseMonthlyUsdCents).toBe(9900);
     expect(TIER_DEFINITIONS_CANONICAL.growth.seatPriceMonthlyUsdCents).toBe(1900);
     expect(TIER_DEFINITIONS_CANONICAL.growth.baseSeats).toBe(GROWTH_BASE_SEATS);
@@ -245,8 +245,8 @@ describe('canonical seat bound constants', () => {
     expect(GROWTH_BASE_SEATS).toBe(3);
   });
 
-  it('GROWTH_MAX_SEATS is 100', () => {
-    expect(GROWTH_MAX_SEATS).toBe(100);
+  it('GROWTH_MAX_SEATS is 25', () => {
+    expect(GROWTH_MAX_SEATS).toBe(25);
   });
 });
 

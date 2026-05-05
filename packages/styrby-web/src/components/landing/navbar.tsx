@@ -125,7 +125,7 @@ export function Navbar() {
                 "transition-all duration-200 hover:shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_4px_16px_rgba(245,158,11,0.45)]"
               )}
             >
-              <Link href="/signup">Start Free</Link>
+              <Link href="/signup">Sign up</Link>
             </Button>
           </div>
 
@@ -188,7 +188,7 @@ export function Navbar() {
                   "shadow-[inset_0_1px_1px_rgba(255,255,255,0.25)]"
                 )}
               >
-                <Link href="/signup">Start Free</Link>
+                <Link href="/signup">Sign up</Link>
               </Button>
             </div>
           </div>

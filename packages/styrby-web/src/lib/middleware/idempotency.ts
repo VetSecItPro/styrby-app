@@ -59,7 +59,7 @@ export type IdempotencyResult =
  * and must be rejected with 409 Conflict.
  *
  * @param method - HTTP method (e.g. 'POST')
- * @param path - Request pathname (e.g. '/api/billing/checkout/team')
+ * @param path - Request pathname (e.g. '/api/billing/checkout')
  * @param body - Raw request body string (may be empty string for bodyless requests)
  * @returns Hex-encoded SHA-256 digest
  */
@@ -91,7 +91,7 @@ function computeRequestHash(method: string, path: string, body: string): string 
  *
  * @param request - The incoming Next.js request object (or standard Request)
  * @param userId - Authenticated user ID (UUID). Must be resolved before calling.
- * @param route - Normalized route identifier (e.g. '/api/billing/checkout/team').
+ * @param route - Normalized route identifier (e.g. '/api/billing/checkout').
  *   Use a string constant, not the runtime pathname, to avoid query-string
  *   differences invalidating the cache.
  * @returns Idempotency check result — either `replayed: false` to proceed, or
@@ -103,7 +103,7 @@ function computeRequestHash(method: string, path: string, body: string): string 
  *
  * @example
  * ```ts
- * const idem = await checkIdempotency(req, userId, '/api/billing/checkout/team');
+ * const idem = await checkIdempotency(req, userId, '/api/billing/checkout');
  * if (idem.replayed) {
  *   return NextResponse.json(idem.body, { status: idem.status });
  * }
@@ -227,7 +227,7 @@ export async function checkIdempotency(
  * @example
  * ```ts
  * const responseBody = { checkout_url: checkout.url };
- * await storeIdempotencyResult(req, userId, '/api/billing/checkout/team', 200, responseBody);
+ * await storeIdempotencyResult(req, userId, '/api/billing/checkout', 200, responseBody);
  * return NextResponse.json(responseBody);
  * ```
  */

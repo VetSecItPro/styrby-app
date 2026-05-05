@@ -326,7 +326,7 @@ describe('POST /api/keys', () => {
     const data = await response.json();
 
     expect(response.status).toBe(403);
-    expect(data.error).toContain('Power plan');
+    expect(data.error).toContain('Pro and Growth');
   });
 
   /**

@@ -11,6 +11,11 @@ interface UpgradeButtonProps {
   tierId: TierId;
   billingCycle: BillingCycle;
   isPopular?: boolean;
+  /**
+   * Seat count for the Growth tier. Ignored for Pro (single-seat plan).
+   * Defaults to GROWTH_BASE_SEATS (3) at the API layer when omitted.
+   */
+  seatCount?: number;
 }
 
 /**
@@ -19,7 +24,7 @@ interface UpgradeButtonProps {
  * Calls the /api/billing/checkout endpoint and redirects to Polar's checkout page.
  * Shows inline error feedback if checkout fails instead of silently logging.
  */
-export function UpgradeButton({ tierId, billingCycle, isPopular }: UpgradeButtonProps) {
+export function UpgradeButton({ tierId, billingCycle, isPopular, seatCount }: UpgradeButtonProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,10 +33,18 @@ export function UpgradeButton({ tierId, billingCycle, isPopular }: UpgradeButton
     setError(null);
 
     try {
+      // WHY only include seats for growth: Pro is a single-seat plan and the
+      // API's z.enum schema rejects unknown fields cleanly, but omitting the
+      // field entirely keeps the payload precise to the tier semantics.
+      const body =
+        tierId === 'growth' && typeof seatCount === 'number'
+          ? { tierId, billingCycle, seats: seatCount }
+          : { tierId, billingCycle };
+
       const response = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tierId, billingCycle }),
+        body: JSON.stringify(body),
       });
 
       const data = await response.json();
@@ -55,12 +68,10 @@ export function UpgradeButton({ tierId, billingCycle, isPopular }: UpgradeButton
 
   // WHY tier-specific copy: generic "Upgrade" forces the user to look back at
   // the card title to confirm what they're buying. Naming the destination tier
-  // (Pro / Power) inside the button is the standard pricing-page conversion
-  // pattern and complies with the project copy ban on generic CTAs.
+  // inside the button is the standard pricing-page conversion pattern.
   const tierLabels: Record<TierId, string> = {
-    free: 'Start Free',
+    free: 'Sign up',
     pro: 'Upgrade to Pro',
-    // WHY (Phase 5 rename): pre-rename `'power'` collapsed into Growth.
     growth: 'Upgrade to Growth',
   };
   const ctaLabel = tierLabels[tierId] ?? 'Upgrade to Pro';

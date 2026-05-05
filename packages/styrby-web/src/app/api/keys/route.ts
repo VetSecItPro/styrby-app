@@ -283,7 +283,7 @@ export async function POST(request: NextRequest) {
     if (keyLimit === 0) {
       return NextResponse.json(
         {
-          error: 'API access is only available on the Power plan. Upgrade to create API keys.',
+          error: 'API access is only available on the Pro and Growth plans. Upgrade to create API keys.',
           upgrade: true,
         },
         { status: 403 }

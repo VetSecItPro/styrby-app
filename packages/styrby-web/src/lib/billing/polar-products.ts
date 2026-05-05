@@ -2,38 +2,42 @@
  * Polar billing product definitions and pricing helpers for the public
  * pricing page.
  *
- * 2026-04-27 — Tier reconciliation refactor (Phase 5).
- *
  * Styrby converged from a 4-tier marketing model (Solo / Team / Business /
- * Enterprise) to a 2-tier paid model: Pro ($39 individual) + Growth ($99
- * base + $19/seat after 3, team). This module is the page-side counterpart
+ * Enterprise) to a 2-tier paid model: Pro ($39 individual) + Growth (team
+ * with tiered seat-based pricing). This module is the page-side counterpart
  * to the gating-layer reconciliation in `tier-config.ts` and
  * `tier-enforcement.ts`.
  *
- * Canonical decision: see `.audit/styrby-fulltest.md` Decisions #1 / #2 /
- * #3 / #4 / #12.
+ * **Pricing model (sandbox-validated against Polar 2026-05-04):**
  *
- * Pricing math:
- *   - Pro is a fixed $39/mo (or $390/yr) flat fee.
- *   - Growth is a multi-product Path A: a $99/mo base product (covers 3
- *     seats) plus a $19/seat/mo add-on for seats 4+. Annual: $990 base +
- *     $190/seat. The page renders this as "Starting at $99/mo for 3 seats"
- *     and lets the buyer pick a seat count; the seat add-on math is applied
- *     by helpers in this module.
+ *   - **Pro** — single fixed-price product. $39/mo (or $390/yr).
+ *   - **Growth** — single product with TIERED seat-based pricing in Polar.
+ *     First 3 seats at $33/seat = $99 base. Seats 4-25 at $19/seat.
+ *     Annual: $990 base + $190/seat for seats 4+. The full $99-base +
+ *     $19/seat-after-3 model is encoded in the Polar product alone.
  *
- * Polar product ID env vars (read by `lib/polar.ts` PR #184; referenced
- * here for the `getProductId` helper):
+ *   The pricing math in this module
+ *   (`calculateMonthlyCostCents` / `calculateAnnualCostCents`) mirrors
+ *   Polar's tiered pricing exactly. Verified across seats=3..25 for both
+ *   monthly and annual cycles — every value matches Polar's actual checkout
+ *   total_amount to the cent.
+ *
+ *   The earlier "Path A multi-product (base + per-seat addon)" pattern was
+ *   investigated and discarded — Polar's `products: [a, b]` is a tier-picker
+ *   not a bundle. See `~/.claude/projects/.../memory/feedback_validate_against_real_apis.md`.
+ *
+ * **Polar product ID env vars** (read by `tier-config.ts` for product
+ * resolution):
  *   - POLAR_PRO_MONTHLY_PRODUCT_ID
  *   - POLAR_PRO_ANNUAL_PRODUCT_ID
  *   - POLAR_GROWTH_MONTHLY_PRODUCT_ID
  *   - POLAR_GROWTH_ANNUAL_PRODUCT_ID
- *   - POLAR_GROWTH_SEAT_MONTHLY_PRODUCT_ID
- *   - POLAR_GROWTH_SEAT_ANNUAL_PRODUCT_ID
  *
- * If any env var is unset (e.g., during the Phase H12 cutover gap), the
- * `getProductId` helper returns `null` and the paywall surface degrades
- * gracefully. The pricing UI still renders price strings (which live on
- * `TIER_DEFINITIONS_CANONICAL`, not on env vars).
+ * `POLAR_GROWTH_SEAT_*_PRODUCT_ID` env vars and the corresponding "Styrby
+ * Growth Seat" Polar products are VESTIGIAL — the webhook reconciler
+ * (`api/webhooks/polar/route.ts`) still maps them to `tier='growth'` for
+ * back-compat with any historical subscriptions, but new checkouts must
+ * NOT include them. Cleanup tracked in CLEANUP-1.
  *
  * SOC2 CC7.2 — billing math has a single code path. Any caller that needs
  * to compute a price MUST go through this module.
@@ -70,9 +74,13 @@ export const GROWTH_BASE_SEATS = 3;
  * Growth tier maximum seats sold via the self-serve checkout. Above this
  * we route to the sales team (custom volume pricing).
  *
- * WHY 100: matches the existing slider cap on the team checkout page.
+ * WHY 25: caps self-serve at the size where standard SaaS pricing fits cleanly.
+ * Teams above 25 are typically procurement-driven and want negotiated terms,
+ * volume discount, and an MSA — not a one-click checkout. Routing them to
+ * sales avoids leaving money on the table from larger contracts that would
+ * have negotiated down from list anyway.
  */
-export const GROWTH_MAX_SEATS = 100;
+export const GROWTH_MAX_SEATS = 25;
 
 /**
  * Pro tier monthly price in USD cents (Decision #2).

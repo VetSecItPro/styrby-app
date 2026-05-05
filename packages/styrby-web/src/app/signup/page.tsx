@@ -79,9 +79,73 @@ function SignUpPageInner() {
   const plan = searchParams.get('plan');
   const refCode = searchParams.get('ref');
   const invitedBy = searchParams.get('invited_by');
-  const redirectPath = plan ? `/dashboard?plan=${plan}` : '/dashboard';
+  // POST-SIGNUP-1: carry the slider seats + billing cycle through the
+  // signup flow so the post-OTP/OAuth checkout call charges the right
+  // amount. The pricing page slider builds /signup?plan=growth&seats=N
+  // (&billing=annual). Without these reads, the slider value was being
+  // dropped between signup and Polar — customers sliding to 5 seats
+  // would have ended up at 3-seat checkout.
+  const seatsParam = searchParams.get('seats');
+  const seats = seatsParam ? parseInt(seatsParam, 10) : null;
+  const billingParam = searchParams.get('billing');
+  const billing: 'monthly' | 'annual' = billingParam === 'annual' ? 'annual' : 'monthly';
+
+  // Dashboard fallback URL preserves all three params for OAuth flows
+  // (the OAuth callback returns to redirectPath, not back to this page).
+  // OTP flow short-circuits this and goes straight to Polar checkout.
+  const redirectPath = (() => {
+    if (!plan) return '/dashboard';
+    const qs = new URLSearchParams({ plan });
+    if (seats && Number.isInteger(seats) && seats > 0) qs.set('seats', String(seats));
+    if (billingParam === 'annual') qs.set('billing', 'annual');
+    return `/dashboard?${qs.toString()}`;
+  })();
+
   const router = useRouter();
   const supabase = createClient();
+
+  /**
+   * After successful auth, try to create a Polar checkout for the requested
+   * plan and redirect the user to Polar's hosted page. Returns true when
+   * the redirect was initiated (caller should NOT push elsewhere); false
+   * when the caller should fall back to the normal dashboard redirect.
+   *
+   * WHY a function (not inline): used by both the OTP-verify happy path
+   * and (in a follow-up) the OAuth callback handler. Keeping the contract
+   * in one place guarantees the wire shape matches `/api/billing/checkout`
+   * exactly — discriminated-union schema rejects mismatched shapes loudly.
+   */
+  async function tryRedirectToCheckout(): Promise<boolean> {
+    if (plan !== 'pro' && plan !== 'growth') return false;
+
+    // Build body matching the discriminated union in
+    // /api/billing/checkout/route.ts. Only include `seats` for Growth.
+    const body: Record<string, unknown> = { tierId: plan, billingCycle: billing };
+    if (plan === 'growth' && seats && Number.isInteger(seats) && seats > 0) {
+      body.seats = seats;
+    }
+
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) return false;
+      const data = (await res.json()) as { url?: string };
+      if (data.url) {
+        // Hard redirect to Polar's hosted checkout. window.location is
+        // required (not router.push) because Polar is a different origin.
+        // eslint-disable-next-line react-hooks/immutability -- side-effect navigation outside React's render path
+        window.location.href = data.url;
+        return true;
+      }
+    } catch {
+      // Swallow — caller falls back to dashboard. The dashboard's
+      // upgrade button gives the user a second chance to pay.
+    }
+    return false;
+  }
 
   /**
    * Step 1: Send OTP to create the account.
@@ -100,6 +164,7 @@ function SignUpPageInner() {
       return;
     }
 
+    // eslint-disable-next-line react-hooks/purity -- Date.now() inside async event handler, not render
     const now = Date.now();
     if (now - lastSentAt < OTP_COOLDOWN_MS) {
       const secsLeft = Math.ceil((OTP_COOLDOWN_MS - (now - lastSentAt)) / 1000);
@@ -123,6 +188,7 @@ function SignUpPageInner() {
     if (error) {
       setMessage({ type: 'error', text: error.message });
     } else {
+      // eslint-disable-next-line react-hooks/purity -- Date.now() inside async event handler, not render
       setLastSentAt(Date.now());
       setStep('otp');
       setMessage({
@@ -174,6 +240,17 @@ function SignUpPageInner() {
         });
       }
 
+      // POST-SIGNUP-1: if the user came from a paid-plan CTA on /pricing,
+      // immediately create the Polar checkout and redirect them to it
+      // instead of dropping them on /dashboard. This preserves the slider
+      // seat count and billing cycle they chose pre-signup.
+      const redirected = await tryRedirectToCheckout();
+      if (redirected) {
+        // window.location.href already initiated; keep loading=true so
+        // the user sees a spinner during the cross-origin nav.
+        return;
+      }
+
       router.push(redirectPath);
     }
   }
@@ -182,6 +259,7 @@ function SignUpPageInner() {
    * Resend the OTP code.
    */
   async function handleResendOtp() {
+    // eslint-disable-next-line react-hooks/purity -- Date.now() inside async event handler, not render
     const now = Date.now();
     if (now - lastSentAt < OTP_COOLDOWN_MS) {
       const secsLeft = Math.ceil((OTP_COOLDOWN_MS - (now - lastSentAt)) / 1000);
@@ -202,6 +280,7 @@ function SignUpPageInner() {
     if (error) {
       setMessage({ type: 'error', text: error.message });
     } else {
+      // eslint-disable-next-line react-hooks/purity -- Date.now() inside async event handler, not render
       setLastSentAt(Date.now());
       setOtpCode('');
       setMessage({ type: 'success', text: 'New code sent. Check your email.' });

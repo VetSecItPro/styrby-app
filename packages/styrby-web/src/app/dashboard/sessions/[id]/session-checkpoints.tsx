@@ -9,9 +9,11 @@
  * Rendered in the session detail page sidebar for completed sessions, and
  * in an inline collapsible section for active sessions.
  *
- * WHY: Inspired by Gemini CLI's `/resume save [name]` feature. Power users
- * conducting long multi-phase AI sessions benefit from being able to mark
- * known-good states in the session timeline and jump back to them.
+ * WHY: Inspired by Gemini CLI's `/resume save [name]` feature. Power-user
+ * developers conducting long multi-phase AI sessions benefit from being able
+ * to mark known-good states in the session timeline and jump back to them.
+ * (Note: "power users" here is the colloquial sense — heavy users — not the
+ * legacy "Power" billing tier, which was retired in Phase 5.)
  */
 
 import { useState, useCallback, useEffect } from 'react';

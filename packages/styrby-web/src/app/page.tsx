@@ -156,7 +156,7 @@ const faqPageJsonLd = {
       name: 'Can I use it with my team?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Yes. Growth is $99/month and includes 3 seats; each additional seat is $19/month, billed via a separate seat add-on so you can adjust seats from the dashboard. Pro covers a single developer end-to-end if you are flying solo.',
+        text: 'Yes. Growth is $99/month and includes 3 seats; each additional seat (up to 25 total) is $19/month, added to the same Growth subscription. Adjust seat count anytime from your team dashboard. Pro covers a single developer end-to-end if you are flying solo.',
       },
     },
     {

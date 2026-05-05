@@ -227,19 +227,23 @@ export default function ElevenAgentsCheckpointsVoiceOtel() {
           <tr>
             <td>Pro</td>
             <td>9 agents</td>
-            <td>$24 / month</td>
+            <td>$39 / month</td>
             <td>
-              Everything in Free plus session checkpoints, session sharing,
-              voice commands, activity graph
+              Everything an individual developer needs: all 11 CLI agents,
+              unlimited sessions, 1-year encrypted history, session
+              checkpoints, sharing, voice commands, OTEL export, mobile
+              code review, BYOK across every model provider
             </td>
           </tr>
           <tr>
-            <td>Power</td>
+            <td>Growth</td>
             <td>All 11 agents</td>
-            <td>$59 / month</td>
+            <td>$99 / month (3 seats; +$19/seat after, up to 25)</td>
             <td>
-              Everything in Pro plus OTEL export, cloud task monitoring, mobile
-              code review, team dashboard, per-developer cost attribution
+              Everything in Pro plus team workspace, role-based access,
+              per-developer cost rollup, approval chains, audit-trail export
+              for SOC2 / ISO 27001, shared budget caps, priority email
+              support
             </td>
           </tr>
         </tbody>

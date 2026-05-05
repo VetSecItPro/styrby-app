@@ -186,14 +186,22 @@ const TeamSubscriptionMetadataSchema = z.object({
  * what we set at checkout. passthrough() preserves them without rejecting
  * the event, maintaining forward-compatibility.
  *
- * WHY prices array: Polar's per-seat model uses `quantity` for seat count
- * and `prices[0].product_id` for product resolution (tier + cycle mapping).
+ * WHY prices array: `prices[0].product_id` is used for product resolution
+ * (tier + cycle mapping).
+ *
+ * WHY seats AND quantity (both optional): Polar SDK 0.47+ Subscription type
+ * carries `seats: number | null` for seat-based products (the new Growth
+ * model). Legacy team/business products created via the older team-checkout
+ * route used a top-level `quantity` field. Both are accepted; the handler
+ * resolves the seat count via `seats ?? quantity ?? 0`. Verified against the
+ * Polar SDK type at `@polar-sh/sdk/dist/.../subscription.d.ts:100`.
  */
 const TeamSubscriptionDataSchema = z
   .object({
     id: z.string().min(1),
     status: z.enum(['trialing', 'active', 'past_due', 'canceled', 'unpaid']),
-    quantity: z.number().int().min(0),
+    seats: z.number().int().min(0).nullable().optional(),
+    quantity: z.number().int().min(0).optional(),
     metadata: TeamSubscriptionMetadataSchema.passthrough(),
     prices: z
       .array(
@@ -494,7 +502,11 @@ async function handleTeamSubscriptionEvent(
   subscriptionData: {
     id: string;
     status: 'trialing' | 'active' | 'past_due' | 'canceled' | 'unpaid';
-    quantity: number;
+    // Both fields optional: SDK 0.47+ uses `seats` for seat-based products
+    // (Growth); legacy team/business products used `quantity`. Resolved
+    // below via `seats ?? quantity ?? 0`.
+    seats?: number | null;
+    quantity?: number;
     prices: Array<{ product_id: string }>;
     current_period_start?: string;
     current_period_end?: string;
@@ -638,16 +650,25 @@ async function handleTeamSubscriptionEvent(
   // 3. Seat count validation (subscription.updated only)
   // --------------------------------------------------------------------------
 
-  const seatCount = subscriptionData.quantity;
+  // Resolve seat count from the canonical Polar field, falling back to the
+  // legacy `quantity` field for backwards-compat with team/business
+  // subscriptions created before the seat-based Growth model.
+  // Verified 2026-05-04: Polar SDK 0.47 Subscription.seats is the field
+  // populated for seat-based products (Growth). The old top-level
+  // `quantity` was the field used by the now-deleted legacy team checkout
+  // route; kept here only to reconcile any historical subscriptions that
+  // may still carry that field on Polar replay events.
+  const seatCount = subscriptionData.seats ?? subscriptionData.quantity ?? 0;
 
   // WHY narrow to legacy seat-based tiers: validateSeatCount in
   // @styrby/shared/billing has signature (tier: 'team' | 'business' | 'enterprise', ...).
   // Post-cutover the resolver may also return 'pro' or 'growth' (PR #197);
-  // 'pro' has no seat dimension (individual plan), and 'growth' uses
-  // quantity=1 on the main subscription with seat addons modeled as separate
-  // subscriptions — neither needs the legacy seat-count gate. Future cleanup
-  // (H25 legacy shim) collapses this guard once BillableTier is broadened
-  // upstream in the shared package.
+  // 'pro' has no seat dimension (individual plan). For 'growth' the seat
+  // count is validated server-side at `/api/billing/checkout` before any
+  // Polar checkout is created, and Polar's hosted page is locked via
+  // min_seats/max_seats — so a separate webhook-time validation is
+  // belt-and-suspenders we can add in a follow-up. The current guard
+  // protects only legacy team/business which validateSeatCount accepts.
   if (
     eventType === 'subscription.updated' &&
     resolvedTier &&
@@ -1446,6 +1467,24 @@ export async function POST(request: Request) {
         // Using user_id here was wrong - a user can have multiple historical
         // subscriptions and the conflict target must uniquely identify THIS
         // subscription, not the user.
+        // WHY persist `seats` (migration 072): for the Growth tier, Polar's
+        // Subscription object carries `seats: number | null` representing
+        // the customer's billed seat count (tiered seat-based pricing).
+        // We mirror it onto subscriptions.seats so the dashboard can show
+        // "you have N seats", and so team-creation can copy it into
+        // teams.seat_cap when the user later sets up their workspace.
+        //
+        // For Pro / Free, Polar's Subscription.seats is null — we forward
+        // null verbatim. The CHECK constraint on subscriptions.seats
+        // (`seats IS NULL OR seats > 0`) accepts null and rejects 0/negative.
+        //
+        // Defensive `(data as ...).seats` cast: the `data` object is typed
+        // by the Polar SDK schema which defines `seats?: number | null`.
+        // The cast keeps the existing code path readable; the runtime value
+        // is whatever Polar sent.
+        const polarSeats =
+          (data as { seats?: number | null }).seats ?? null;
+
         await supabase.from('subscriptions').upsert(
           {
             user_id: profileId,
@@ -1465,6 +1504,7 @@ export async function POST(request: Request) {
             current_period_start: data.current_period_start,
             current_period_end: data.current_period_end,
             cancel_at_period_end: data.cancel_at_period_end || false,
+            seats: polarSeats,
           },
           {
             onConflict: 'polar_subscription_id',

@@ -77,10 +77,6 @@ describe('PricingSection — plan cards render', () => {
     ).toBeInTheDocument();
   });
 
-  it('marks Growth as the recommended plan ("Most Popular" badge)', () => {
-    setup();
-    expect(screen.getByText(/most popular/i)).toBeInTheDocument();
-  });
 });
 
 describe('PricingSection — monthly prices', () => {

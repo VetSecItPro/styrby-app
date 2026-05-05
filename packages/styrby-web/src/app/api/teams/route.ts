@@ -265,7 +265,7 @@ export async function POST(request: NextRequest) {
     if (!tierHasTeamFeatures(tier)) {
       return NextResponse.json(
         {
-          error: 'Team collaboration is only available on the Power plan. Upgrade to Power to create and manage teams.',
+          error: 'Team collaboration is only available on the Growth plan. Upgrade to Growth to create and manage teams.',
         },
         { status: 403 }
       );

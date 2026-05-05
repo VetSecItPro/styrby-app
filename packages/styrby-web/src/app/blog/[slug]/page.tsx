@@ -200,7 +200,7 @@ export default async function BlogPostPage({
             href="/signup"
             className="rounded-lg bg-amber-500 px-6 py-2.5 text-sm font-medium text-background transition-colors hover:bg-amber-600"
           >
-            Start Free
+            Sign up
           </Link>
           <Link
             href="/pricing"

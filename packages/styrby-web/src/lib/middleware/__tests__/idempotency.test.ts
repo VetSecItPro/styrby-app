@@ -334,8 +334,8 @@ describe('storeIdempotencyResult', () => {
   // --------------------------------------------------------------------------
 
   it('passes correct fields to upsert including user_id and route', async () => {
-    const req = makeRequest({ key: 'shape-key', body: '{"tier":"team"}', path: '/api/billing/checkout/team' });
-    await storeIdempotencyResult(req, 'user-xyz', '/api/billing/checkout/team', 200, {
+    const req = makeRequest({ key: 'shape-key', body: '{"tier":"team"}', path: '/api/billing/checkout' });
+    await storeIdempotencyResult(req, 'user-xyz', '/api/billing/checkout', 200, {
       checkout_url: 'https://polar.sh/checkout/xyz',
     });
 
@@ -343,7 +343,7 @@ describe('storeIdempotencyResult', () => {
       expect.objectContaining({
         key: 'shape-key',
         user_id: 'user-xyz',
-        route: '/api/billing/checkout/team',
+        route: '/api/billing/checkout',
         response_status: 200,
         response_body: { checkout_url: 'https://polar.sh/checkout/xyz' },
       }),

@@ -193,7 +193,7 @@ export default function SecurityPage() {
               likely consequences, and measures taken.
             </li>
             <li>
-              <strong>Team/B2B customers</strong>: Power tier team
+              <strong>Team/B2B customers</strong>: Growth tier team
               administrators are notified directly per our{' '}
               <Link href="/dpa">Data Processing Agreement</Link>.
             </li>

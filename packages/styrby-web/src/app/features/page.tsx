@@ -159,21 +159,21 @@ const featureCategories = [
         title: 'Per-Message Cost Tracking',
         description:
           'Drill into a single session and see what each individual prompt cost. The expensive ones are now visible. Rewrite the prompt template, switch the model, or tighten the system message before the next thousand requests.',
-        detail: 'Available on Power tier only.',
+        detail: 'Available on Pro and Growth.',
       },
       {
         icon: FileSearch,
         title: 'Per-File Context Breakdown',
         description:
           'See which files the agent loaded into context and how much each one contributed to the token bill. The 200-line file you forgot to .gitignore stops costing you $0.50 every prompt.',
-        detail: 'Available on Power tier only.',
+        detail: 'Available on Pro and Growth.',
       },
       {
         icon: ActivitySquare,
         title: 'Activity Graph',
         description:
           'A GitHub-style heatmap of your agent activity. The pattern surfaces things you would not catch in a session list: the Friday afternoon spikes, the agent you only run on Tuesdays, the dead weeks where you forgot the tool exists.',
-        detail: 'Available on Power tier only.',
+        detail: 'Available on Pro and Growth.',
       },
       {
         icon: Eye,
@@ -241,21 +241,21 @@ const featureCategories = [
         title: 'Session Checkpoints',
         description:
           'Drop a named bookmark inside a long session. Come back to that exact moment later, compare two checkpoints to see what changed, or share the specific point in the conversation where things went sideways.',
-        detail: 'Available on Power tier only.',
+        detail: 'Available on Pro and Growth.',
       },
       {
         icon: Share2,
         title: 'Session Sharing',
         description:
           'Generate a share link for any replay. The data stays end-to-end encrypted and the recipient needs a separate key that you give them out of band. Styrby itself never sees plaintext, even on shared sessions.',
-        detail: 'Available on Power tier only.',
+        detail: 'Available on Pro and Growth.',
       },
       {
         icon: BarChart3,
         title: 'Per-Session Cost Breakdown',
         description:
           'Drill into any session and see the cost broken down by input tokens, output tokens, cache hits, and model. Export to CSV when finance asks for the receipts.',
-        detail: 'CSV export available on Power tier.',
+        detail: 'CSV export available on Pro and Growth.',
       },
     ],
   },
@@ -287,8 +287,8 @@ const featureCategories = [
     ],
   },
   {
-    name: 'Power Features',
-    badge: 'Power',
+    name: 'Pro Features',
+    badge: 'Pro',
     description: 'What you wire in once your team depends on agents in production.',
     features: [
       {
@@ -296,28 +296,28 @@ const featureCategories = [
         title: 'Voice Commands',
         description:
           'Talk to the agent when your hands are on the wheel, holding the kid, or carrying groceries up three flights. Approve, deny, dictate a prompt, kill a session. Voice transcript is logged alongside the rest of the session.',
-        detail: 'Available on Power tier only.',
+        detail: 'Available on Pro and Growth.',
       },
       {
         icon: Cloud,
         title: 'Cloud Monitoring',
         description:
           'Kick off a long-running cloud job from the dashboard, watch its progress live, and get pushed when it finishes or fails. Stop opening five tabs to check whether the build is done.',
-        detail: 'Available on Power tier only.',
+        detail: 'Available on Pro and Growth.',
       },
       {
         icon: Code2,
         title: 'Code Review From Mobile',
         description:
           'Submit a review request, monitor it on your phone, leave inline comments, and get pushed the moment it finishes. The same review you would do at a desk, just without the desk.',
-        detail: 'Available on Power tier only.',
+        detail: 'Available on Pro and Growth.',
       },
       {
         icon: Database,
         title: 'OTEL Export',
         description:
           'Stream session metrics, cost data, and trace events to whatever observability stack your platform team already runs: Grafana, Datadog, Honeycomb, New Relic. The agent activity becomes another service you can graph and alert on.',
-        detail: 'Available on Power tier only.',
+        detail: 'Available on Pro and Growth.',
       },
       {
         icon: Zap,
@@ -330,7 +330,7 @@ const featureCategories = [
   },
   {
     name: 'Team Collaboration',
-    badge: 'Power',
+    badge: 'Growth',
     description: 'Engineering managers see the cost. Developers keep the autonomy.',
     features: [
       {

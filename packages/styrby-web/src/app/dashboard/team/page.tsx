@@ -17,8 +17,8 @@ export const metadata: Metadata = {
  * the team management UI. Delegates all interactive functionality to the
  * TeamClient client component.
  *
- * Pro+ gate: Shows upgrade prompt for Free users. Pro and Power users can
- * access team features. Pro allows up to 3 members; Power also allows 3.
+ * Growth-only gate: Shows upgrade prompt for Free + Pro users. Only Growth
+ * subscribers can access team features (Pro is a single-seat individual plan).
  */
 export default async function TeamPage() {
   const supabase = await createClient();

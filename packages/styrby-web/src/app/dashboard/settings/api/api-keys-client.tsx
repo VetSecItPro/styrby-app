@@ -293,7 +293,7 @@ export function ApiKeysClient({
         </div>
       </div>
 
-      {/* Not Power tier - upgrade prompt */}
+      {/* Not a paid tier (Pro/Growth) - upgrade prompt */}
       {!isPowerTier && (
         <div className="rounded-xl bg-gradient-to-br from-orange-500/10 to-orange-600/10 border border-orange-500/30 px-6 py-8 text-center mb-8">
           <div className="mx-auto h-16 w-16 rounded-full bg-orange-500/20 flex items-center justify-center mb-4">

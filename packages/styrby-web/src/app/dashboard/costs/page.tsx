@@ -360,7 +360,8 @@ export default async function CostsPage({
       .eq('status', 'active')
       .single(),
     // WHY: Pre-fetch team membership so we can render TeamCosts without an
-    // extra round-trip. We only use the result for Power tier users.
+    // extra round-trip. We only use the result for Growth tier users
+    // (the only tier with team workspaces).
     supabase
       .from('team_members')
       .select('team_id')
