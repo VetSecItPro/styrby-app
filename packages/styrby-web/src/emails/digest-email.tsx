@@ -46,7 +46,7 @@ export default function DigestEmail({
 
       <Paragraph>Hey {name},</Paragraph>
       <Paragraph>
-        Here's a quick look at your coding {periodWord} — {dateLabel}.
+        Here&apos;s a quick look at your coding {periodWord}, {dateLabel}.
       </Paragraph>
 
       <Section
@@ -90,7 +90,7 @@ export default function DigestEmail({
 
       <Paragraph>
         <span style={{ fontSize: '12px', color: '#71717a' }}>
-          You're receiving this because digest emails are enabled on your
+          You&apos;re receiving this because digest emails are enabled on your
           Styrby account. Manage your preferences in{' '}
           <a
             href="https://www.styrbyapp.com/settings/notifications"

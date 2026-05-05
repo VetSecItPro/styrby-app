@@ -148,14 +148,14 @@ export default function OpenRouterCreditAlertEmail(
   // beside the layout makes copy edits a single-file change.
   let situationLine: string;
   if (overage) {
-    situationLine = `At the current burn rate ($${dailyBurnUsd.toFixed(2)}/day) the cycle projects to ${formatUsd(projectedEndOfCycleUsd)} — over the cap by ${formatUsd(projectedOverageUsd)}. Summary generation will start failing once the cap is hit.`;
+    situationLine = `At the current burn rate ($${dailyBurnUsd.toFixed(2)}/day) the cycle projects to ${formatUsd(projectedEndOfCycleUsd)}, over the cap by ${formatUsd(projectedOverageUsd)}. Summary generation will start failing once the cap is hit.`;
   } else if (highBurn) {
     situationLine = `Burn rate is ${formatUsd(dailyBurnUsd)}/day and ${capPctUsed.toFixed(0)}% of the cap is used. You'll likely hit the cap in the next few days; top up or raise the cap to keep summaries running.`;
   } else {
-    situationLine = `Cycle is tracking to about ${formatUsd(projectedEndOfCycleUsd)} — within the ${formatUsd(capUsd)} cap. Balance crossed the alert threshold (${formatUsd(thresholdUsd)}); top up at your convenience.`;
+    situationLine = `Cycle is tracking to about ${formatUsd(projectedEndOfCycleUsd)}, within the ${formatUsd(capUsd)} cap. Balance crossed the alert threshold (${formatUsd(thresholdUsd)}); top up at your convenience.`;
   }
 
-  const subjectPreview = `${formatUsd(remainingUsd)} remaining (${capPctUsed.toFixed(0)}% of cap used) — ${daysRemainingInCycle} days left in cycle`;
+  const subjectPreview = `${formatUsd(remainingUsd)} remaining (${capPctUsed.toFixed(0)}% of cap used), ${daysRemainingInCycle} days left in cycle`;
 
   return (
     <BaseLayout preview={subjectPreview}>
