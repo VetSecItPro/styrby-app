@@ -143,7 +143,7 @@ export default function PricingPage() {
             />
           </div>
           <p className="mt-8 text-center text-xs text-muted-foreground/60">
-            14-day free trial on Pro and Growth. No credit card. Upgrade or downgrade in one click.
+            Upgrade or downgrade in one click. Cancel anytime — no questions asked.
           </p>
         </div>
       </section>
@@ -264,7 +264,7 @@ export default function PricingPage() {
             </Button>
           </div>
           <p className="mt-4 text-sm text-muted-foreground/60">
-            14-day trial on Pro and Growth. No credit card. Cancel anytime.
+            Cancel anytime. Switch between Pro and Growth from the dashboard in one click.
           </p>
         </div>
       </section>

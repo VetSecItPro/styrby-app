@@ -17,7 +17,7 @@ export function PricingCTA() {
                   the public ladder to Pro ($39/mo) + Growth ($99/mo, 3 seats
                   included). The CTA now frames the upgrade trigger
                   (team scaling) cleanly and stays in sync with /pricing. */}
-              Start a 14-day Pro trial. No credit card. Move to Growth the moment a second developer joins.
+              Start on Pro for $39/mo. Move to Growth the moment a second developer joins. Cancel anytime.
             </p>
             <div className="mt-8">
               <Button

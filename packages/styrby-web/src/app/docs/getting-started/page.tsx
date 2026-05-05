@@ -51,7 +51,7 @@ export default function GettingStartedPage() {
         >
           styrbyapp.com
         </a>
-        . The 14-day free trial on Pro and Growth includes one machine and full session monitoring.
+        . Pro and Growth both include one machine and full session monitoring; cancel anytime.
       </p>
 
       {/* Step 3 */}

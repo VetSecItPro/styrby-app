@@ -118,11 +118,11 @@ describe('SignUpPage — info step', () => {
     expect(screen.getByRole('button', { name: /continue with email/i })).toBeInTheDocument();
   });
 
-  it('shows "Create your free account" when no plan param is set', () => {
+  it('shows "Create your account" when no plan param is set (free tier removed 2026-05-04)', () => {
     setup();
 
     expect(
-      screen.getByRole('heading', { name: 'Create your free account' })
+      screen.getByRole('heading', { name: 'Create your account' })
     ).toBeInTheDocument();
   });
 
@@ -300,7 +300,7 @@ describe('SignUpPage — OTP step', () => {
 
     await user.click(screen.getByRole('button', { name: /use a different email/i }));
 
-    expect(screen.getByRole('heading', { name: 'Create your free account' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Create your account' })).toBeInTheDocument();
   });
 
   /**

@@ -37,7 +37,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Styrby Pricing — Pro and Growth',
     description:
-      'Pro at $39/mo for solos. Growth at $99/mo for teams of 3 (+$19/seat after). 14-day free trial.',
+      'Pro at $39/mo for solos. Growth at $99/mo for teams of 3 (+$19/seat after). Cancel anytime.',
   },
 };
 

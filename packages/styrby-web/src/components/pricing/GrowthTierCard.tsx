@@ -191,7 +191,7 @@ export function GrowthTierCard({
       </div>
 
       <p className="mt-3 text-center text-[11px] text-muted-foreground/50">
-        14-day free trial. {GROWTH_BASE_SEATS} seats included; up to {GROWTH_MAX_SEATS}.
+        {GROWTH_BASE_SEATS} seats included; up to {GROWTH_MAX_SEATS}. Cancel anytime.
       </p>
     </div>
   );

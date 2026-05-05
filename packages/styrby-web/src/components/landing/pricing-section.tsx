@@ -146,7 +146,7 @@ export function PricingSection() {
 
         {/* Trust footnote + deep link */}
         <p className="mt-8 text-center text-xs text-muted-foreground/60">
-          14-day free trial on Pro and Growth. No credit card required. Cancel anytime.{" "}
+          Switch between Pro and Growth in one click. Cancel anytime.{" "}
           <Link
             href="/pricing"
             className="text-amber-400/80 underline-offset-4 hover:text-amber-400 hover:underline"

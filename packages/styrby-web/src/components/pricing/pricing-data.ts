@@ -122,7 +122,7 @@ export const faqs = [
   },
   {
     q: 'Is there a free trial?',
-    a: 'Yes. Both Pro and Growth include a 14-day free trial with full access to every feature. No credit card required to start. We will email a reminder two days before the trial ends.',
+    a: 'Not currently — pick Pro ($39/mo) or Growth ($99/mo for 3 seats) and you can cancel anytime from the dashboard with no penalty. Refunds for the unused portion of your current billing period are available within the first 7 days.',
   },
   {
     q: 'Does it work offline?',
