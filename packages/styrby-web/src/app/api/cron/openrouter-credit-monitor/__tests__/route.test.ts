@@ -299,19 +299,26 @@ describe('GET /api/cron/openrouter-credit-monitor', () => {
     expect(auditInserts[0].action).toBe('openrouter_credit_check');
   });
 
-  it('/credits failure: returns 502 and audit row tags endpoint=credits', async () => {
+  it('/credits failure: continues with /auth/key data only (200, not 502)', async () => {
+    // CONTRACT (updated 2026-05-05): /credits requires a "management"
+    // (provisioning) key. The runtime OPENROUTER_API_KEY in env is
+    // forbidden from /credits with 403 'Only management keys can fetch
+    // credits'. The cap-based alert decision uses /auth/key data only,
+    // so /credits failure is logged + skipped, NOT fatal.
     mockOpenRouter(
-      { ok: false, status: 503, bodyText: 'service unavailable' },
+      { ok: false, status: 403, bodyText: 'Only management keys can fetch credits' },
       { ok: true, body: { data: { limit: 50, limit_remaining: 40, usage_monthly: 10 } } }
     );
 
     const res = await GET(makeRequest());
-    expect(res.status).toBe(502);
+    // Above threshold ($40 remaining, default $20 threshold) → no alert,
+    // happy 200 with check audit row only.
+    expect(res.status).toBe(200);
     expect(mockSendEmail).not.toHaveBeenCalled();
     expect(auditInserts).toHaveLength(1);
     const meta = auditInserts[0].metadata as Record<string, unknown>;
-    expect(meta.ok).toBe(false);
-    expect(meta.endpoint).toBe('credits');
+    expect(meta.ok).toBe(true);
+    expect(meta.endpoint).toBeUndefined(); // no failure endpoint tagged
   });
 
   it('/auth/key failure: returns 502 and audit row tags endpoint=auth/key', async () => {
