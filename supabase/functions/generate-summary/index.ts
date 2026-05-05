@@ -12,9 +12,15 @@
  * 6. Returns success/error status
  *
  * @auth Service role key required (Bearer token in Authorization header)
- * @env OPENAI_API_KEY - OpenAI API key for summary generation
+ * @env OPENROUTER_API_KEY - OpenRouter API key for summary generation (preferred)
+ * @env OPENAI_API_KEY - Legacy fallback if OPENROUTER_API_KEY is not set; kept
+ *   so a key flip-back during incident response doesn't take this function down.
  * @env SUPABASE_URL - Supabase project URL
  * @env SUPABASE_SERVICE_ROLE_KEY - Service role key for database access
+ *
+ * @provider OpenRouter (https://openrouter.ai). We route through OpenRouter
+ *   instead of OpenAI direct so we can swap models per-tier without changing
+ *   billing pipes, and so the same key works for the digest infra (Stream B).
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.47.10';
@@ -117,17 +123,26 @@ const MAX_MESSAGES = 50;
 const MAX_SUMMARY_TOKENS = 500;
 
 /**
- * OpenAI model to use for summary generation.
+ * Model to use for summary generation.
  *
- * WHY gpt-4o-mini: Best balance of quality and cost for summarization tasks.
- * Fast, cheap, and produces high-quality summaries.
+ * WHY openai/gpt-4o-mini: Best balance of quality and cost for summarization
+ * tasks. Fast, cheap, and produces high-quality summaries. The `openai/`
+ * prefix is OpenRouter's namespace convention (vendor/model).
  */
-const OPENAI_MODEL = 'gpt-4o-mini';
+const SUMMARY_MODEL = 'openai/gpt-4o-mini';
 
 /**
- * OpenAI API endpoint.
+ * OpenRouter chat-completions endpoint. OpenAI-compatible request shape.
  */
-const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
+/**
+ * OpenRouter requires `HTTP-Referer` and `X-Title` headers on every request
+ * so the dashboard analytics page can attribute usage to our app. These are
+ * not auth — they're just attribution for OpenRouter's leaderboard.
+ */
+const OPENROUTER_REFERER = 'https://styrbyapp.com';
+const OPENROUTER_APP_TITLE = 'Styrby';
 
 // ============================================================================
 // Helpers
@@ -313,16 +328,21 @@ Deno.serve(async (req: Request) => {
   // ──────────────────────────────────────────
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
+  // WHY fallback: OPENROUTER_API_KEY is the new canonical secret, but we keep
+  // OPENAI_API_KEY working so an emergency revert doesn't break this function.
+  // Once the digest infra (Stream B) ships and we've burned in OpenRouter for
+  // a release cycle, the fallback can be removed.
+  const llmApiKey =
+    Deno.env.get('OPENROUTER_API_KEY') ?? Deno.env.get('OPENAI_API_KEY');
 
   if (!supabaseUrl || !supabaseServiceKey) {
     console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
     return jsonResponse({ error: 'Server configuration error' }, 500);
   }
 
-  if (!openaiApiKey) {
-    console.error('Missing OPENAI_API_KEY');
-    return jsonResponse({ error: 'OpenAI API key not configured' }, 500);
+  if (!llmApiKey) {
+    console.error('Missing OPENROUTER_API_KEY (and no OPENAI_API_KEY fallback)');
+    return jsonResponse({ error: 'LLM API key not configured' }, 500);
   }
 
   // ──────────────────────────────────────────
@@ -489,32 +509,35 @@ Deno.serve(async (req: Request) => {
     // ──────────────────────────────────────────
     console.log(`Generating summary for session ${body.session_id} (${messageRows.length} messages)`);
 
-    const openaiResponse = await fetch(OPENAI_API_URL, {
+    const llmResponse = await fetch(OPENROUTER_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${openaiApiKey}`,
+        'Authorization': `Bearer ${llmApiKey}`,
+        // OpenRouter attribution headers — required for analytics, not auth.
+        'HTTP-Referer': OPENROUTER_REFERER,
+        'X-Title': OPENROUTER_APP_TITLE,
       },
       body: JSON.stringify({
-        model: OPENAI_MODEL,
+        model: SUMMARY_MODEL,
         messages: chatMessages,
         max_tokens: MAX_SUMMARY_TOKENS,
         temperature: 0.3, // Lower temperature for more consistent, factual summaries
       }),
     });
 
-    if (!openaiResponse.ok) {
-      const errorText = await openaiResponse.text();
-      console.error('OpenAI API error:', openaiResponse.status, errorText);
+    if (!llmResponse.ok) {
+      const errorText = await llmResponse.text();
+      console.error('OpenRouter API error:', llmResponse.status, errorText);
       return jsonResponse({ error: 'Failed to generate summary' }, 500);
     }
 
-    const openaiResult: OpenAIResponse = await openaiResponse.json();
-    const summary = openaiResult.choices[0]?.message?.content?.trim();
+    const llmResult: OpenAIResponse = await llmResponse.json();
+    const summary = llmResult.choices[0]?.message?.content?.trim();
 
     if (!summary) {
-      console.error('OpenAI returned empty summary');
-      return jsonResponse({ error: 'OpenAI returned empty summary' }, 500);
+      console.error('OpenRouter returned empty summary');
+      return jsonResponse({ error: 'LLM returned empty summary' }, 500);
     }
 
     // ──────────────────────────────────────────
@@ -533,7 +556,7 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: 'Failed to store summary' }, 500);
     }
 
-    console.log(`Summary generated for session ${body.session_id} (${openaiResult.usage.total_tokens} tokens)`);
+    console.log(`Summary generated for session ${body.session_id} (${llmResult.usage.total_tokens} tokens)`);
 
     // ──────────────────────────────────────────
     // Return success
@@ -543,7 +566,7 @@ Deno.serve(async (req: Request) => {
       message: 'Summary generated successfully',
       session_id: body.session_id,
       summary,
-      tokens_used: openaiResult.usage.total_tokens,
+      tokens_used: llmResult.usage.total_tokens,
     }, 200);
 
   } catch (error) {

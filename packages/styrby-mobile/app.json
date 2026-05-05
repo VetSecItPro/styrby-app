@@ -34,8 +34,10 @@
         "backgroundColor": "#09090b"
       },
       "permissions": [
+        "POST_NOTIFICATIONS",
         "RECEIVE_BOOT_COMPLETED",
-        "VIBRATE"
+        "VIBRATE",
+        "WAKE_LOCK"
       ],
       "intentFilters": [
         {

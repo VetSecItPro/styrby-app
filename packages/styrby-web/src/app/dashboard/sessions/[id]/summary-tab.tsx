@@ -13,6 +13,7 @@
  */
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 /* ──────────────────────────── Types ──────────────────────────── */
@@ -150,9 +151,51 @@ export function SummaryTab({
   summaryGeneratedAt,
   sessionStatus,
   userTier,
-  sessionId: _sessionId,
+  sessionId,
 }: SummaryTabProps) {
+  const router = useRouter();
   const [isExpanded, setIsExpanded] = useState(true);
+  // Local state for on-demand generation. We keep these here (not lifted)
+  // because no other component cares about generation in flight; lifting
+  // would just couple the parent to a transient UI concern.
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+
+  /**
+   * POSTs to /api/v1/sessions/[id]/summary, then refreshes the route so
+   * the parent re-fetches the session row with the new summary populated.
+   *
+   * WHY router.refresh() (not optimistic update): the summary text is
+   * authoritative on the server. If we set local state from the response
+   * body and the server later re-renders with stale data, we get a flicker.
+   * A refresh after success guarantees a single source of truth.
+   */
+  async function handleGenerate() {
+    setIsGenerating(true);
+    setGenerationError(null);
+    try {
+      const res = await fetch(`/api/v1/sessions/${sessionId}/summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          message?: string;
+        };
+        throw new Error(
+          body.message || body.error || `Failed (HTTP ${res.status})`
+        );
+      }
+      router.refresh();
+    } catch (err) {
+      setGenerationError(
+        err instanceof Error ? err.message : 'Unknown error during summary generation'
+      );
+    } finally {
+      setIsGenerating(false);
+    }
+  }
 
   // Determine if the session is in a completed state
   const isSessionCompleted = ['stopped', 'expired', 'error'].includes(sessionStatus);
@@ -213,7 +256,7 @@ export function SummaryTab({
           </h3>
 
           <p className="text-sm text-zinc-400 max-w-md mx-auto">
-            An AI summary will be automatically generated when this session ends.
+            Once this session ends you can generate an AI summary on-demand.
             The summary captures key goals, actions taken, and outcomes.
           </p>
         </div>
@@ -222,48 +265,56 @@ export function SummaryTab({
   }
 
   // ──────────────────────────────────────────
-  // Render: Generating state
-  // ──────────────────────────────────────────
-  if (isSessionCompleted && !summary && !summaryGeneratedAt) {
-    return (
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
-        <div className="p-6 text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-purple-500/10 mb-4">
-            <ClockIcon className="h-6 w-6 text-purple-400 animate-pulse" />
-          </div>
-
-          <h3 className="text-lg font-semibold text-zinc-100 mb-2">
-            Generating Summary...
-          </h3>
-
-          <p className="text-sm text-zinc-400 max-w-md mx-auto">
-            Our AI is analyzing your session to create a concise summary.
-            This usually takes 10-30 seconds.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // ──────────────────────────────────────────
-  // Render: No summary available (old session)
+  // Render: Completed session, no summary -> show on-demand Generate button
+  //
+  // WHY one state (instead of "generating" + "old session"): summaries are
+  // now opt-in. There's no automatic generation in flight, so the only
+  // thing to show for "completed session without a summary" is a button
+  // to generate one. The two prior states from the auto-fire era collapse
+  // into this single CTA.
   // ──────────────────────────────────────────
   if (isSessionCompleted && !summary) {
     return (
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
         <div className="p-6 text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-zinc-700/50 mb-4">
-            <SparklesIcon className="h-6 w-6 text-zinc-500" />
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-purple-500/10 mb-4">
+            {isGenerating ? (
+              <ClockIcon className="h-6 w-6 text-purple-400 animate-pulse" />
+            ) : (
+              <SparklesIcon className="h-6 w-6 text-purple-400" />
+            )}
           </div>
 
           <h3 className="text-lg font-semibold text-zinc-100 mb-2">
-            No Summary Available
+            {isGenerating ? 'Generating Summary...' : 'AI Session Summary'}
           </h3>
 
-          <p className="text-sm text-zinc-400 max-w-md mx-auto">
-            This session was created before AI summaries were enabled.
-            Summaries are automatically generated for new sessions when they complete.
+          <p className="text-sm text-zinc-400 max-w-md mx-auto mb-4">
+            {isGenerating
+              ? 'Analyzing your session. This usually takes 10-30 seconds.'
+              : 'Generate a concise AI summary of this session - key goals, actions taken, and outcomes.'}
           </p>
+
+          {!isGenerating && (
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={isGenerating}
+              className="inline-flex items-center gap-2 rounded-lg bg-purple-500 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <SparklesIcon className="h-4 w-4" />
+              Generate summary
+            </button>
+          )}
+
+          {generationError && (
+            <p
+              role="alert"
+              className="mt-4 text-sm text-red-400 max-w-md mx-auto"
+            >
+              {generationError}
+            </p>
+          )}
         </div>
       </div>
     );

@@ -277,12 +277,32 @@ const featureCategories = [
           'Define when you do not want to be paged. Critical alerts (budget breached, agent stuck) can punch through the quiet window if you want them to. Configurable per notification type.',
         detail: 'Per-notification-type granularity.',
       },
+    ],
+  },
+  {
+    name: 'Catch-up Digests',
+    description: 'Walk into Monday already knowing what your AI did. No scrolling, no guessing.',
+    features: [
+      {
+        icon: FileSearch,
+        title: 'On-Demand Session Summary',
+        description:
+          'Open any session, hit summarize, get the rundown. What the agent worked on, the files it touched, what shipped, what got stuck. The "what did Claude even do for the last hour" answer, one tap away.',
+        detail: 'Available on Pro and Growth.',
+      },
       {
         icon: Globe,
-        title: 'Weekly Summary Emails',
+        title: 'Weekly Digest, Sunday Morning',
         description:
-          'A Monday-morning digest of last week: total spend, active sessions, most-used agents, budget status. Read it in 60 seconds and know whether to be worried.',
-        detail: 'Powered by Resend. Unsubscribe anytime.',
+          'Coffee in hand, your inbox: a 3-sentence summary of the past week. 47 commits, the auth refactor landed Thursday, three sessions caught a regression you forgot to push. Walk into Monday with the picture loaded.',
+        detail: 'Available on Pro and Growth. Delivered Sunday at 9am Central.',
+      },
+      {
+        icon: Bell,
+        title: 'Daily Digest, Before Your 9am',
+        description:
+          'Every morning, the rundown of yesterday: what each developer\'s agents shipped, what stalled, what cost spiked. Open before standup, walk in with the picture already loaded. No more "wait, what did the team get done yesterday?" at 9:01.',
+        detail: 'Growth only. Delivered every morning at 8am Central, with team-wide rollup.',
       },
     ],
   },
