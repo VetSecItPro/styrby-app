@@ -28,7 +28,7 @@
 
 import { logger } from '@/ui/logger';
 import { isAuthenticated, setConfigValue } from '@/configuration';
-import { savePersistedData, loadPersistedData } from '@/persistence';
+import { savePersistedData, loadPersistedData, type SupportedAgentType } from '@/persistence';
 import { registerMachine, getMachineName } from '@/auth/machine-registration';
 import { detectAgents, type DetectedAgent, type AgentDetectResult } from '@/onboarding/agentDetect';
 import { SpanRecorder } from '@/onboarding/bootstrap';
@@ -63,6 +63,34 @@ export interface OnboardOptions {
    * Skips the interactive email prompt.
    */
   email?: string;
+  /**
+   * Use browser OAuth (PKCE) instead of email OTP for authentication.
+   *
+   * WHY (ESC-1): Email OTP delivery latency dominates time-to-first-success
+   * (~30s of email-deliverability wait on a cold inbox). Browser OAuth via the
+   * existing PKCE + 127.0.0.1 callback flow finishes in ~10s if the user is
+   * already signed into GitHub in their browser. Default stays OTP for
+   * backwards compatibility; --browser is opt-in (or auto-suggested when OTP
+   * appears stalled — see runOtpAuthentication's fallback prompt).
+   */
+  browser?: boolean;
+  /**
+   * First-message wait timeout (ms) after a successful pair (ESC-2).
+   * Default: 60000 (60s). Set to 0 to skip the post-pair watcher entirely
+   * (used by tests to keep runtime tight).
+   */
+  firstMessageTimeout?: number;
+  /**
+   * Threshold in ms before the OTP-stuck fallback prompt fires (ESC-1).
+   * If sendOtp resolves but no code is pasted within this window, we offer
+   * to switch to browser auth. Default: 5000.
+   */
+  otpFallbackPromptAfterMs?: number;
+  /**
+   * Window in ms the fallback prompt stays open before defaulting to "Y".
+   * Default: 10000.
+   */
+  otpFallbackPromptTimeoutMs?: number;
 }
 
 /**
@@ -191,12 +219,124 @@ async function displayPreflightChecks(checks: PreflightCheck[]): Promise<boolean
 // ============================================================================
 
 /**
- * Run inline OTP authentication.
+ * Auth result shape returned by every authentication path (OTP, browser, fallback).
+ */
+interface AuthOutcome {
+  accessToken: string;
+  refreshToken: string;
+  userId: string;
+  userEmail: string;
+}
+
+/**
+ * Prompt the user with a yes/no question that defaults to "Y" if they hit
+ * Enter, and auto-resolves to "Y" if no input arrives within `timeoutMs`.
  *
- * WHY OTP instead of browser OAuth in this path:
- * Browser-OAuth adds ~30s due to browser launch + callback server polling.
- * OTP email is typically sub-5s delivery; the user pastes a code and we're
- * done in <2s. Total auth time drops from ~45s to ~12s.
+ * WHY exposed (ESC-1): the OTP fallback path needs to ask "Try browser auth
+ * instead?" without blocking onboarding indefinitely if the user has stepped
+ * away from the keyboard. A bare readline.question would hang forever.
+ *
+ * @param question - The prompt string (without trailing space)
+ * @param timeoutMs - How long to wait before defaulting to "Y"
+ * @param rl - Optional injected readline interface (for tests)
+ * @returns true for "Y" (default), false for "N"
+ */
+export async function promptYesNoWithTimeout(
+  question: string,
+  timeoutMs: number,
+  rl?: { question: (q: string, cb: (a: string) => void) => void; close?: () => void }
+): Promise<boolean> {
+  const readline = await import('node:readline');
+  const ownsRl = !rl;
+  const iface =
+    rl ?? readline.createInterface({ input: process.stdin, output: process.stdout });
+
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (ownsRl && 'close' in iface && typeof iface.close === 'function') {
+        iface.close();
+      }
+      resolve(value);
+    };
+
+    const timer = setTimeout(() => finish(true), timeoutMs);
+
+    iface.question(`${question} [Y/n]: `, (answer) => {
+      const trimmed = (answer ?? '').trim().toLowerCase();
+      if (trimmed === 'n' || trimmed === 'no') {
+        finish(false);
+      } else {
+        // Empty input (Enter), "y", "yes", or anything else → default Y.
+        finish(true);
+      }
+    });
+  });
+}
+
+/**
+ * Run browser-OAuth authentication via the existing PKCE + 127.0.0.1 server.
+ *
+ * WHY split out (ESC-1): this path is now reachable from two entry points —
+ * an explicit `--browser` flag, and the OTP fallback prompt. Both call into
+ * the same primitive; centralising it here keeps the timing/spans consistent.
+ *
+ * @param options - Onboard options (timeout honoured)
+ * @param spans - Span recorder
+ * @returns Auth outcome with tokens and user info
+ * @throws when the browser flow times out, the user closes the tab, or the
+ *   token exchange fails
+ */
+async function runBrowserAuthentication(
+  options: OnboardOptions,
+  spans: SpanRecorder
+): Promise<AuthOutcome> {
+  const chalk = (await import('chalk')).default;
+  spans.start('auth_browser', 'Auth: browser OAuth');
+
+  console.log(chalk.bold('\n  [2/6] Authentication — opening browser for sign-in...'));
+
+  const { startBrowserAuth } = await import('@/auth/browser-auth');
+
+  try {
+    const result = await startBrowserAuth({
+      supabaseUrl: SUPABASE_URL,
+      supabaseAnonKey: SUPABASE_ANON_KEY,
+      provider: 'github',
+      timeout: options.timeout ?? 120000,
+    });
+
+    spans.finish('auth_browser');
+    return {
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      userId: result.user.id,
+      userEmail: result.user.email ?? '',
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Browser auth failed';
+    spans.finish('auth_browser', false, message);
+    throw new Error(`Authentication failed: ${message}`);
+  }
+}
+
+/**
+ * Run inline OTP authentication with a smart fallback to browser auth.
+ *
+ * WHY OTP as default:
+ * Browser-OAuth opens a tab + polls a callback server (~10-15s on warm
+ * machines, longer on cold ones). OTP email is typically sub-5s delivery and
+ * a paste finishes in <2s — IF the email arrives promptly. When delivery
+ * stalls (greylisting, spam filters, slow IMAP sync), the user is stuck.
+ *
+ * WHY the fallback prompt (ESC-1): If the OTP send completes but the user
+ * hasn't pasted a code within `otpFallbackPromptAfterMs` (default 5s), we
+ * offer to switch to browser auth right then. Default is "Y" so a tired user
+ * just hits Enter and the browser flow takes over. They can decline ("n") to
+ * keep waiting for the email.
  *
  * @param options - Onboard options (may include pre-supplied email for testing)
  * @param spans - Span recorder
@@ -205,33 +345,141 @@ async function displayPreflightChecks(checks: PreflightCheck[]): Promise<boolean
 async function runOtpAuthentication(
   options: OnboardOptions,
   spans: SpanRecorder
-): Promise<{
-  accessToken: string;
-  refreshToken: string;
-  userId: string;
-  userEmail: string;
-}> {
+): Promise<AuthOutcome> {
   const chalk = (await import('chalk')).default;
   spans.start('auth_start', 'Auth: send OTP');
 
   console.log(chalk.bold('\n  [2/6] Authentication — enter your email for a one-time code.'));
 
-  const { runOtpAuth } = await import('@/onboarding/otpAuth');
+  const { sendOtp, verifyOtp, promptEmail, promptOtpCode } = await import(
+    '@/onboarding/otpAuth'
+  );
+  const { createClient } = await import('@supabase/supabase-js');
+  const readline = await import('node:readline');
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: false },
+  });
+
+  // Test/CI shortcut: if the caller pre-supplied an OTP token, run the same
+  // single-shot flow as before — no fallback prompt, no readline juggling.
+  if (options.email && process.env.STYRBY_TEST_OTP_TOKEN) {
+    try {
+      await sendOtp(supabase, options.email);
+      const result = await verifyOtp(
+        supabase,
+        options.email,
+        process.env.STYRBY_TEST_OTP_TOKEN
+      );
+      spans.finish('auth_start');
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Authentication failed';
+      spans.finish('auth_start', false, message);
+      throw new Error(`Authentication failed: ${message}`);
+    }
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
 
   try {
-    const result = await runOtpAuth({
-      supabaseUrl: SUPABASE_URL,
-      supabaseAnonKey: SUPABASE_ANON_KEY,
-      email: options.email,
+    const email = options.email ?? (await promptEmail(rl));
+    if (!email || !email.includes('@')) {
+      throw new Error('Invalid email address');
+    }
+
+    console.log(`\n  Sending OTP to ${email}...`);
+
+    try {
+      await sendOtp(supabase, email);
+    } catch (sendErr) {
+      const message = sendErr instanceof Error ? sendErr.message : 'OTP send failed';
+      spans.finish('auth_start', false, message);
+      throw new Error(`Authentication failed: ${message}`);
+    }
+
+    console.log('  Check your inbox for a 6-digit code.');
+
+    // Race the user pasting the OTP against the fallback-prompt timer.
+    // WHY: If the email is slow to arrive, we want to proactively offer the
+    // browser-auth escape hatch instead of leaving the user staring at the
+    // prompt. The user can ignore the prompt to keep waiting (default Y
+    // switches them; pressing N keeps them in OTP).
+    const fallbackAfterMs = options.otpFallbackPromptAfterMs ?? 5000;
+    const fallbackTimeoutMs = options.otpFallbackPromptTimeoutMs ?? 10000;
+
+    const otpPromise = promptOtpCode(rl).then((token) => ({ kind: 'otp' as const, token }));
+    const fallbackPromise = new Promise<{ kind: 'fallback' }>((resolve) => {
+      setTimeout(() => resolve({ kind: 'fallback' }), fallbackAfterMs);
     });
 
+    const winner = await Promise.race([otpPromise, fallbackPromise]);
+
+    let token: string;
+    if (winner.kind === 'otp') {
+      token = winner.token;
+    } else {
+      // Fallback timer fired before the user pasted a code. Offer browser auth.
+      console.log('');
+      const switchToBrowser = await promptYesNoWithTimeout(
+        '  Email looks slow. Try browser auth instead?',
+        fallbackTimeoutMs,
+        rl
+      );
+
+      if (switchToBrowser) {
+        // Close the readline so browser auth can take over stdin cleanly.
+        rl.close();
+        spans.finish('auth_start', false, 'fallback to browser');
+        return runBrowserAuthentication(options, spans);
+      }
+
+      // User declined: keep waiting for the OTP they originally requested.
+      console.log('  Keep waiting for the email...');
+      const otp = await otpPromise;
+      token = otp.token;
+    }
+
+    if (!token || token.length < 6) {
+      throw new Error('OTP code must be at least 6 digits');
+    }
+
+    const result = await verifyOtp(supabase, email, token);
     spans.finish('auth_start');
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Authentication failed';
-    spans.finish('auth_start', false, message);
+    // Avoid double-finishing if a nested branch already finished the span.
+    try {
+      spans.finish('auth_start', false, message);
+    } catch {
+      /* span already finished — ignore */
+    }
     throw new Error(`Authentication failed: ${message}`);
+  } finally {
+    rl.close();
   }
+}
+
+/**
+ * Authentication dispatcher. Selects browser-OAuth when `--browser` is set,
+ * otherwise runs the OTP path (which may itself fall back to browser).
+ *
+ * @param options - Onboard options
+ * @param spans - Span recorder
+ * @returns Auth outcome
+ */
+async function runAuthentication(
+  options: OnboardOptions,
+  spans: SpanRecorder
+): Promise<AuthOutcome> {
+  if (options.browser) {
+    return runBrowserAuthentication(options, spans);
+  }
+  return runOtpAuthentication(options, spans);
 }
 
 // ============================================================================
@@ -473,6 +721,15 @@ async function runMobilePairing(
       console.log(chalk.green('\n  Pair complete. Send your first message from the app'));
       console.log(chalk.dim("  Example: 'Hello, Claude.'\n"));
       spans.finish('pair_complete', true);
+
+      // ESC-2: Live first-message watcher.
+      // WHY: Up until now, "pair complete" only proved presence — it doesn't
+      // prove the relay round-trips messages end-to-end. We now wait up to
+      // 60s for the user's first inbound message from the phone, give them
+      // a clear "sandbox is live" confirmation when it arrives, and exit
+      // cleanly on timeout (NOT an error — the link is provably paired).
+      await waitForFirstMessage(relay, options.firstMessageTimeout ?? 60000, spans);
+
       return true;
     } else {
       console.log(chalk.yellow('\n  Pairing skipped or timed out.\n'));
@@ -528,6 +785,125 @@ function waitForMobile(
       resolve(false);
     };
 
+    process.on('SIGINT', onInterrupt);
+  });
+}
+
+/**
+ * Truncate a string for terminal display, adding an ellipsis when shortened.
+ *
+ * @param input - Raw string from the relay payload
+ * @param max - Maximum characters to show
+ * @returns A safely truncated, single-line string
+ */
+function truncateForDisplay(input: string, max: number): string {
+  // WHY single-line: relay payloads can contain newlines that would scramble
+  // the terminal status output. We collapse whitespace before truncating.
+  const oneLine = input.replace(/\s+/g, ' ').trim();
+  if (oneLine.length <= max) return oneLine;
+  return oneLine.slice(0, Math.max(0, max - 1)) + '…';
+}
+
+/**
+ * Extract a human-readable preview from the first inbound relay message.
+ *
+ * Different message types carry text in different payload fields. This
+ * function inspects the message shape and returns the most-useful preview
+ * string, or a generic placeholder if nothing displayable is found.
+ *
+ * @param msg - The relay message envelope (already validated by the relay
+ *   client's Zod schema before being emitted on `'message'`)
+ * @returns A short preview string suitable for the "Sandbox is live" line
+ */
+function previewFirstMessage(msg: unknown): string {
+  const obj = msg as { type?: string; payload?: Record<string, unknown> };
+  const payload = obj?.payload ?? {};
+  const candidate =
+    (payload as { content?: string }).content ??
+    (payload as { description?: string }).description ??
+    (payload as { command?: string }).command ??
+    obj?.type ??
+    'message received';
+  return truncateForDisplay(String(candidate), 80);
+}
+
+/**
+ * Wait for the first inbound message after pairing, then exit cleanly (ESC-2).
+ *
+ * Resolution paths:
+ *  - Inbound message within `timeoutMs` → print success line + return true
+ *  - Timer expires → print "exiting; send anytime" + return false (NOT error)
+ *  - SIGINT (Ctrl+C) → print "pair complete; send anytime" + return false
+ *
+ * The function never throws and never exits the process itself — it just
+ * resolves cleanly so the outer onboarding flow can complete normally.
+ *
+ * @param relay - Already-connected relay client (kept open for the watcher)
+ * @param timeoutMs - How long to wait for the first message
+ * @param spans - Span recorder
+ * @returns true if a message arrived, false on timeout / interrupt
+ */
+async function waitForFirstMessage(
+  relay: import('styrby-shared').RelayClient,
+  timeoutMs: number,
+  spans: SpanRecorder
+): Promise<boolean> {
+  // Allow the watcher to be skipped entirely (tests, CI, --skip variants).
+  if (timeoutMs <= 0) return false;
+
+  const chalk = (await import('chalk')).default;
+  spans.start('first_message', 'Wait for first inbound message');
+
+  console.log(chalk.dim('  Waiting for first message from your phone…'));
+  console.log(chalk.dim("  Open the app, tap your machine, send anything to test the link.\n"));
+
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+
+    const cleanup = () => {
+      relay.off('message', onMessage);
+      process.off('SIGINT', onInterrupt);
+      clearTimeout(timer);
+    };
+
+    const onMessage = (msg: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      const preview = previewFirstMessage(msg);
+      console.log(chalk.green('  ✅ First message received! Sandbox is live.'));
+      console.log(chalk.dim(`  ${preview}\n`));
+      spans.finish('first_message', true);
+      resolve(true);
+    };
+
+    const onInterrupt = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      console.log(
+        chalk.dim(
+          '\n  Pair complete; you can send messages from your phone anytime.\n'
+        )
+      );
+      spans.finish('first_message', false, 'sigint');
+      resolve(false);
+    };
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      console.log(
+        chalk.dim(
+          '  Wizard exiting. Send a message from your phone whenever you’re ready.\n'
+        )
+      );
+      spans.finish('first_message', false, 'timeout');
+      resolve(false);
+    }, timeoutMs);
+
+    relay.on('message', onMessage);
     process.on('SIGINT', onInterrupt);
   });
 }
@@ -599,9 +975,9 @@ export async function runOnboard(options: OnboardOptions = {}): Promise<OnboardR
   }
 
   // ── Step 2: Inline OTP Authentication ────────────────────────────────────
-  let authData: Awaited<ReturnType<typeof runOtpAuthentication>>;
+  let authData: AuthOutcome;
   try {
-    authData = await runOtpAuthentication(options, spans);
+    authData = await runAuthentication(options, spans);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Authentication failed';
     console.log(chalk.red(`\n  ${message}\n`));
@@ -699,7 +1075,7 @@ export async function runOnboard(options: OnboardOptions = {}): Promise<OnboardR
   let defaultAgentId: string;
   try {
     defaultAgentId = await runAgentDetection(spans);
-    setConfigValue('defaultAgent', defaultAgentId as 'claude' | 'codex' | 'gemini');
+    setConfigValue('defaultAgent', defaultAgentId as SupportedAgentType);
   } catch (error) {
     // Non-fatal: user can set agent later. Don't abort onboarding.
     logger.debug('Agent detection error', { error });
@@ -778,6 +1154,10 @@ export function parseOnboardArgs(args: string[]): OnboardOptions {
         break;
       case '--email':
         options.email = args[++i];
+        break;
+      case '--browser':
+        // ESC-1: opt into PKCE browser auth instead of email OTP.
+        options.browser = true;
         break;
     }
   }

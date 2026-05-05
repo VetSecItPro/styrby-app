@@ -58,6 +58,11 @@ const external = [
   'react-dom',
   // Large packages that are better external
   'typescript',
+  // keytar — native module with a `.node` binary (../build/Release/keytar.node)
+  // that esbuild can't bundle. Must resolve at runtime via Node's native loader.
+  // The fallback path in secret-store.ts handles cases where keytar isn't
+  // installable (headless Linux without libsecret) so external is safe.
+  'keytar',
 ];
 
 await esbuild.build({

@@ -207,8 +207,17 @@ async function runBareOrShorthand(argv: string[], command: string | undefined): 
   const { isAuthenticated, getConfigValue } = await import('@/configuration');
   if (!isAuthenticated()) {
     logger.info(`Styrby CLI v${VERSION}`);
-    const { runOnboard } = await import('@/commands/onboard');
-    const result = await runOnboard({ skipPairing: true });
+    const { runOnboard, parseOnboardArgs } = await import('@/commands/onboard');
+    // WHY (Phase 1.6.5): bare `styrby` is the single-command bootstrap →
+    // pair → first session. We must NOT skipPairing here, otherwise the user
+    // never sees the QR and has no phone connection. `runBareOrShorthand` only
+    // calls runOnboard when !isAuthenticated(), so this path is first-run only.
+    //
+    // WHY parse argv here too (ESC-1): bare `styrby --browser` should reach
+    // the auto-onboard flow with the browser-OAuth path selected. Without
+    // this forward, --browser would be silently dropped on the bare path.
+    const onboardOpts = parseOnboardArgs(argv);
+    const result = await runOnboard({ ...onboardOpts, skipPairing: false });
     if (!result.success) {
       process.exit(1);
     }

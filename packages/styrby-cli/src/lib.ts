@@ -36,9 +36,14 @@ export type {
 } from 'styrby-shared';
 
 /**
- * Version of the Styrby CLI
+ * Version of the Styrby CLI.
+ *
+ * WHY re-exported from cli/version (ESC-3): a single source of truth for the
+ * CLI version. cli/version reads package.json at module-load via JSON
+ * import, so neither this file nor that one carries a hand-synced literal
+ * that can drift across releases.
  */
-export const VERSION = '0.2.0-beta.1';
+export { VERSION } from './cli/version';
 
 /**
  * Check if running in development mode

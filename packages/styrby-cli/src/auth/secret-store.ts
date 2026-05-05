@@ -127,7 +127,10 @@ async function readFallback(): Promise<Record<string, string>> {
     const tag = raw.subarray(12, 28);
     const ct = raw.subarray(28);
     const key = deriveFallbackKey();
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    // Pin authTagLength to 16 (CVE-class defense + semgrep's gcm-no-tag-length rule).
+    // Without an explicit length, an attacker who can manipulate stored ciphertext
+    // could truncate the tag to bypass authenticity checks on some implementations.
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
     decipher.setAuthTag(tag);
     const plain = Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8');
     return JSON.parse(plain) as Record<string, string>;
@@ -146,7 +149,8 @@ async function writeFallback(state: Record<string, string>): Promise<void> {
   await fs.mkdir(FALLBACK_DIR, { recursive: true, mode: 0o700 });
   const key = deriveFallbackKey();
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  // Pin authTagLength to 16 — paired with the createDecipheriv setting above.
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
   const plain = Buffer.from(JSON.stringify(state), 'utf8');
   const ct = Buffer.concat([cipher.update(plain), cipher.final()]);
   const tag = cipher.getAuthTag();

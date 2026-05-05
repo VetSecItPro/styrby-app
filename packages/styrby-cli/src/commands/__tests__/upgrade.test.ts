@@ -46,7 +46,7 @@ vi.mock('chalk', () => ({
 }));
 
 import { execSync } from 'node:child_process';
-import { handleUpgrade } from '../upgrade';
+import { handleUpgrade, getNpmVersion, npmAtLeast, verifyProvenance } from '../upgrade';
 
 // ============================================================================
 // compareVersions (tested indirectly via handleUpgrade behaviour)
@@ -301,5 +301,165 @@ describe('handleUpgrade — registry non-OK response', () => {
 
     const calls = consoleSpy.mock.calls.map((c) => String(c[0]));
     expect(calls.some((m) => /could not check/i.test(m))).toBe(true);
+  });
+});
+
+// ============================================================================
+// ESC-4 — npmAtLeast + getNpmVersion helpers
+// ============================================================================
+
+describe('npmAtLeast', () => {
+  it('returns true for version >= minimum major', () => {
+    expect(npmAtLeast('10.5.2', 10)).toBe(true);
+    expect(npmAtLeast('11.0.0', 10)).toBe(true);
+    expect(npmAtLeast('10.0.0', 10)).toBe(true);
+  });
+
+  it('returns false for version below minimum major', () => {
+    expect(npmAtLeast('9.8.1', 10)).toBe(false);
+    expect(npmAtLeast('8.19.4', 10)).toBe(false);
+  });
+
+  it('returns false for null input', () => {
+    expect(npmAtLeast(null, 10)).toBe(false);
+  });
+});
+
+describe('getNpmVersion', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns the trimmed semver string from npm --version', () => {
+    vi.mocked(execSync).mockReturnValueOnce('10.5.2\n');
+    expect(getNpmVersion()).toBe('10.5.2');
+  });
+
+  it('returns null when npm output is malformed', () => {
+    vi.mocked(execSync).mockReturnValueOnce('not-a-version');
+    expect(getNpmVersion()).toBeNull();
+  });
+
+  it('returns null when execSync throws (npm missing)', () => {
+    vi.mocked(execSync).mockImplementationOnce(() => {
+      throw new Error('npm: command not found');
+    });
+    expect(getNpmVersion()).toBeNull();
+  });
+});
+
+// ============================================================================
+// ESC-4 — handleUpgrade with npm 10+ provenance present (happy path)
+// ============================================================================
+
+describe('handleUpgrade — npm 10+, attestations present', () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    mockFetchReturnsVersion('0.2.0');
+
+    // execSync gets called several times per upgrade flow:
+    //   1) detectPackageManager → `npm root -g 2>/dev/null`
+    //   2) getNpmVersion        → `npm --version`
+    //   3) install              → `npm install -g styrby-cli@latest --foreground-scripts=false`
+    //   4) verifyProvenance     → `npm view styrby-cli@0.2.0 --json`
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (cmd.includes('npm --version')) return '10.5.2\n';
+      if (cmd.includes('npm view styrby-cli')) {
+        return JSON.stringify({ dist: { attestations: { url: 'https://...' } } });
+      }
+      // detectPackageManager + actual install both succeed silently.
+      return '';
+    });
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it('runs install with --foreground-scripts=false and reports verified provenance', async () => {
+    await handleUpgrade([]);
+
+    const installCall = vi
+      .mocked(execSync)
+      .mock.calls.find(([cmd]) => String(cmd).includes('install -g styrby-cli@latest'));
+    expect(installCall).toBeDefined();
+    expect(String(installCall![0])).toContain('--foreground-scripts=false');
+
+    const log = consoleSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(log).toMatch(/provenance.*verified/i);
+  });
+});
+
+// ============================================================================
+// ESC-4 — handleUpgrade with npm <10 (warning, no provenance check)
+// ============================================================================
+
+describe('handleUpgrade — npm < 10, warning printed', () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    mockFetchReturnsVersion('0.2.0');
+
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (cmd.includes('npm --version')) return '9.8.1\n';
+      // detectPackageManager + install both return ''.
+      return '';
+    });
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it('prints integrity-check-unavailable warning and skips --foreground-scripts flag', async () => {
+    await handleUpgrade([]);
+
+    const log = consoleSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(log).toMatch(/integrity check unavailable/i);
+
+    const installCall = vi
+      .mocked(execSync)
+      .mock.calls.find(([cmd]) => String(cmd).includes('install -g styrby-cli@latest'));
+    expect(installCall).toBeDefined();
+    expect(String(installCall![0])).not.toContain('--foreground-scripts');
+
+    // No provenance line should be printed (since check was skipped).
+    expect(log).not.toMatch(/provenance/i);
+  });
+});
+
+// ============================================================================
+// ESC-4 — verifyProvenance helper
+// ============================================================================
+
+describe('verifyProvenance', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns true when dist.attestations is present', () => {
+    vi.mocked(execSync).mockReturnValueOnce(
+      JSON.stringify({ dist: { attestations: { url: 'x' } } })
+    );
+    expect(verifyProvenance('0.2.0')).toBe(true);
+  });
+
+  it('returns false when dist.attestations is missing', () => {
+    vi.mocked(execSync).mockReturnValueOnce(JSON.stringify({ dist: {} }));
+    expect(verifyProvenance('0.2.0')).toBe(false);
+  });
+
+  it('returns false when npm view throws', () => {
+    vi.mocked(execSync).mockImplementationOnce(() => {
+      throw new Error('404');
+    });
+    expect(verifyProvenance('0.2.0')).toBe(false);
   });
 });
