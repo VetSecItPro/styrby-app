@@ -16,6 +16,7 @@ import PaymentFailedEmail from '@/emails/payment-failed';
 import BudgetAlertEmail from '@/emails/budget-alert';
 import WeeklySummaryEmail from '@/emails/weekly-summary';
 import WeeklyDigestEmail from '@/emails/weekly-digest';
+import DigestEmail from '@/emails/digest-email';
 import SupportReplyEmail from '@/emails/support-reply';
 import TeamInvitationEmail from '@/emails/team-invitation';
 
@@ -352,6 +353,45 @@ export async function sendWeeklyDigestEmail({
       costChange,
       agentStats,
       referralCode,
+    }),
+  });
+}
+
+/**
+ * Send a Styrby digest email (daily for Growth, weekly for Pro+Growth).
+ *
+ * @param email - Recipient email
+ * @param period - 'daily' or 'weekly'
+ * @param dateLabel - Human-readable label (e.g. "May 4" or "week of May 4")
+ * @param sessionCount - Sessions in the digest window
+ * @param content - LLM-generated 2-3 sentence narrative
+ * @param displayName - Optional personalization
+ * @returns Result object with `success` boolean
+ */
+export async function sendDigestEmail({
+  email,
+  period,
+  dateLabel,
+  sessionCount,
+  content,
+  displayName,
+}: {
+  email: string;
+  period: 'daily' | 'weekly';
+  dateLabel: string;
+  sessionCount: number;
+  content: string;
+  displayName?: string;
+}) {
+  return sendEmail({
+    to: email,
+    subject: `Your Styrby digest — ${period} of ${dateLabel}`,
+    react: React.createElement(DigestEmail, {
+      period,
+      dateLabel,
+      sessionCount,
+      content,
+      displayName,
     }),
   });
 }

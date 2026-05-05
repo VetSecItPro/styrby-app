@@ -22,6 +22,24 @@ import { SummaryTab } from '../summary-tab';
 // ============================================================================
 
 /**
+ * Mock next/navigation — the on-demand "Generate summary" button uses
+ * useRouter().refresh() to revalidate the session row after a successful
+ * POST. The component is a Client Component, so vitest renders it outside
+ * the App Router provider tree; without this mock useRouter() throws
+ * "invariant expected app router to be mounted".
+ */
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    refresh: vi.fn(),
+    push: vi.fn(),
+    replace: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
+
+/**
  * Mock next/link to render a plain <a> tag for testing.
  */
 vi.mock('next/link', () => ({
@@ -102,7 +120,7 @@ describe('SummaryTab', () => {
           screen.getByText('Summary Available After Session')
         ).toBeInTheDocument();
         expect(
-          screen.getByText(/ai summary will be automatically generated/i)
+          screen.getByText(/once this session ends you can generate/i)
         ).toBeInTheDocument();
       }
     );
@@ -118,8 +136,14 @@ describe('SummaryTab', () => {
     });
   });
 
-  describe('Generating state', () => {
-    it('renders generating state when session is completed but no summary or timestamp', () => {
+  describe('On-demand generate state (post-migration 077)', () => {
+    // WHY this block replaced the old "Generating state" + "No summary
+    // available (old session)" blocks: as of migration 077 summaries are
+    // generated on demand, not auto-fired on session-end. The component
+    // no longer shows a "Generating Summary..." auto-pending placeholder
+    // when the session is freshly stopped — it shows the "Generate
+    // summary" CTA. Both prior states collapse into this single CTA.
+    it('renders the Generate summary button for a completed session with no summary', () => {
       render(
         <SummaryTab
           {...BASE_PROPS}
@@ -130,14 +154,14 @@ describe('SummaryTab', () => {
         />
       );
 
-      expect(screen.getByText('Generating Summary...')).toBeInTheDocument();
+      expect(screen.getByText('AI Session Summary')).toBeInTheDocument();
       expect(
-        screen.getByText(/analyzing your session/i)
+        screen.getByRole('button', { name: /generate summary/i })
       ).toBeInTheDocument();
     });
 
     it.each(['stopped', 'expired', 'error'])(
-      'renders generating state for "%s" status without summary',
+      'renders the Generate summary button for "%s" status without summary',
       (status) => {
         render(
           <SummaryTab
@@ -149,13 +173,17 @@ describe('SummaryTab', () => {
           />
         );
 
-        expect(screen.getByText('Generating Summary...')).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: /generate summary/i })
+        ).toBeInTheDocument();
       }
     );
-  });
 
-  describe('No summary available (old session)', () => {
-    it('renders "no summary" state when completed with summaryGeneratedAt but no summary text', () => {
+    it('also renders the Generate button when summaryGeneratedAt is set but summary text is missing', () => {
+      // WHY: under the on-demand model the only thing this state can mean
+      // is "the row was touched once but the summary failed to persist" —
+      // letting the user retry via the same CTA is correct. The legacy
+      // "old session" copy referenced the auto-fire era and is removed.
       render(
         <SummaryTab
           {...BASE_PROPS}
@@ -166,9 +194,8 @@ describe('SummaryTab', () => {
         />
       );
 
-      expect(screen.getByText('No Summary Available')).toBeInTheDocument();
       expect(
-        screen.getByText(/created before ai summaries were enabled/i)
+        screen.getByRole('button', { name: /generate summary/i })
       ).toBeInTheDocument();
     });
   });

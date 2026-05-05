@@ -7,6 +7,7 @@ import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { DashboardRealtime } from './dashboard-realtime';
+import { DigestPanel, type DigestRow } from '@/components/dashboard/digest-panel';
 
 export const metadata: Metadata = {
   title: 'Dashboard | Styrby',
@@ -76,13 +77,26 @@ export default async function DashboardPage() {
   const machines = machinesResult.data;
   const userTier = (subscriptionResult.data?.tier as 'free' | 'pro' | 'growth') || 'free';
 
+  // Fetch the most recent AI-generated digest for the digest panel.
+  // WHY only one row: the panel only ever shows the latest. Index
+  // idx_digest_summaries_user_recent makes this an O(1) lookup.
+  const { data: digestRow } = await supabase
+    .from('digest_summaries')
+    .select('period, period_start, period_end, session_count, content, generated_at')
+    .order('generated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   return (
-    <DashboardRealtime
-      initialSessions={sessions || []}
-      initialTodaySpend={todaySpend}
-      initialMachines={machines || []}
-      userId={user.id}
-      userTier={userTier}
-    />
+    <>
+      <DigestPanel digest={(digestRow as DigestRow | null) ?? null} userTier={userTier} />
+      <DashboardRealtime
+        initialSessions={sessions || []}
+        initialTodaySpend={todaySpend}
+        initialMachines={machines || []}
+        userId={user.id}
+        userTier={userTier}
+      />
+    </>
   );
 }

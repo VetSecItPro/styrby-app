@@ -50,6 +50,15 @@ export const comparisonCategories = [
       { name: 'Session checkpoints', pro: true as const, growth: true as const },
       { name: 'Session sharing', pro: true as const, growth: true as const },
       { name: 'Export and import', pro: true as const, growth: true as const },
+      { name: 'On-demand session summary (skip the 200-message scroll)', pro: true as const, growth: true as const },
+    ],
+  },
+  {
+    name: 'Catch-up Digests',
+    features: [
+      { name: 'Weekly digest of your AI\'s work, every Sunday morning', pro: true as const, growth: true as const },
+      { name: 'Daily digest, delivered before your 9am', pro: false as const, growth: true as const },
+      { name: 'Team-wide rollup (who shipped what yesterday)', pro: false as const, growth: true as const },
     ],
   },
   {
@@ -123,6 +132,10 @@ export const faqs = [
   {
     q: 'Is there a free trial?',
     a: 'Not currently — pick Pro ($39/mo) or Growth ($99/mo for 3 seats) and you can cancel anytime from the dashboard with no penalty. Refunds for the unused portion of your current billing period are available within the first 7 days.',
+  },
+  {
+    q: 'Will I actually know what my AI did all week?',
+    a: 'Yes. Open any session and hit summarize - you get the rundown in plain English, no scrolling through 200 messages. Pro subscribers also get a weekly digest emailed Sunday morning: 47 commits, the auth refactor landed Thursday, three sessions caught a regression. Growth teams add a daily morning digest with a per-developer rollup so the manager walks into standup with the picture already loaded.',
   },
   {
     q: 'Does it work offline?',

@@ -29,6 +29,19 @@
     {
       "path": "/api/cron/idempotency-cleanup",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/openrouter-credit-monitor",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/generate-digest?period=daily",
+      "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cron/generate-digest?period=weekly",
+      "schedule": "0 14 * * 0"
     }
   ]
 }
+

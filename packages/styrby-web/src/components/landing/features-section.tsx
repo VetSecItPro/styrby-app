@@ -8,6 +8,7 @@ import {
   Bell,
   Activity,
   Code2,
+  Coffee,
   ArrowRight,
 } from "lucide-react"
 
@@ -103,6 +104,14 @@ const features: BentoFeature[] = [
     title: "Approve a diff without your laptop open",
     description:
       "Syntax-highlighted diffs, inline. Approve, comment, or kick back from your phone.",
+    colSpan: "col-span-1",
+    rowSpan: "row-span-1",
+  },
+  {
+    icon: Coffee,
+    title: "Walk into Monday with the rundown",
+    description:
+      "Sunday morning, your inbox: 47 commits, the auth refactor landed Thursday, three sessions caught a regression. Coffee in hand, full picture, no scrolling. Hit summarize on any session for the on-demand version.",
     colSpan: "col-span-1",
     rowSpan: "row-span-1",
   },
