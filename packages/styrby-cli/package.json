@@ -71,7 +71,7 @@
     "build": "node scripts/build.mjs",
     "build:types": "tsc --emitDeclarationOnly",
     "typecheck": "tsc --noEmit",
-    "test": "NODE_OPTIONS=--expose-gc vitest run",
+    "test": "STYRBY_SKIP_PERF_TESTS=1 NODE_OPTIONS=--expose-gc vitest run",
     "audit": "pnpm audit --audit-level=high",
     "prepublishOnly": "echo 'Skipping prepublishOnly — CI handles audit+typecheck+build'"
   },
@@ -82,7 +82,6 @@
     "@stablelib/base64": "^2.0.1",
     "@stablelib/hex": "^2.0.1",
     "@supabase/supabase-js": "^2.45.0",
-    "axios": "^1.16.0",
     "chalk": "^5.6.2",
     "ink": "^6.5.1",
     "keytar": "7.9.0",

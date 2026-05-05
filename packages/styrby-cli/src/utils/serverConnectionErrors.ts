@@ -48,7 +48,6 @@
  * @module serverConnectionErrors
  */
 
-import axios from 'axios';
 import chalk from 'chalk';
 import { exponentialBackoffDelay } from '@/utils/time';
 import { logger } from '@/ui/logger';
@@ -149,14 +148,23 @@ export function startOfflineReconnection<TSession>(
 
     /**
      * Default health check: HTTP GET to /v1/sessions endpoint.
-     * Uses validateStatus to treat 4xx as "server is up" (client error, not server down).
-     * Only 5xx or network errors trigger retry.
+     * Uses native fetch (Node 18+). Treats 4xx as "server is up" (client error, not server down);
+     * only 5xx or network errors trigger retry. Implementation matches the prior axios version's
+     * `validateStatus: status < 500` behavior.
+     *
+     * Why fetch (not axios): native, zero dep cost. Removed axios from package.json
+     * 2026-05-05 perf pass — was the only file importing axios; saves ~80KB minified
+     * from the npm bundle.
      */
     const defaultHealthCheck = async () => {
-        await axios.get(`${config.serverUrl}/v1/sessions`, {
-            timeout: 5000,
-            validateStatus: (status) => status < 500 // 4xx = server is up, 5xx = server error
+        const response = await fetch(`${config.serverUrl}/v1/sessions`, {
+            signal: AbortSignal.timeout(5000),
         });
+        if (response.status >= 500) {
+            const err: Error & { status?: number } = new Error(`Server error: ${response.status}`);
+            err.status = response.status;
+            throw err;
+        }
     };
 
     const healthCheck = config.healthCheck ?? defaultHealthCheck;
@@ -192,7 +200,11 @@ export function startOfflineReconnection<TSession>(
         } catch (e: unknown) {
             // Check for permanent errors that shouldn't be retried
             // 401 = auth token invalid, user needs to re-authenticate
-            if (axios.isAxiosError(e) && e.response?.status === 401) {
+            // (Pattern works for fetch errors: response.status set on Response, OR
+            // for thrown errors that carry a `.status` field.)
+            const status = (e as { status?: number; response?: { status?: number } })?.status
+                ?? (e as { response?: { status?: number } })?.response?.status;
+            if (status === 401) {
                 logger.debug('[OfflineReconnection] Authentication error, stopping retries');
                 config.onNotify('❌ Authentication failed. Please re-authenticate with `happy auth`.');
                 return; // Don't schedule retry - this is a permanent failure

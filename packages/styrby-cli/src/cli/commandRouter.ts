@@ -13,38 +13,19 @@
  * every new subcommand is added here (not in the entry file) — reducing
  * merge-conflict risk across parallel feature PRs.
  *
+ * PERF (2026-05-05): every command handler is loaded via dynamic `import()`
+ * instead of a static top-of-file import. Previously, invoking `styrby status`
+ * would transitively load every other handler's module (agent factories,
+ * daemon code, Supabase SDK, etc.), pushing cold-start past the 600 ms
+ * budget tested by `src/perf/__tests__/startup.test.ts`. Lazy loading keeps
+ * the module graph minimal: only the requested command's handler is loaded.
+ *
  * @module cli/commandRouter
  */
 
 import { logger } from '@/ui/logger';
 import { VERSION } from '@/cli/version';
-import { buildStartArgs, isAgentShorthand, isBareCommand } from '@/cli/agentShorthand';
-import { printHelp } from '@/cli/helpScreen';
-import { handleStart } from '@/cli/handlers/start';
-import { handlePair } from '@/cli/handlers/pair';
-import { handleResume } from '@/cli/handlers/resume';
-import { handleMulti } from '@/cli/handlers/multi';
-import { handleStatus } from '@/cli/handlers/status';
-import { handleCosts } from '@/cli/handlers/costs';
-import {
-  handleAuth,
-  handleCheckpointCommand,
-  handleContextCommand,
-  handleDaemonCommand,
-  handleDeleteAccountCommand,
-  handleDoctor,
-  handleExportCommand,
-  handleExportDataCommand,
-  handleImportCommand,
-  handleInstall,
-  handleLogs,
-  handleMcpCommand,
-  handleOnboard,
-  handlePrivacyCommand,
-  handleStop,
-  handleTemplateCommand,
-  handleUpgrade,
-} from '@/cli/handlers/simple';
+import { isAgentShorthand, isBareCommand } from '@/cli/agentShorthand';
 
 /**
  * Run the Styrby CLI for the given argv.
@@ -77,106 +58,154 @@ export async function runCommand(argv: string[]): Promise<void> {
   const rest = argv.slice(1);
 
   switch (command) {
-    case 'onboard':
+    case 'onboard': {
+      const { handleOnboard } = await import('@/cli/handlers/simple');
       await handleOnboard(rest);
       break;
+    }
 
-    case 'install':
+    case 'install': {
+      const { handleInstall } = await import('@/cli/handlers/simple');
       await handleInstall(rest);
       break;
+    }
 
-    case 'auth':
+    case 'auth': {
+      const { handleAuth } = await import('@/cli/handlers/simple');
       await handleAuth();
       break;
+    }
 
-    case 'pair':
+    case 'pair': {
+      const { handlePair } = await import('@/cli/handlers/pair');
       await handlePair();
       break;
+    }
 
-    case 'start':
+    case 'start': {
+      const { handleStart } = await import('@/cli/handlers/start');
       await handleStart(rest);
       break;
+    }
 
-    case 'stop':
+    case 'stop': {
+      const { handleStop } = await import('@/cli/handlers/simple');
       await handleStop(rest);
       break;
+    }
 
-    case 'resume':
+    case 'resume': {
+      const { handleResume } = await import('@/cli/handlers/resume');
       await handleResume(rest);
       break;
+    }
 
-    case 'multi':
+    case 'multi': {
+      const { handleMulti } = await import('@/cli/handlers/multi');
       await handleMulti(rest);
       break;
+    }
 
-    case 'status':
+    case 'status': {
+      const { handleStatus } = await import('@/cli/handlers/status');
       await handleStatus();
       break;
+    }
 
-    case 'logs':
+    case 'logs': {
+      const { handleLogs } = await import('@/cli/handlers/simple');
       await handleLogs(rest);
       break;
+    }
 
     case 'upgrade':
-    case 'update':
+    case 'update': {
+      const { handleUpgrade } = await import('@/cli/handlers/simple');
       await handleUpgrade(rest);
       break;
+    }
 
-    case 'daemon':
+    case 'daemon': {
+      const { handleDaemonCommand } = await import('@/cli/handlers/simple');
       await handleDaemonCommand(rest);
       break;
+    }
 
-    case 'doctor':
+    case 'doctor': {
+      const { handleDoctor } = await import('@/cli/handlers/simple');
       await handleDoctor();
       break;
+    }
 
-    case 'costs':
+    case 'costs': {
+      const { handleCosts } = await import('@/cli/handlers/costs');
       await handleCosts(rest);
       break;
+    }
 
     case 'template':
-    case 'templates':
+    case 'templates': {
+      const { handleTemplateCommand } = await import('@/cli/handlers/simple');
       await handleTemplateCommand(rest);
       break;
+    }
 
-    case 'export':
+    case 'export': {
+      const { handleExportCommand } = await import('@/cli/handlers/simple');
       await handleExportCommand(rest);
       break;
+    }
 
-    case 'import':
+    case 'import': {
+      const { handleImportCommand } = await import('@/cli/handlers/simple');
       await handleImportCommand(rest);
       break;
+    }
 
     case 'checkpoint':
-    case 'cp':
+    case 'cp': {
+      const { handleCheckpointCommand } = await import('@/cli/handlers/simple');
       await handleCheckpointCommand(rest);
       break;
+    }
 
-    case 'privacy':
+    case 'privacy': {
+      const { handlePrivacyCommand } = await import('@/cli/handlers/simple');
       await handlePrivacyCommand(rest);
       break;
+    }
 
-    case 'export-data':
+    case 'export-data': {
+      const { handleExportDataCommand } = await import('@/cli/handlers/simple');
       await handleExportDataCommand(rest);
       break;
+    }
 
-    case 'delete-account':
+    case 'delete-account': {
+      const { handleDeleteAccountCommand } = await import('@/cli/handlers/simple');
       await handleDeleteAccountCommand(rest);
       break;
+    }
 
-    case 'mcp':
+    case 'mcp': {
+      const { handleMcpCommand } = await import('@/cli/handlers/simple');
       await handleMcpCommand(rest);
       break;
+    }
 
-    case 'context':
+    case 'context': {
+      const { handleContextCommand } = await import('@/cli/handlers/simple');
       await handleContextCommand(rest);
       break;
+    }
 
     case 'help':
     case '--help':
-    case '-h':
+    case '-h': {
+      const { printHelp } = await import('@/cli/helpScreen');
       printHelp();
       break;
+    }
 
     case 'version':
     case '--version':
@@ -184,10 +213,12 @@ export async function runCommand(argv: string[]): Promise<void> {
       console.log(VERSION);
       break;
 
-    default:
+    default: {
       logger.error(`Unknown command: ${command}`);
+      const { printHelp } = await import('@/cli/helpScreen');
       printHelp();
       process.exit(1);
+    }
   }
 }
 
@@ -224,9 +255,11 @@ async function runBareOrShorthand(argv: string[], command: string | undefined): 
   }
 
   // Determine agent: shorthand > --agent flag > config default > claude
+  const { buildStartArgs } = await import('@/cli/agentShorthand');
   const agentFromShorthand = isAgentShorthand(command) ? command : null;
   const configDefault = getConfigValue('defaultAgent');
   const startArgs = buildStartArgs(argv, agentFromShorthand, configDefault);
 
+  const { handleStart } = await import('@/cli/handlers/start');
   await handleStart(startArgs);
 }
