@@ -39,6 +39,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/polar-webhook-health",
+      "schedule": "0 * * * *"
+    },
+    {
       "path": "/api/cron/generate-digest?period=daily",
       "schedule": "0 14 * * *"
     },

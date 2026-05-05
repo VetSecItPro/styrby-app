@@ -18,6 +18,10 @@
  *   - OpenRouter: GET /api/v1/credits with the existing OPENROUTER_API_KEY.
  *     Reusing the credit-monitor's auth path means an OpenRouter outage
  *     surfaces here AND on the /perf side; no new secret to manage.
+ *   - Resend: GET https://api.resend.com/domains with RESEND_API_KEY. We
+ *     assert a 200 AND at least one verified domain — a healthy auth that
+ *     lists zero verified domains means transactional email is silently
+ *     broken (DNS regression on styrbyapp.com), which is itself an outage.
  *
  * @auth NONE — must be public so external probes can hit prod without
  *   handing out CRON_SECRET. The endpoint is read-only and exposes only
@@ -57,6 +61,15 @@ const POLAR_HEALTH_URL = 'https://polar.sh';
 const OPENROUTER_CREDITS_URL = 'https://openrouter.ai/api/v1/credits';
 
 /**
+ * Resend's /domains endpoint requires a valid API key and returns the list
+ * of all configured sending domains. We assert at least one is verified —
+ * a 200 with zero verified domains means we authenticate fine but cannot
+ * send mail (DNS drift, domain removal), which is the same operational
+ * outcome as a full Resend outage.
+ */
+const RESEND_DOMAINS_URL = 'https://api.resend.com/domains';
+
+/**
  * Per-dependency health verdict surfaced in the JSON response. The cron
  * reads `checks.<dep>` and emails an alert containing the failing key.
  */
@@ -67,6 +80,8 @@ interface DependencyChecks {
   polar: boolean;
   /** OpenRouter /credits GET returned 2xx (auth + reachability). */
   openrouter: boolean;
+  /** Resend /domains GET returned 2xx AND at least one verified domain. */
+  resend: boolean;
   /** Build version label (npm package version). */
   version: string;
   /** Vercel git commit SHA short hash, or 'unknown' locally. */
@@ -162,35 +177,69 @@ async function checkOpenRouter(): Promise<boolean> {
   }
 }
 
+/**
+ * Resend reachability + send-capability check. Hits /domains with
+ * RESEND_API_KEY and asserts (a) 2xx response and (b) at least one
+ * verified domain. The verified-domain assertion catches the "API key
+ * works but DNS is broken" silent-failure mode that a plain reachability
+ * ping would miss. If RESEND_API_KEY is unset (preview / local), we report
+ * healthy so health checks don't fail in dev.
+ */
+async function checkResend(): Promise<boolean> {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return true;
+  try {
+    const res = await fetch(RESEND_DOMAINS_URL, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${key}` },
+      cache: 'no-store',
+    });
+    if (!res.ok) return false;
+    // Resend's /domains response shape is { data: [{ status: 'verified' | ... }] }.
+    // We treat status === 'verified' as the only acceptable state; any other
+    // value (pending, failed, temporary_failure) means we cannot reliably send.
+    const body = (await res.json().catch(() => null)) as
+      | { data?: Array<{ status?: string }> }
+      | null;
+    if (!body || !Array.isArray(body.data)) return false;
+    return body.data.some((d) => d.status === 'verified');
+  } catch {
+    return false;
+  }
+}
+
 export async function GET() {
   const started = Date.now();
 
-  // Run all three checks in parallel under the aggregate ceiling.
+  // Run all four checks in parallel under the aggregate ceiling.
   const work = Promise.all([
     timed(checkDb, PER_CHECK_TIMEOUT_MS),
     timed(checkPolar, PER_CHECK_TIMEOUT_MS),
     timed(checkOpenRouter, PER_CHECK_TIMEOUT_MS),
+    timed(checkResend, PER_CHECK_TIMEOUT_MS),
   ]);
 
-  const aggTimeout = new Promise<[boolean, boolean, boolean]>((resolve) => {
-    setTimeout(() => resolve([false, false, false]), AGGREGATE_TIMEOUT_MS);
+  const aggTimeout = new Promise<[boolean, boolean, boolean, boolean]>((resolve) => {
+    setTimeout(() => resolve([false, false, false, false]), AGGREGATE_TIMEOUT_MS);
   });
 
-  const [db, polar, openrouter] = await Promise.race([work, aggTimeout]);
+  const [db, polar, openrouter, resend] = await Promise.race([work, aggTimeout]);
 
   const checks: DependencyChecks = {
     db,
     polar,
     openrouter,
+    resend,
     version: process.env.npm_package_version ?? '0.0.0',
     commit: (process.env.VERCEL_GIT_COMMIT_SHA ?? 'unknown').slice(0, 7),
   };
 
   // WHY 'degraded' for partial failures and 'down' only for db: the
   // database being unreachable is a hard customer-impact event (auth,
-  // sessions, everything dies). Polar/OpenRouter being down degrades
-  // billing/summaries respectively but the core product still works.
-  const allOk = db && polar && openrouter;
+  // sessions, everything dies). Polar/OpenRouter/Resend being down
+  // degrades billing/summaries/email respectively but the core product
+  // still works.
+  const allOk = db && polar && openrouter && resend;
   const status: HealthResponse['status'] = allOk
     ? 'ok'
     : !db
