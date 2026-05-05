@@ -14,7 +14,8 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:chromium": "playwright test --project=chromium",
-    "analyze": "ANALYZE=true next build --webpack"
+    "analyze": "ANALYZE=true next build --webpack",
+    "generate-openapi": "tsx scripts/generate-openapi.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
@@ -84,6 +85,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@asteasolutions/zod-to-openapi": "7.3.4",
     "@next/bundle-analyzer": "16.2.4",
     "@playwright/test": "^1.50.1",
     "@tailwindcss/forms": "^0.5.10",
@@ -105,7 +107,9 @@
     "postcss": "^8.5.10",
     "tailwindcss": "^3.4.17",
     "tailwindcss-animate": "^1.0.7",
+    "tsx": "^4.21.0",
     "typescript": "^5.7.3",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "yaml": "2.8.4"
   }
 }
