@@ -148,3 +148,4 @@ scripts/__pycache__/
 
 # Turborepo local cache (Bundle 2)
 .turbo/
+.gh-ship-history.json
