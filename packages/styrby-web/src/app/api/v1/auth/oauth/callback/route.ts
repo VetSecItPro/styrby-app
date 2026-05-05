@@ -128,8 +128,21 @@ export async function POST(request: NextRequest) {
   // WHY: No API key available yet (pre-auth). 5/min is deliberately aggressive
   // because this is a one-shot callback — legitimate callers need at most 1-2
   // attempts per OAuth session. High request rate = brute-force signal.
-  const rateLimitResult = await rateLimit(request, OAUTH_CALLBACK_RATE_LIMIT, 'oauth-callback');
+  // WAVE-B-002: failClosed=true. OAuth callback completes the auth handshake
+  // and mints an API key — must not be bypassable via Redis DOS.
+  const rateLimitResult = await rateLimit(
+    request,
+    OAUTH_CALLBACK_RATE_LIMIT,
+    'oauth-callback',
+    { failClosed: true },
+  );
   if (!rateLimitResult.allowed) {
+    if (rateLimitResult.infrastructureUnavailable) {
+      return new Response(
+        JSON.stringify({ error: 'RATE_LIMIT_UNAVAILABLE' }),
+        { status: 503, headers: { 'Content-Type': 'application/json', 'Retry-After': '30' } },
+      );
+    }
     return rateLimitResponse(rateLimitResult.retryAfter ?? 60);
   }
 

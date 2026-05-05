@@ -133,7 +133,7 @@
         "origin": false
       },
       "eas": {
-        "projectId": "your-eas-project-id"
+        "projectId": "TODO_OPERATOR_RUN_eas_init"
       }
     },
     "owner": "steelmotion"

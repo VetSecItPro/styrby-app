@@ -326,55 +326,69 @@ export async function POST(request: Request): Promise<NextResponse> {
   const invitationRole = invitation.role as keyof typeof INVITE_ROLE_TO_MEMBER_ROLE;
   const memberRole = INVITE_ROLE_TO_MEMBER_ROLE[invitationRole] ?? 'member';
 
-  // ── Step 9: Insert team member + update invitation ────────────────────────
+  // ── Step 9: Atomically insert member + close invitation (RPC) ─────────────
+  //
+  // WHY accept_team_invitation RPC (WAVE-E-002 fix):
+  //   The previous implementation issued two separate PostgREST calls
+  //   (INSERT team_members, then UPDATE team_invitations). If the UPDATE
+  //   failed after the INSERT succeeded, the seat was consumed but the
+  //   invitation stayed 'pending' — inflating active_seats until expiry.
+  //   The RPC wraps both writes in a single Postgres transaction so a
+  //   partial failure rolls back BOTH; seat count and invitation state
+  //   stay consistent. See supabase/migrations/073_atomic_invite_accept.sql.
 
-  // WHY two separate statements instead of a true DB transaction:
-  //   Supabase's PostgREST API doesn't expose arbitrary transaction control.
-  //   The operations are ordered so partial failure leaves a consistent state:
-  //   If INSERT succeeds but UPDATE fails, the user is a member without a
-  //   closed invitation — the invitation will expire naturally. The audit trail
-  //   will capture the discrepancy.
-  //   For full ACID, this would move to an RPC function. That's Phase 2.3 scope.
+  const { data: rpcMember, error: rpcError } = await supabase.rpc(
+    'accept_team_invitation',
+    { p_invitation_id: invitation.id, p_user_id: user.id },
+  );
 
-  const { error: memberInsertError } = await supabase
-    .from('team_members')
-    .insert({
-      team_id: invitation.team_id,
-      user_id: user.id,
-      role: memberRole,
-    });
+  if (rpcError) {
+    // Map Postgres error codes raised by the function to the same HTTP
+    // surface the previous two-step path produced, so clients (and the
+    // existing test suite) see no behavioral regression.
+    const code = (rpcError as { code?: string }).code ?? '';
+    const msg  = (rpcError as { message?: string }).message ?? '';
 
-  if (memberInsertError) {
-    // WHY check for duplicate: If the user is already a member (e.g., they
-    // accepted via another invite), return 409 rather than 500.
-    if (memberInsertError.code === '23505') {
+    // unique_violation surfaced by the RPC's INSERT branch is now caught
+    // INSIDE the function (it returns the existing member row), so we
+    // should not see 23505 here. Defensive mapping kept for safety.
+    if (code === '23505' || /unique/i.test(msg)) {
       return NextResponse.json(
         { error: 'ALREADY_ACCEPTED', message: 'You are already a member of this team' },
         { status: 409 },
       );
     }
-    console.error('[invitations/accept] Failed to insert team member:', memberInsertError);
+
+    if (/invitation_already_resolved/.test(msg)) {
+      return NextResponse.json(
+        { error: 'ALREADY_ACCEPTED', message: 'This invitation has already been accepted or revoked' },
+        { status: 409 },
+      );
+    }
+    if (/invitation_expired/.test(msg)) {
+      return NextResponse.json(
+        { error: 'EXPIRED', message: 'This invitation has expired. Please request a new invitation.' },
+        { status: 410 },
+      );
+    }
+    if (/invitation_not_found/.test(msg)) {
+      return NextResponse.json(
+        { error: 'NOT_FOUND', message: 'Invitation not found or already used' },
+        { status: 404 },
+      );
+    }
+
+    console.error('[invitations/accept] RPC accept_team_invitation failed:', rpcError);
     return NextResponse.json(
       { error: 'INTERNAL_ERROR', message: 'Failed to join team' },
       { status: 500 },
     );
   }
 
-  // Mark invitation as accepted
-  const { error: updateError } = await supabase
-    .from('team_invitations')
-    .update({
-      status: 'accepted',
-      accepted_at: new Date().toISOString(),
-      accepted_by: user.id,
-    })
-    .eq('id', invitation.id);
-
-  if (updateError) {
-    // Non-fatal: the member row was inserted. Log and continue — the invitation
-    // will expire naturally. The audit log below captures the discrepancy.
-    console.error('[invitations/accept] Failed to update invitation status:', updateError);
-  }
+  // The RPC returns the team_members row (newly inserted OR pre-existing
+  // if the user was already a member). We don't strictly need it because
+  // we already know team_id + memberRole, but keep a reference for logs.
+  void rpcMember;
 
   // ── Step 10: Write audit_log ──────────────────────────────────────────────
 

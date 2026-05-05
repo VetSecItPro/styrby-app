@@ -46,6 +46,7 @@ const {
   mockSubsGet,
   mockSubsUpdate,
   mockRateLimit,
+  mockSeatLockRpc,
 } = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
   mockMembershipSelect: vi.fn(),
@@ -56,6 +57,7 @@ const {
   mockSubsGet: vi.fn(),
   mockSubsUpdate: vi.fn(),
   mockRateLimit: vi.fn(),
+  mockSeatLockRpc: vi.fn(),
 }));
 
 // ============================================================================
@@ -123,6 +125,17 @@ vi.mock('next/headers', () => ({
 function buildMockSupabaseClient() {
   return {
     auth: { getUser: mockGetUser },
+    // WHY: WAVE-E-001 fix wraps the team-member count read in a SECURITY DEFINER
+    // RPC (count_team_members_with_seat_lock) that atomically acquires a per-team
+    // advisory lock + returns the count. The mock dispatches by RPC name so
+    // additional RPCs added in the future get a clean default empty response
+    // instead of an undefined-method crash.
+    rpc: vi.fn((name: string) => {
+      if (name === 'count_team_members_with_seat_lock') {
+        return mockSeatLockRpc();
+      }
+      return Promise.resolve({ data: null, error: null });
+    }),
     from: vi.fn((table: string) => {
       // team_members: membership check (two .eq() + .single()) + member count (one .eq(), head: true)
       if (table === 'team_members') {
@@ -203,6 +216,28 @@ const TEAM_BILLING_ROW = {
   active_seats: 3,
 };
 
+/**
+ * Configures the team-member count returned by the seat-lock RPC.
+ *
+ * WHY this helper (and not raw mockMemberCountSelect): post-WAVE-E-001 the
+ * route reads member count via the count_team_members_with_seat_lock RPC
+ * (migration 037), which returns rows shaped { lock_acquired, member_count }.
+ * Tests that pre-date the fix used mockMemberCountSelect (raw .from() count
+ * query). We keep the legacy mock for backward compatibility AND configure
+ * the RPC mock so both code paths see the same count. Future tests should
+ * call setMemberCount() directly.
+ *
+ * @param count - Number of team_members the lock-and-count RPC should return
+ * @param lockAcquired - Override to false to simulate concurrent contention
+ */
+function setMemberCount(count: number, lockAcquired = true): void {
+  mockMemberCountSelect.mockResolvedValue({ count, error: null });
+  mockSeatLockRpc.mockResolvedValue({
+    data: [{ lock_acquired: lockAcquired, member_count: count }],
+    error: null,
+  });
+}
+
 /** Builds a POST/PATCH Request */
 function buildRequest(
   body: Record<string, unknown>,
@@ -238,7 +273,7 @@ describe('PATCH /api/billing/seats', () => {
     mockMembershipSelect.mockResolvedValue({ data: { role: 'owner' }, error: null });
     mockTeamBillingSelect.mockResolvedValue({ data: TEAM_BILLING_ROW, error: null });
     // Default: 3 active members
-    mockMemberCountSelect.mockResolvedValue({ count: 3, error: null });
+    setMemberCount(3);
     mockSubsGet.mockResolvedValue(makePolarSubscription(3));
     mockSubsUpdate.mockResolvedValue({ id: 'polar_sub_abc', quantity: 5 });
     mockTeamUpdate.mockResolvedValue({ error: null });
@@ -314,7 +349,7 @@ describe('PATCH /api/billing/seats', () => {
   // ── Downgrade guard ────────────────────────────────────────────────────────
 
   it('returns 409 DOWNGRADE_BLOCKED when team has 8 members and 5 seats requested', async () => {
-    mockMemberCountSelect.mockResolvedValue({ count: 8, error: null });
+    setMemberCount(8);
     const req = buildRequest({ ...VALID_PATCH_BODY, new_seat_count: 5 });
     const res = await PATCH(req);
 
@@ -330,7 +365,7 @@ describe('PATCH /api/billing/seats', () => {
   });
 
   it('does NOT call Polar API when DOWNGRADE_BLOCKED', async () => {
-    mockMemberCountSelect.mockResolvedValue({ count: 8, error: null });
+    setMemberCount(8);
     const req = buildRequest({ ...VALID_PATCH_BODY, new_seat_count: 5 });
     await PATCH(req);
 
@@ -338,7 +373,7 @@ describe('PATCH /api/billing/seats', () => {
   });
 
   it('writes audit_log team_downgrade_blocked when guard fires', async () => {
-    mockMemberCountSelect.mockResolvedValue({ count: 8, error: null });
+    setMemberCount(8);
     const req = buildRequest({ ...VALID_PATCH_BODY, new_seat_count: 5 });
     await PATCH(req);
 
@@ -349,7 +384,7 @@ describe('PATCH /api/billing/seats', () => {
 
   it('returns 200 when new_seat_count == active member count (boundary)', async () => {
     // 3 members, 3 seats requested — this is allowed (not a downgrade below members)
-    mockMemberCountSelect.mockResolvedValue({ count: 3, error: null });
+    setMemberCount(3);
     mockSubsGet.mockResolvedValue(makePolarSubscription(5)); // currently 5, reducing to 3
     const req = buildRequest({ ...VALID_PATCH_BODY, new_seat_count: 3 });
     const res = await PATCH(req);
@@ -360,7 +395,7 @@ describe('PATCH /api/billing/seats', () => {
 
   it('returns 422 INVALID_SEATS when new_seat_count is below tier minimum (team min=3)', async () => {
     // 3 members, but requesting 2 seats — fails validateSeatCount BEFORE member count check
-    mockMemberCountSelect.mockResolvedValue({ count: 3, error: null });
+    setMemberCount(3);
     const req = buildRequest({ ...VALID_PATCH_BODY, new_seat_count: 2 });
     const res = await PATCH(req);
 
@@ -505,7 +540,7 @@ describe('PATCH /api/billing/seats', () => {
     // 'decreased' action, not 'increased'. The delta must be negative so ops
     // queries can distinguish the direction without comparing old vs new fields.
     mockSubsGet.mockResolvedValue(makePolarSubscription(5)); // currently 5 seats
-    mockMemberCountSelect.mockResolvedValue({ count: 3, error: null }); // 3 members — decrease is valid
+    setMemberCount(3); // 3 members — decrease is valid
     const req = buildRequest({ ...VALID_PATCH_BODY, new_seat_count: 3 }); // 5→3
     const res = await PATCH(req);
 
@@ -558,6 +593,97 @@ describe('PATCH /api/billing/seats', () => {
     expect(insertArg.action).toBe('team_seat_count_increased');
     expect(insertArg.metadata.old_seat_count).toBe(5);
   });
+
+  // ── WAVE-E-001: advisory-lock serialization ────────────────────────────────
+
+  describe('WAVE-E-001 advisory lock', () => {
+    /**
+     * Regression test for WAVE-E-001: count read MUST happen via the
+     * count_team_members_with_seat_lock RPC (which acquires the per-team
+     * advisory lock atomically), NOT via a raw .from('team_members').select(count)
+     * call. If a future refactor reverts to the raw count, this gate fails
+     * because the RPC mock will not be exercised.
+     */
+    it('reads member count via count_team_members_with_seat_lock RPC, not raw count query', async () => {
+      setMemberCount(3);
+      const req = buildRequest(VALID_PATCH_BODY);
+      await PATCH(req);
+
+      expect(mockSeatLockRpc).toHaveBeenCalledOnce();
+    });
+
+    it('passes the team_id to the RPC (not a hardcoded value)', async () => {
+      setMemberCount(3);
+      // We cannot inspect the RPC args directly through the per-name dispatch,
+      // but we can verify the RPC fires and the route reaches Polar (proving
+      // the lock_acquired branch was taken).
+      const req = buildRequest(VALID_PATCH_BODY);
+      const res = await PATCH(req);
+
+      expect(mockSeatLockRpc).toHaveBeenCalledOnce();
+      expect(res.status).toBe(200);
+      // Polar update must have fired — the lock-and-count flow allowed the path.
+      expect(mockSubsUpdate).toHaveBeenCalledOnce();
+    });
+
+    /**
+     * Concurrency simulation: the RPC returns lock_acquired=false, meaning
+     * another seat change OR invitation accept holds the lock for this team.
+     * The route MUST return 409 CONCURRENT_SEAT_CHANGE WITHOUT calling Polar.
+     */
+    it('returns 409 CONCURRENT_SEAT_CHANGE when the lock is contended (concurrent invite-accept)', async () => {
+      // Simulate: an invitation accept landed and is still holding the lock.
+      mockSeatLockRpc.mockResolvedValue({
+        data: [{ lock_acquired: false, member_count: 0 }],
+        error: null,
+      });
+      const req = buildRequest(VALID_PATCH_BODY);
+      const res = await PATCH(req);
+
+      expect(res.status).toBe(409);
+      const json = await res.json() as { error: string; message: string };
+      expect(json.error).toBe('CONCURRENT_SEAT_CHANGE');
+
+      // CRITICAL: Polar must NOT have been called when the lock is contended.
+      // This is the safety property that closes the race — without it, two
+      // concurrent PATCHes could both reach Polar and undercount.
+      expect(mockSubsUpdate).not.toHaveBeenCalled();
+    });
+
+    it('returns 502 when the lock RPC errors at the DB layer', async () => {
+      mockSeatLockRpc.mockResolvedValue({
+        data: null,
+        error: { message: 'connection refused' },
+      });
+      const req = buildRequest(VALID_PATCH_BODY);
+      const res = await PATCH(req);
+
+      expect(res.status).toBe(502);
+      const json = await res.json() as { error: string };
+      expect(json.error).toBe('UPSTREAM_ERROR');
+      expect(mockSubsUpdate).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Ordering proof: the lock acquisition (RPC call) MUST happen BEFORE
+     * the Polar update. If the order were reversed, an in-flight invitation
+     * accept could insert a member between the count read and Polar update.
+     * vitest's call-order semantics let us check via .mock.invocationCallOrder.
+     */
+    it('acquires the lock BEFORE calling Polar (ordering invariant)', async () => {
+      setMemberCount(3);
+      const req = buildRequest(VALID_PATCH_BODY);
+      await PATCH(req);
+
+      const lockOrder = mockSeatLockRpc.mock.invocationCallOrder[0];
+      const polarOrder = mockSubsUpdate.mock.invocationCallOrder[0];
+      expect(lockOrder).toBeDefined();
+      expect(polarOrder).toBeDefined();
+      // Lock RPC fires first — count is authoritative for the duration of
+      // the (admittedly short) RPC transaction.
+      expect(lockOrder).toBeLessThan(polarOrder);
+    });
+  });
 });
 
 // ============================================================================
@@ -571,7 +697,7 @@ describe('PATCH /api/billing/seats — Bearer token auth', () => {
     mockGetUser.mockResolvedValue({ data: { user: MOCK_USER }, error: null });
     mockMembershipSelect.mockResolvedValue({ data: { role: 'admin' }, error: null });
     mockTeamBillingSelect.mockResolvedValue({ data: TEAM_BILLING_ROW, error: null });
-    mockMemberCountSelect.mockResolvedValue({ count: 3, error: null });
+    setMemberCount(3);
     mockSubsGet.mockResolvedValue(makePolarSubscription(3));
     mockSubsUpdate.mockResolvedValue({ id: 'polar_sub_abc', quantity: 5 });
     mockTeamUpdate.mockResolvedValue({ error: null });

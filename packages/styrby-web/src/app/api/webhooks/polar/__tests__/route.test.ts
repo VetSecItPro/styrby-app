@@ -1243,6 +1243,54 @@ describe('POST /api/webhooks/polar', () => {
       // No tier reset on a duplicate — we returned 200 immediately.
       expect(mockUpdate).not.toHaveBeenCalled();
     });
+
+    it('SEC-API-001 (state-idempotent): subscription already on tier=free → 200 idempotent_noop=true, no UPDATE, audit no-op row', async () => {
+      // WHY: even if the event-id dedup misses (manual replay with a fresh
+      // event_id, or first-write race lost), the handler must not double-apply
+      // the refund. State-based check: if tier is already 'free', skip the
+      // mutation and emit a no-op audit entry. This is the SEC-API-001 fix
+      // for the "two retries with different event_ids on same underlying
+      // refund" race that the event-id dedup alone can't catch.
+      mockSingle.mockResolvedValueOnce({
+        data: {
+          user_id: 'user-uuid-123',
+          polar_subscription_id: 'sub_main_xyz',
+          tier: 'free', // already refunded
+        },
+        error: null,
+      });
+
+      const event = {
+        id: 'evt_refund_state_idempotent_001',
+        type: 'order.refunded',
+        data: {
+          id: 'ord_refund_state_idempotent_001',
+          customer_id: 'cust_test_456',
+          subscription_id: 'sub_main_xyz',
+        },
+      };
+
+      const response = await sendSignedRefund(event);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.idempotent_noop).toBe(true);
+
+      // Tier reset MUST NOT be called — the subscription is already in the
+      // post-refund terminal state.
+      expect(mockUpdate).not.toHaveBeenCalled();
+
+      // Audit row recorded with the no-op discriminator so SOC2 reviewers
+      // can see that the handler observed the event but elected not to mutate.
+      expect(mockInsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'subscription_changed',
+          metadata: expect.objectContaining({
+            event_subtype: 'order_refunded_main_idempotent_noop',
+            current_tier: 'free',
+          }),
+        }),
+      );
+    });
   });
 
   // --------------------------------------------------------------------------

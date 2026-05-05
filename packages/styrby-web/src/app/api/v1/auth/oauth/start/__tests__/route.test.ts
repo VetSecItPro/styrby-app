@@ -331,7 +331,7 @@ describe('POST /api/v1/auth/oauth/start — Rate limit', () => {
   it('calls rateLimit with the oauth-start prefix and the original request', async () => {
     const req = makeRequest({ provider: 'github', redirect_to: 'http://localhost:12345/callback' });
     await POST(req);
-    expect(rateLimit).toHaveBeenCalledWith(req, OAUTH_START_RATE_LIMIT, 'oauth-start');
+    expect(rateLimit).toHaveBeenCalledWith(req, OAUTH_START_RATE_LIMIT, 'oauth-start', { failClosed: true });
   });
 });
 

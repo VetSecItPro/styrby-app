@@ -2042,6 +2042,55 @@ export async function POST(request: Request) {
         }
         const mainSub: MainSubLookup = mainSubscription;
 
+        // SEC-API-001 (idempotency hardening): if the subscription is already
+        // in the post-refund terminal state (tier=free + status=canceled), the
+        // refund has effectively already been applied. Skip the .update() and
+        // skip the audit_log row to prevent duplicate side-effects on Polar
+        // retries that occur AFTER a successful prior application but BEFORE
+        // the dedup row reached `polar_webhook_events` (network race).
+        //
+        // WHY this matters: the existing event-id dedup short-circuits exact
+        // event-id repeats, but Polar can ALSO replay with a fresh event_id
+        // for the same underlying refund (manual replay, support replay).
+        // Checking observable subscription state makes the handler idempotent
+        // by construction regardless of the event-id surface.
+        //
+        // Note: we check tier === 'free' rather than a `refunded_at` column
+        // because the schema uses `tier` + `status` to encode subscription
+        // lifecycle. A future migration could add a dedicated `refunded_at`
+        // for stronger semantics; current state-based check is sufficient.
+        if (mainSub.tier === 'free') {
+          if (isDev) {
+            console.log(
+              `polar/route: order.refunded — subscription ${mainSub.polar_subscription_id} already in refunded state, skipping reset (SEC-API-001 idempotency)`,
+            );
+          }
+          // Audit the no-op so the absence of a state mutation is observable.
+          // SOC2 CC7.2: every billing-event-derived decision (including the
+          // decision NOT to mutate) leaves an audit trail.
+          const { error: noopAuditErr } = await supabase.from('audit_log').insert({
+            user_id: mainSub.user_id,
+            action: 'subscription_changed',
+            resource_type: 'subscription',
+            resource_id: null,
+            metadata: {
+              event_subtype: 'order_refunded_main_idempotent_noop',
+              refunded_subscription_id: refundedSubscriptionId,
+              main_subscription_id: userMainSubscriptionId,
+              refunded_order_id: refundedOrderId,
+              refunded_customer_id: refundedCustomerId,
+              current_tier: mainSub.tier,
+            },
+          });
+          if (noopAuditErr) {
+            console.error(
+              'polar/route: audit_log insert failed on order.refunded idempotent no-op (non-fatal):',
+              noopAuditErr.message,
+            );
+          }
+          return NextResponse.json({ received: true, idempotent_noop: true });
+        }
+
         const { error: resetErr } = await supabase
           .from('subscriptions')
           .update({

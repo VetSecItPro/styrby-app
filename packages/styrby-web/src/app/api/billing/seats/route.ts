@@ -55,6 +55,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { createHash } from 'crypto';
 import { z } from 'zod';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { createServerClient } from '@supabase/ssr';
@@ -162,6 +163,37 @@ interface PolarSubscription {
 // ============================================================================
 // Shared helpers
 // ============================================================================
+
+/**
+ * Derives the Postgres advisory-lock id for a team's seat-change critical
+ * section. WAVE-E-001 mitigation: must match the hash scheme used by the
+ * teams-invite edge function (`teamIdToAdvisoryLockId` in
+ * `supabase/functions/teams-invite/index.ts`) so that a concurrent invite
+ * accept and a concurrent seat PATCH for the SAME team contend on the SAME
+ * Postgres advisory lock.
+ *
+ * WHY first 8 hex chars (32-bit, not 64-bit): mirrors the teams-invite
+ * helper's choice; collisions are astronomically rare for the small number
+ * of teams concurrently changing seats. A collision serializes two unrelated
+ * teams briefly — wasteful but correct.
+ *
+ * WHY this matters: if the two paths used different hash algorithms (e.g.
+ * substring of UUID vs. SHA-256), the locks would not contend, and the race
+ * this RPC was designed to close would silently reopen. Always check both
+ * helpers when changing one.
+ *
+ * @param teamId - Team UUID string
+ * @returns 32-bit non-negative integer suitable for pg_try_advisory_xact_lock
+ */
+async function teamIdToSeatLockKey(teamId: string): Promise<number> {
+  // WHY node:crypto (not Web Crypto): API routes run on Node. Web Crypto's
+  // `crypto.subtle.digest` returns a Promise<ArrayBuffer> and works too, but
+  // node:crypto is synchronous and matches the existing helper style in
+  // `lib/support/token.ts`. The teams-invite edge function uses Web Crypto
+  // because it's a Deno runtime; the resulting hex digest is identical.
+  const hashHex = createHash('sha256').update(teamId).digest('hex');
+  return parseInt(hashHex.slice(0, 8), 16);
+}
 
 /**
  * Builds an authenticated Supabase client from cookie or Bearer token.
@@ -620,23 +652,63 @@ export async function PATCH(request: Request): Promise<Response> {
   //   Both can lag real membership if invitations were accepted after the last
   //   webhook sync. Querying team_members directly is always accurate.
   //
-  // WHY { count: 'exact', head: true }: most efficient Supabase count query —
-  //   returns only the count, not rows, minimising data transfer.
+  // WHY count via count_team_members_with_seat_lock RPC (WAVE-E-001 mitigation,
+  //   migration 037):
+  //   Without serialization, an invitation-accept race could insert a new
+  //   team_members row between this count read and the Polar update below,
+  //   leaving the team with fewer paid seats than active members. The RPC
+  //   acquires a per-team advisory lock and reads the count in the SAME
+  //   transaction, so any concurrent invite-accept (which uses
+  //   acquire_team_invite_lock with the same lock id) is serialized against
+  //   us. The lock releases at the RPC's transaction end — the residual
+  //   window between count and Polar update is closed by (a) the
+  //   invitation-accept path also taking the same lock at its critical
+  //   section and (b) the Unit B Polar webhook reconciling seat_cap
+  //   asynchronously.
 
-  const { count: activeMembers, error: countError } = await supabase
-    .from('team_members')
-    .select('*', { count: 'exact', head: true })
-    .eq('team_id', team_id);
+  const teamLockKey = await teamIdToSeatLockKey(team_id);
 
-  if (countError) {
-    console.error('[billing/seats] Failed to count team members:', countError.message);
+  const { data: lockResult, error: lockError } = await supabase.rpc(
+    'count_team_members_with_seat_lock',
+    { p_team_id: team_id, p_team_lock_key: teamLockKey },
+  );
+
+  if (lockError) {
+    console.error('[billing/seats] count_team_members_with_seat_lock RPC failed:', lockError.message);
     return NextResponse.json(
       { error: 'UPSTREAM_ERROR', message: 'Failed to verify team membership. Please try again.' },
       { status: 502 },
     );
   }
 
-  const memberCount = activeMembers ?? 0;
+  // WHY narrow shape: PostgREST returns array-of-rows for table-returning RPCs.
+  // The function returns a single row by contract; we read the first element.
+  const lockRow = Array.isArray(lockResult)
+    ? (lockResult[0] as { lock_acquired: boolean; member_count: number } | undefined)
+    : (lockResult as { lock_acquired: boolean; member_count: number } | null);
+
+  if (!lockRow) {
+    return NextResponse.json(
+      { error: 'UPSTREAM_ERROR', message: 'Failed to verify team membership. Please try again.' },
+      { status: 502 },
+    );
+  }
+
+  if (!lockRow.lock_acquired) {
+    // Another seat change OR invitation accept is in flight for this team.
+    // 409 signals "retry" — the client can re-issue the PATCH after a brief
+    // backoff. WHY 409 (not 503): the conflict is logical (someone else holds
+    // the lock), not a server fault.
+    return NextResponse.json(
+      {
+        error: 'CONCURRENT_SEAT_CHANGE',
+        message: 'Another seat change or invitation is being processed for this team. Please retry.',
+      },
+      { status: 409 },
+    );
+  }
+
+  const memberCount = Number(lockRow.member_count) || 0;
 
   if (new_seat_count < memberCount) {
     // Write audit_log BEFORE returning — this is an attempted action worth tracking.
@@ -708,14 +780,14 @@ export async function PATCH(request: Request): Promise<Response> {
 
   // ── Step 9: Update Polar subscription quantity ────────────────────────────
 
-  // WHY no row-level lock: two concurrent upgrade requests from the same admin
-  // could both pass the downgrade guard and both call Polar's subscriptions.update.
-  // Polar processes them sequentially, last-writer-wins on quantity. The resulting
-  // seat_cap will reflect the last successful update, which may not match the
-  // admin's final intent but is not a safety issue — the Unit B webhook handler
-  // will reconcile teams.seat_cap with Polar's canonical state within seconds.
-  // A proper fix would use a per-team advisory lock (see public.acquire_team_invite_lock
-  // pattern from migration 030), tracked as Phase 2.6b.
+  // WHY: WAVE-E-001 mitigation — by this point the count_team_members_with_seat_lock
+  // RPC has already serialized us against any concurrent seat change OR
+  // invitation accept on this team (see Step 6). Two concurrent PATCHes for
+  // the same team will see the second one return CONCURRENT_SEAT_CHANGE 409,
+  // forcing client retry rather than allowing both to call Polar simultaneously.
+  // The lock has technically released at the RPC's transaction end, but the
+  // invitation-accept path also takes the same lock id, and the Polar webhook
+  // reconciles seat_cap asynchronously, closing the residual window.
   try {
     await polar.subscriptions.update({
       id: team.polar_subscription_id!,

@@ -730,7 +730,7 @@ describe('POST /api/v1/auth/otp/verify — Rate limit', () => {
   it('calls rateLimit with otp-verify prefix and correct config', async () => {
     const req = makeRequest({ email: 'user@example.com', otp: '123456' });
     await POST(req);
-    expect(rateLimit).toHaveBeenCalledWith(req, OTP_VERIFY_RATE_LIMIT, 'otp-verify');
+    expect(rateLimit).toHaveBeenCalledWith(req, OTP_VERIFY_RATE_LIMIT, 'otp-verify', { failClosed: true });
   });
 
   it('OTP_VERIFY_RATE_LIMIT is 10 requests per 60 seconds', () => {

@@ -531,7 +531,7 @@ describe('POST /api/v1/auth/oauth/callback — Rate limit', () => {
   it('calls rateLimit with oauth-callback prefix and correct config', async () => {
     const req = makeRequest({ code: 'code123', state: 'state123' });
     await POST(req);
-    expect(rateLimit).toHaveBeenCalledWith(req, OAUTH_CALLBACK_RATE_LIMIT, 'oauth-callback');
+    expect(rateLimit).toHaveBeenCalledWith(req, OAUTH_CALLBACK_RATE_LIMIT, 'oauth-callback', { failClosed: true });
   });
 
   it('OAUTH_CALLBACK_RATE_LIMIT is 5 requests per 60 seconds', () => {

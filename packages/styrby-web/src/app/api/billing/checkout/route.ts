@@ -55,6 +55,104 @@ import {
 import { Polar } from '@polar-sh/sdk';
 import { z } from 'zod';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
+import { createHash } from 'crypto';
+
+// ============================================================================
+// WAVE-E-005 idempotency cache
+// ============================================================================
+// Per-process in-memory de-dup window for checkout creation.
+//
+// Threat: a user double-taps the upgrade button (mobile flake, slow Polar
+// round-trip, accidental click) and the route creates two distinct Polar
+// checkouts. If the user completes both, Polar charges them twice. The
+// 5/minute rate-limit alone does NOT prevent this — both clicks fall well
+// inside one minute and each request returns its own `url`.
+//
+// Strategy (option (b) in the WAVE-E-005 fix design):
+//   Hash (user.id, tierId, billingCycle, seats, current 60-second bucket)
+//   into a deterministic key. The first request to compute that key creates
+//   the Polar checkout, caches the URL for 60 seconds, and returns it. Any
+//   request with the same key inside the window receives the cached URL —
+//   no second Polar checkout is created.
+//
+// Why an LRU Map (not Redis / Supabase):
+//   - Vercel serverless instances are short-lived and stateless across
+//     instances; cross-instance dedup would require external storage.
+//   - At-most-once-per-instance-per-minute is a good-enough stopgap because:
+//       (a) double-tap latency is sub-second — same instance handles both,
+//       (b) the UPGRADE-LATER scenario (user comes back tomorrow) is intent
+//           to repurchase, not a duplicate.
+//   - Map is bounded to MAX_CACHE entries with a simple FIFO eviction
+//     (oldest-first) so the process never accumulates unbounded keys.
+//
+// Future-correct version (option (a) in the design): accept a
+// client-supplied `idempotencyKey: uuid` field, persist last-N keys per
+// user in a `checkout_idempotency` table with 1-hour TTL. That requires a
+// migration and is recorded as the durable fix; this in-memory variant is
+// the cheap, no-migration patch that closes the immediate double-charge
+// vulnerability.
+
+interface CachedCheckout {
+  url: string;
+  expiresAt: number;
+}
+
+const IDEMPOTENCY_TTL_MS = 60_000; // 60-second de-dup window
+const IDEMPOTENCY_MAX = 1000;      // eviction cap to bound memory
+const idempotencyCache = new Map<string, CachedCheckout>();
+
+/**
+ * Computes the idempotency key for a checkout request.
+ *
+ * WHY include the 60-second bucket: ensures the dedup window is rolling.
+ * Two requests at second 0 and second 65 produce different keys (and thus
+ * two checkouts — the user clearly intends a new purchase). Two requests
+ * at second 0 and second 30 produce the same key (dedup). Floor by the
+ * TTL so keys align with the cache's natural eviction.
+ */
+function computeIdempotencyKey(
+  userId: string,
+  tierId: string,
+  billingCycle: string,
+  seats: number | undefined,
+): string {
+  const bucket = Math.floor(Date.now() / IDEMPOTENCY_TTL_MS);
+  const payload = `${userId}|${tierId}|${billingCycle}|${seats ?? 0}|${bucket}`;
+  // SHA-256 keeps the cache key fixed-length and keeps userId out of any
+  // accidental log dump of the cache (defense-in-depth — the cache itself
+  // is in-memory and never logged today, but this costs us nothing).
+  return createHash('sha256').update(payload).digest('hex');
+}
+
+/**
+ * Looks up a cached checkout URL, lazily evicting expired entries.
+ * Returns null when no live entry exists.
+ */
+function getCachedCheckout(key: string): CachedCheckout | null {
+  const hit = idempotencyCache.get(key);
+  if (!hit) return null;
+  if (hit.expiresAt < Date.now()) {
+    idempotencyCache.delete(key);
+    return null;
+  }
+  return hit;
+}
+
+/**
+ * Stores a checkout URL in the cache with the configured TTL.
+ * Evicts the oldest entry when the cap is reached (insertion-order Map).
+ */
+function setCachedCheckout(key: string, url: string): void {
+  if (idempotencyCache.size >= IDEMPOTENCY_MAX) {
+    const oldest = idempotencyCache.keys().next().value;
+    if (oldest) idempotencyCache.delete(oldest);
+  }
+  idempotencyCache.set(key, { url, expiresAt: Date.now() + IDEMPOTENCY_TTL_MS });
+}
+
+// (No test-export hook — Next.js App Router restricts route module exports
+// to HTTP verbs + segment config. Tests reset state by re-importing the
+// route module via vi.resetModules() between specs.)
 
 /**
  * Zod schema for checkout request validation. Discriminated union so the
@@ -141,6 +239,30 @@ export async function POST(request: NextRequest) {
     const billingCycle = parsed.billingCycle as BillingCycle;
     const seats = parsed.tierId === 'growth' ? parsed.seats : undefined;
 
+    // ── WAVE-E-005: idempotency check ─────────────────────────────────────
+    // Compute the dedup key BEFORE any Polar call. If an identical request
+    // (same user, tier, cycle, seats) landed in the last 60 seconds, return
+    // the cached Polar URL instead of creating a second checkout. See the
+    // module-level comment for design rationale.
+    //
+    // For Growth we include the post-default seat count in the key so that
+    // a request that omits `seats` (defaults to GROWTH_BASE_SEATS) and a
+    // request that explicitly sends seats=3 hash to the same key.
+    const seatsForKey =
+      tierId === 'growth' ? (seats ?? GROWTH_BASE_SEATS) : undefined;
+    const idempotencyKey = computeIdempotencyKey(
+      user.id,
+      tierId,
+      billingCycle,
+      seatsForKey,
+    );
+    const cached = getCachedCheckout(idempotencyKey);
+    if (cached) {
+      // Cache hit — return the previously-created Polar URL. No new
+      // checkout is created, so the user cannot be double-charged.
+      return NextResponse.json({ url: cached.url });
+    }
+
     // ── Pro: single product, no seats ──────────────────────────────────────
     if (tierId === 'pro') {
       const productId = TIERS.pro.polarProductId[billingCycle];
@@ -158,6 +280,10 @@ export async function POST(request: NextRequest) {
           billingCycle,
         },
       });
+
+      // Cache the URL for the dedup window so the immediate retry returns
+      // the SAME Polar checkout instead of opening a second one.
+      if (checkout.url) setCachedCheckout(idempotencyKey, checkout.url);
 
       return NextResponse.json({ url: checkout.url });
     }
@@ -214,6 +340,9 @@ export async function POST(request: NextRequest) {
         seats: requestedSeats,
       },
     });
+
+    // Cache for WAVE-E-005 dedup (Growth path).
+    if (checkout.url) setCachedCheckout(idempotencyKey, checkout.url);
 
     return NextResponse.json({ url: checkout.url });
   } catch (error) {
