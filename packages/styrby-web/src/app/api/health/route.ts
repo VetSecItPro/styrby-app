@@ -58,7 +58,12 @@ const AGGREGATE_TIMEOUT_MS = 10_000;
  */
 const POLAR_HEALTH_URL = 'https://polar.sh';
 
-const OPENROUTER_CREDITS_URL = 'https://openrouter.ai/api/v1/credits';
+// WHY /auth/key (not /credits): /credits requires a "management" (provisioning)
+// key, but our runtime OPENROUTER_API_KEY only has scope for chat/completions.
+// /auth/key returns the key's metadata (label, limit, usage) and accepts any
+// valid runtime key — perfect health probe. Caught 2026-05-05 when /credits
+// flagged the runtime key as 401 even though it works for completions.
+const OPENROUTER_AUTH_KEY_URL = 'https://openrouter.ai/api/v1/auth/key';
 
 /**
  * Resend's /domains endpoint requires a valid API key and returns the list
@@ -166,10 +171,11 @@ async function checkOpenRouter(): Promise<boolean> {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) return true;
   try {
-    const res = await fetch(OPENROUTER_CREDITS_URL, {
+    const res = await fetch(OPENROUTER_AUTH_KEY_URL, {
       method: 'GET',
       headers: { Authorization: `Bearer ${key}` },
       cache: 'no-store',
+      redirect: 'follow',
     });
     return res.ok;
   } catch {

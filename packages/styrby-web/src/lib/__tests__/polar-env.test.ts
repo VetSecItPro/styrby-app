@@ -43,8 +43,40 @@ beforeEach(() => {
 // ============================================================================
 
 describe('validatePolarEnv()', () => {
-  it('passes without throwing when all 6 required vars are set', () => {
+  // CONTRACT (updated 2026-05-05 incident response):
+  //
+  //   REQUIRED at cold-start:
+  //     - POLAR_ACCESS_TOKEN
+  //     - POLAR_WEBHOOK_SECRET
+  //
+  //   OPTIONAL (validation never throws on absence):
+  //     - POLAR_TEAM_MONTHLY_PRODUCT_ID
+  //     - POLAR_TEAM_ANNUAL_PRODUCT_ID
+  //     - POLAR_BUSINESS_MONTHLY_PRODUCT_ID
+  //     - POLAR_BUSINESS_ANNUAL_PRODUCT_ID
+  //
+  // WHY the Team/Business IDs are optional now: those tiers were planned
+  // but never launched. Public pricing only ships Pro + Growth. Treating
+  // them as required at cold-start blocked the entire webhook route from
+  // loading whenever those env vars were absent — root cause of the
+  // 7-day Polar webhook outage 2026-04-28 → 2026-05-05.
+  //
+  // The runtime resolver `resolvePolarProductId('team'|'business', ...)`
+  // is the right place to fail loudly: it'll throw "Tier not available"
+  // only when an actual team/business webhook event arrives, not on
+  // every cold-start.
+
+  it('passes without throwing when both required vars are set', () => {
     stubFullEnv();
+    expect(() => validatePolarEnv()).not.toThrow();
+  });
+
+  it('passes when only the 2 required vars are set (Team/Business IDs absent)', () => {
+    stubFullEnv();
+    vi.stubEnv('POLAR_TEAM_MONTHLY_PRODUCT_ID', '');
+    vi.stubEnv('POLAR_TEAM_ANNUAL_PRODUCT_ID', '');
+    vi.stubEnv('POLAR_BUSINESS_MONTHLY_PRODUCT_ID', '');
+    vi.stubEnv('POLAR_BUSINESS_ANNUAL_PRODUCT_ID', '');
     expect(() => validatePolarEnv()).not.toThrow();
   });
 
@@ -60,38 +92,42 @@ describe('validatePolarEnv()', () => {
     expect(() => validatePolarEnv()).toThrow(/POLAR_WEBHOOK_SECRET/);
   });
 
-  it('throws when POLAR_TEAM_MONTHLY_PRODUCT_ID is missing', () => {
+  it('does NOT throw when POLAR_TEAM_MONTHLY_PRODUCT_ID is missing (now optional — see schema comment)', () => {
     stubFullEnv();
     vi.stubEnv('POLAR_TEAM_MONTHLY_PRODUCT_ID', '');
-    expect(() => validatePolarEnv()).toThrow(/POLAR_TEAM_MONTHLY_PRODUCT_ID/);
+    expect(() => validatePolarEnv()).not.toThrow();
   });
 
-  it('throws when POLAR_TEAM_ANNUAL_PRODUCT_ID is missing', () => {
+  it('does NOT throw when POLAR_TEAM_ANNUAL_PRODUCT_ID is missing (now optional)', () => {
     stubFullEnv();
     vi.stubEnv('POLAR_TEAM_ANNUAL_PRODUCT_ID', '');
-    expect(() => validatePolarEnv()).toThrow(/POLAR_TEAM_ANNUAL_PRODUCT_ID/);
+    expect(() => validatePolarEnv()).not.toThrow();
   });
 
-  it('throws when POLAR_BUSINESS_MONTHLY_PRODUCT_ID is missing', () => {
+  it('does NOT throw when POLAR_BUSINESS_MONTHLY_PRODUCT_ID is missing (now optional)', () => {
     stubFullEnv();
     vi.stubEnv('POLAR_BUSINESS_MONTHLY_PRODUCT_ID', '');
-    expect(() => validatePolarEnv()).toThrow(/POLAR_BUSINESS_MONTHLY_PRODUCT_ID/);
+    expect(() => validatePolarEnv()).not.toThrow();
   });
 
-  it('throws when POLAR_BUSINESS_ANNUAL_PRODUCT_ID is missing', () => {
+  it('does NOT throw when POLAR_BUSINESS_ANNUAL_PRODUCT_ID is missing (now optional)', () => {
     stubFullEnv();
     vi.stubEnv('POLAR_BUSINESS_ANNUAL_PRODUCT_ID', '');
-    expect(() => validatePolarEnv()).toThrow(/POLAR_BUSINESS_ANNUAL_PRODUCT_ID/);
+    expect(() => validatePolarEnv()).not.toThrow();
   });
 
-  it('throws when all vars are unset', () => {
-    // No stubFullEnv() call — all undefined
-    expect(() => validatePolarEnv()).toThrow();
+  it('throws when both required vars are unset', () => {
+    // Explicitly clear the 2 required vars (CI env may have them set,
+    // unlike local where the default-missing state worked). Optional
+    // Team/Business vars left untouched — their state doesn't matter.
+    vi.stubEnv('POLAR_ACCESS_TOKEN', '');
+    vi.stubEnv('POLAR_WEBHOOK_SECRET', '');
+    expect(() => validatePolarEnv()).toThrow(/POLAR_ACCESS_TOKEN|POLAR_WEBHOOK_SECRET/);
   });
 
-  it('includes the missing var names in the error message (not the values)', () => {
+  it('includes the missing required var names in the error message (not the values)', () => {
     stubFullEnv();
-    vi.stubEnv('POLAR_TEAM_ANNUAL_PRODUCT_ID', '');
+    vi.stubEnv('POLAR_ACCESS_TOKEN', '');
 
     let errorMessage = '';
     try {
@@ -100,8 +136,8 @@ describe('validatePolarEnv()', () => {
       errorMessage = (e as Error).message;
     }
 
-    // Must include the var name
-    expect(errorMessage).toContain('POLAR_TEAM_ANNUAL_PRODUCT_ID');
+    // Must include the missing required var name
+    expect(errorMessage).toContain('POLAR_ACCESS_TOKEN');
     // Must NOT include any secret values
     expect(errorMessage).not.toContain('pat_test_abc');
     expect(errorMessage).not.toContain('whsec_test_xyz');
@@ -158,8 +194,12 @@ describe('validatePolarEnv() rethrow contract (simulates non-test module scope)'
   }
 
   it('swallows the error in the test branch (test isolation)', () => {
-    // All env vars missing — validatePolarEnv() will throw.
-    // The test-mode branch should swallow and return the error, not propagate it.
+    // Required vars missing → validatePolarEnv() will throw.
+    // Stub a partial env (Team/Business absent — those are now optional)
+    // and clear the required ACCESS_TOKEN to force the throw.
+    stubFullEnv();
+    vi.stubEnv('POLAR_ACCESS_TOKEN', '');
+    // The test-mode branch should swallow and return the error, not propagate.
     const swallowed = runWithRethrowSuppressed();
     expect(swallowed).not.toBeNull();
     expect(swallowed).toBeInstanceOf(Error);
@@ -167,7 +207,9 @@ describe('validatePolarEnv() rethrow contract (simulates non-test module scope)'
   });
 
   it('rethrows the error in the prod/dev branch (cold-start must fail loudly)', () => {
-    // All env vars missing — validatePolarEnv() will throw.
+    // Same setup: clear a REQUIRED var so validatePolarEnv() throws.
+    stubFullEnv();
+    vi.stubEnv('POLAR_WEBHOOK_SECRET', '');
     // The prod/dev branch must rethrow so deploy-time health checks catch it.
     expect(() => runWithRethrowEnabled()).toThrow(/missing or blank/);
   });
@@ -252,11 +294,14 @@ describe('NEXT_PHASE build-time gate (simulates route.ts module-scope wrapper)',
   });
 
   it('calls validatePolarEnv and rethrows when NEXT_PHASE is undefined and NODE_ENV is not test', () => {
-    // WHY: In production (no NEXT_PHASE, no NODE_ENV=test), a missing env var
-    // must cause the cold-start to fail loudly. The gate is inactive (NEXT_PHASE
-    // not set), and the rethrow path is active (nodeEnvIsTest = false).
+    // WHY: In production (no NEXT_PHASE, no NODE_ENV=test), a missing REQUIRED
+    // env var must cause the cold-start to fail loudly. The gate is inactive
+    // (NEXT_PHASE not set), and the rethrow path is active (nodeEnvIsTest = false).
+    // Need to clear a REQUIRED var explicitly post-2026-05-05 — Team/Business
+    // are now optional and missing them no longer triggers a throw.
     vi.stubEnv('NEXT_PHASE', ''); // unset — gate inactive
-    // All env vars absent — validatePolarEnv() will throw.
+    stubFullEnv();
+    vi.stubEnv('POLAR_ACCESS_TOKEN', ''); // force the throw
     expect(() => runGatedValidation(false)).toThrow(/missing or blank/);
   });
 

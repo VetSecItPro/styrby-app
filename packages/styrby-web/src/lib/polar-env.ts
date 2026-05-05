@@ -92,13 +92,21 @@ export type BillingCycle = 'monthly' | 'annual';
  * process.env values on Vercel are already trimmed. We use getEnv()
  * only in getPolarProductId() where we need the trimmed runtime value.
  */
+// WHY Team/Business optional (2026-05-05): the public pricing surface only
+// ships Pro + Growth. Team and Business product IDs are vestigial — required
+// by an earlier planned tier scheme that was never launched. Treating them
+// as required at cold-start blocks the entire webhook route from loading
+// when those env vars are absent (root cause of the Apr-28 → May-5 webhook
+// outage). The runtime resolver `resolvePolarProductId('team'|'business', ...)`
+// is the right place to fail loudly: it'll throw "Tier not available" only
+// when an actual team/business webhook event arrives, not on every cold-start.
 const PolarEnvSchema = z.object({
   POLAR_ACCESS_TOKEN: z.string().min(1),
   POLAR_WEBHOOK_SECRET: z.string().min(1),
-  POLAR_TEAM_MONTHLY_PRODUCT_ID: z.string().min(1),
-  POLAR_TEAM_ANNUAL_PRODUCT_ID: z.string().min(1),
-  POLAR_BUSINESS_MONTHLY_PRODUCT_ID: z.string().min(1),
-  POLAR_BUSINESS_ANNUAL_PRODUCT_ID: z.string().min(1),
+  POLAR_TEAM_MONTHLY_PRODUCT_ID: z.string().optional(),
+  POLAR_TEAM_ANNUAL_PRODUCT_ID: z.string().optional(),
+  POLAR_BUSINESS_MONTHLY_PRODUCT_ID: z.string().optional(),
+  POLAR_BUSINESS_ANNUAL_PRODUCT_ID: z.string().optional(),
 });
 
 // ============================================================================
