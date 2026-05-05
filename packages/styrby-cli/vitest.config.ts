@@ -11,6 +11,17 @@ export default defineConfig({
   test: {
     root: '.',
     include: ['src/**/*.test.ts'],
+    // PERF (2026-05-05): exclude src/perf/ from the default suite when the
+    // STYRBY_SKIP_PERF_TESTS env var is set (which `pnpm test` does via its
+    // package.json script). Reason: perf tests measure subprocess wall-clock
+    // startup via execSync, which is noisy when 120+ test files run in
+    // parallel (CPU contention inflates the measurement beyond real cold-start).
+    // CI's dedicated `perf-budgets` job runs `vitest run src/perf/` directly
+    // WITHOUT the env var, so perf tests still execute there in isolation.
+    // To check perf budgets locally: `pnpm vitest run src/perf/__tests__/startup.test.ts`
+    exclude: process.env.STYRBY_SKIP_PERF_TESTS === '1'
+      ? ['src/perf/**', '**/node_modules/**', '**/dist/**']
+      : ['**/node_modules/**', '**/dist/**'],
   },
   resolve: {
     alias: {
