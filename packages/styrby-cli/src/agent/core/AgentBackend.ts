@@ -36,6 +36,13 @@ export type AgentMessage =
   | { type: 'exec-approval-request'; call_id: string; [key: string]: unknown } // Exec approval request (like Codex exec_approval_request)
   | { type: 'patch-apply-begin'; call_id: string; auto_approved?: boolean; changes: Record<string, unknown> } // Patch operation begin (like Codex patch_apply_begin)
   | { type: 'patch-apply-end'; call_id: string; stdout?: string; stderr?: string; success: boolean } // Patch operation end (like Codex patch_apply_end)
+  // Cost report emitted by every agent factory after a model call completes.
+  // The `report` field is a CostReport from `@styrby/shared/cost`, kept loose
+  // here (`unknown`) to avoid pulling the shared package into this universal
+  // type — the cost-reporter validates with `CostReportSchema.safeParse()`.
+  // Adding this variant eliminated the `as any` cast at every emit site
+  // (8 agent factories: aider/amp/crush/droid/goose/kilo/kiro/opencode).
+  | { type: 'cost-report'; report: unknown }
 
 /** MCP server configuration for tools */
 export interface McpServerConfig {

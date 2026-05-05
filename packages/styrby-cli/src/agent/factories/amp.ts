@@ -396,7 +396,7 @@ class AmpBackend extends StreamingAgentBackendBase {
             cacheWriteTokens: incrCacheWrite,
             rawAgentPayload: rawPayload,
           };
-          this.emit({ type: 'cost-report', report: costReport } as any);
+          this.emit({ type: 'cost-report', report: costReport });
         }
         break;
 

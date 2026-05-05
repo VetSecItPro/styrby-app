@@ -474,7 +474,7 @@ class KiloBackend extends StreamingAgentBackendBase {
             cacheWriteTokens: incrCacheWrite,
             rawAgentPayload: hasAgentCost ? (msg.usage as unknown as Record<string, unknown>) : null,
           };
-          this.emit({ type: 'cost-report', report: costReport } as any);
+          this.emit({ type: 'cost-report', report: costReport });
         }
         break;
 

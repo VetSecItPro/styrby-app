@@ -465,7 +465,7 @@ class DroidBackend extends StreamingAgentBackendBase {
             cacheWriteTokens: newCacheWrite,
             rawAgentPayload: hasAgentCost ? (msg.usage as unknown as Record<string, unknown>) : null,
           };
-          this.emit({ type: 'cost-report', report: costReport } as any);
+          this.emit({ type: 'cost-report', report: costReport });
         }
         break;
 

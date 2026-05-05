@@ -409,7 +409,7 @@ class AiderBackend extends StreamingAgentBackendBase {
           });
 
           // Emit unified CostReport for the cost-reporter to persist.
-          this.emit({ type: 'cost-report', report: costReport } as any);
+          this.emit({ type: 'cost-report', report: costReport });
 
           if (code === 0) {
             this.emit({ type: 'status', status: 'idle' });
