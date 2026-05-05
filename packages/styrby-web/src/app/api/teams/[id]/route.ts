@@ -233,8 +233,20 @@ export async function PATCH(
   context: RouteContext
 ) {
   // Rate limit check
-  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.budgetAlerts, 'teams');
+  // SEC-FOLLOWUP-2: failClosed=true on PATCH (team-settings mutation).
+  const { allowed, retryAfter, infrastructureUnavailable } = await rateLimit(
+    request,
+    RATE_LIMITS.budgetAlerts,
+    'teams',
+    { failClosed: true },
+  );
   if (!allowed) {
+    if (infrastructureUnavailable) {
+      return NextResponse.json(
+        { error: 'RATE_LIMIT_UNAVAILABLE', message: 'Rate limiter unavailable. Please retry shortly.', retryAfter },
+        { status: 503, headers: { 'Retry-After': String(retryAfter ?? 30) } },
+      );
+    }
     return rateLimitResponse(retryAfter!);
   }
 
@@ -347,8 +359,20 @@ export async function DELETE(
   context: RouteContext
 ) {
   // Rate limit check
-  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.sensitive, 'teams-delete');
+  // SEC-FOLLOWUP-2: failClosed=true on DELETE (irreversible team deletion).
+  const { allowed, retryAfter, infrastructureUnavailable } = await rateLimit(
+    request,
+    RATE_LIMITS.sensitive,
+    'teams-delete',
+    { failClosed: true },
+  );
   if (!allowed) {
+    if (infrastructureUnavailable) {
+      return NextResponse.json(
+        { error: 'RATE_LIMIT_UNAVAILABLE', message: 'Rate limiter unavailable. Please retry shortly.', retryAfter },
+        { status: 503, headers: { 'Retry-After': String(retryAfter ?? 30) } },
+      );
+    }
     return rateLimitResponse(retryAfter!);
   }
 

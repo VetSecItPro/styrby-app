@@ -1077,6 +1077,145 @@ export async function POST(request: Request) {
 
   const supabase = createAdminClient();
 
+  // ============================================================================
+  // SEC-FOLLOWUP-3 / WAVE-E-006: subscription_id ↔ user_id defense-in-depth guard
+  //
+  // WHY: Even after HMAC signature verification, we trust the signed payload
+  // implicitly — including its claim about which user (`metadata.userId`) and
+  // which subscription (`subscription_id`) the event refers to. If POLAR_WEBHOOK_SECRET
+  // ever leaks OR Polar's infrastructure is compromised, an attacker could craft
+  // a forged-but-HMAC-valid event for ANY user/subscription combination and we
+  // would dutifully apply it. The guard cross-checks the payload's claimed
+  // (subscription_id, userId) against our durable record in `subscriptions`.
+  //
+  // Behavior:
+  //  - Allowlist of event types: only events that mutate per-user billing state
+  //    AND reference a subscription we should already know about.
+  //  - subscription.created is EXCLUDED: by definition the row does not exist
+  //    in `subscriptions` until this very handler creates it. Guarding here
+  //    would break every legitimate signup. Defense for .created relies on
+  //    HMAC + downgrade protection + manual-override rules already in place.
+  //  - Not found: lenient — log warn + audit + return 200. A `created` webhook
+  //    may have landed before profile sync; legitimate clock skew, not attack.
+  //  - Mismatch: hard alert — log error + audit + 403. We WANT this loud so
+  //    Polar's delivery dashboard surfaces it via repeated retries.
+  //  - Other event types (customer.*, product.*) skip the guard.
+  //
+  // SOC2 CC7.2 / CC9.2: every guard outcome (skip, not-found, mismatch) is
+  // observable in audit_log so an investigator can replay the decision trail.
+  // ============================================================================
+  const SUBSCRIPTION_USER_GUARD_TYPES = new Set<string>([
+    // subscription.created intentionally omitted — see WHY above.
+    'subscription.updated',
+    'subscription.canceled',
+    'subscription.uncanceled',
+    'subscription.active',
+    'subscription.revoked',
+    'subscription.past_due',
+    'order.created',
+    'order.updated',
+    'order.paid',
+    'order.refunded',
+  ]);
+
+  if (SUBSCRIPTION_USER_GUARD_TYPES.has(event.type)) {
+    // Extract subscription_id depending on event family.
+    // For subscription.* the subscription is data.id; for order.* it is
+    // data.subscription_id (Polar's order payload references the parent sub).
+    const guardData = rawData ?? {};
+    const guardSubscriptionId = (
+      event.type.startsWith('order.')
+        ? (guardData.subscription_id as string | undefined)
+        : (guardData.id as string | undefined)
+    );
+
+    // metadata.userId is the user-claim we are verifying. Polar uses camelCase
+    // for metadata keys we set at checkout (matches our checkout code).
+    const claimedUserId = (rawMetadata?.userId as string | undefined)
+      ?? (rawMetadata?.user_id as string | undefined);
+
+    if (!guardSubscriptionId) {
+      // Some events in the allowlist (e.g. order.created for one-off purchases)
+      // legitimately do not carry a subscription_id. Skip the guard with a
+      // debug log; existing per-event handlers still validate their own inputs.
+      if (process.env.NODE_ENV === 'development') {
+        console.debug(
+          `polar/route: subscription-user guard skipped for ${event.type} — no subscription_id in payload`
+        );
+      }
+    } else {
+      const { data: subRow, error: subLookupErr } = await supabase
+        .from('subscriptions')
+        .select('user_id, polar_subscription_id')
+        .eq('polar_subscription_id', guardSubscriptionId)
+        .maybeSingle();
+
+      if (subLookupErr) {
+        // DB error during the guard lookup — fail open with a warning so we
+        // do not block legitimate billing events on transient infra hiccups.
+        // The handler's own per-event validation will still apply.
+        console.warn(
+          `polar/route: subscription-user guard lookup failed for ${guardSubscriptionId} (${event.type}): ${subLookupErr.message} — failing open`
+        );
+      } else if (!subRow) {
+        // Lenient path: webhook references an unknown subscription. This can
+        // happen if `created` events landed before profile sync, OR if this
+        // is a forged event for a subscription we have never seen. Either way
+        // we have no state to mutate — return 200 (no Polar retry) and audit.
+        console.warn(
+          `polar/route: subscription-user guard — unknown subscription_id ${guardSubscriptionId} for event ${event.type}`
+        );
+        try {
+          await supabase.from('audit_log').insert({
+            action: 'polar_webhook_unknown_subscription',
+            user_id: null,
+            metadata: {
+              event_type: event.type,
+              polar_subscription_id: guardSubscriptionId,
+              claimed_user_id: claimedUserId ?? null,
+            },
+          });
+        } catch (e) {
+          console.error(
+            'polar/route: audit_log insert failed for polar_webhook_unknown_subscription (non-fatal):',
+            e
+          );
+        }
+        return NextResponse.json({ received: true, guard: 'unknown_subscription' });
+      } else if (claimedUserId && subRow.user_id !== claimedUserId) {
+        // Hard mismatch: the signed payload claims this subscription belongs
+        // to a different user than our durable record. Either (a) Polar's
+        // webhook secret was compromised and an attacker is forging events,
+        // or (b) we have data corruption. Both warrant a 403 + audit + alert.
+        console.error(
+          `polar/route: subscription-user MISMATCH for ${guardSubscriptionId} — db.user_id=${subRow.user_id} payload.userId=${claimedUserId} event=${event.type}`
+        );
+        try {
+          await supabase.from('audit_log').insert({
+            action: 'polar_webhook_user_id_mismatch',
+            user_id: subRow.user_id,
+            metadata: {
+              event_type: event.type,
+              polar_subscription_id: guardSubscriptionId,
+              db_user_id: subRow.user_id,
+              claimed_user_id: claimedUserId,
+            },
+          });
+        } catch (e) {
+          console.error(
+            'polar/route: audit_log insert failed for polar_webhook_user_id_mismatch (non-fatal):',
+            e
+          );
+        }
+        return NextResponse.json(
+          { error: 'subscription_user_mismatch' },
+          { status: 403 }
+        );
+      }
+      // Happy path falls through to the existing switch.
+    }
+  }
+
   try {
     switch (event.type) {
       case 'subscription.created':

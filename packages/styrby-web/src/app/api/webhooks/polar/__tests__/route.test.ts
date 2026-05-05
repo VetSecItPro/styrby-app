@@ -82,6 +82,11 @@ vi.mock('@styrby/shared/billing', async (importOriginal) => {
 const mockSelect = vi.fn().mockReturnThis();
 const mockEq = vi.fn();
 const mockSingle = vi.fn();
+// SEC-FOLLOWUP-3 / WAVE-E-006: subscription_id ↔ user_id guard uses maybeSingle()
+// so it can distinguish "row not found" (null) from "DB error". Default behavior
+// returns a row that matches the standard test fixture's user_id='user-uuid-123'
+// so the guard's HAPPY path is the no-op default — existing tests untouched.
+const mockMaybeSingle = vi.fn();
 // WHY mockReturnValue with { select } shape instead of mockResolvedValue:
 // Migration 054 adds event-id dedup to the individual subscription path.
 // The dedup block calls supabase.from('polar_webhook_events').upsert(...).select('event_id').
@@ -122,6 +127,7 @@ const mockFrom = vi.fn().mockReturnValue({
   select: mockSelect,
   eq: mockEq,
   single: mockSingle,
+  maybeSingle: mockMaybeSingle,
   upsert: mockUpsert,
   update: mockUpdate,
   insert: mockInsert,
@@ -251,11 +257,20 @@ describe('POST /api/webhooks/polar', () => {
       select: mockSelect,
       eq: mockEq,
       single: mockSingle,
+      maybeSingle: mockMaybeSingle,
       upsert: mockUpsert,
       update: mockUpdate,
       insert: mockInsert,
       order: mockOrder,
       limit: mockLimit,
+    });
+
+    // SEC-FOLLOWUP-3 default: guard lookup returns a matching subscription row
+    // (user_id matches the standard fixture). Existing tests stay green; tests
+    // exercising the not-found / mismatch paths override this per-test.
+    mockMaybeSingle.mockResolvedValue({
+      data: { user_id: 'user-uuid-123', polar_subscription_id: 'sub_test_123' },
+      error: null,
     });
 
     // Re-establish chain traversal mocks.
@@ -833,6 +848,10 @@ describe('POST /api/webhooks/polar', () => {
         },
       };
 
+      // SEC-FOLLOWUP-3 guard: pre-stub the .from('subscriptions').eq() call
+      // so the guard's .maybeSingle() resolves; the next mockEq overrides feed
+      // the actual handler's queries (.update.eq).
+      mockEq.mockReturnValueOnce({ maybeSingle: mockMaybeSingle });
       // Chain: .update(...).eq(...)
       mockEq.mockResolvedValueOnce({ data: null, error: null });
 
@@ -929,10 +948,13 @@ describe('POST /api/webhooks/polar', () => {
       // mockResolvedValueOnce would land on call 1 (FIFO), breaking the lookup.
       // We explicitly chain: first call returns the mock itself (preserving the
       // chain), second call resolves with success.
+      // SEC-FOLLOWUP-3 guard: pre-stub .eq() on subscriptions for the guard lookup.
+      mockEq.mockReturnValueOnce({ maybeSingle: mockMaybeSingle });
       mockEq.mockReturnValueOnce({
         select: mockSelect,
         eq: mockEq,
         single: mockSingle,
+        maybeSingle: mockMaybeSingle,
         upsert: mockUpsert,
         update: mockUpdate,
         insert: mockInsert,
@@ -1099,6 +1121,7 @@ describe('POST /api/webhooks/polar', () => {
         select: mockSelect,
         eq: mockEq,
         single: mockSingle,
+        maybeSingle: mockMaybeSingle,
         upsert: mockUpsert,
         update: mockUpdate,
         insert: mockInsert,
@@ -1121,10 +1144,13 @@ describe('POST /api/webhooks/polar', () => {
       // First .eq() (lookup) preserves the chain so .single() can resolve;
       // second .eq() (UPDATE on subscriptions) FAILS — simulating the DB error
       // that would otherwise leave the dedup row in place and skip the retry.
+      // SEC-FOLLOWUP-3 guard: pre-stub .eq() on subscriptions for the guard lookup.
+      mockEq.mockReturnValueOnce({ maybeSingle: mockMaybeSingle });
       mockEq.mockReturnValueOnce({
         select: mockSelect,
         eq: mockEq,
         single: mockSingle,
+        maybeSingle: mockMaybeSingle,
         upsert: mockUpsert,
         update: mockUpdate,
         insert: mockInsert,
@@ -1168,6 +1194,7 @@ describe('POST /api/webhooks/polar', () => {
         select: mockSelect,
         eq: mockEq,
         single: mockSingle,
+        maybeSingle: mockMaybeSingle,
         upsert: mockUpsert,
         update: mockUpdate,
         insert: mockInsert,
@@ -1186,10 +1213,13 @@ describe('POST /api/webhooks/polar', () => {
       });
 
       // Lookup chain + successful UPDATE.
+      // SEC-FOLLOWUP-3 guard: pre-stub .eq() on subscriptions for the guard lookup.
+      mockEq.mockReturnValueOnce({ maybeSingle: mockMaybeSingle });
       mockEq.mockReturnValueOnce({
         select: mockSelect,
         eq: mockEq,
         single: mockSingle,
+        maybeSingle: mockMaybeSingle,
         upsert: mockUpsert,
         update: mockUpdate,
         insert: mockInsert,
@@ -1972,10 +2002,13 @@ describe('POST /api/webhooks/polar', () => {
       // resetAllMocks + mockReturnThis would default both to `this`, breaking
       // the UPDATE await. Mirror the order.refunded test pattern: first call
       // returns the chain explicitly, second call resolves.
+      // SEC-FOLLOWUP-3 guard: pre-stub .eq() on subscriptions for the guard lookup.
+      mockEq.mockReturnValueOnce({ maybeSingle: mockMaybeSingle });
       mockEq.mockReturnValueOnce({
         select: mockSelect,
         eq: mockEq,
         single: mockSingle,
+        maybeSingle: mockMaybeSingle,
         upsert: mockUpsert,
         update: mockUpdate,
         insert: mockInsert,
@@ -2074,10 +2107,13 @@ describe('POST /api/webhooks/polar', () => {
         error: null,
       });
       // Same two-step .eq pattern as the cascade-cancel test #1 above.
+      // SEC-FOLLOWUP-3 guard: pre-stub .eq() on subscriptions for the guard lookup.
+      mockEq.mockReturnValueOnce({ maybeSingle: mockMaybeSingle });
       mockEq.mockReturnValueOnce({
         select: mockSelect,
         eq: mockEq,
         single: mockSingle,
+        maybeSingle: mockMaybeSingle,
         upsert: mockUpsert,
         update: mockUpdate,
         insert: mockInsert,
@@ -2320,10 +2356,13 @@ describe('POST /api/webhooks/polar', () => {
         error: null,
       });
       // Two-step .eq pattern: SELECT chain then UPDATE resolve.
+      // SEC-FOLLOWUP-3 guard: pre-stub .eq() on subscriptions for the guard lookup.
+      mockEq.mockReturnValueOnce({ maybeSingle: mockMaybeSingle });
       mockEq.mockReturnValueOnce({
         select: mockSelect,
         eq: mockEq,
         single: mockSingle,
+        maybeSingle: mockMaybeSingle,
         upsert: mockUpsert,
         update: mockUpdate,
         insert: mockInsert,
@@ -2377,6 +2416,177 @@ describe('POST /api/webhooks/polar', () => {
           }),
         }),
       );
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // SEC-FOLLOWUP-3 / WAVE-E-006 — subscription_id ↔ user_id defense-in-depth guard
+  //
+  // Even after HMAC signature verification, the route cross-checks that the
+  // payload's claimed (subscription_id, metadata.userId) pair matches our
+  // durable record in `subscriptions`. These tests pin the three guard outcomes:
+  //   1. Forged event with unknown subscription_id → 200 + audit row + no
+  //      state mutation (path on a wholesale POLAR_WEBHOOK_SECRET leak where
+  //      the attacker invents subscription IDs).
+  //   2. Forged event with a known subscription_id but mismatched metadata.userId
+  //      → 403 (loud failure so Polar's delivery dashboard surfaces the alert
+  //      via repeated retries) + audit row.
+  //   3. Happy path with matching subscription_id + userId → 200 + state
+  //      handler runs (regression: guard does not break the mainline).
+  // --------------------------------------------------------------------------
+  describe('SEC-FOLLOWUP-3: subscription_id ↔ user_id guard', () => {
+    async function sendSignedGuardEvent(body: Record<string, unknown>): Promise<Response> {
+      const payload = JSON.stringify(body);
+      const signature = signPayload(payload);
+      const headersMock = new Headers();
+      headersMock.set('x-polar-signature', signature);
+      vi.mocked(headers).mockResolvedValue(
+        headersMock as unknown as Awaited<ReturnType<typeof headers>>
+      );
+      const request = new Request('http://localhost:3000/api/webhooks/polar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-forwarded-for': '10.0.0.1',
+        },
+        body: payload,
+      });
+      return POST(request);
+    }
+
+    it('forged event with unknown subscription_id → 200, audit row, no state mutation', async () => {
+      // Guard lookup: subscription_id not found in our `subscriptions` table.
+      // Lenient path — return 200 (no Polar retry storm), audit it, and do
+      // NOT touch downstream state (no upsert, no profile lookup, etc.).
+      mockMaybeSingle.mockResolvedValueOnce({ data: null, error: null });
+
+      const event = {
+        id: 'evt_forged_001',
+        type: 'subscription.updated',
+        data: {
+          id: 'sub_attacker_invented_999',
+          customer_id: 'cust_test_456',
+          product_id: 'prod_pro_monthly',
+          status: 'active',
+          metadata: { userId: 'user-uuid-123' },
+        },
+      };
+
+      const response = await sendSignedGuardEvent(event);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.guard).toBe('unknown_subscription');
+
+      // Audit_log row recorded with the unknown_subscription action, the
+      // attacker-claimed subscription_id, and the claimed userId for forensics.
+      expect(mockInsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'polar_webhook_unknown_subscription',
+          metadata: expect.objectContaining({
+            event_type: 'subscription.updated',
+            polar_subscription_id: 'sub_attacker_invented_999',
+            claimed_user_id: 'user-uuid-123',
+          }),
+        }),
+      );
+
+      // No state mutation: subscription upsert never called, the post-guard
+      // event-id dedup upsert (which would touch polar_webhook_events) never
+      // runs either. mockUpsert is the shared mock for both, so a clean
+      // assertion is "never".
+      expect(mockUpsert).not.toHaveBeenCalled();
+    });
+
+    it('forged event with mismatched userId → 403 + audit row', async () => {
+      // Guard lookup: subscription is known, but its user_id in DB is DIFFERENT
+      // from the userId claimed in the forged payload's metadata. Hard mismatch
+      // → 403 (loud failure surfacing the alert in monitoring).
+      mockMaybeSingle.mockResolvedValueOnce({
+        data: {
+          user_id: 'real-owner-user-aaa',
+          polar_subscription_id: 'sub_legit_xyz',
+        },
+        error: null,
+      });
+
+      const event = {
+        id: 'evt_forged_002',
+        type: 'subscription.updated',
+        data: {
+          id: 'sub_legit_xyz',
+          customer_id: 'cust_test_456',
+          product_id: 'prod_pro_monthly',
+          status: 'active',
+          // Attacker tries to attribute this real subscription to a different
+          // user (e.g., to grant themselves a tier upgrade by hijacking sub_legit_xyz).
+          metadata: { userId: 'attacker-user-bbb' },
+        },
+      };
+
+      const response = await sendSignedGuardEvent(event);
+      expect(response.status).toBe(403);
+      const body = await response.json();
+      expect(body.error).toBe('subscription_user_mismatch');
+
+      // Mismatch audit row carries BOTH the real db_user_id and the claimed
+      // attacker-supplied userId so an investigator can pinpoint the attempt.
+      expect(mockInsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'polar_webhook_user_id_mismatch',
+          user_id: 'real-owner-user-aaa',
+          metadata: expect.objectContaining({
+            event_type: 'subscription.updated',
+            polar_subscription_id: 'sub_legit_xyz',
+            db_user_id: 'real-owner-user-aaa',
+            claimed_user_id: 'attacker-user-bbb',
+          }),
+        }),
+      );
+
+      // Hard-stop: no state mutation followed.
+      expect(mockUpsert).not.toHaveBeenCalled();
+    });
+
+    it('happy path: matching subscription_id + userId → 200 + state handler runs', async () => {
+      // Guard lookup returns a row whose user_id matches the payload's metadata.userId.
+      // Guard falls through to the existing handler, which then exercises its
+      // normal subscription.updated flow.
+      mockMaybeSingle.mockResolvedValueOnce({
+        data: { user_id: 'user-uuid-123', polar_subscription_id: 'sub_legit_xyz' },
+        error: null,
+      });
+      // Mocks for the existing handler downstream of the guard:
+      //  - profile lookup, customer lookup, existing-tier check.
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'pro', status: 'active' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'pro', status: 'active' },
+        error: null,
+      });
+      mockSingle.mockResolvedValueOnce({
+        data: { tier: 'pro', status: 'active' },
+        error: null,
+      });
+
+      const event = {
+        id: 'evt_legit_003',
+        type: 'subscription.updated',
+        data: {
+          id: 'sub_legit_xyz',
+          customer_id: 'cust_test_456',
+          product_id: 'prod_power_monthly',
+          user_id: 'user-uuid-123',
+          status: 'active',
+          metadata: { userId: 'user-uuid-123' },
+        },
+      };
+
+      const response = await sendSignedGuardEvent(event);
+      expect(response.status).toBe(200);
+      // Downstream state handler ran (subscriptions upsert was invoked).
+      expect(mockUpsert).toHaveBeenCalled();
     });
   });
 });

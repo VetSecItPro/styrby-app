@@ -580,4 +580,40 @@ describe('POST /api/admin/support/[id]/reply', () => {
       expect(mockAuditLogInsert).not.toHaveBeenCalled();
     });
   });
+
+  // --------------------------------------------------------------------------
+  // SEC-FOLLOWUP-2: rate limiter fail-closed
+  // --------------------------------------------------------------------------
+
+  describe('SEC-FOLLOWUP-2 — fail-closed on rate limiter outage', () => {
+    /**
+     * Admin reply mutates state (writes reply, audit row, sends email). When
+     * Upstash is unreachable AND failClosed=true, the route must short-circuit
+     * with 503 RATE_LIMIT_UNAVAILABLE rather than allowing unmetered replies
+     * (which would let an attacker with admin creds spam customer inboxes).
+     */
+    it('returns 503 RATE_LIMIT_UNAVAILABLE when rate-limit infrastructure is down', async () => {
+      const { rateLimit } = await import('@/lib/rateLimit');
+      vi.mocked(rateLimit).mockResolvedValueOnce({
+        allowed: false,
+        remaining: 0,
+        resetAt: Date.now() + 60000,
+        retryAfter: 30,
+        infrastructureUnavailable: true,
+      });
+
+      const response = await POST(
+        makePostRequest({ message: 'Will not be sent.' }),
+        makeContext()
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(503);
+      expect(body.error).toBe('RATE_LIMIT_UNAVAILABLE');
+      expect(response.headers.get('Retry-After')).toBe('30');
+      // Critical: route must NOT have proceeded to send an email or write audit row.
+      expect(mockSendSupportReplyEmail).not.toHaveBeenCalled();
+      expect(mockAuditLogInsert).not.toHaveBeenCalled();
+    });
+  });
 });

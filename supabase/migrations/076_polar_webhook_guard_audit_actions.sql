@@ -1,0 +1,35 @@
+-- Migration 076: Polar webhook subscription_id ↔ user_id guard audit_action values
+--
+-- WHY (SEC-FOLLOWUP-3 / WAVE-E-006): The Polar webhook handler at
+-- packages/styrby-web/src/app/api/webhooks/polar/route.ts trusts the signed
+-- payload's claim about which subscription_id and metadata.userId an event
+-- references. After HMAC verification proves the request is authentic-by-secret,
+-- a defense-in-depth guard cross-checks the (subscription_id, userId) pair
+-- against our durable record in `subscriptions`. This insulates us from a
+-- POLAR_WEBHOOK_SECRET leak or Polar-infra compromise scenario where an
+-- attacker could craft a forged-but-HMAC-valid event for any user/sub combo.
+--
+-- The guard emits one audit_log row per non-happy-path outcome:
+--   • polar_webhook_unknown_subscription — webhook references a subscription_id
+--     we have no record of. Treated leniently (200 + warn) because legitimate
+--     ordering/clock-skew can produce this; a forged event lands here too and
+--     leaves a forensic trail.
+--   • polar_webhook_user_id_mismatch — webhook's metadata.userId disagrees
+--     with subscriptions.user_id for the looked-up subscription. Hard 403,
+--     loud log, audit row — we WANT this to fail audibly so Polar's delivery
+--     dashboard surfaces it via repeated retries.
+--
+-- Without these enum values the audit_log insert in the route handler fails
+-- with "invalid input value for enum audit_action", which would mask the
+-- security signal we are trying to surface.
+--
+-- WHY no rollback: ENUM values cannot be removed without recreating the type
+-- and rewriting every dependent column. The route code that emits these values
+-- ships in the same PR; if the migration applies but the code rolls back, the
+-- values are simply unused (no harm).
+--
+-- @security SOC 2 CC7.2 (System Monitoring) + CC9.2 (Risk Mitigation) —
+--   establishes a forensic trail for forged-webhook detection.
+
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'polar_webhook_unknown_subscription';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'polar_webhook_user_id_mismatch';

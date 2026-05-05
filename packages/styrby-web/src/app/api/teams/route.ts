@@ -231,8 +231,22 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   // Rate limit check
-  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.budgetAlerts, 'teams');
+  // SEC-FOLLOWUP-2: failClosed=true. Team creation is state-changing and
+  // gated by Power tier; flooding it during a limiter outage could create
+  // many ghost teams, each consuming downstream resources.
+  const { allowed, retryAfter, infrastructureUnavailable } = await rateLimit(
+    request,
+    RATE_LIMITS.budgetAlerts,
+    'teams',
+    { failClosed: true },
+  );
   if (!allowed) {
+    if (infrastructureUnavailable) {
+      return NextResponse.json(
+        { error: 'RATE_LIMIT_UNAVAILABLE', message: 'Rate limiter unavailable. Please retry shortly.', retryAfter },
+        { status: 503, headers: { 'Retry-After': String(retryAfter ?? 30) } },
+      );
+    }
     return rateLimitResponse(retryAfter!);
   }
 

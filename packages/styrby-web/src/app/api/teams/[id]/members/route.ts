@@ -118,8 +118,22 @@ export async function POST(
   context: RouteContext
 ) {
   // Rate limit check
-  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.budgetAlerts, 'team-invite');
+  // SEC-FOLLOWUP-2: failClosed=true. Team invitations are state-changing AND
+  // attacker-spammable (each invite can consume a seat + send email). An
+  // outage of the limiter must not become a free invite-flooding window.
+  const { allowed, retryAfter, infrastructureUnavailable } = await rateLimit(
+    request,
+    RATE_LIMITS.budgetAlerts,
+    'team-invite',
+    { failClosed: true },
+  );
   if (!allowed) {
+    if (infrastructureUnavailable) {
+      return NextResponse.json(
+        { error: 'RATE_LIMIT_UNAVAILABLE', message: 'Rate limiter unavailable. Please retry shortly.', retryAfter },
+        { status: 503, headers: { 'Retry-After': String(retryAfter ?? 30) } },
+      );
+    }
     return rateLimitResponse(retryAfter!);
   }
 

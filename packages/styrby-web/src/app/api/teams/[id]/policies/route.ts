@@ -192,8 +192,22 @@ export async function PATCH(
   request: NextRequest,
   context: RouteContext,
 ) {
-  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.budgetAlerts, 'team-policies');
-  if (!allowed) return rateLimitResponse(retryAfter!);
+  // SEC-FOLLOWUP-2: failClosed=true on policies PATCH (state-changing).
+  const { allowed, retryAfter, infrastructureUnavailable } = await rateLimit(
+    request,
+    RATE_LIMITS.budgetAlerts,
+    'team-policies',
+    { failClosed: true },
+  );
+  if (!allowed) {
+    if (infrastructureUnavailable) {
+      return NextResponse.json(
+        { error: 'RATE_LIMIT_UNAVAILABLE', message: 'Rate limiter unavailable. Please retry shortly.', retryAfter },
+        { status: 503, headers: { 'Retry-After': String(retryAfter ?? 30) } },
+      );
+    }
+    return rateLimitResponse(retryAfter!);
+  }
 
   try {
     const { id: teamId } = await context.params;

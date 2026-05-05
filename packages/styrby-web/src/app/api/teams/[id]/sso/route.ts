@@ -255,8 +255,20 @@ export async function PUT(
   }
 
   // Rate limit: SSO changes are sensitive; tight limit prevents brute-force
-  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.budgetAlerts, `team-sso-${teamId}`);
+  // SEC-FOLLOWUP-2: failClosed=true on SSO PUT (security-critical mutation).
+  const { allowed, retryAfter, infrastructureUnavailable } = await rateLimit(
+    request,
+    RATE_LIMITS.budgetAlerts,
+    `team-sso-${teamId}`,
+    { failClosed: true },
+  );
   if (!allowed) {
+    if (infrastructureUnavailable) {
+      return NextResponse.json(
+        { error: 'RATE_LIMIT_UNAVAILABLE', message: 'Rate limiter unavailable. Please retry shortly.', retryAfter },
+        { status: 503, headers: { 'Retry-After': String(retryAfter ?? 30) } },
+      );
+    }
     // WHY cast: rateLimitResponse returns Response (not NextResponse) but Next.js
     // route handlers accept both. The cast is safe - this pattern is used across all
     // API routes in the codebase.

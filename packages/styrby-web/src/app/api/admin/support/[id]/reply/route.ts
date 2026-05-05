@@ -37,9 +37,23 @@ export async function POST(
 ) {
   const { id } = await params;
 
-  // A-008: Rate limit admin routes
-  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.standard, 'admin-support-reply');
-  if (!allowed) return rateLimitResponse(retryAfter!);
+  // A-008: Rate limit admin routes.
+  // SEC-FOLLOWUP-2: failClosed=true on support reply (mutates ticket + sends email).
+  const { allowed, retryAfter, infrastructureUnavailable } = await rateLimit(
+    request,
+    RATE_LIMITS.standard,
+    'admin-support-reply',
+    { failClosed: true },
+  );
+  if (!allowed) {
+    if (infrastructureUnavailable) {
+      return NextResponse.json(
+        { error: 'RATE_LIMIT_UNAVAILABLE', message: 'Rate limiter unavailable. Please retry shortly.', retryAfter },
+        { status: 503, headers: { 'Retry-After': String(retryAfter ?? 30) } },
+      );
+    }
+    return rateLimitResponse(retryAfter!);
+  }
 
   // Verify auth and admin status
   const supabase = await createClient();

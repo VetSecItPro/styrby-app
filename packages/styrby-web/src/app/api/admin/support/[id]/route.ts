@@ -147,9 +147,24 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // A-008: Rate limit admin routes
-  const { allowed: patchAllowed, retryAfter: patchRetryAfter } = await rateLimit(request, RATE_LIMITS.standard, 'admin-support-id');
-  if (!patchAllowed) return rateLimitResponse(patchRetryAfter!);
+  // A-008: Rate limit admin routes.
+  // SEC-FOLLOWUP-2: failClosed=true on admin support PATCH (mutates ticket state).
+  // Read GET above stays fail-open so support staff can debug during a limiter outage.
+  const { allowed: patchAllowed, retryAfter: patchRetryAfter, infrastructureUnavailable: patchInfraDown } = await rateLimit(
+    request,
+    RATE_LIMITS.standard,
+    'admin-support-id',
+    { failClosed: true },
+  );
+  if (!patchAllowed) {
+    if (patchInfraDown) {
+      return NextResponse.json(
+        { error: 'RATE_LIMIT_UNAVAILABLE', message: 'Rate limiter unavailable. Please retry shortly.', retryAfter: patchRetryAfter },
+        { status: 503, headers: { 'Retry-After': String(patchRetryAfter ?? 30) } },
+      );
+    }
+    return rateLimitResponse(patchRetryAfter!);
+  }
 
   const { id } = await params;
   const result = await verifyAdmin();
