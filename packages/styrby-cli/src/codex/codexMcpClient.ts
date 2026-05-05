@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { CodexPermissionHandler } from './utils/permissionHandler';
 import { execSync } from 'child_process';
+import { buildSafeEnv } from '@/utils/safeEnv';
 
 const DEFAULT_TIMEOUT = 14 * 24 * 60 * 60 * 1000; // 14 days, which is the half of the maximum possible timeout (~28 days for int32 value in NodeJS)
 
@@ -109,14 +110,21 @@ export class CodexMcpClient {
 
         logger.debug(`[CodexMCP] Connecting to Codex MCP server using command: codex ${mcpCommand}`);
 
+        // SECURITY (CLI-001, audit 2026-05-04): Previously this spread the
+        // entire parent env into the codex subprocess, leaking every secret in
+        // the operator's shell (AWS creds, Stripe keys, GH tokens, ssh-agent
+        // sockets, etc.) into a third-party CLI we don't fully control.
+        // buildSafeEnv() applies an allowlist + blocklist and only forwards
+        // OPENAI_API_KEY (the one secret codex actually needs).
+        const safeEnv = buildSafeEnv({ OPENAI_API_KEY: process.env.OPENAI_API_KEY });
+        const stringEnv: Record<string, string> = {};
+        for (const [k, v] of Object.entries(safeEnv)) {
+            if (typeof v === 'string') stringEnv[k] = v;
+        }
         this.transport = new StdioClientTransport({
             command: 'codex',
             args: [mcpCommand],
-            env: Object.keys(process.env).reduce((acc, key) => {
-                const value = process.env[key];
-                if (typeof value === 'string') acc[key] = value;
-                return acc;
-            }, {} as Record<string, string>)
+            env: stringEnv
         });
 
         // Register request handlers for Codex permission methods

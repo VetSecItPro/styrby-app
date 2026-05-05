@@ -37,6 +37,7 @@ import type {
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
+import { resolveApiKeyEnv } from '@/utils/apiKeyProvider';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
 import type { CostReport } from '@styrby/shared/cost';
 
@@ -621,16 +622,22 @@ class DroidBackend extends StreamingAgentBackendBase {
 
     // Build the API key environment overrides.
     // WHY: BYOK keys must be passed as environment variables, not CLI flags,
-    // to prevent them from appearing in process lists (ps aux). We inject
-    // the primary apiKey under all common provider variable names, plus any
-    // explicitly named apiKeys from the options.
-    const apiKeyEnv: Record<string, string> = {};
-    if (this.options.apiKey) {
-      apiKeyEnv.ANTHROPIC_API_KEY = this.options.apiKey;
-      apiKeyEnv.OPENAI_API_KEY = this.options.apiKey;
-      apiKeyEnv.GOOGLE_API_KEY = this.options.apiKey;
-      apiKeyEnv.MISTRAL_API_KEY = this.options.apiKey;
-    }
+    // to prevent them from appearing in process lists (ps aux).
+    //
+    // SECURITY (audit 2026-05-05 HIGH fix): the previous "inject under every
+    // provider name" pattern leaked sk-ant-* keys to OpenAI / Google /
+    // Mistral validation endpoints. resolveApiKeyEnv() restricts to the
+    // detected provider; the apiKeys map below still allows callers that
+    // genuinely DO have multi-provider keys to pass them explicitly.
+    const apiKeyEnv: Record<string, string> = {
+      ...resolveApiKeyEnv(
+        this.options.apiKey,
+        ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GOOGLE_API_KEY', 'MISTRAL_API_KEY'],
+        // Droid options don't expose an explicit provider yet; rely on sniff.
+        undefined,
+        'DroidBackend',
+      ),
+    };
     // SECURITY: Only forward keys that look like API key env vars.
     // Without this check, a malicious caller could inject LD_PRELOAD,
     // DYLD_INSERT_LIBRARIES, or other vars that alter process behavior.

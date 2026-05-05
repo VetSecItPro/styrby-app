@@ -51,7 +51,10 @@ export const logger = {
    */
   debug(message: string, ...args: unknown[]): void {
     if (shouldLog('debug')) {
-      console.log(chalk.gray(`[${timestamp()}] DEBUG: ${message}`), ...args);
+      // WHY: debug/info diagnostics go to stderr so users can pipe agent output
+      // (`styrby … | jq`) without log noise polluting stdout. Only `success` and
+      // `agent` (streaming model output) use stdout — those are the pipeable channels.
+      console.error(chalk.gray(`[${timestamp()}] DEBUG: ${message}`), ...args);
     }
   },
 
@@ -60,7 +63,8 @@ export const logger = {
    */
   info(message: string, ...args: unknown[]): void {
     if (shouldLog('info')) {
-      console.log(chalk.blue(`[${timestamp()}] INFO: ${message}`), ...args);
+      // WHY: see debug() — diagnostics on stderr keeps stdout clean for pipes.
+      console.error(chalk.blue(`[${timestamp()}] INFO: ${message}`), ...args);
     }
   },
 

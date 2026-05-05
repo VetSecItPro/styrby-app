@@ -40,6 +40,7 @@ import type {
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
+import { resolveApiKeyEnv, type ApiKeyProvider } from '@/utils/apiKeyProvider';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
 import type { CostReport, BillingModel } from '@styrby/shared/cost';
 
@@ -132,6 +133,20 @@ export interface KiloBackendOptions extends AgentFactoryOptions {
    * Additional Kilo CLI arguments.
    */
   extraArgs?: string[];
+
+  /**
+   * Explicit LLM provider for the BYOK key.
+   *
+   * WHY (audit 2026-05-05 HIGH fix): Kilo speaks OpenAI-compatible APIs but
+   * supports many backends. Without an explicit provider hint, the previous
+   * code injected the user's key into OPENAI_API_KEY + ANTHROPIC_API_KEY +
+   * KILO_API_KEY simultaneously — which leaked sk-ant-* keys to Anthropic-
+   * compatible providers' validation calls (logged as rejected keys).
+   *
+   * If unset, the factory sniffs the key prefix and falls back to legacy
+   * fan-out only when sniffing fails (with a deprecation warning).
+   */
+  provider?: ApiKeyProvider;
 }
 
 /**
@@ -633,17 +648,16 @@ class KiloBackend extends StreamingAgentBackendBase {
           cwd: this.options.cwd,
           env: buildSafeEnv({
             ...this.options.env,
-            // WHY: Kilo supports any OpenAI-compatible API. We inject the user's key
-            // under OPENAI_API_KEY (the standard name for OpenAI-compatible APIs) and
-            // ANTHROPIC_API_KEY for Claude-backed configurations. Kilo picks the right
-            // one based on its model configuration.
-            ...(this.options.apiKey
-              ? {
-                  OPENAI_API_KEY: this.options.apiKey,
-                  ANTHROPIC_API_KEY: this.options.apiKey,
-                  KILO_API_KEY: this.options.apiKey,
-                }
-              : {}),
+            // SECURITY (audit 2026-05-05 HIGH fix): see goose.ts for full
+            // rationale. Inject only the matching provider env var. KILO_API_KEY
+            // is Kilo's own internal name — added to the legacy fallback list
+            // only, since real provider sniffing covers all real LLM keys.
+            ...resolveApiKeyEnv(
+              this.options.apiKey,
+              ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'KILO_API_KEY'],
+              this.options.provider,
+              'KiloBackend',
+            ),
           }),
           stdio: ['pipe', 'pipe', 'pipe'],
         });

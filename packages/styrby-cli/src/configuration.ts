@@ -12,6 +12,7 @@
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as fs from 'node:fs';
+import type { SupportedAgentType } from '@/persistence';
 
 /**
  * Configuration values
@@ -25,8 +26,15 @@ export interface StyrbyConfig {
   machineId?: string;
   /** User ID from Supabase Auth */
   userId?: string;
-  /** Default agent type */
-  defaultAgent?: 'claude' | 'codex' | 'gemini';
+  /**
+   * Default agent type — the canonical 11-agent product union.
+   *
+   * WHY: previously typed as `'claude' | 'codex' | 'gemini'`, which forced
+   * onboard.ts to `as`-cast the runtime value and silently misrepresented
+   * the other 8 agents the product supports. Sourced from persistence.ts
+   * so config, sessions, and onboarding share one enum.
+   */
+  defaultAgent?: SupportedAgentType;
   /** Enable debug logging */
   debug?: boolean;
 }

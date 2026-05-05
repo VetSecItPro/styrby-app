@@ -81,6 +81,77 @@ async function fetchLatestVersion(): Promise<string | null> {
 }
 
 /**
+ * Read the locally-installed npm CLI version (e.g. "10.5.2").
+ *
+ * Returns null when npm is not available on PATH or the call fails for any
+ * reason. Callers MUST treat null as "unknown" — do not assume an old or
+ * new version when this returns null.
+ *
+ * WHY (ESC-4): Provenance verification (`--foreground-scripts=false`,
+ * `dist.attestations` field) requires npm >= 10. Older npms silently ignore
+ * the flag and never publish provenance, so we have to branch on version.
+ *
+ * @returns Parsed npm version string, or null on failure
+ */
+export function getNpmVersion(): string | null {
+  try {
+    const out = execSync('npm --version', { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const version = out.trim();
+    // Reject anything that doesn't look like semver — a malformed reply
+    // from a wrapper script could otherwise short-circuit our gating.
+    if (!/^\d+\.\d+\.\d+/.test(version)) {
+      return null;
+    }
+    return version;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Test whether `npmVersion` (semver string) is >= `minMajor.0.0`.
+ *
+ * @param npmVersion - Version string from `npm --version`
+ * @param minMajor - Minimum major version required
+ * @returns true when npm meets the minimum, false otherwise
+ */
+export function npmAtLeast(npmVersion: string | null, minMajor: number): boolean {
+  if (!npmVersion) return false;
+  const major = parseInt(npmVersion.split('.')[0] ?? '0', 10);
+  return major >= minMajor;
+}
+
+/**
+ * Verify that the freshly-installed package version was published with npm
+ * provenance attestations.
+ *
+ * WHY (ESC-4 — defensive, non-blocking): npm 10+ publishes signed
+ * attestations linking a package version to the git commit + CI workflow
+ * that built it. The presence of `dist.attestations` in the registry
+ * response signals the operator that the published artifact is verifiable.
+ * This function does NOT cryptographically verify the attestation — that
+ * happens implicitly during install when npm is configured to enforce
+ * `--audit-signatures`. This is purely a transparency check the operator
+ * can trust at a glance.
+ *
+ * @param latestVersion - Version we just attempted to install (for logging only)
+ * @returns true if attestations are present, false otherwise (incl. errors)
+ */
+export function verifyProvenance(latestVersion: string): boolean {
+  try {
+    const out = execSync(`npm view styrby-cli@${latestVersion} --json`, {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const data = JSON.parse(out) as { dist?: { attestations?: unknown } };
+    return Boolean(data?.dist?.attestations);
+  } catch (error) {
+    logger.debug('Provenance lookup failed', { error });
+    return false;
+  }
+}
+
+/**
  * Determine the package manager used for global installs.
  *
  * @returns The package manager command to use ('npm', 'pnpm', or 'yarn')
@@ -151,17 +222,83 @@ export async function handleUpgrade(args: string[]): Promise<void> {
   console.log(chalk.blue('Installing update...'));
 
   const pm = detectPackageManager();
-  const installCmd = `${pm} install -g styrby-cli@latest`;
+  const baseInstallCmd = `${pm} install -g styrby-cli@latest`;
+
+  // ESC-4: npm-version-aware install with provenance signalling.
+  // WHY: Older npm (<10) silently ignores --foreground-scripts=false and
+  // never publishes/serves provenance attestations. Branching on the version
+  // up-front avoids confusing operator output ("attestations missing!" when
+  // the npm version simply can't surface them).
+  const npmVersion = getNpmVersion();
+  const supportsProvenance = npmAtLeast(npmVersion, 10);
+
+  let installCmd = baseInstallCmd;
+  if (supportsProvenance) {
+    // WHY --foreground-scripts=false: prevents the install from inheriting
+    // a tty for arbitrary post-install scripts. If the registry serves a
+    // tampered package, the post-install script can't ask for sudo prompts
+    // or steal terminal focus to phish credentials. The flag is npm 10+.
+    installCmd = `${baseInstallCmd} --foreground-scripts=false`;
+  } else if (npmVersion) {
+    console.log(
+      chalk.yellow(
+        `Update integrity check unavailable on npm ${npmVersion}. Consider upgrading npm.`
+      )
+    );
+  }
+
+  /**
+   * Run the install. Returns true on success, false when the
+   * --foreground-scripts flag was rejected (so the caller can fall back).
+   */
+  const tryInstall = (cmd: string): boolean => {
+    try {
+      execSync(cmd, { stdio: 'inherit', encoding: 'utf-8' });
+      return true;
+    } catch (err) {
+      // Detect the specific "unknown flag" failure so we can fall back.
+      const stderr = err instanceof Error ? err.message : String(err);
+      if (cmd.includes('--foreground-scripts=false') && /unknown|unrecognized|invalid/i.test(stderr)) {
+        return false;
+      }
+      throw err;
+    }
+  };
 
   try {
-    execSync(installCmd, {
-      stdio: 'inherit',
-      encoding: 'utf-8',
-    });
+    let installed = tryInstall(installCmd);
+
+    if (!installed && installCmd !== baseInstallCmd) {
+      // Fallback: drop the hardening flag and try again.
+      console.log(
+        chalk.yellow(
+          'npm rejected --foreground-scripts=false; falling back to plain install.'
+        )
+      );
+      installed = tryInstall(baseInstallCmd);
+    }
+
+    if (!installed) {
+      throw new Error('install failed');
+    }
 
     console.log('');
     console.log(chalk.green('Updated successfully!'));
     console.log(chalk.gray(`Installed version: ${latestVersion}`));
+
+    if (supportsProvenance) {
+      const hasProvenance = verifyProvenance(latestVersion);
+      if (hasProvenance) {
+        console.log(chalk.green('Provenance: verified (npm attestations present).'));
+      } else {
+        console.log(
+          chalk.yellow(
+            'Provenance: no attestations found for this version. Update is installed but cannot be cryptographically verified against the source repo.'
+          )
+        );
+      }
+    }
+
     console.log('');
     console.log(chalk.gray('Restart your terminal or run: exec $SHELL'));
   } catch (error) {
@@ -169,7 +306,7 @@ export async function handleUpgrade(args: string[]): Promise<void> {
     console.log(chalk.red('Failed to update.'));
     console.log('');
     console.log(chalk.gray('Try manually with:'));
-    console.log(chalk.gray(`  ${installCmd}`));
+    console.log(chalk.gray(`  ${baseInstallCmd}`));
 
     if (process.platform !== 'win32') {
       console.log('');

@@ -19,6 +19,7 @@
  */
 
 import * as Sentry from '@sentry/node';
+import { pinnedFetch } from '@/network/cert-pinning';
 
 // ---------------------------------------------------------------------------
 // Defaults
@@ -586,7 +587,15 @@ export class StyrbyApiClient {
   constructor(config: StyrbyApiClientConfig = {}) {
     this.baseUrl = (config.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '');
     this.apiKey = config.apiKey;
-    this.fetchImpl = config.fetchImpl ?? globalThis.fetch.bind(globalThis);
+    // SECURITY (CLI-007, audit 2026-05-04): Default to TLS-pinned fetch so
+    // every request to styrbyapp.com goes through the leaf-cert pin gate.
+    // Tests override via `fetchImpl` so this doesn't leak into the unit
+    // suite's fake-fetch wiring. We import lazily-via-require to avoid
+    // pulling https into bundled environments where the fetchImpl override
+    // is always supplied.
+    // Tests inject `fetchImpl`; production uses pinnedFetch which routes
+    // pinned hosts through https.request with our leaf-cert pin gate.
+    this.fetchImpl = config.fetchImpl ?? (pinnedFetch as typeof fetch);
     this.timeoutMs = config.timeoutMs ?? REQUEST_TIMEOUT_MS;
     this.maxAttempts = config.maxAttempts ?? MAX_ATTEMPTS;
   }

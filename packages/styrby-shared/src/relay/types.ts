@@ -460,11 +460,29 @@ export function getChannelName(userId: string, channelSuffix?: string): RelayCha
  * that doesn't conform to the expected shape before it reaches application code.
  */
 
+/**
+ * Maximum length caps for relay message string fields (CLI-008, audit 2026-05-04).
+ *
+ * SECURITY: Without caps, a hostile mobile/web client could blast a 1GB
+ * `content` string through the relay and exhaust CLI memory. These caps are
+ * generous compared to legitimate use (largest real chat is ~10KB; largest
+ * tool result we've seen is ~80KB) but small enough to bound damage.
+ */
+const MAX_ID_LEN = 128;             // request_id, message id, session id, etc.
+const MAX_SHORT_STR_LEN = 256;      // tool_name, model, action, simple identifiers
+const MAX_PATH_LEN = 4096;          // file paths
+const MAX_DESCRIPTION_LEN = 2048;   // human-readable descriptions
+const MAX_CONTENT_LEN = 100 * 1024; // 100KB chat / agent_response content
+const MAX_DIFF_LEN = 1024 * 1024;   // 1MB code-review diff
+const MAX_AFFECTED_FILES = 256;     // array len for affected_files
+const MAX_REVIEW_FILES = 1024;      // array len for code-review files
+const MAX_REVIEW_COMMENTS = 4096;   // array len for code-review comments
+
 /** Zod schema for base relay message fields shared by all message types */
 const BaseRelayMessageSchema = z.object({
-  id: z.string(),
-  timestamp: z.string(),
-  sender_device_id: z.string(),
+  id: z.string().max(MAX_ID_LEN),
+  timestamp: z.string().max(64),
+  sender_device_id: z.string().max(MAX_ID_LEN),
   sender_type: z.enum(['cli', 'mobile', 'web']),
 });
 
@@ -478,9 +496,9 @@ const AgentTypeSchema = z.enum([
 export const ChatMessageSchema = BaseRelayMessageSchema.extend({
   type: z.literal('chat'),
   payload: z.object({
-    content: z.string(),
+    content: z.string().max(MAX_CONTENT_LEN),
     agent: AgentTypeSchema,
-    session_id: z.string().optional(),
+    session_id: z.string().max(MAX_ID_LEN).optional(),
   }),
 });
 
@@ -488,9 +506,9 @@ export const ChatMessageSchema = BaseRelayMessageSchema.extend({
 export const AgentResponseMessageSchema = BaseRelayMessageSchema.extend({
   type: z.literal('agent_response'),
   payload: z.object({
-    content: z.string(),
+    content: z.string().max(MAX_CONTENT_LEN),
     agent: AgentTypeSchema,
-    session_id: z.string(),
+    session_id: z.string().max(MAX_ID_LEN),
     is_streaming: z.boolean(),
     is_complete: z.boolean(),
     tokens: z
@@ -508,17 +526,17 @@ export const AgentResponseMessageSchema = BaseRelayMessageSchema.extend({
 export const PermissionRequestMessageSchema = BaseRelayMessageSchema.extend({
   type: z.literal('permission_request'),
   payload: z.object({
-    request_id: z.string(),
-    session_id: z.string(),
+    request_id: z.string().max(MAX_ID_LEN),
+    session_id: z.string().max(MAX_ID_LEN),
     agent: AgentTypeSchema,
-    tool_name: z.string(),
+    tool_name: z.string().max(MAX_SHORT_STR_LEN),
     tool_args: z.record(z.unknown()),
     risk_level: z.enum(['low', 'medium', 'high', 'critical']),
-    description: z.string(),
-    affected_files: z.array(z.string()).optional(),
-    expires_at: z.string(),
+    description: z.string().max(MAX_DESCRIPTION_LEN),
+    affected_files: z.array(z.string().max(MAX_PATH_LEN)).max(MAX_AFFECTED_FILES).optional(),
+    expires_at: z.string().max(64),
     /** UUID v4 nonce for replay-attack protection (SEC-RELAY-003) */
-    nonce: z.string(),
+    nonce: z.string().max(MAX_ID_LEN),
   }),
 });
 
@@ -526,12 +544,12 @@ export const PermissionRequestMessageSchema = BaseRelayMessageSchema.extend({
 export const PermissionResponseMessageSchema = BaseRelayMessageSchema.extend({
   type: z.literal('permission_response'),
   payload: z.object({
-    request_id: z.string(),
+    request_id: z.string().max(MAX_ID_LEN),
     approved: z.boolean(),
     modified_args: z.record(z.unknown()).optional(),
     remember: z.boolean().optional(),
     /** Nonce echoed from the PermissionRequestMessage for replay-attack binding */
-    request_nonce: z.string(),
+    request_nonce: z.string().max(MAX_ID_LEN),
   }),
 });
 
@@ -539,10 +557,10 @@ export const PermissionResponseMessageSchema = BaseRelayMessageSchema.extend({
 export const SessionStateMessageSchema = BaseRelayMessageSchema.extend({
   type: z.literal('session_state'),
   payload: z.object({
-    session_id: z.string(),
+    session_id: z.string().max(MAX_ID_LEN),
     agent: AgentTypeSchema,
     state: z.enum(['idle', 'thinking', 'executing', 'waiting_permission', 'error']),
-    cwd: z.string().optional(),
+    cwd: z.string().max(MAX_PATH_LEN).optional(),
     context_window: z
       .object({
         used: z.number(),
@@ -550,11 +568,11 @@ export const SessionStateMessageSchema = BaseRelayMessageSchema.extend({
         percentage: z.number(),
       })
       .optional(),
-    active_file: z.string().optional(),
+    active_file: z.string().max(MAX_PATH_LEN).optional(),
     error: z
       .object({
         type: z.enum(['agent', 'network', 'build', 'styrby']),
-        message: z.string(),
+        message: z.string().max(MAX_DESCRIPTION_LEN),
         recoverable: z.boolean(),
       })
       .optional(),
@@ -565,7 +583,7 @@ export const SessionStateMessageSchema = BaseRelayMessageSchema.extend({
 export const CostUpdateMessageSchema = BaseRelayMessageSchema.extend({
   type: z.literal('cost_update'),
   payload: z.object({
-    session_id: z.string(),
+    session_id: z.string().max(MAX_ID_LEN),
     agent: AgentTypeSchema,
     cost_usd: z.number(),
     session_total_usd: z.number(),
@@ -575,7 +593,7 @@ export const CostUpdateMessageSchema = BaseRelayMessageSchema.extend({
       cache_read: z.number().optional(),
       cache_write: z.number().optional(),
     }),
-    model: z.string(),
+    model: z.string().max(MAX_SHORT_STR_LEN),
   }),
 });
 
@@ -600,38 +618,38 @@ export const CommandMessageSchema = BaseRelayMessageSchema.extend({
 export const AckMessageSchema = BaseRelayMessageSchema.extend({
   type: z.literal('ack'),
   payload: z.object({
-    ack_id: z.string(),
+    ack_id: z.string().max(MAX_ID_LEN),
     success: z.boolean(),
-    error: z.string().optional(),
+    error: z.string().max(MAX_DESCRIPTION_LEN).optional(),
   }),
 });
 
 /** Zod schema for ReviewFile */
 const ReviewFileSchema = z.object({
-  path: z.string(),
+  path: z.string().max(MAX_PATH_LEN),
   additions: z.number(),
   deletions: z.number(),
-  diff: z.string(),
+  diff: z.string().max(MAX_DIFF_LEN),
 });
 
 /** Zod schema for ReviewComment */
 const ReviewCommentSchema = z.object({
-  id: z.string(),
-  filePath: z.string(),
+  id: z.string().max(MAX_ID_LEN),
+  filePath: z.string().max(MAX_PATH_LEN),
   lineNumber: z.number().optional(),
-  body: z.string(),
-  createdAt: z.string(),
+  body: z.string().max(MAX_DESCRIPTION_LEN),
+  createdAt: z.string().max(64),
 });
 
 /** Zod schema for CodeReviewRequestMessage */
 export const CodeReviewRequestMessageSchema = BaseRelayMessageSchema.extend({
   type: z.literal('code_review_request'),
   payload: z.object({
-    review_id: z.string(),
-    session_id: z.string(),
-    files: z.array(ReviewFileSchema),
-    summary: z.string().optional(),
-    created_at: z.string(),
+    review_id: z.string().max(MAX_ID_LEN),
+    session_id: z.string().max(MAX_ID_LEN),
+    files: z.array(ReviewFileSchema).max(MAX_REVIEW_FILES),
+    summary: z.string().max(MAX_DESCRIPTION_LEN).optional(),
+    created_at: z.string().max(64),
   }),
 });
 
@@ -639,9 +657,9 @@ export const CodeReviewRequestMessageSchema = BaseRelayMessageSchema.extend({
 export const CodeReviewResponseMessageSchema = BaseRelayMessageSchema.extend({
   type: z.literal('code_review_response'),
   payload: z.object({
-    review_id: z.string(),
+    review_id: z.string().max(MAX_ID_LEN),
     status: z.enum(['pending', 'approved', 'rejected', 'changes_requested']),
-    comments: z.array(ReviewCommentSchema).optional(),
+    comments: z.array(ReviewCommentSchema).max(MAX_REVIEW_COMMENTS).optional(),
   }),
 });
 

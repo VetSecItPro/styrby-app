@@ -432,8 +432,10 @@ export class TokenManager extends EventEmitter {
         accessToken: data.accessToken,
         refreshToken: data.refreshToken,
         userId: data.userId,
-        // We don't persist expiresAt, so assume token might need refresh
-        expiresAt: undefined,
+        // WHY: hydrate expiresAt from disk so needsRefresh() works on cold start.
+        // If absent (legacy data.json from before this field existed), leave undefined
+        // and the existing background-refresh fallback below covers the gap.
+        expiresAt: typeof data.expiresAt === 'number' ? new Date(data.expiresAt) : undefined,
         persistence: (data as PersistedData & { persistence?: SessionPersistence }).persistence,
       };
 
@@ -463,6 +465,10 @@ export class TokenManager extends EventEmitter {
       accessToken: this.state.accessToken,
       refreshToken: this.state.refreshToken,
       authenticatedAt: new Date().toISOString(),
+      // WHY: persist expiresAt as epoch ms so needsRefresh() can compare on cold
+      // start. Without this, the field is undefined after restart and a stale
+      // JWT slips through to the server.
+      expiresAt: this.state.expiresAt ? this.state.expiresAt.getTime() : undefined,
     });
 
     if (this.state.accessToken) {

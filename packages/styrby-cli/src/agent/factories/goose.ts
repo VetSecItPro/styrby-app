@@ -38,6 +38,7 @@ import type {
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
+import { resolveApiKeyEnv, type ApiKeyProvider } from '@/utils/apiKeyProvider';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
 import type { CostReport } from '@styrby/shared/cost';
 
@@ -490,17 +491,21 @@ class GooseBackend extends StreamingAgentBackendBase {
           cwd: this.options.cwd,
           env: buildSafeEnv({
             ...this.options.env,
-            // Inject API key under appropriate environment variable names.
-            // WHY: Goose reads the API key from the environment; the variable
-            // name depends on the configured provider. We set both common names
-            // so users don't need to re-configure just because they switched providers.
-            ...(this.options.apiKey
-              ? {
-                  ANTHROPIC_API_KEY: this.options.apiKey,
-                  OPENAI_API_KEY: this.options.apiKey,
-                  GOOGLE_API_KEY: this.options.apiKey,
-                }
-              : {}),
+            // SECURITY (audit 2026-05-05 HIGH fix): inject the API key only
+            // under the env-var name(s) for its detected provider. The previous
+            // fan-out shipped sk-ant-* keys to OPENAI/GOOGLE during Goose's
+            // startup validation, where they appeared in vendor logs as
+            // rejected attempts (real key-disclosure incident class).
+            //
+            // resolveApiKeyEnv() prefers an explicit `provider` (the existing
+            // option), falls back to prefix-sniffing the key, and only
+            // multi-injects (with a deprecation warn) if both fail.
+            ...resolveApiKeyEnv(
+              this.options.apiKey,
+              ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GOOGLE_API_KEY'],
+              this.options.provider as ApiKeyProvider | undefined,
+              'GooseBackend',
+            ),
           }),
           stdio: ['pipe', 'pipe', 'pipe'],
         });

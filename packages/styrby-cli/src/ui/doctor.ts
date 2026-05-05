@@ -8,8 +8,7 @@
  * @module ui/doctor
  */
 
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -17,8 +16,6 @@ import { isAuthenticated, getMachineId } from '@/configuration';
 import { loadPersistedData } from '@/persistence';
 import { config } from '@/env';
 import { getDaemonStatus } from '@/daemon/run';
-
-const execAsync = promisify(exec);
 
 /**
  * Diagnostic check result.
@@ -41,17 +38,23 @@ export interface DiagnosticResult {
 /**
  * Check if a CLI command exists on the system PATH.
  *
- * @param command - Command name to look up
+ * SECURITY (OWASP ASVS V5.3.5 / CWE-78): Uses `spawn` with `shell: false`
+ * and an argv array - no shell interpretation, no template-string
+ * interpolation. Even though every caller in this file passes a constant
+ * string literal ('claude', 'codex', 'gemini'), routing through spawn
+ * closes the residual class so a future caller with a non-constant
+ * argument cannot accidentally introduce shell injection.
+ *
+ * @param command - Command name to look up (passed as a single argv arg, never interpreted by a shell)
  * @returns True if the command is found
  */
-async function commandExists(command: string): Promise<boolean> {
-  try {
+function commandExists(command: string): Promise<boolean> {
+  return new Promise((resolve) => {
     const whichCmd = process.platform === 'win32' ? 'where' : 'which';
-    await execAsync(`${whichCmd} ${command}`);
-    return true;
-  } catch {
-    return false;
-  }
+    const child = spawn(whichCmd, [command], { shell: false, stdio: 'ignore' });
+    child.on('exit', (code) => resolve(code === 0));
+    child.on('error', () => resolve(false));
+  });
 }
 
 /**
