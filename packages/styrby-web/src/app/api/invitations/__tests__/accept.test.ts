@@ -24,6 +24,25 @@ import { NextRequest } from 'next/server';
 const mockGetUser = vi.fn();
 
 /**
+ * Top-level rpc() mock used by the WAVE-E-002 atomic-accept path.
+ *
+ * The accept route now calls supabase.rpc('accept_team_invitation', {...})
+ * instead of issuing two PostgREST writes. Default response is success
+ * (returns a synthetic team_members row) so existing happy-path tests
+ * keep passing without per-test setup. Tests that need to simulate
+ * RPC failure call mockRpc.mockResolvedValueOnce(...) explicitly.
+ */
+type RpcResult =
+  | { data: { id: string; team_id: string; user_id: string; role: string }; error: null }
+  | { data: null; error: { code: string; message: string } };
+const mockRpc = vi.fn(
+  async (_fn: string, _args: unknown): Promise<RpcResult> => ({
+    data: { id: 'member-new', team_id: 'team-1', user_id: 'user-1', role: 'member' },
+    error: null,
+  }),
+);
+
+/**
  * Chainable query builder factory used by Supabase mock.
  * Each call to .from() draws from mockFromResults queue.
  */
@@ -55,6 +74,7 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({
     auth: { getUser: mockGetUser },
     from: vi.fn(() => nextFromMock()),
+    rpc: mockRpc,
   })),
   createAdminClient: vi.fn(() => ({
     from: vi.fn(() => nextFromMock()),
@@ -70,6 +90,7 @@ vi.mock('@supabase/ssr', () => ({
   createServerClient: vi.fn(() => ({
     auth: { getUser: mockGetUser },
     from: vi.fn(() => nextFromMock()),
+    rpc: mockRpc,
   })),
 }));
 
@@ -139,6 +160,15 @@ describe('POST /api/invitations/accept', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     mockFromResults.length = 0;
+
+    // Reset rpc default to "success" between tests; specific tests override
+    // with mockRpc.mockResolvedValueOnce(...) when they want to simulate
+    // a transactional failure inside accept_team_invitation.
+    mockRpc.mockReset();
+    mockRpc.mockResolvedValue({
+      data: { id: 'member-new', team_id: 'team-1', user_id: 'user-1', role: 'member' },
+      error: null,
+    });
 
     // Dynamically import so vi.mock() takes effect
     const mod = await import('../accept/route');
@@ -642,5 +672,116 @@ describe('POST /api/invitations/accept', () => {
     // Soft assertion: just log. Hard assertion would be flaky in CI VMs.
     expect(avgInvalid).toBeGreaterThan(0);
     expect(avgValid).toBeGreaterThan(0);
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // WAVE-E-002 regression: atomic accept (RPC) — partial failure does not
+  // leave an orphan team_member row.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * If the RPC raises mid-transaction (e.g. UPDATE fails due to RLS edge,
+   * deadlock, or trigger error), the route must surface a 500 AND the
+   * route must NOT have issued a separate team_members insert via from().
+   * This is the contract that prevents seat-counter inflation: both writes
+   * happen inside the function; a failure rolls them BOTH back.
+   */
+  it('WAVE-E-002: atomic RPC failure produces 500 with no orphan team_members insert', async () => {
+    const rawToken = fakeToken();
+    const tokenHash = await sha256Hex(rawToken);
+
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: 'user-1', email: 'alice@example.com' } },
+      error: null,
+    });
+
+    // Invitation lookup succeeds with a valid pending row
+    mockFromResults.push({
+      data: {
+        id: 'inv-atomic-1',
+        team_id: 'team-1',
+        email: 'alice@example.com',
+        role: 'member',
+        status: 'pending',
+        expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+        token_hash: tokenHash,
+        invited_by: 'admin-1',
+      },
+      error: null,
+    });
+
+    // Simulate RPC mid-transaction failure (e.g. UPDATE step raised).
+    // Postgres rolled back the INSERT — the route MUST NOT compensate with
+    // its own team_members insert (the whole point of the fix).
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: 'XX000', message: 'transaction aborted: simulated UPDATE failure' },
+    });
+
+    // Snapshot how many .from() calls happened BEFORE we issued the request,
+    // so we can assert the route did not fall back to a manual insert path.
+    // We count by draining mockFromResults — every push that gets consumed
+    // is one .from() call. After the run, only the invitation lookup (1)
+    // should have been consumed; no insert/update fallback.
+
+    const req = createRequest({ token: rawToken });
+    const res = await POST(req);
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe('INTERNAL_ERROR');
+
+    // Exactly ONE rpc('accept_team_invitation', ...) call was issued.
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(mockRpc).toHaveBeenCalledWith(
+      'accept_team_invitation',
+      expect.objectContaining({
+        p_invitation_id: 'inv-atomic-1',
+        p_user_id: 'user-1',
+      }),
+    );
+
+    // Only the initial invitation lookup was popped from the from() queue.
+    // Any orphan team_members insert would have popped a second result.
+    // Defensively the queue has 0 leftover entries (we only pushed 1).
+    expect(mockFromResults.length).toBe(0);
+  });
+
+  /**
+   * RPC reports invitation_already_resolved → route returns 409. This
+   * exercises the error-message-to-HTTP mapping in the new RPC path.
+   */
+  it('WAVE-E-002: RPC invitation_already_resolved maps to 409', async () => {
+    const rawToken = fakeToken();
+    const tokenHash = await sha256Hex(rawToken);
+
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: 'user-1', email: 'alice@example.com' } },
+      error: null,
+    });
+
+    mockFromResults.push({
+      data: {
+        id: 'inv-resolved',
+        team_id: 'team-1',
+        email: 'alice@example.com',
+        role: 'member',
+        status: 'pending',
+        expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+        token_hash: tokenHash,
+        invited_by: 'admin-1',
+      },
+      error: null,
+    });
+
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: 'P0001', message: 'invitation_already_resolved' },
+    });
+
+    const res = await POST(createRequest({ token: rawToken }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe('ALREADY_ACCEPTED');
   });
 });

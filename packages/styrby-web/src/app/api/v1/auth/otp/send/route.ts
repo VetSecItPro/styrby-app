@@ -131,7 +131,10 @@ async function handlePost(request: NextRequest): Promise<NextResponse> {
   // through would bypass the rate-limit gate entirely (OWASP A07:2021).
   let rateLimitResult: Awaited<ReturnType<typeof rateLimit>>;
   try {
-    rateLimitResult = await rateLimit(request, OTP_SEND_RATE_LIMIT, 'otp-send');
+    // WAVE-B-002: failClosed=true. Sending OTP triggers an outbound email per
+    // request and is the first step of an account-takeover chain; an attacker
+    // who can DOS Upstash must not be able to send unmetered OTP floods.
+    rateLimitResult = await rateLimit(request, OTP_SEND_RATE_LIMIT, 'otp-send', { failClosed: true });
   } catch (rateLimitErr) {
     Sentry.captureException(rateLimitErr, {
       tags: { endpoint: '/api/v1/auth/otp/send' },
@@ -141,6 +144,13 @@ async function handlePost(request: NextRequest): Promise<NextResponse> {
   }
 
   if (!rateLimitResult.allowed) {
+    // WAVE-B-002: 503 distinguishes "limiter down + failClosed" from 429.
+    if (rateLimitResult.infrastructureUnavailable) {
+      return NextResponse.json(
+        { error: 'RATE_LIMIT_UNAVAILABLE' },
+        { status: 503, headers: { 'Retry-After': '30' } },
+      );
+    }
     // WHY NextResponse.json instead of rateLimitResponse(): the helper returns
     // a plain Response, but Next.js route handlers infer NextResponse<unknown>
     // from earlier branches. Returning Response here triggers TS2739 because

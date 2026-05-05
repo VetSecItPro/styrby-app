@@ -141,7 +141,10 @@ async function handlePost(request: NextRequest): Promise<NextResponse> {
   // falling through, which would bypass the rate-limit gate entirely (OWASP A07:2021).
   let rateLimitResult: Awaited<ReturnType<typeof rateLimit>>;
   try {
-    rateLimitResult = await rateLimit(request, OTP_VERIFY_RATE_LIMIT, 'otp-verify');
+    // WAVE-B-002: failClosed=true on this auth-state-changing endpoint so a
+    // Redis outage cannot let an attacker bypass the brute-force gate on OTP
+    // verification (which mints a long-lived API key on success).
+    rateLimitResult = await rateLimit(request, OTP_VERIFY_RATE_LIMIT, 'otp-verify', { failClosed: true });
   } catch (rateLimitErr) {
     Sentry.captureException(rateLimitErr, {
       tags: { endpoint: '/api/v1/auth/otp/verify' },
@@ -151,6 +154,13 @@ async function handlePost(request: NextRequest): Promise<NextResponse> {
   }
 
   if (!rateLimitResult.allowed) {
+    // WAVE-B-002: distinguish 503 (limiter down + failClosed) from 429 (over cap).
+    if (rateLimitResult.infrastructureUnavailable) {
+      return NextResponse.json(
+        { error: 'RATE_LIMIT_UNAVAILABLE' },
+        { status: 503, headers: { 'Retry-After': '30' } },
+      );
+    }
     // WHY NextResponse.json instead of rateLimitResponse(): see otp/send/route.ts
     // for the full reasoning. Inline NextResponse keeps the return type
     // uniform across all branches (TS2739 otherwise — NextResponse adds

@@ -69,6 +69,61 @@ const AUDIT_RATE_LIMIT = {
 };
 
 // ---------------------------------------------------------------------------
+// Action allowlist — WAVE-E-003 / WAVE-E-004 forgery mitigation
+// ---------------------------------------------------------------------------
+
+/**
+ * Allowlist of audit_action values that may be written through the public
+ * API-key-authenticated /api/v1/audit endpoint.
+ *
+ * WHY an enum (not free-form strings): a leaked write-scoped styrby_* key
+ * could otherwise forge ANY action — most dangerously `mcp_approval_decided`,
+ * which the CLI's MCP approval handler polls for and treats as "the user
+ * approved this command." Forging a decision row is direct RCE on the user's
+ * machine.
+ *
+ * WHY this list (and not others): every action below is written by the CLI
+ * (or, for `settings_updated`, by the CLI's budget-actions module) via
+ * `apiClient.writeAuditEvent`. They are operational/informational events
+ * with no authority-bearing semantics on the receiving side.
+ *
+ * EXPLICITLY EXCLUDED — forgery-sensitive actions that MUST NOT be writable
+ * through this endpoint:
+ *   - `mcp_approval_decided`   — CLI executes the "approved" command; mobile
+ *                                writes this directly via Supabase RLS
+ *                                (migration 070) which validates the caller's
+ *                                JWT, not just an API key. Phase 4 will add
+ *                                a dedicated /api/v1/mcp/approvals endpoint
+ *                                gated on a separate `mcp:approve` scope.
+ *   - `team_command_approved`  — Same shape as MCP decisions; team approval
+ *   - `team_command_denied`      chain. Should flow through a dedicated
+ *   - `team_command_timeout`     scope-gated path, not the generic audit endpoint.
+ *   - `team_seat_count_*`      — Written by server-side billing routes only
+ *   - `team_downgrade_blocked`   (admin/service role); never by external clients.
+ *   - `offline_queue_*`        — Mobile-internal; written via Supabase direct.
+ *
+ * SOC 2 CC6.1 (least-privilege), OWASP A01:2021 (broken access control),
+ * OWASP A04:2021 (insecure design).
+ */
+const ALLOWED_AUDIT_ACTIONS = [
+  // Session group lifecycle (multi-agent orchestrator)
+  'session_group_created',
+  'session_group_focus_changed',
+  // Context memory commands
+  'context_memory_synced',
+  'context_memory_exported',
+  'context_memory_imported',
+  // MCP approval REQUEST (not decision) + timeout — informational events.
+  // The CLI is the only writer; the decision row is gated separately.
+  'mcp_approval_requested',
+  'mcp_approval_timeout',
+  // Budget alert side-effect: CLI writes when a budget action mutated settings
+  'settings_updated',
+] as const;
+
+const AuditActionEnum = z.enum(ALLOWED_AUDIT_ACTIONS);
+
+// ---------------------------------------------------------------------------
 // Zod Schema — H42 Layer 3 mass-assignment guard
 // ---------------------------------------------------------------------------
 
@@ -83,10 +138,15 @@ const AUDIT_RATE_LIMIT = {
 const AuditBodySchema = z
   .object({
     /**
-     * Dot-namespaced event name. Examples: "session.started", "agent.connected",
-     * "user.login". CLI callsites define these; the API stores them verbatim.
+     * Allowlisted event name. See ALLOWED_AUDIT_ACTIONS above for the
+     * authoritative list and the rationale for each exclusion. Unknown
+     * actions return 400 — they are NEVER silently stored.
+     *
+     * WHY enum (not free-form): closes WAVE-E-003 / WAVE-E-004 — a leaked
+     * write-scoped API key cannot forge `mcp_approval_decided` (RCE) or any
+     * other authority-bearing action through this endpoint.
      */
-    action: z.string().min(1, 'action is required').max(255, 'action must be 255 characters or fewer'),
+    action: AuditActionEnum,
 
     /**
      * Entity type that the event relates to. Examples: "session", "machine", "user".

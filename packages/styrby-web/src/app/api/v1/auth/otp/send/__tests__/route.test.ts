@@ -407,7 +407,8 @@ describe('POST /api/v1/auth/otp/send — Rate limit', () => {
   it('calls rateLimit with otp-send prefix and correct config', async () => {
     const req = makeRequest({ email: 'user@example.com' });
     await POST(req);
-    expect(rateLimit).toHaveBeenCalledWith(req, OTP_SEND_RATE_LIMIT, 'otp-send');
+    // WAVE-B-002: failClosed flag added to bootstrap auth endpoints.
+    expect(rateLimit).toHaveBeenCalledWith(req, OTP_SEND_RATE_LIMIT, 'otp-send', { failClosed: true });
   });
 
   it('OTP_SEND_RATE_LIMIT is 3 requests per 60 seconds', () => {

@@ -35,6 +35,7 @@
  * }
  *
  * @error 401 { error: 'AUTH_FAILED' }     — Missing or invalid Supabase JWT
+ * @error 403 { error: 'AAL2_REQUIRED' }   — User has MFA enrolled but session is aal1 (WAVE-E-008)
  * @error 429 { error: 'RATE_LIMITED' }    — IP cap exceeded
  * @error 500 { error: 'INTERNAL_ERROR' }  — Key minting failure (Sentry)
  *
@@ -70,7 +71,16 @@ async function handlePost(request: NextRequest): Promise<NextResponse> {
   // through. Same pattern as /otp/send.
   let rateLimitResult: Awaited<ReturnType<typeof rateLimit>>;
   try {
-    rateLimitResult = await rateLimit(request, AUTH_EXCHANGE_RATE_LIMIT, 'auth-exchange');
+    // WAVE-B-002: failClosed=true. If Upstash is unreachable for this auth-
+    // state-changing endpoint, we surface 503 instead of allowing the request
+    // through unmetered. An attacker who can degrade the limiter must not be
+    // able to flood key-minting calls.
+    rateLimitResult = await rateLimit(
+      request,
+      AUTH_EXCHANGE_RATE_LIMIT,
+      'auth-exchange',
+      { failClosed: true },
+    );
   } catch (rateLimitErr) {
     Sentry.captureException(rateLimitErr, {
       tags: { endpoint: ROUTE_ID },
@@ -80,6 +90,15 @@ async function handlePost(request: NextRequest): Promise<NextResponse> {
   }
 
   if (!rateLimitResult.allowed) {
+    // WAVE-B-002: distinguish "you exceeded limits" (429) from
+    // "limiter is down + we fail-closed" (503). Clients can retry the latter
+    // without being held to the per-IP cap.
+    if (rateLimitResult.infrastructureUnavailable) {
+      return NextResponse.json(
+        { error: 'RATE_LIMIT_UNAVAILABLE' },
+        { status: 503, headers: { 'Retry-After': '30' } },
+      );
+    }
     const retryAfter = rateLimitResult.retryAfter ?? 60;
     return NextResponse.json(
       { error: 'RATE_LIMITED' },
@@ -105,6 +124,11 @@ async function handlePost(request: NextRequest): Promise<NextResponse> {
   // OWASP A07:2021 — server-side JWT verification, no client-side trust.
   const supabase = createAdminClient();
   let userId: string;
+  // WHY captured separately: aal (authentication assurance level) lives on the
+  // JWT claims, not on `data.user`. Decode the JWT body to read aal alongside
+  // the validated user (signature is verified by getUser; we only read claims
+  // AFTER verification succeeds, so this is not an unsafe parse).
+  let jwtAal: string | null = null;
   try {
     const { data, error } = await supabase.auth.getUser(supabaseJwt);
     if (error || !data?.user?.id) {
@@ -112,9 +136,100 @@ async function handlePost(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'AUTH_FAILED' }, { status: 401 });
     }
     userId = data.user.id;
+
+    // Decode JWT body for aal claim. Safe AFTER getUser() verified signature.
+    try {
+      const payloadB64 = supabaseJwt.split('.')[1] ?? '';
+      const payloadJson = Buffer.from(payloadB64, 'base64').toString('utf8');
+      const claims = JSON.parse(payloadJson) as { aal?: string };
+      jwtAal = typeof claims.aal === 'string' ? claims.aal : null;
+    } catch {
+      jwtAal = null;
+    }
   } catch {
     // Catch-all → 401 prevents leaking infra errors as auth signals.
     return NextResponse.json({ error: 'AUTH_FAILED' }, { status: 401 });
+  }
+
+  // ── 2b. WAVE-E-008: aal2 enforcement when MFA is enrolled ─────────────────
+  // WHY: minting a long-lived `styrby_*` key from a JWT is a high-value step.
+  // Replay of a stolen aal1 JWT could mint up to ~600 keys/hr against the
+  // current rate limit. If the user has elevated their session via MFA (aal2),
+  // a stolen JWT alone is insufficient. Users WITHOUT MFA enrolled are not
+  // forced into a UX cliff — we allow the exchange but emit an audit hint.
+  //
+  // Kill switch: EXCHANGE_REQUIRE_AAL2_IF_ENROLLED=false disables enforcement
+  // (operator escape hatch if the MFA-listing API misbehaves in prod).
+  const aal2EnforcementEnabled =
+    (process.env.EXCHANGE_REQUIRE_AAL2_IF_ENROLLED ?? 'true').toLowerCase() !== 'false';
+  if (aal2EnforcementEnabled) {
+    let mfaFactorCount = 0;
+    try {
+      // WHY admin.mfa.listFactors with userId: getUser() returned the user but
+      // the client-bound mfa.listFactors() requires a session-scoped client.
+      // The admin auth API surfaces factors per-user without a session.
+      const { data: factorsData, error: factorsError } = await supabase.auth.admin.mfa.listFactors({
+        userId,
+      });
+      if (factorsError) {
+        // WHY non-fatal: a factor-list lookup failure must not block onboarding.
+        // Default to "no factors" (allow exchange + audit hint) rather than
+        // failing closed and bricking every CLI sign-in if Supabase auth is
+        // degraded. The audit_log row makes the degradation observable.
+        Sentry.captureException(factorsError, {
+          tags: { endpoint: ROUTE_ID, user_id: userId, context: 'mfa-listFactors' },
+        });
+      } else {
+        // Verified factors are the ones that actually elevate AAL.
+        const factors = factorsData?.factors ?? [];
+        mfaFactorCount = factors.filter((f) => f.status === 'verified').length;
+      }
+    } catch (mfaErr) {
+      Sentry.captureException(mfaErr, {
+        tags: { endpoint: ROUTE_ID, user_id: userId, context: 'mfa-listFactors-throw' },
+      });
+    }
+
+    if (mfaFactorCount > 0 && jwtAal !== 'aal2') {
+      // User is MFA-enrolled but session is aal1 — REQUIRE re-auth.
+      // 403 (not 401): the JWT is valid; the privilege level is insufficient.
+      return NextResponse.json(
+        {
+          error: 'AAL2_REQUIRED',
+          message: 'Re-authenticate with MFA before exchanging a JWT for an API key.',
+        },
+        { status: 403 },
+      );
+    }
+
+    if (mfaFactorCount === 0) {
+      // No MFA enrolled — allow the exchange, but flag for follow-up.
+      console.warn(
+        `[exchange] user ${userId} exchanged a JWT for an API key without MFA enrolled — recommend enrollment`,
+      );
+      // Audit row is best-effort (failure must not block the exchange).
+      void supabase
+        .from('audit_log')
+        .insert({
+          user_id: userId,
+          action: 'security_event',
+          resource_type: 'auth',
+          resource_id: null,
+          metadata: {
+            event_subtype: 'exchange_without_mfa',
+            recommendation: 'enroll_mfa',
+            jwt_aal: jwtAal,
+          },
+        })
+        .then(({ error: auditErr }) => {
+          if (auditErr) {
+            console.error(
+              '[exchange] audit_log insert (exchange_without_mfa) failed (non-fatal):',
+              auditErr.message,
+            );
+          }
+        });
+    }
   }
 
   // ── 3. Mint styrby_* API key (same pattern as /otp/verify, /oauth/callback) ──

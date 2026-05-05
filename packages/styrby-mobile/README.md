@@ -48,6 +48,20 @@ pnpm test          # Jest test suite
 
 ### EAS Builds (CI/CD)
 
+**First-time setup (one-shot, per fresh clone of the repo):**
+
+`app.json` ships with `extra.eas.projectId` set to the placeholder
+`TODO_OPERATOR_RUN_eas_init`. Before the first EAS Build will succeed,
+an operator must claim the project from the Expo dashboard:
+
+```bash
+cd packages/styrby-mobile
+npx eas init     # writes the real projectId UUID into app.json
+```
+
+Commit the resulting change (the projectId is not a secret — it's a
+stable public identifier for the project in EAS).
+
 ```bash
 pnpm build:dev     # EAS development build
 pnpm build:preview # EAS preview build (internal distribution)

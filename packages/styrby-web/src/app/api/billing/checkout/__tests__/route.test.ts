@@ -446,13 +446,78 @@ describe('POST /api/billing/checkout', () => {
   });
 
   /**
+   * WAVE-E-005 regression: idempotency dedup.
+   *
+   * Two POSTs with the same (user, tier, cycle, seats) inside the 60-second
+   * window must return the SAME Polar URL and create only ONE Polar
+   * checkout. Without idempotency, a double-tap on the upgrade button would
+   * spawn two checkouts and risk a double-charge if the user completed both.
+   *
+   * Test isolates state by resetting the route module so the in-memory
+   * idempotency cache starts empty.
+   */
+  it('WAVE-E-005: dedupes identical requests within the 60s window (one Polar checkout, same URL)', async () => {
+    // Re-import the route module so the in-memory idempotency Map is fresh.
+    // Other tests in this file may have populated cache entries that would
+    // otherwise leak across specs and mask a regression.
+    vi.resetModules();
+    const { POST: PostFresh } = await import('../route');
+
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: 'user-dedupe', email: 'dedupe@test.com' } },
+      error: null,
+    });
+
+    // Polar returns the same URL only because we EXPECT one call. If the
+    // route bypassed the cache and called Polar twice, it would still get
+    // this stub URL — but mockCheckoutCreate.toHaveBeenCalledTimes(1)
+    // would fail. That's the actual regression assertion.
+    mockCheckoutCreate.mockResolvedValue({ url: 'https://polar.test/checkout/dedupe-1' });
+
+    const makeReq = () =>
+      new Request('http://localhost/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tierId: 'pro', billingCycle: 'monthly' }),
+      });
+
+    const r1 = await PostFresh(makeReq() as never);
+    const r2 = await PostFresh(makeReq() as never);
+
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+
+    const b1 = await r1.json();
+    const b2 = await r2.json();
+
+    expect(b1.url).toBe('https://polar.test/checkout/dedupe-1');
+    expect(b2.url).toBe(b1.url);
+
+    // The critical assertion: Polar was called EXACTLY ONCE. The second
+    // request hit the cache and returned the cached URL.
+    expect(mockCheckoutCreate).toHaveBeenCalledTimes(1);
+
+    // Clear sticky mockResolvedValue we set above so the next test in
+    // this file (which uses .mockRejectedValueOnce) sees a clean state.
+    // vi.clearAllMocks() in beforeEach resets call history but does NOT
+    // clear sticky implementations.
+    mockCheckoutCreate.mockReset();
+    mockGetUser.mockReset();
+  });
+
+  /**
    * Test 10: Returns 500 when Polar SDK throws
    * WHY: Polar can throw network/API/rate-limit errors. Route catches
    * and returns a generic error message to avoid leaking internal details.
    */
   it('returns 500 when Polar SDK throws', async () => {
+    // WHY a unique user id: the WAVE-E-005 idempotency cache (60s window)
+    // will return the cached URL from earlier pro/monthly happy-path tests
+    // if we reuse the same (userId, tierId, billingCycle) tuple. Using a
+    // distinct user forces a cache miss so this test exercises the actual
+    // SDK-throw path.
     mockGetUser.mockResolvedValueOnce({
-      data: { user: { id: 'user1', email: 'test@example.com' } },
+      data: { user: { id: 'user-throws-test', email: 'test@example.com' } },
       error: null,
     });
 

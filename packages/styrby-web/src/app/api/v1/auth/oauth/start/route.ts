@@ -125,8 +125,22 @@ export async function POST(request: NextRequest) {
   // ── 1. IP-based rate limit ─────────────────────────────────────────────────
   // WHY: No API key is available yet (caller is pre-auth), so we rate-limit
   // per IP. The 'oauth-start' prefix isolates this bucket from other endpoints.
-  const rateLimitResult = await rateLimit(request, OAUTH_START_RATE_LIMIT, 'oauth-start');
+  // WAVE-B-002: failClosed=true. OAuth start issues a state-tied PKCE pair —
+  // an attacker who can DOS the limiter could otherwise enumerate state values
+  // unmetered, expanding the brute-force surface for the callback step.
+  const rateLimitResult = await rateLimit(
+    request,
+    OAUTH_START_RATE_LIMIT,
+    'oauth-start',
+    { failClosed: true },
+  );
   if (!rateLimitResult.allowed) {
+    if (rateLimitResult.infrastructureUnavailable) {
+      return new Response(
+        JSON.stringify({ error: 'RATE_LIMIT_UNAVAILABLE' }),
+        { status: 503, headers: { 'Content-Type': 'application/json', 'Retry-After': '30' } },
+      );
+    }
     return rateLimitResponse(rateLimitResult.retryAfter ?? 60);
   }
 

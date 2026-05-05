@@ -120,7 +120,7 @@ import { POST } from '../route';
  * @returns A NextRequest with the given body
  */
 function createRequest(
-  body: Record<string, unknown> = { action: 'user.login' },
+  body: Record<string, unknown> = { action: 'settings_updated' },
   headers: Record<string, string> = {},
 ): NextRequest {
   return new NextRequest('http://localhost:3000/api/v1/audit', {
@@ -195,23 +195,24 @@ describe('POST /api/v1/audit', () => {
       expect(body.error).toBeDefined();
     });
 
-    it('returns 400 when action exceeds 255 characters', async () => {
-      // WHY: Zod .max(255) prevents unbounded strings from reaching the DB INSERT.
-      // A caller (or attacker) sending a megabyte-length action string could cause
-      // oversized column writes. This test is the automated gate. IMPORTANT-1 fix.
+    it('returns 400 when action is not in the allowlist (oversized string also blocked)', async () => {
+      // WHY: WAVE-E-003 / WAVE-E-004 — the allowlist enum closes the forgery
+      // surface AND incidentally caps the action length (no enum value exceeds
+      // 64 chars). Oversized strings are unknown enum members and rejected.
+      // Replaces the prior `.max(255)` length test with the stricter enum check.
       const longAction = 'a'.repeat(256);
       const response = await POST(createRequest({ action: longAction }));
       expect(response.status).toBe(400);
 
       const body = await response.json();
-      expect(body.error).toMatch(/255/);
+      expect(body.error).toBeDefined();
     });
 
     it('returns 400 for unknown fields (strict mode mass-assignment guard)', async () => {
       // WHY .strict(): Zod strict mode rejects extra fields so callers cannot
       // inject unexpected columns via the API body. H42 Layer 3, OWASP A03:2021.
       const response = await POST(
-        createRequest({ action: 'user.login', injected_column: 'malicious' }),
+        createRequest({ action: 'settings_updated', injected_column: 'malicious' }),
       );
       expect(response.status).toBe(400);
 
@@ -221,9 +222,94 @@ describe('POST /api/v1/audit', () => {
 
     it('returns 400 when metadata is not an object', async () => {
       const response = await POST(
-        createRequest({ action: 'user.login', metadata: 'not-an-object' }),
+        createRequest({ action: 'settings_updated', metadata: 'not-an-object' }),
       );
       expect(response.status).toBe(400);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // 2b. Action allowlist — WAVE-E-003 / WAVE-E-004 forgery mitigation
+  // --------------------------------------------------------------------------
+
+  describe('action allowlist (WAVE-E-003 / WAVE-E-004)', () => {
+    /**
+     * The MCP approval handler in the CLI POLLS audit_log for rows with
+     * action='mcp_approval_decided' and treats a returned row as user consent
+     * to execute the requested command. If the public audit endpoint accepted
+     * 'mcp_approval_decided' from a leaked write-scoped API key, the attacker
+     * could forge approvals and achieve RCE on the user's machine.
+     *
+     * The decision row must NEVER be writable through this endpoint.
+     */
+    it('returns 400 when action is mcp_approval_decided (forgery RCE blocked)', async () => {
+      const response = await POST(
+        createRequest({
+          action: 'mcp_approval_decided',
+          resource_type: 'mcp_approval',
+          resource_id: '00000000-0000-0000-0000-000000000000',
+          metadata: { decision: 'approved', user_message: 'forged' },
+        }),
+      );
+      expect(response.status).toBe(400);
+
+      const body = await response.json();
+      expect(body.error).toBeDefined();
+      // Confirm the response is a validation error, not a generic 500.
+      // We do not need to match exact wording — the 400 status is the contract.
+      expect(typeof body.error).toBe('string');
+    });
+
+    it('returns 400 for team_command_approved (separate scope-gated path)', async () => {
+      const response = await POST(createRequest({ action: 'team_command_approved' }));
+      expect(response.status).toBe(400);
+    });
+
+    it('returns 400 for team_command_denied (separate scope-gated path)', async () => {
+      const response = await POST(createRequest({ action: 'team_command_denied' }));
+      expect(response.status).toBe(400);
+    });
+
+    it('returns 400 for team_seat_count_increased (server-only action)', async () => {
+      const response = await POST(createRequest({ action: 'team_seat_count_increased' }));
+      expect(response.status).toBe(400);
+    });
+
+    it('returns 400 for arbitrary unknown action strings', async () => {
+      const response = await POST(createRequest({ action: 'arbitrary.unknown.event' }));
+      expect(response.status).toBe(400);
+    });
+
+    it('accepts mcp_approval_requested (request, not decision)', async () => {
+      // The REQUEST row is informational and SHOULD be writable through this
+      // endpoint — the CLI emits it before polling for the decision.
+      insertCallQueue.push({
+        data: { id: 'req-001', created_at: '2026-05-05T00:00:00Z' },
+        error: null,
+      });
+      const response = await POST(
+        createRequest({
+          action: 'mcp_approval_requested',
+          resource_type: 'mcp_approval',
+          resource_id: '11111111-1111-1111-1111-111111111111',
+        }),
+      );
+      expect(response.status).toBe(201);
+    });
+
+    it('accepts mcp_approval_timeout (CLI-only writer)', async () => {
+      insertCallQueue.push({
+        data: { id: 'tmo-001', created_at: '2026-05-05T00:00:00Z' },
+        error: null,
+      });
+      const response = await POST(
+        createRequest({
+          action: 'mcp_approval_timeout',
+          resource_type: 'mcp_approval',
+          resource_id: '22222222-2222-2222-2222-222222222222',
+        }),
+      );
+      expect(response.status).toBe(201);
     });
   });
 
@@ -237,7 +323,7 @@ describe('POST /api/v1/audit', () => {
     // before it reaches the INSERT statement. H42 Layer 3, OWASP A03:2021.
     it('rejects a body that includes user_id (spoof attempt)', async () => {
       const response = await POST(
-        createRequest({ action: 'user.login', user_id: 'attacker-uuid' }),
+        createRequest({ action: 'settings_updated', user_id: 'attacker-uuid' }),
       );
       expect(response.status).toBe(400);
 
@@ -257,7 +343,7 @@ describe('POST /api/v1/audit', () => {
         error: null,
       });
 
-      const response = await POST(createRequest({ action: 'session.started' }));
+      const response = await POST(createRequest({ action: 'session_group_created' }));
       expect(response.status).toBe(201);
       // WHY Content-Type assertion: ensures callers can safely parse the response
       // as JSON. A future middleware change that strips Content-Type would cause
@@ -277,7 +363,7 @@ describe('POST /api/v1/audit', () => {
 
       const response = await POST(
         createRequest({
-          action: 'session.ended',
+          action: 'session_group_focus_changed',
           resource_type: 'session',
           resource_id: 'sess-abc-123',
           metadata: { duration_ms: 3600000 },
@@ -304,7 +390,7 @@ describe('POST /api/v1/audit', () => {
       };
 
       const response = await POST(
-        createRequest({ action: 'user.login' }, { 'Idempotency-Key': 'idem-key-001' }),
+        createRequest({ action: 'settings_updated' }, { 'Idempotency-Key': 'idem-key-001' }),
       );
 
       // WHY 200 not 201: replayed responses are returned as-is with the original
@@ -325,7 +411,7 @@ describe('POST /api/v1/audit', () => {
       };
 
       const response = await POST(
-        createRequest({ action: 'different.action' }, { 'Idempotency-Key': 'idem-key-001' }),
+        createRequest({ action: 'context_memory_synced' }, { 'Idempotency-Key': 'idem-key-001' }),
       );
       expect(response.status).toBe(409);
 
@@ -342,7 +428,7 @@ describe('POST /api/v1/audit', () => {
       const { storeIdempotencyResult } = await import('@/lib/middleware/idempotency');
 
       await POST(
-        createRequest({ action: 'user.login' }, { 'Idempotency-Key': 'idem-key-002' }),
+        createRequest({ action: 'settings_updated' }, { 'Idempotency-Key': 'idem-key-002' }),
       );
 
       expect(storeIdempotencyResult).toHaveBeenCalledOnce();
@@ -378,7 +464,7 @@ describe('POST /api/v1/audit', () => {
     it('returns 500 when Supabase insert fails', async () => {
       insertCallQueue.push({ data: null, error: { message: 'Connection refused' } });
 
-      const response = await POST(createRequest({ action: 'session.started' }));
+      const response = await POST(createRequest({ action: 'session_group_created' }));
       expect(response.status).toBe(500);
 
       const body = await response.json();
@@ -389,7 +475,7 @@ describe('POST /api/v1/audit', () => {
       insertCallQueue.push({ data: null, error: { message: 'deadlock detected' } });
 
       const Sentry = await import('@sentry/nextjs');
-      await POST(createRequest({ action: 'session.started' }));
+      await POST(createRequest({ action: 'session_group_created' }));
 
       expect(Sentry.captureException).toHaveBeenCalledOnce();
     });
@@ -397,7 +483,7 @@ describe('POST /api/v1/audit', () => {
     it('does not include stack traces or internal error details in 500 response', async () => {
       insertCallQueue.push({ data: null, error: { message: 'internal pg error' } });
 
-      const response = await POST(createRequest({ action: 'session.started' }));
+      const response = await POST(createRequest({ action: 'session_group_created' }));
       expect(response.status).toBe(500);
 
       const body = await response.json();

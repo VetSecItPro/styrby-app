@@ -46,6 +46,31 @@ type RateLimitResult = {
   resetAt: number;
   /** Seconds until the client can retry (only present if rate limited) */
   retryAfter?: number;
+  /**
+   * WAVE-B-002: set to true when allowed=false because the rate-limiter
+   * infrastructure (Upstash Redis) was unreachable AND the route opted into
+   * fail-closed via `options.failClosed`. Callers should respond 503 with
+   * `error: 'RATE_LIMIT_UNAVAILABLE'` rather than the standard 429, so that
+   * clients distinguish "you're being throttled" from "the limiter is down."
+   */
+  infrastructureUnavailable?: boolean;
+};
+
+/**
+ * Per-call options for {@link rateLimit}.
+ */
+export type RateLimitOptions = {
+  /**
+   * WAVE-B-002: when true, a Redis outage rejects the request (allowed=false +
+   * infrastructureUnavailable=true) instead of failing open. Reserve for
+   * auth-state-changing endpoints (signup, login, exchange, password reset,
+   * checkout, seat changes, admin mutations) so an attacker cannot DOS the
+   * limiter to bypass throttling on those endpoints.
+   *
+   * Default: false (fail-open) — read-only routes treat rate limiting as a
+   * safeguard, not an availability gate.
+   */
+  failClosed?: boolean;
 };
 
 // ============================================================================
@@ -246,7 +271,8 @@ export function getClientIp(request: Request): string {
 export async function rateLimit(
   request: Request,
   config: RateLimitConfig,
-  keyPrefix: string = 'default'
+  keyPrefix: string = 'default',
+  options?: RateLimitOptions
 ): Promise<RateLimitResult> {
   const ip = getClientIp(request);
 
@@ -269,10 +295,32 @@ export async function rateLimit(
         : Math.ceil((result.reset - Date.now()) / 1000),
     };
   } catch (error) {
-    // WHY: If Redis is temporarily unreachable, allow the request rather
-    // than blocking all users. Rate limiting is a safeguard, not a gate.
-    // Log the error for monitoring but don't break the user experience.
-    console.error('Rate limit Redis error (allowing request):', error);
+    // WAVE-B-002: fail-closed for state-changing / auth-sensitive routes.
+    // WHY: an attacker who can degrade Upstash (or saturate it) could otherwise
+    // bypass rate limits on auth-state-changing endpoints (signup, login,
+    // exchange, billing, admin) and use the bypass to brute-force. For those
+    // routes we surface a 503-shaped result (allowed=false, special marker)
+    // so the caller can return RATE_LIMIT_UNAVAILABLE.
+    //
+    // Read-only and low-sensitivity routes keep the fail-OPEN posture so that
+    // a Redis blip doesn't take down the product.
+    if (options?.failClosed) {
+      console.error(
+        `[rateLimit] Redis unreachable + failClosed=true (keyPrefix=${keyPrefix}); rejecting request:`,
+        error,
+      );
+      return {
+        allowed: false,
+        remaining: 0,
+        resetAt: Date.now() + config.windowMs,
+        retryAfter: 30,
+        infrastructureUnavailable: true,
+      };
+    }
+
+    // Default fail-OPEN posture for read-only routes.
+    // WHY: rate limiting is a safeguard, not an availability gate.
+    console.error('Rate limit Redis error (allowing request, fail-open):', error);
     return {
       allowed: true,
       remaining: config.maxRequests,
