@@ -576,12 +576,25 @@ export async function GET(request: Request): Promise<Response> {
 export async function PATCH(request: Request): Promise<Response> {
   // ── Step 1: Rate limit ────────────────────────────────────────────────────
 
-  const { allowed, retryAfter } = await rateLimit(
+  // SEC-FOLLOWUP-2: failClosed=true on the seat-mutating PATCH. An attacker
+  // who can degrade Upstash must not be able to flood seat changes (each one
+  // calls Polar + writes to teams + audit_log). The GET preview stays
+  // fail-open since it's read-only.
+  const { allowed, retryAfter, infrastructureUnavailable } = await rateLimit(
     request as Parameters<typeof rateLimit>[0],
     RATE_LIMITS.standard,
     'billing-seats-patch',
+    { failClosed: true },
   );
-  if (!allowed) return rateLimitResponse(retryAfter!);
+  if (!allowed) {
+    if (infrastructureUnavailable) {
+      return NextResponse.json(
+        { error: 'RATE_LIMIT_UNAVAILABLE', message: 'Rate limiter unavailable. Please retry shortly.', retryAfter },
+        { status: 503, headers: { 'Retry-After': String(retryAfter ?? 30) } },
+      );
+    }
+    return rateLimitResponse(retryAfter!);
+  }
 
   // ── Step 2: Parse + validate body ─────────────────────────────────────────
 

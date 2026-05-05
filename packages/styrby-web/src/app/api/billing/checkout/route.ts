@@ -206,8 +206,23 @@ const polar = new Polar({
 });
 
 export async function POST(request: NextRequest) {
-  const { allowed, retryAfter } = await rateLimit(request, RATE_LIMITS.checkout, 'checkout');
+  // SEC-FOLLOWUP-2: failClosed=true. Checkout creates payment sessions; an
+  // attacker who can degrade Upstash must not be able to flood Polar with
+  // unmetered checkout creations. 503 + Retry-After distinguishes "limiter
+  // is down" from "you exceeded the cap".
+  const { allowed, retryAfter, infrastructureUnavailable } = await rateLimit(
+    request,
+    RATE_LIMITS.checkout,
+    'checkout',
+    { failClosed: true },
+  );
   if (!allowed) {
+    if (infrastructureUnavailable) {
+      return NextResponse.json(
+        { error: 'RATE_LIMIT_UNAVAILABLE', message: 'Rate limiter unavailable. Please retry shortly.', retryAfter },
+        { status: 503, headers: { 'Retry-After': String(retryAfter ?? 30) } },
+      );
+    }
     return rateLimitResponse(retryAfter!);
   }
 

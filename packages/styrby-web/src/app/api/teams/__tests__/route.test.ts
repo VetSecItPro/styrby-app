@@ -393,5 +393,30 @@ describe('Teams API — /api/teams', () => {
       const body = await response.json();
       expect(body.error).toBe('Failed to create team');
     });
+
+    /**
+     * SEC-FOLLOWUP-2: Upstash limiter outage on the team-creation POST must
+     * surface as 503 RATE_LIMIT_UNAVAILABLE, not silently allow unmetered
+     * team creation. failClosed=true is intentionally narrow — POST mutates;
+     * GET stays fail-open.
+     */
+    it('returns 503 RATE_LIMIT_UNAVAILABLE on POST when rate-limit infrastructure is down', async () => {
+      const { rateLimit } = await import('@/lib/rateLimit');
+      vi.mocked(rateLimit).mockResolvedValueOnce({
+        allowed: false,
+        remaining: 0,
+        resetAt: Date.now() + 60000,
+        retryAfter: 30,
+        infrastructureUnavailable: true,
+      });
+
+      const req = createNextRequest({ name: 'Outage Team' });
+      const response = await POST(req);
+      const body = await response.json();
+
+      expect(response.status).toBe(503);
+      expect(body.error).toBe('RATE_LIMIT_UNAVAILABLE');
+      expect(response.headers.get('Retry-After')).toBe('30');
+    });
   });
 });

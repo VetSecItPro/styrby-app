@@ -537,4 +537,36 @@ describe('POST /api/billing/checkout', () => {
     expect(response.status).toBe(500);
     expect(data.error).toBe('Failed to create checkout session');
   });
+
+  /**
+   * SEC-FOLLOWUP-2: when the Upstash limiter is unreachable AND failClosed=true,
+   * the route must respond 503 RATE_LIMIT_UNAVAILABLE instead of falling through
+   * (would let unmetered checkouts hit Polar) or returning 429 (would mislead
+   * the client into believing they exceeded the cap).
+   */
+  it('returns 503 RATE_LIMIT_UNAVAILABLE when rate-limit infrastructure is down (failClosed)', async () => {
+    const { rateLimit } = await import('@/lib/rateLimit');
+    vi.mocked(rateLimit).mockResolvedValueOnce({
+      allowed: false,
+      remaining: 0,
+      resetAt: Date.now() + 60000,
+      retryAfter: 30,
+      infrastructureUnavailable: true,
+    });
+
+    const request = new Request('http://localhost/api/billing/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tierId: 'pro' }),
+    });
+
+    const response = await POST(request as never);
+    const data = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(data.error).toBe('RATE_LIMIT_UNAVAILABLE');
+    expect(response.headers.get('Retry-After')).toBe('30');
+    // Critical: verify the route did NOT proceed to call Polar.
+    expect(mockCheckoutCreate).not.toHaveBeenCalled();
+  });
 });
