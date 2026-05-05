@@ -13,6 +13,36 @@
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MODEL = 'openai/gpt-4o-mini';
 
+/**
+ * Sanitize user-controlled strings before embedding into an LLM prompt.
+ *
+ * Defense against OWASP LLM01 (prompt injection). Mirrors the canonical
+ * sanitizer in `supabase/functions/generate-summary/index.ts` — the digest
+ * generator was missing this when the audit ran on 2026-05-05; closing
+ * the parity gap.
+ *
+ * Even though this is a per-user digest (self-targeting only), an attacker
+ * could craft session titles that try to override the system prompt or
+ * exfiltrate it. Self-targeting injection is still real (e.g., "give me
+ * the system prompt" → renders in the email + dashboard panel).
+ */
+function sanitizeForPrompt(value: string, maxLength = 200): string {
+  let sanitized = value.replace(/[\r\n\t]/g, ' ');
+  const injectionPatterns = [
+    /ignore\s+(all\s+)?(previous|prior|above)\s+instructions?/gi,
+    /disregard\s+(all\s+)?(previous|prior|above)\s+instructions?/gi,
+    /forget\s+(all\s+)?(previous|prior|above)\s+instructions?/gi,
+    /\bsystem\s*:/gi,
+    /\bassistant\s*:/gi,
+    /\buser\s*:/gi,
+    /<\s*\/?\s*(?:system|user|assistant|prompt|instruction)\s*>/gi,
+  ];
+  for (const pattern of injectionPatterns) {
+    sanitized = sanitized.replace(pattern, '[redacted]');
+  }
+  return sanitized.slice(0, maxLength).trim();
+}
+
 /** Minimal session shape we feed to the LLM. */
 export interface DigestSession {
   id: string;
@@ -57,9 +87,10 @@ export async function generateDigestContent(args: GenerateArgs): Promise<string 
   const sessionLines = sessions
     .slice(0, 30)
     .map((s) => {
-      const title = s.title ?? '(untitled session)';
+      const title = sanitizeForPrompt(s.title ?? '(untitled session)', 200);
+      const agent = sanitizeForPrompt(s.agent_type, 50);
       const cost = typeof s.total_cost_usd === 'string' ? s.total_cost_usd : s.total_cost_usd.toFixed(2);
-      return `- [${s.agent_type}] ${title} (${s.message_count} msgs, $${cost})`;
+      return `- [${agent}] ${title} (${s.message_count} msgs, $${cost})`;
     })
     .join('\n');
 

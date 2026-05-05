@@ -22,7 +22,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient, createClient } from '@/lib/supabase/server';
 // WHY dynamic wrapper: SsoSettingsPanel is a 540-line interactive form importing
 // lucide-react (7 icons) and Radix UI primitives. The SSO settings page is
 // admin-only, visited by at most the team owner (~1 user per team). Deferring
@@ -96,14 +96,22 @@ export default async function TeamSsoPage({ params }: SsoPageProps) {
   // WHY from audit_log not team_members: members join via many paths (invites,
   // owner adds, SSO). We count SSO-specific audit rows to show the benefit of
   // the SSO feature specifically.
-  const { count: enrolledCount } = await supabase
+  //
+  // WHY admin client for audit_log queries (2026-05-05 audit fix): the
+  // `audit_log_select_own` RLS policy filters to `user_id = auth.uid()` so a
+  // team owner querying via the regular client only saw THEIR OWN SSO audit
+  // rows, not other team members'. Authorization is already enforced above
+  // (membership + owner/admin role check at lines 67-82); using admin client
+  // here lets us scope by `metadata.team_id` instead of by RLS user.
+  const adminSupabase = createAdminClient();
+  const { count: enrolledCount } = await adminSupabase
     .from('audit_log')
     .select('id', { count: 'exact', head: true })
     .eq('action', 'team_sso_enrolled')
     .contains('metadata', { team_id: teamId });
 
   // Fetch recent SSO audit events (last 20)
-  const { data: recentEvents } = await supabase
+  const { data: recentEvents } = await adminSupabase
     .from('audit_log')
     .select('id, action, metadata, created_at')
     .in('action', ['team_sso_enrolled', 'team_sso_domain_set', 'team_sso_domain_cleared', 'team_sso_rejected', 'team_require_sso_toggled'])

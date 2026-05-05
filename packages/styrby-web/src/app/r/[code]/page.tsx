@@ -70,6 +70,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
  */
 export default async function ReferralPage({ params }: Props) {
   const { code } = await params;
+
+  // Shape-gate the path param BEFORE hitting the DB. Referral codes are
+  // generated as 6-12 uppercase alphanumeric chars; an attacker passing a
+  // multi-MB blob would otherwise force Supabase to do a wasted query
+  // (resource exhaustion class). 2026-05-05 audit hardening.
+  if (!/^[A-Z0-9]{4,16}$/i.test(code)) {
+    redirect('/signup');
+  }
+
   const supabase = createAdminClient();
 
   const { data: profile } = await supabase

@@ -368,6 +368,14 @@ export function SummaryTab({
             <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
               {summary}
             </p>
+            {/* AI-disclosure footnote (OWASP LLM09 — misinformation control).
+                AI summaries can hallucinate or miss nuance from a long
+                session. Plain-language disclaimer keeps the user calibrated
+                without scaring them away from the feature. */}
+            <p className="mt-3 text-xs text-zinc-500 italic">
+              AI-generated. May not reflect every detail of the session.
+              Open the full transcript above to verify.
+            </p>
           </div>
         </div>
       </div>

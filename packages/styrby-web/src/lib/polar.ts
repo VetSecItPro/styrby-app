@@ -1,6 +1,21 @@
 /**
  * Polar Integration — server-side SDK client + checkout / subscription helpers.
  *
+ * @auth-tier POLAR_ACCESS_TOKEN required - ORGANIZATION-SCOPED token.
+ *   The org-scoped token covers every method exported from this module:
+ *     - `polar.checkouts.create` (createCheckoutSession)         // SCOPE: org
+ *     - `polar.subscriptions.get` (getSubscription)              // SCOPE: org
+ *     - `polar.subscriptions.list` (used by callers)             // SCOPE: org
+ *     - `polar.subscriptions.update` (cancelSubscription)        // SCOPE: org
+ *     - `polar.refunds.create` (used by callers)                 // SCOPE: org
+ *     - `polar.orders.list` (used by callers)                    // SCOPE: org
+ *
+ *   Admin endpoints under /v1/users and /v1/organizations require a
+ *   DIFFERENT scope (admin/account-management) and are NOT used by
+ *   Styrby today. If a future feature needs admin-tier calls, mint a
+ *   separate token (POLAR_ADMIN_TOKEN) rather than over-scoping the
+ *   primary runtime token.
+ *
  * WHY this file is server-only territory:
  *   The `new Polar({ accessToken: process.env.POLAR_ACCESS_TOKEN })` call below
  *   is a side-effect at module load. If this module is pulled into a `'use
