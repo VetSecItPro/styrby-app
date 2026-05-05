@@ -150,27 +150,27 @@ describe('PricingSection — annual toggle', () => {
 describe('PricingSection — CTA links', () => {
   it('Pro plan CTA links to /signup?plan=pro (monthly)', () => {
     setup();
-    const proLink = screen.getByRole('link', { name: 'Start my Pro trial' });
+    const proLink = screen.getByRole('link', { name: 'Start with Pro' });
     expect(proLink).toHaveAttribute('href', '/signup?plan=pro');
   });
 
   it('Growth plan CTA links to /signup?plan=growth (monthly)', () => {
     setup();
-    const growthLink = screen.getByRole('link', { name: 'Start my Growth trial' });
+    const growthLink = screen.getByRole('link', { name: 'Start with Growth' });
     expect(growthLink).toHaveAttribute('href', '/signup?plan=growth');
   });
 
   it('Pro CTA appends billing=annual when annual toggle is on', async () => {
     const { user } = setup();
     await user.click(screen.getByRole('switch', { name: /toggle annual billing/i }));
-    const proLink = screen.getByRole('link', { name: 'Start my Pro trial' });
+    const proLink = screen.getByRole('link', { name: 'Start with Pro' });
     expect(proLink).toHaveAttribute('href', '/signup?plan=pro&billing=annual');
   });
 
   it('Growth CTA appends billing=annual when annual toggle is on', async () => {
     const { user } = setup();
     await user.click(screen.getByRole('switch', { name: /toggle annual billing/i }));
-    const growthLink = screen.getByRole('link', { name: 'Start my Growth trial' });
+    const growthLink = screen.getByRole('link', { name: 'Start with Growth' });
     expect(growthLink).toHaveAttribute('href', '/signup?plan=growth&billing=annual');
   });
 });
@@ -193,11 +193,15 @@ describe('PricingSection — feature lists', () => {
   });
 });
 
-describe('PricingSection — trial footnote and deep link', () => {
-  it('shows the 14-day free trial note with the compare-pricing link', () => {
+describe('PricingSection — footnote and deep link', () => {
+  // Updated 2026-05-04 (PR #250): we no longer offer a 14-day free trial.
+  // Polar isn't configured to grant one and the prior copy was a legal/trust
+  // risk on the live site. Footnote now emphasises the cancel-anytime guarantee
+  // plus the deep link to the full pricing page.
+  it('shows the cancel-anytime footnote with the compare-pricing link', () => {
     setup();
     expect(
-      screen.getByText(/14-day free trial on pro and growth/i),
+      screen.getByText(/switch between pro and growth in one click\. cancel anytime\./i),
     ).toBeInTheDocument();
     const compareLink = screen.getByRole('link', { name: /compare full pricing/i });
     expect(compareLink).toHaveAttribute('href', '/pricing');

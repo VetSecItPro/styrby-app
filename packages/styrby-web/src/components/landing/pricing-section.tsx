@@ -29,7 +29,7 @@ const plans = [
     savings: 78,
     perSeatNote: null,
     popular: false,
-    cta: "Start my Pro trial",
+    cta: "Start with Pro",
     href: "/signup?plan=pro",
     annualHref: "/signup?plan=pro&billing=annual",
     included: [
@@ -51,7 +51,7 @@ const plans = [
     savings: 198,
     perSeatNote: "Includes 3 seats. +$19/seat/month after.",
     popular: true,
-    cta: "Start my Growth trial",
+    cta: "Start with Growth",
     href: "/signup?plan=growth",
     annualHref: "/signup?plan=growth&billing=annual",
     included: [
