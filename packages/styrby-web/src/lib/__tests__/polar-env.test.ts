@@ -117,7 +117,11 @@ describe('validatePolarEnv()', () => {
   });
 
   it('throws when both required vars are unset', () => {
-    // No stubFullEnv() — only ACCESS_TOKEN + WEBHOOK_SECRET being missing should still throw
+    // Explicitly clear the 2 required vars (CI env may have them set,
+    // unlike local where the default-missing state worked). Optional
+    // Team/Business vars left untouched — their state doesn't matter.
+    vi.stubEnv('POLAR_ACCESS_TOKEN', '');
+    vi.stubEnv('POLAR_WEBHOOK_SECRET', '');
     expect(() => validatePolarEnv()).toThrow(/POLAR_ACCESS_TOKEN|POLAR_WEBHOOK_SECRET/);
   });
 
