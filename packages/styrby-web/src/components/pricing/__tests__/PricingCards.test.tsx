@@ -118,7 +118,7 @@ describe('ProTierCard', () => {
 
     it('CTA links to /signup?plan=pro (monthly)', () => {
       render(<ProTierCard annual={false} />);
-      const link = screen.getByRole('link', { name: /start my pro trial/i });
+      const link = screen.getByRole('link', { name: /start with pro/i });
       expect(link.getAttribute('href')).toBe('/signup?plan=pro');
     });
 
@@ -137,7 +137,7 @@ describe('ProTierCard', () => {
   describe('annual billing', () => {
     it('CTA links to /signup?plan=pro&billing=annual', () => {
       render(<ProTierCard annual={true} />);
-      const link = screen.getByRole('link', { name: /start my pro trial/i });
+      const link = screen.getByRole('link', { name: /start with pro/i });
       expect(link.getAttribute('href')).toBe('/signup?plan=pro&billing=annual');
     });
 
@@ -186,19 +186,19 @@ describe('GrowthTierCard', () => {
 
   it('CTA links to /signup?plan=growth&seats=3 with the base seat count', () => {
     render(<GrowthTierCard {...defaultProps} seatCount={3} />);
-    const link = screen.getByRole('link', { name: /start my growth trial/i });
+    const link = screen.getByRole('link', { name: /start with growth/i });
     expect(link.getAttribute('href')).toBe('/signup?plan=growth&seats=3');
   });
 
   it('CTA includes the chosen seat count when slider moves', () => {
     render(<GrowthTierCard {...defaultProps} seatCount={7} />);
-    const link = screen.getByRole('link', { name: /start my growth trial/i });
+    const link = screen.getByRole('link', { name: /start with growth/i });
     expect(link.getAttribute('href')).toBe('/signup?plan=growth&seats=7');
   });
 
   it('CTA appends billing=annual when annual is true', () => {
     render(<GrowthTierCard {...defaultProps} annual={true} seatCount={5} />);
-    const link = screen.getByRole('link', { name: /start my growth trial/i });
+    const link = screen.getByRole('link', { name: /start with growth/i });
     expect(link.getAttribute('href')).toBe('/signup?plan=growth&seats=5&billing=annual');
   });
 
