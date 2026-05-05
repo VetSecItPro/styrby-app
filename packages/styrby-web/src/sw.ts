@@ -288,8 +288,14 @@ const styrbyCache = [
  * styrbyCache rules are prepended to defaultCache so Styrby-specific matchers
  * take priority over Serwist's generic Next.js rules.
  *
- * - skipWaiting: Activate the new SW immediately instead of waiting for all
- *   tabs to close. This ensures users get updates on next navigation.
+ * - skipWaiting: **MUST be false** so the new SW enters the `waiting` state
+ *   instead of activating immediately. The "Update now" banner in
+ *   `components/sw-register.tsx` depends on a real waiting worker:
+ *   user clicks → client posts {type:'SKIP_WAITING'} → SW's message
+ *   listener (lines below) calls self.skipWaiting() → controllerchange
+ *   fires → page reloads. If skipWaiting is true here, Serwist self-skips
+ *   on install AND removes the message listener, leaving the banner
+ *   stuck on "Updating…" forever (observed in prod 2026-05-04).
  * - clientsClaim: Take control of all open tabs immediately after activation
  *   so the SW handles fetches from the first navigation onward.
  * - navigationPreload: Uses the Navigation Preload API to fetch pages from
@@ -297,7 +303,9 @@ const styrbyCache = [
  */
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
-  skipWaiting: true,
+  // WHY false: see banner-flow note above. The custom message handler
+  // below (lines ~528-533) is what actually skips on user click.
+  skipWaiting: false,
   clientsClaim: true,
   navigationPreload: true,
   runtimeCaching: [...styrbyCache, ...defaultCache],
