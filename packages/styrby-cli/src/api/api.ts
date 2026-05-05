@@ -75,6 +75,76 @@ export class StyrbyApi {
   private messageHandlers: Set<RelayMessageHandler> = new Set();
 
   /**
+   * In-flight permission requests keyed by `request_id` -> issued nonce.
+   *
+   * SECURITY (CLI-009, audit 2026-05-04): Closes the
+   * compromised-account -> approve-all-permissions -> RCE chain. When the CLI
+   * sends a permission_request the relay payload includes a server-generated
+   * nonce. The mobile MUST echo it back in `permission_response.request_nonce`.
+   * If the nonces don't match (or the request is unknown) the response is
+   * rejected -- an attacker who has the user's API key but not the live
+   * mobile session cannot manufacture valid approvals.
+   *
+   * Bounded to PENDING_NONCES_MAX entries; oldest dropped via Map insertion
+   * order to prevent memory exhaustion (compromised account spamming
+   * permission requests would otherwise grow this Map without bound).
+   */
+  private pendingNonces: Map<string, { nonce: string; createdAt: number }> = new Map();
+  private static readonly PENDING_NONCES_MAX = 10000;
+  private static readonly PENDING_NONCE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+  /**
+   * Verify a permission_response's echoed nonce against the stored issuance.
+   *
+   * Single-use: on success the nonce is consumed (deleted) so a replay of the
+   * same response is rejected on the second attempt.
+   *
+   * @param requestId - The request_id from the response
+   * @param nonce - The request_nonce echoed by the mobile
+   * @returns `true` if the nonce matches a live pending request, `false` otherwise
+   */
+  verifyAndConsumePermissionNonce(requestId: string, nonce: string): boolean {
+    const entry = this.pendingNonces.get(requestId);
+    if (!entry) return false;
+    // Length mismatch -> reject WITHOUT consuming the entry; a single
+    // bad-length probe MUST NOT block a legitimate retry from the real mobile.
+    if (entry.nonce.length !== nonce.length) return false;
+    // Constant-time compare to neutralise timing oracles (nonces are short).
+    let diff = 0;
+    for (let i = 0; i < entry.nonce.length; i++) {
+      diff |= entry.nonce.charCodeAt(i) ^ nonce.charCodeAt(i);
+    }
+    if (diff !== 0) return false;
+    this.pendingNonces.delete(requestId);
+    return true;
+  }
+
+  /**
+   * Record a freshly-issued permission request nonce.
+   * Bounded by PENDING_NONCES_MAX (FIFO eviction) + TTL sweep.
+   */
+  private trackPermissionNonce(requestId: string, nonce: string): void {
+    // TTL sweep: drop entries older than PENDING_NONCE_TTL_MS.
+    const now = Date.now();
+    if (this.pendingNonces.size > 0) {
+      for (const [id, entry] of this.pendingNonces) {
+        if (now - entry.createdAt > StyrbyApi.PENDING_NONCE_TTL_MS) {
+          this.pendingNonces.delete(id);
+        } else {
+          break; // Map preserves insertion order; stop at first non-expired.
+        }
+      }
+    }
+    // Cap: evict oldest until under limit.
+    while (this.pendingNonces.size >= StyrbyApi.PENDING_NONCES_MAX) {
+      const oldestKey = this.pendingNonces.keys().next().value;
+      if (oldestKey === undefined) break;
+      this.pendingNonces.delete(oldestKey);
+    }
+    this.pendingNonces.set(requestId, { nonce, createdAt: now });
+  }
+
+  /**
    * Initialize the API client with Supabase credentials and relay config.
    *
    * WHY: Separated from constructor so the class can be instantiated as a singleton
@@ -354,6 +424,11 @@ export class StyrbyApi {
       return;
     }
 
+    // CLI-009: Generate nonce, store before sending so a fast mobile response
+    // can race-find it. randomUUID is 36 chars (well under MAX_ID_LEN cap).
+    const nonce = randomUUID();
+    this.trackPermissionNonce(request.requestId, nonce);
+
     await this.relay.send({
       type: 'permission_request',
       payload: {
@@ -366,7 +441,7 @@ export class StyrbyApi {
         description: request.description,
         affected_files: request.affectedFiles,
         expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-        nonce: randomUUID(),
+        nonce,
       },
     });
   }

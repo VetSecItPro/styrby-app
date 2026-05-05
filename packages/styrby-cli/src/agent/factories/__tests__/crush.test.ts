@@ -401,18 +401,50 @@ describe('CrushBackend — sendPrompt', () => {
     await expect(backend.sendPrompt(sessionId, 'Hello')).rejects.toThrow('Unsafe character');
   });
 
-  it('injects ANTHROPIC_API_KEY and OPENAI_API_KEY from apiKey option', async () => {
-    const { backend } = createCrushBackend({ ...BASE_OPTIONS, apiKey: 'test-key' });
+  // Provider-scoped API key injection (audit 2026-05-05 HIGH fix).
+  // See goose.test.ts for full rationale on why fan-out was a real bug.
+
+  it('anthropic key: injects ONLY ANTHROPIC_API_KEY (no fan-out to OPENAI)', async () => {
+    const { backend } = createCrushBackend({ ...BASE_OPTIONS, apiKey: 'sk-ant-real' });
     const { sessionId } = await backend.startSession();
 
     const sendPromise = backend.sendPrompt(sessionId, 'Hello');
     simulateProcess(currentMockProcess);
     await sendPromise;
 
-    const spawnCall = mockSpawn.mock.calls[0] as any[];
-    const envArg = spawnCall[2].env;
-    expect(envArg.ANTHROPIC_API_KEY).toBe('test-key');
-    expect(envArg.OPENAI_API_KEY).toBe('test-key');
+    const envArg = (mockSpawn.mock.calls[0] as any[])[2].env;
+    expect(envArg.ANTHROPIC_API_KEY).toBe('sk-ant-real');
+    expect(envArg.OPENAI_API_KEY).toBeUndefined();
+  });
+
+  it('openai key: injects ONLY OPENAI_API_KEY', async () => {
+    const { backend } = createCrushBackend({ ...BASE_OPTIONS, apiKey: 'sk-openai-real' });
+    const { sessionId } = await backend.startSession();
+
+    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
+    simulateProcess(currentMockProcess);
+    await sendPromise;
+
+    const envArg = (mockSpawn.mock.calls[0] as any[])[2].env;
+    expect(envArg.OPENAI_API_KEY).toBe('sk-openai-real');
+    expect(envArg.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  it('explicit provider option overrides sniffing', async () => {
+    const { backend } = createCrushBackend({
+      ...BASE_OPTIONS,
+      apiKey: 'opaque-token-no-prefix',
+      provider: 'openai',
+    });
+    const { sessionId } = await backend.startSession();
+
+    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
+    simulateProcess(currentMockProcess);
+    await sendPromise;
+
+    const envArg = (mockSpawn.mock.calls[0] as any[])[2].env;
+    expect(envArg.OPENAI_API_KEY).toBe('opaque-token-no-prefix');
+    expect(envArg.ANTHROPIC_API_KEY).toBeUndefined();
   });
 
   it('emits "running" status when sendPrompt is called', async () => {

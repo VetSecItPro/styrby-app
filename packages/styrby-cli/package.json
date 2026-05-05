@@ -76,15 +76,16 @@
     "prepublishOnly": "echo 'Skipping prepublishOnly — CI handles audit+typecheck+build'"
   },
   "dependencies": {
-    "@sentry/node": "^8.55.0",
     "@agentclientprotocol/sdk": "^0.8.0",
     "@modelcontextprotocol/sdk": "^1.28.0",
+    "@sentry/node": "^8.55.0",
     "@stablelib/base64": "^2.0.1",
     "@stablelib/hex": "^2.0.1",
     "@supabase/supabase-js": "^2.45.0",
     "axios": "^1.16.0",
     "chalk": "^5.6.2",
     "ink": "^6.5.1",
+    "keytar": "7.9.0",
     "libsodium-wrappers": "0.7.15",
     "open": "^11.0.0",
     "qrcode-terminal": "^0.12.0",

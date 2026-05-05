@@ -343,8 +343,12 @@ describe('DroidBackend — sendPrompt', () => {
     expect(args).toContain('claude-opus-4');
   });
 
-  it('injects primary apiKey as all provider env vars', async () => {
-    const { backend } = createDroidBackend({ ...BASE_OPTIONS, apiKey: 'sk-my-key' });
+  // Provider-scoped API key injection (audit 2026-05-05 HIGH fix).
+  // Droid was the same fan-out class as goose/crush/kilo — fixed in the
+  // same pass since the directive said "fix everything, nothing deferred".
+
+  it('anthropic key (sk-ant-): injects ONLY ANTHROPIC_API_KEY', async () => {
+    const { backend } = createDroidBackend({ ...BASE_OPTIONS, apiKey: 'sk-ant-real' });
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'BYOK test');
@@ -352,10 +356,37 @@ describe('DroidBackend — sendPrompt', () => {
     await promptPromise;
 
     const spawnEnv = mockSpawn.mock.calls[0][2]?.env as Record<string, string>;
-    expect(spawnEnv.ANTHROPIC_API_KEY).toBe('sk-my-key');
-    expect(spawnEnv.OPENAI_API_KEY).toBe('sk-my-key');
-    expect(spawnEnv.GOOGLE_API_KEY).toBe('sk-my-key');
-    expect(spawnEnv.MISTRAL_API_KEY).toBe('sk-my-key');
+    expect(spawnEnv.ANTHROPIC_API_KEY).toBe('sk-ant-real');
+    expect(spawnEnv.OPENAI_API_KEY).toBeUndefined();
+    expect(spawnEnv.GOOGLE_API_KEY).toBeUndefined();
+    expect(spawnEnv.MISTRAL_API_KEY).toBeUndefined();
+  });
+
+  it('openai key (sk-): injects ONLY OPENAI_API_KEY', async () => {
+    const { backend } = createDroidBackend({ ...BASE_OPTIONS, apiKey: 'sk-openai-real' });
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'BYOK test');
+    simulateProcess(currentMockProcess);
+    await promptPromise;
+
+    const spawnEnv = mockSpawn.mock.calls[0][2]?.env as Record<string, string>;
+    expect(spawnEnv.OPENAI_API_KEY).toBe('sk-openai-real');
+    expect(spawnEnv.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  it('google key (AIza): injects ONLY GOOGLE/GEMINI keys', async () => {
+    const { backend } = createDroidBackend({ ...BASE_OPTIONS, apiKey: 'AIzaSyDroid' });
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'BYOK test');
+    simulateProcess(currentMockProcess);
+    await promptPromise;
+
+    const spawnEnv = mockSpawn.mock.calls[0][2]?.env as Record<string, string>;
+    expect(spawnEnv.GOOGLE_API_KEY).toBe('AIzaSyDroid');
+    expect(spawnEnv.GEMINI_API_KEY).toBe('AIzaSyDroid');
+    expect(spawnEnv.OPENAI_API_KEY).toBeUndefined();
   });
 
   it('injects apiKeys map overriding individual providers', async () => {

@@ -16,7 +16,9 @@
  * - The apiSession relay bridge (api/apiSession.ts) handles the high-level
  *   session lifecycle; this manager handles the lower-level per-handler
  *   dispatch used by forked agent code (claude/codex/gemini launchers,
- *   registerCommonHandlers, permissionHandlers, etc.)
+ *   permissionHandlers, etc.). The Happy-Coder bash/file/etc RPC surface
+ *   that lived in modules/common/registerCommonHandlers was removed in
+ *   the 2026-05 audit (CLI dead-code finding) — never wired in this fork.
  *
  * @module api/rpc/RpcHandlerManager
  */

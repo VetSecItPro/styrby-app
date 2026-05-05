@@ -418,19 +418,50 @@ describe('KiloBackend — sendPrompt', () => {
     );
   });
 
-  it('injects OPENAI_API_KEY, ANTHROPIC_API_KEY, and KILO_API_KEY from apiKey option', async () => {
-    const { backend } = createKiloBackend({ ...BASE_OPTIONS, apiKey: 'test-key-123' });
+  // Provider-scoped API key injection (audit 2026-05-05 HIGH fix).
+  // See goose.test.ts for full rationale.
+
+  it('anthropic key: injects ONLY ANTHROPIC_API_KEY', async () => {
+    const { backend } = createKiloBackend({ ...BASE_OPTIONS, apiKey: 'sk-ant-real' });
     const { sessionId } = await backend.startSession();
 
     const sendPromise = backend.sendPrompt(sessionId, 'Hello');
     simulateProcess(currentMockProcess);
     await sendPromise;
 
-    const spawnCall = mockSpawn.mock.calls[0] as any[];
-    const envArg = spawnCall[2].env;
-    expect(envArg.OPENAI_API_KEY).toBe('test-key-123');
-    expect(envArg.ANTHROPIC_API_KEY).toBe('test-key-123');
-    expect(envArg.KILO_API_KEY).toBe('test-key-123');
+    const envArg = (mockSpawn.mock.calls[0] as any[])[2].env;
+    expect(envArg.ANTHROPIC_API_KEY).toBe('sk-ant-real');
+    expect(envArg.OPENAI_API_KEY).toBeUndefined();
+    expect(envArg.KILO_API_KEY).toBeUndefined();
+  });
+
+  it('openai key: injects ONLY OPENAI_API_KEY', async () => {
+    const { backend } = createKiloBackend({ ...BASE_OPTIONS, apiKey: 'sk-openai-real' });
+    const { sessionId } = await backend.startSession();
+
+    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
+    simulateProcess(currentMockProcess);
+    await sendPromise;
+
+    const envArg = (mockSpawn.mock.calls[0] as any[])[2].env;
+    expect(envArg.OPENAI_API_KEY).toBe('sk-openai-real');
+    expect(envArg.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(envArg.KILO_API_KEY).toBeUndefined();
+  });
+
+  it('google key: injects ONLY GOOGLE_API_KEY + GEMINI_API_KEY', async () => {
+    const { backend } = createKiloBackend({ ...BASE_OPTIONS, apiKey: 'AIzaSyKilo' });
+    const { sessionId } = await backend.startSession();
+
+    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
+    simulateProcess(currentMockProcess);
+    await sendPromise;
+
+    const envArg = (mockSpawn.mock.calls[0] as any[])[2].env;
+    expect(envArg.GOOGLE_API_KEY).toBe('AIzaSyKilo');
+    expect(envArg.GEMINI_API_KEY).toBe('AIzaSyKilo');
+    expect(envArg.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(envArg.OPENAI_API_KEY).toBeUndefined();
   });
 
   it('throws when sendPrompt is called with wrong sessionId', async () => {

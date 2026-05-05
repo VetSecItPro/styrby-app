@@ -24,6 +24,7 @@ import {
     AbortError
 } from './types'
 import { getDefaultClaudeCodePath, getCleanEnv, logDebug, streamToStdin } from './utils'
+import { buildSafeEnv } from '@/utils/safeEnv'
 import type { Writable } from 'node:stream'
 import { logger } from '@/ui/logger'
 
@@ -341,9 +342,19 @@ export function query(config: {
         : args
 
     // Spawn Claude Code process
-    // Use clean env for global claude to avoid local node_modules/.bin taking precedence
-    const spawnEnv = isCommandOnly ? getCleanEnv() : process.env
-    logDebug(`Spawning Claude Code process: ${spawnCommand} ${spawnArgs.join(' ')} (using ${isCommandOnly ? 'clean' : 'normal'} env)`)
+    // SECURITY (CLI-002, audit 2026-05-04): Previously the path-mode branch
+    // (isCommandOnly === false) passed the entire parent env to the Claude
+    // subprocess. That leaks every secret in the operator shell (AWS,
+    // Stripe, GH, ssh-agent sockets) into a third-party CLI. Both branches
+    // now use a filtered env via buildSafeEnv() — only ANTHROPIC_API_KEY is
+    // explicitly forwarded; safe prefixes (PATH, HOME, LANG, NODE_*) come
+    // through the allowlist. Command-only mode keeps getCleanEnv() because
+    // it ALSO has to resolve `claude` via PATH without local node_modules
+    // shadowing — that's a different concern than secret-scrubbing.
+    const spawnEnv = isCommandOnly
+        ? getCleanEnv()
+        : buildSafeEnv({ ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY })
+    logDebug(`Spawning Claude Code process: ${spawnCommand} ${spawnArgs.join(' ')} (using ${isCommandOnly ? 'clean' : 'safe-filtered'} env)`)
 
     const child = spawn(spawnCommand, spawnArgs, {
         cwd,

@@ -99,6 +99,15 @@ export interface PersistedData {
   authenticatedAt?: string;
   /** When the machine was paired */
   pairedAt?: string;
+  /**
+   * Supabase access-token expiry as epoch milliseconds.
+   *
+   * WHY: Persisted across cold starts so `TokenManager.needsRefresh()` can detect
+   * a stale token before the first /api/v1/* call. Without this, expiresAt is
+   * `undefined` after restart, needsRefresh() returns false, and the CLI ships
+   * a stale JWT that the server rejects mid-flow.
+   */
+  expiresAt?: number;
 }
 
 const DATA_FILE = path.join(CONFIG_DIR, 'data.json');
@@ -112,7 +121,14 @@ export function savePersistedData(data: PersistedData): void {
   ensureConfigDir();
   const existing = loadPersistedData() || {};
   const merged = { ...existing, ...data };
-  fs.writeFileSync(DATA_FILE, JSON.stringify(merged, null, 2), { mode: 0o600 });
+  // WHY: write-then-rename is POSIX-atomic on most filesystems. A direct
+  // writeFileSync leaves a partial-write crash window where data.json can
+  // be truncated/corrupt — losing auth tokens and forcing re-onboard.
+  // Writing to .tmp first and renaming guarantees the file is either the
+  // old contents or the complete new contents, never half-written.
+  const tmp = DATA_FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(merged, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, DATA_FILE);
   logger.debug('Persisted data saved');
 }
 
@@ -152,11 +168,33 @@ export function clearPersistedData(): void {
 // ============================================================================
 
 /**
+ * Canonical union of all 11 supported product-tier agents.
+ *
+ * WHY: The product publicly supports 11 agents (see CLAUDE.md). Several
+ * call sites previously hard-coded 3-agent unions (`'claude' | 'codex' | 'gemini'`)
+ * which forced unsafe `as` casts elsewhere — the type lied about reality.
+ * Importing from this single source guarantees every config value, persisted
+ * row, and onboarding selection share the same enumeration.
+ */
+export type SupportedAgentType =
+  | 'claude'
+  | 'codex'
+  | 'gemini'
+  | 'opencode'
+  | 'aider'
+  | 'goose'
+  | 'amp'
+  | 'crush'
+  | 'kilo'
+  | 'kiro'
+  | 'droid';
+
+/**
  * Session metadata stored locally
  */
 export interface StoredSession {
   sessionId: string;
-  agentType: 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp' | 'crush' | 'kilo' | 'kiro' | 'droid';
+  agentType: SupportedAgentType;
   projectPath: string;
   createdAt: string;
   lastActivityAt: string;
@@ -187,7 +225,11 @@ export function saveSession(session: StoredSession): void {
   validateSessionId(session.sessionId);
   ensureSessionsDir();
   const filePath = path.join(SESSIONS_DIR, `${session.sessionId}.json`);
-  fs.writeFileSync(filePath, JSON.stringify(session, null, 2));
+  // WHY (audit 2026-05-05 MED fix): match the 0o600 mode that
+  // savePersistedData uses on line 130. Session files contain the agent
+  // type + project path (PII-adjacent) and were previously written with
+  // the OS default umask (typically 0o644 = world-readable).
+  fs.writeFileSync(filePath, JSON.stringify(session, null, 2), { mode: 0o600 });
   logger.debug('Session saved', { sessionId: session.sessionId });
 }
 

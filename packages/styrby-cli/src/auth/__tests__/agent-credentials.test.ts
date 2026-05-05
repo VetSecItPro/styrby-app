@@ -27,15 +27,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 /**
  * Mock node:child_process so no real shell commands are executed.
  *
- * WHY: agent-credentials.ts does `const execAsync = promisify(exec)` at the
- * top of the module. We must provide exec as a proper Node.js callback-style
- * function so that `promisify` (the real one from node:util) wraps it
- * correctly into a Promise. The mock implementation invokes the final
- * callback argument, which is what promisify expects.
+ * WHY: agent-credentials.ts uses `spawn(whichCmd, [command], { shell: false,
+ * stdio: 'ignore' })` (refactored 2026-05-05 from execAsync template-string
+ * shell exec — closes the residual CWE-78 class). The mock returns an
+ * EventEmitter-shaped object with `on('exit', cb)` + `on('error', cb)` so
+ * the function-under-test's promise-resolve path works.
  */
 vi.mock('node:child_process', () => {
-  const exec = vi.fn();
-  return { exec };
+  const spawn = vi.fn();
+  return { spawn };
 });
 
 /**
@@ -61,7 +61,7 @@ vi.mock('@/ui/logger', () => ({
 // Imports — after vi.mock declarations
 // ============================================================================
 
-import { exec } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import {
   AGENT_CONFIGS,
@@ -77,33 +77,37 @@ import {
 // Helpers
 // ============================================================================
 
-/** Cast the exec mock to a usable vi.fn() type. */
-const mockExec = exec as ReturnType<typeof vi.fn>;
+/** Cast the spawn mock to a usable vi.fn() type. */
+const mockSpawn = spawn as unknown as ReturnType<typeof vi.fn>;
 const mockExistsSync = fs.existsSync as ReturnType<typeof vi.fn>;
 
 /**
- * Simulate `which <cmd>` succeeding (binary is installed).
- *
- * Node's exec callback is (error, stdout, stderr). promisify wraps it so that
- * on success it resolves with { stdout, stderr }.
+ * Build a fake spawn child that resolves the function-under-test's promise.
+ * isCommandInstalled() listens for `exit` (resolves to code===0) and `error`
+ * (resolves to false). We invoke the registered listener synchronously on
+ * the next microtask so the assertion queue settles.
  */
-function mockCommandInstalled() {
-  mockExec.mockImplementation(
-    (_cmd: string, callback: (err: null, stdout: string, stderr: string) => void) => {
-      callback(null, '/usr/local/bin/cmd\n', '');
-    }
-  );
+function makeChild(exitCode: number | null, error?: Error) {
+  return {
+    on(event: string, cb: (arg?: unknown) => void) {
+      if (error && event === 'error') {
+        queueMicrotask(() => cb(error));
+      } else if (!error && event === 'exit') {
+        queueMicrotask(() => cb(exitCode));
+      }
+      return this;
+    },
+  };
 }
 
-/**
- * Simulate `which <cmd>` failing (binary not found).
- */
+/** Simulate `which <cmd>` succeeding (exit 0). */
+function mockCommandInstalled() {
+  mockSpawn.mockImplementation(() => makeChild(0));
+}
+
+/** Simulate `which <cmd>` failing (exit 1 — not found). */
 function mockCommandNotInstalled() {
-  mockExec.mockImplementation(
-    (_cmd: string, callback: (err: Error, stdout: string, stderr: string) => void) => {
-      callback(new Error('not found'), '', '');
-    }
-  );
+  mockSpawn.mockImplementation(() => makeChild(1));
 }
 
 // ============================================================================
@@ -111,16 +115,41 @@ function mockCommandNotInstalled() {
 // ============================================================================
 
 describe('AGENT_CONFIGS', () => {
-  const SUPPORTED_AGENTS: AgentType[] = ['claude', 'codex', 'gemini', 'opencode'];
+  const SUPPORTED_AGENTS: AgentType[] = [
+    'claude', 'codex', 'gemini', 'opencode',
+    'aider', 'goose', 'amp', 'crush', 'kilo', 'kiro', 'droid',
+  ];
 
-  it('has entries for all 4 supported agents', () => {
+  it('has entries for all 11 supported agents', () => {
     const keys = Object.keys(AGENT_CONFIGS) as AgentType[];
 
-    expect(keys).toHaveLength(4);
+    expect(keys).toHaveLength(11);
     for (const agent of SUPPORTED_AGENTS) {
       expect(keys).toContain(agent);
     }
   });
+
+  // WHY (audit 2026-05-05 LOW fix): factories/claude.ts reads
+  // ~/.claude/auth.json — detection must include it so the
+  // cost-classifier and detector agree.
+  it('claude config includes both ~/.claude/auth.json and ~/.claude.json', () => {
+    expect(AGENT_CONFIGS.claude.configPaths).toContain('.claude/auth.json');
+    expect(AGENT_CONFIGS.claude.configPaths).toContain('.claude.json');
+  });
+
+  // Smoke-test that each Tier 2/3 agent has the minimum fields needed
+  // for onboarding to display correctly.
+  it.each(['aider', 'goose', 'amp', 'crush', 'kilo', 'kiro', 'droid'] as AgentType[])(
+    '%s (Tier 2/3) has command, envVars, configPaths, setupUrl, and color',
+    (agent) => {
+      const c = AGENT_CONFIGS[agent];
+      expect(c.command).toBe(agent);
+      expect(c.envVars.length).toBeGreaterThan(0);
+      expect(c.configPaths.length).toBeGreaterThan(0);
+      expect(c.setupUrl).toMatch(/^https?:\/\//);
+      expect(c.color).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    },
+  );
 
   it.each(SUPPORTED_AGENTS)('%s config has required fields', (agent) => {
     const config = AGENT_CONFIGS[agent];
@@ -308,23 +337,23 @@ describe('getAllAgentStatus', () => {
     delete process.env.GEMINI_API_KEY;
   });
 
-  it('returns statuses for all 4 agents', async () => {
+  it('returns statuses for all 11 agents', async () => {
     const all = await getAllAgentStatus();
 
-    expect(Object.keys(all)).toHaveLength(4);
-    expect(all.claude).toBeDefined();
-    expect(all.codex).toBeDefined();
-    expect(all.gemini).toBeDefined();
-    expect(all.opencode).toBeDefined();
+    expect(Object.keys(all)).toHaveLength(11);
+    for (const a of [
+      'claude', 'codex', 'gemini', 'opencode',
+      'aider', 'goose', 'amp', 'crush', 'kilo', 'kiro', 'droid',
+    ] as AgentType[]) {
+      expect(all[a]).toBeDefined();
+    }
   });
 
   it('each status has the correct agent field', async () => {
     const all = await getAllAgentStatus();
-
-    expect(all.claude.agent).toBe('claude');
-    expect(all.codex.agent).toBe('codex');
-    expect(all.gemini.agent).toBe('gemini');
-    expect(all.opencode.agent).toBe('opencode');
+    for (const a of Object.keys(all) as AgentType[]) {
+      expect(all[a].agent).toBe(a);
+    }
   });
 });
 
@@ -355,20 +384,14 @@ describe('getInstalledAgents', () => {
 
     const installed = await getInstalledAgents();
 
-    expect(installed).toHaveLength(4);
+    expect(installed).toHaveLength(11);
     expect(installed.every((s) => s.installed)).toBe(true);
   });
 
   it('only includes agents that pass the installed check', async () => {
     // claude installed, others not
-    mockExec.mockImplementation(
-      (cmd: string, callback: (err: Error | null, stdout: string, stderr: string) => void) => {
-        if (cmd.includes('claude')) {
-          callback(null, '/usr/local/bin/claude\n', '');
-        } else {
-          callback(new Error('not found'), '', '');
-        }
-      }
+    mockSpawn.mockImplementation((_whichCmd: string, args: string[]) =>
+      args[0]?.includes('claude') ? makeChild(0) : makeChild(1)
     );
 
     const installed = await getInstalledAgents();
@@ -410,16 +433,12 @@ describe('getDefaultAgent', () => {
   });
 
   it('falls back to codex when claude is not installed', async () => {
-    mockExec.mockImplementation(
-      (cmd: string, callback: (err: Error | null, stdout: string, stderr: string) => void) => {
-        if (cmd.includes('codex') || cmd.includes('gemini') || cmd.includes('opencode')) {
-          callback(null, '/usr/local/bin/codex\n', '');
-        } else {
-          // claude not installed
-          callback(new Error('not found'), '', '');
-        }
-      }
-    );
+    mockSpawn.mockImplementation((_whichCmd: string, args: string[]) => {
+      const cmd = args[0] ?? '';
+      return cmd.includes('codex') || cmd.includes('gemini') || cmd.includes('opencode')
+        ? makeChild(0)
+        : makeChild(1);
+    });
 
     const def = await getDefaultAgent();
 
@@ -428,15 +447,10 @@ describe('getDefaultAgent', () => {
   });
 
   it('falls back to gemini when claude and codex are not installed', async () => {
-    mockExec.mockImplementation(
-      (cmd: string, callback: (err: Error | null, stdout: string, stderr: string) => void) => {
-        if (cmd.includes('gemini') || cmd.includes('opencode')) {
-          callback(null, '/usr/local/bin/gemini\n', '');
-        } else {
-          callback(new Error('not found'), '', '');
-        }
-      }
-    );
+    mockSpawn.mockImplementation((_whichCmd: string, args: string[]) => {
+      const cmd = args[0] ?? '';
+      return cmd.includes('gemini') || cmd.includes('opencode') ? makeChild(0) : makeChild(1);
+    });
 
     const def = await getDefaultAgent();
 
@@ -445,14 +459,8 @@ describe('getDefaultAgent', () => {
   });
 
   it('falls back to opencode when only opencode is installed', async () => {
-    mockExec.mockImplementation(
-      (cmd: string, callback: (err: Error | null, stdout: string, stderr: string) => void) => {
-        if (cmd.includes('opencode')) {
-          callback(null, '/usr/local/bin/opencode\n', '');
-        } else {
-          callback(new Error('not found'), '', '');
-        }
-      }
+    mockSpawn.mockImplementation((_whichCmd: string, args: string[]) =>
+      args[0]?.includes('opencode') ? makeChild(0) : makeChild(1)
     );
 
     const def = await getDefaultAgent();

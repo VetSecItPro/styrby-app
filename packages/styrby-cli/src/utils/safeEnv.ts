@@ -179,12 +179,24 @@ export function buildSafeEnv(overrides?: Record<string, string | undefined>): Re
     }
   }
 
-  // Merge explicit overrides (these are intentional, not filtered)
+  // Merge explicit overrides (these are intentional, not filtered).
+  //
+  // CVE-2026-3854 class defense: still validate override VALUES for null
+  // bytes + CRLF. Many env-var consumers (especially shell `env -` printers,
+  // Docker `--env-file`, systemd unit env reads) parse env entries as
+  // newline-delimited; a value containing `\n` could spawn an additional
+  // bogus env entry on the receiving side, similar to header-delimiter
+  // injection. Reject loudly rather than silently truncate — overrides are
+  // explicit-by-design so a bad value indicates a caller bug, not user input.
   if (overrides) {
     for (const [key, value] of Object.entries(overrides)) {
-      if (value !== undefined) {
-        safeEnv[key] = value;
+      if (value === undefined) continue;
+      if (/[\x00\r\n]/.test(value)) {
+        throw new Error(
+          `buildSafeEnv: override "${key}" contains a forbidden control character (null byte / CR / LF). Strip or reject upstream.`
+        );
       }
+      safeEnv[key] = value;
     }
   }
 
@@ -244,15 +256,38 @@ export function validateExtraArgs(args: string[]): string[] {
         `Unsafe character in extra argument: "${arg}". Shell metacharacters are not allowed.`
       );
     }
+    // CVE-2026-3854 class defense: control characters (null bytes, CR, LF,
+    // ASCII C0 controls) and Unicode lookalikes for `;` (U+037E Greek
+    // question mark, U+FF1B fullwidth semicolon). The lookalikes can pass
+    // a naive `;`-only check while still being interpreted as separators
+    // by tools that normalize Unicode before parsing.
+    if (/[\x00-\x08\x0b-\x1f;；]/.test(arg)) {
+      throw new Error(
+        `Unsafe character in extra argument: control char or Unicode separator-lookalike not allowed.`
+      );
+    }
     // Block attempts to read system files via --config or similar flag values.
     // Covers /etc/, ~/ expansion, and path traversal via ../
-    if (/^--?(?:config|rc|init|env-file|dotenv)=?\s*\/etc\//.test(arg)) {
+    //
+    // WHY this expanded set covers all 11 supported agents (defense-in-depth):
+    //   - Aider:    --config FILE, --env-file FILE
+    //   - Goose:    --profile PATH
+    //   - OpenCode: --profile PATH
+    //   - Crush/Kilo/Kiro/Droid/Amp: --config PATH
+    //   - Claude/Codex/Gemini: --config PATH (already covered)
+    // An attacker who controlled extra-args could otherwise point an agent
+    // at a malicious config file containing code-execution flags interpreted
+    // by that agent's own config schema. Not RCE today (the agents wouldn't
+    // execute arbitrary code from a config), but the blocklist closes the
+    // residual class.
+    if (/^--?(?:config|rc|init|env-file|dotenv|profile)=?\s*\/etc\//.test(arg)) {
       throw new Error(
         `Unsafe argument targeting system path: "${arg}".`
       );
     }
     // Block path traversal patterns that could escape the project directory
-    if (/\.\.[/\\]/.test(arg) && /^--?(?:config|rc|init|env-file|dotenv|include|load)/.test(arg)) {
+    // via any config-loading flag of any supported agent.
+    if (/\.\.[/\\]/.test(arg) && /^--?(?:config|rc|init|env-file|dotenv|include|load|profile)/.test(arg)) {
       throw new Error(
         `Unsafe path traversal in argument: "${arg}". Relative parent references are not allowed in config paths.`
       );

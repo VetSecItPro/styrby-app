@@ -22,23 +22,35 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn } from 'node:child_process';
 import { logger } from '@/ui/logger';
 
-const execAsync = promisify(exec);
 
 // ============================================================================
 // Types
 // ============================================================================
 
 /**
- * Supported agent types
+ * Supported agent types — all 11 product-tier agents.
  *
- * Note: Aider is deferred to post-MVP due to estimate-only cost tracking.
- * See docs/planning/post-mvp-roadmap.md for details.
+ * WHY (audit 2026-05-05): Detection previously enumerated only 4 agents
+ * (claude/codex/gemini/opencode). The other 7 were silently treated as
+ * "not installed" by `getAllAgentStatus`/`getInstalledAgents`/
+ * `getDefaultAgent`, so onboarding under-reported the user's actual
+ * tooling. This union must mirror `SupportedAgentType` in persistence.ts.
  */
-export type AgentType = 'claude' | 'codex' | 'gemini' | 'opencode';
+export type AgentType =
+  | 'claude'
+  | 'codex'
+  | 'gemini'
+  | 'opencode'
+  | 'aider'
+  | 'goose'
+  | 'amp'
+  | 'crush'
+  | 'kilo'
+  | 'kiro'
+  | 'droid';
 
 /**
  * Agent configuration metadata
@@ -103,6 +115,11 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
     command: 'claude',
     envVars: ['ANTHROPIC_API_KEY'],
     configPaths: [
+      // WHY (audit 2026-05-05 LOW fix): factories/claude.ts reads
+      // ~/.claude/auth.json for the subscription token. Detection used
+      // to only check legacy paths, so the cost-classifier and detector
+      // disagreed on whether Claude was configured.
+      '.claude/auth.json',
       '.claude.json',
       '.config/claude/config.json',
       '.anthropic/credentials',
@@ -149,8 +166,106 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
     setupUrl: 'https://opencode.ai',
     color: '#8B5CF6', // Purple
   },
-  // Note: Aider deferred to post-MVP due to estimate-only cost tracking.
-  // See docs/planning/post-mvp-roadmap.md
+  // ------------------------------------------------------------------
+  // Tier 2 + Tier 3 agents (added 2026-05-05 — audit fix CRITICAL).
+  // Env vars + config paths derived from each agent's factory file.
+  // ------------------------------------------------------------------
+  aider: {
+    id: 'aider',
+    name: 'Aider',
+    provider: 'Open Source',
+    command: 'aider',
+    // Aider auto-detects from environment; supports many providers.
+    envVars: ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY'],
+    configPaths: [
+      '.aider.conf.yml',
+      '.aider.conf',
+      '.config/aider/config.yml',
+    ],
+    setupUrl: 'https://aider.chat',
+    color: '#EAB308', // Amber — distinct from existing palette
+  },
+  goose: {
+    id: 'goose',
+    name: 'Goose',
+    provider: 'aaif',
+    command: 'goose',
+    envVars: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GOOGLE_API_KEY'],
+    configPaths: [
+      '.config/goose/config.yaml',
+      '.config/goose/config.yml',
+      '.goose/config.yaml',
+    ],
+    setupUrl: 'https://github.com/aaif-goose/goose',
+    color: '#22C55E', // Green — open-source signal
+  },
+  amp: {
+    id: 'amp',
+    name: 'Amp',
+    provider: 'Sourcegraph',
+    command: 'amp',
+    envVars: ['ANTHROPIC_API_KEY', 'AMP_API_KEY'],
+    configPaths: [
+      '.config/amp/config.json',
+      '.amp/config.json',
+    ],
+    setupUrl: 'https://ampcode.com',
+    color: '#EC4899', // Pink — distinguishes enterprise wedge tier
+  },
+  crush: {
+    id: 'crush',
+    name: 'Crush',
+    provider: 'Charm',
+    command: 'crush',
+    envVars: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'],
+    configPaths: [
+      '.config/crush/crush.json',
+      '.crush/config.json',
+    ],
+    setupUrl: 'https://github.com/charmbracelet/crush',
+    color: '#A855F7', // Violet — Charm brand-adjacent
+  },
+  kilo: {
+    id: 'kilo',
+    name: 'Kilo',
+    provider: 'Kilo-Org',
+    command: 'kilo',
+    envVars: ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'KILO_API_KEY'],
+    configPaths: [
+      '.config/kilo/config.json',
+      '.kilo/config.json',
+    ],
+    setupUrl: 'https://github.com/Kilo-Org/kilocode',
+    color: '#06B6D4', // Cyan
+  },
+  kiro: {
+    id: 'kiro',
+    name: 'Kiro',
+    provider: 'AWS',
+    command: 'kiro',
+    // Kiro authenticates via AWS credentials, not LLM API keys.
+    envVars: ['AWS_PROFILE', 'AWS_ACCESS_KEY_ID', 'AWS_SESSION_TOKEN'],
+    configPaths: [
+      '.aws/credentials',
+      '.aws/config',
+      '.config/kiro/config.json',
+    ],
+    setupUrl: 'https://kiro.dev',
+    color: '#F59E0B', // AWS-orange-adjacent
+  },
+  droid: {
+    id: 'droid',
+    name: 'Droid',
+    provider: 'Factory',
+    command: 'droid',
+    envVars: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GOOGLE_API_KEY', 'MISTRAL_API_KEY'],
+    configPaths: [
+      '.config/droid/config.json',
+      '.factory/config.json',
+    ],
+    setupUrl: 'https://github.com/Factory-AI/factory',
+    color: '#0EA5E9', // Sky blue
+  },
 };
 
 // ============================================================================
@@ -164,13 +279,16 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
  * @returns True if command is available
  */
 async function isCommandInstalled(command: string): Promise<boolean> {
-  try {
+  // OWASP ASVS V5.3.5 / CWE-78: use spawn with shell:false + arg array,
+  // never template-string shell exec. Even though `command` is internal-call
+  // only today, the residual class is closed by construction here. Mirrors
+  // doctor.ts:50 refactor done in the same hardening PR.
+  return new Promise((resolve) => {
     const whichCmd = process.platform === 'win32' ? 'where' : 'which';
-    await execAsync(`${whichCmd} ${command}`);
-    return true;
-  } catch {
-    return false;
-  }
+    const child = spawn(whichCmd, [command], { shell: false, stdio: 'ignore' });
+    child.on('exit', (code) => resolve(code === 0));
+    child.on('error', () => resolve(false));
+  });
 }
 
 /**
@@ -266,14 +384,17 @@ export async function getAgentStatus(agent: AgentType): Promise<AgentStatus> {
  * @returns Map of agent type to status
  */
 export async function getAllAgentStatus(): Promise<Record<AgentType, AgentStatus>> {
-  const [claude, codex, gemini, opencode] = await Promise.all([
-    getAgentStatus('claude'),
-    getAgentStatus('codex'),
-    getAgentStatus('gemini'),
-    getAgentStatus('opencode'),
-  ]);
+  // WHY (audit 2026-05-05): Iterate over AGENT_CONFIGS keys instead of a
+  // hard-coded list so adding a new agent only requires touching the
+  // config map — no second place to forget.
+  const agents = Object.keys(AGENT_CONFIGS) as AgentType[];
+  const statuses = await Promise.all(agents.map((a) => getAgentStatus(a)));
 
-  return { claude, codex, gemini, opencode };
+  const result = {} as Record<AgentType, AgentStatus>;
+  agents.forEach((a, i) => {
+    result[a] = statuses[i];
+  });
+  return result;
 }
 
 /**
@@ -294,11 +415,17 @@ export async function getInstalledAgents(): Promise<AgentStatus[]> {
 export async function getDefaultAgent(): Promise<AgentStatus | null> {
   const all = await getAllAgentStatus();
 
-  // Prefer Claude, then Codex, then Gemini, then OpenCode
-  if (all.claude.installed) return all.claude;
-  if (all.codex.installed) return all.codex;
-  if (all.gemini.installed) return all.gemini;
-  if (all.opencode.installed) return all.opencode;
+  // Priority order: Tier 1 first (volume agents), then Tier 2 (niche),
+  // then Tier 3 (enterprise wedge). Claude wins ties for backward compat.
+  const priority: AgentType[] = [
+    'claude', 'codex', 'gemini', 'opencode', 'kilo',  // Tier 1
+    'aider', 'goose',                                  // Tier 2
+    'crush', 'amp', 'kiro', 'droid',                   // Tier 3
+  ];
+
+  for (const agent of priority) {
+    if (all[agent]?.installed) return all[agent];
+  }
 
   return null;
 }

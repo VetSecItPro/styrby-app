@@ -17,6 +17,7 @@ import type { ApiSession, ApiMessage, SessionUpdate } from './types';
 import type { StyrbyApi } from './api';
 import type { AgentBackend, AgentMessage, AgentMessageHandler } from '@/agent/core/AgentBackend';
 import type { RelayMessage, AgentType as SharedAgentType } from 'styrby-shared';
+import { RelayMessageSchema } from 'styrby-shared';
 import { logger } from '@/ui/logger';
 
 /**
@@ -396,6 +397,40 @@ export class ApiSessionManager {
     agentType: SharedAgentType,
     api: StyrbyApi
   ): void {
+    // SECURITY (CLI-008, audit 2026-05-04): Validate the relay payload with
+    // zod BEFORE acting on it. Without this, a malicious or buggy peer could
+    // blast oversized strings (memory DoS), inject unexpected types, or send
+    // fields the dispatch logic doesn't expect. The schema enforces hard
+    // length caps (MAX_CONTENT_LEN=100KB, MAX_ID_LEN=128, etc.) and
+    // discriminated-union shape per message type.
+    const parsed = RelayMessageSchema.safeParse(message);
+    if (!parsed.success) {
+      logger.warn('Dropping invalid relay message (schema validation failed)', {
+        sessionId,
+        type: (message as { type?: unknown })?.type,
+        issues: parsed.error.issues.slice(0, 5).map((i) => ({ path: i.path.join('.'), code: i.code })),
+      });
+      return;
+    }
+    message = parsed.data;
+
+    // SECURITY (CLI-009, audit 2026-05-04): Verify the echoed nonce on
+    // permission_response BEFORE forwarding to the agent. Closes the
+    // compromised-account-key -> approve-all -> RCE chain. An attacker with
+    // only the API key (no live mobile session) cannot fabricate a valid
+    // nonce, so the response is rejected.
+    if (message.type === 'permission_response') {
+      const { request_id, request_nonce } = message.payload;
+      const ok = api.verifyAndConsumePermissionNonce(request_id, request_nonce);
+      if (!ok) {
+        logger.warn('Rejecting permission_response: nonce mismatch or unknown request_id', {
+          sessionId,
+          requestId: request_id,
+        });
+        return;
+      }
+    }
+
     switch (message.type) {
       case 'chat': {
         const { content, session_id } = message.payload;

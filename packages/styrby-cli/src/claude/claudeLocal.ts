@@ -8,6 +8,7 @@ import { claudeFindLastSession } from "./utils/claudeFindLastSession";
 import { getProjectPath } from "./utils/path";
 import { projectPath } from "@/projectPath";
 import { systemPrompt } from "./utils/systemPrompt";
+import { buildSafeEnv } from "@/utils/safeEnv";
 
 /**
  * Error thrown when the Claude process exits with a non-zero exit code.
@@ -228,11 +229,17 @@ export async function claudeLocal(opts: {
 
             // Prepare environment variables
             // Note: Local mode uses global Claude installation with --session-id flag
-            // Launcher only intercepts fetch for thinking state tracking
-            const env = {
-                ...process.env,
-                ...opts.claudeEnvVars
-            }
+            // Launcher only intercepts fetch for thinking state tracking.
+            //
+            // CLI-002-followup: per-agent audit 2026-05-05 found claudeLocal was
+            // missed by the original sdk/query.ts fix — same env-leak class.
+            // buildSafeEnv() applies the global allowlist so internal Styrby
+            // secrets (SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL, Polar tokens,
+            // etc.) are never inherited by the spawned claude subprocess.
+            const env = buildSafeEnv({
+                ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+                ...opts.claudeEnvVars,
+            });
 
             logger.debug(`[ClaudeLocal] Spawning launcher: ${claudeCliPath}`);
             logger.debug(`[ClaudeLocal] Args: ${JSON.stringify(args)}`);

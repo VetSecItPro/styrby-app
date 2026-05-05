@@ -443,8 +443,16 @@ describe('GooseBackend — sendPrompt arguments', () => {
     expect(args).toContain('60');
   });
 
-  it('sets ANTHROPIC_API_KEY, OPENAI_API_KEY, and GOOGLE_API_KEY when apiKey is provided', async () => {
-    const { backend } = createGooseBackend({ ...BASE_OPTIONS, apiKey: 'sk-test-goose-key' });
+  // ------------------------------------------------------------------
+  // Provider-scoped API key injection (audit 2026-05-05 HIGH fix)
+  // The previous "fan out to every provider" behavior leaked sk-ant-* keys
+  // to OpenAI / Google validation endpoints. We now sniff the prefix and
+  // inject ONLY the matching provider's env var (or honor an explicit
+  // `provider` option).
+  // ------------------------------------------------------------------
+
+  it('anthropic key: injects ONLY ANTHROPIC_API_KEY (no fan-out to OPENAI/GOOGLE)', async () => {
+    const { backend } = createGooseBackend({ ...BASE_OPTIONS, apiKey: 'sk-ant-real-key' });
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
@@ -452,9 +460,38 @@ describe('GooseBackend — sendPrompt arguments', () => {
     await promptPromise;
 
     const [, , spawnOptions] = mockSpawn.mock.calls[0];
-    expect(spawnOptions.env.ANTHROPIC_API_KEY).toBe('sk-test-goose-key');
-    expect(spawnOptions.env.OPENAI_API_KEY).toBe('sk-test-goose-key');
-    expect(spawnOptions.env.GOOGLE_API_KEY).toBe('sk-test-goose-key');
+    expect(spawnOptions.env.ANTHROPIC_API_KEY).toBe('sk-ant-real-key');
+    expect(spawnOptions.env.OPENAI_API_KEY).toBeUndefined();
+    expect(spawnOptions.env.GOOGLE_API_KEY).toBeUndefined();
+  });
+
+  it('openai key: injects ONLY OPENAI_API_KEY', async () => {
+    const { backend } = createGooseBackend({ ...BASE_OPTIONS, apiKey: 'sk-openai-real' });
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess);
+    await promptPromise;
+
+    const [, , spawnOptions] = mockSpawn.mock.calls[0];
+    expect(spawnOptions.env.OPENAI_API_KEY).toBe('sk-openai-real');
+    expect(spawnOptions.env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(spawnOptions.env.GOOGLE_API_KEY).toBeUndefined();
+  });
+
+  it('google key: injects ONLY GOOGLE_API_KEY + GEMINI_API_KEY', async () => {
+    const { backend } = createGooseBackend({ ...BASE_OPTIONS, apiKey: 'AIzaSyFakeKey' });
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess);
+    await promptPromise;
+
+    const [, , spawnOptions] = mockSpawn.mock.calls[0];
+    expect(spawnOptions.env.GOOGLE_API_KEY).toBe('AIzaSyFakeKey');
+    expect(spawnOptions.env.GEMINI_API_KEY).toBe('AIzaSyFakeKey');
+    expect(spawnOptions.env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(spawnOptions.env.OPENAI_API_KEY).toBeUndefined();
   });
 
   it('passes cwd to spawn options', async () => {

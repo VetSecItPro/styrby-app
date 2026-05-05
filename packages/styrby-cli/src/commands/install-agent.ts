@@ -96,6 +96,61 @@ export const AGENT_PACKAGES: Record<AgentType, AgentPackageInfo> = {
     postInstall: "Run 'opencode' to start. Supports GitHub Copilot, ChatGPT Plus, Claude, and more.",
     loginCommand: 'opencode',
   },
+  // ------------------------------------------------------------------
+  // Tier 2 + Tier 3 install metadata (added 2026-05-05).
+  // WHY: AGENT_CONFIGS now enumerates all 11 agents. AGENT_PACKAGES must
+  // mirror that to satisfy `Record<AgentType, AgentPackageInfo>`. Package
+  // names sourced from each agent's docs as of 2026-05.
+  // ------------------------------------------------------------------
+  aider: {
+    packageManager: 'npm',
+    packageName: 'aider-install',
+    description: 'AI pair programmer that edits code in your local git repo.',
+    postInstall: "Run 'aider' inside a git repo. Set OPENAI_API_KEY or ANTHROPIC_API_KEY first.",
+    loginCommand: 'aider',
+  },
+  goose: {
+    packageManager: 'npm',
+    packageName: '@aaif-goose/goose',
+    description: 'Open-source AI agent with MCP integration (LF Foundation hosted).',
+    postInstall: "Run 'goose' to start. Configure provider in ~/.config/goose/config.yaml.",
+    loginCommand: 'goose',
+  },
+  amp: {
+    packageManager: 'npm',
+    packageName: '@sourcegraph/amp',
+    description: "Sourcegraph's enterprise coding agent.",
+    postInstall: "Run 'amp' to start. Set ANTHROPIC_API_KEY or AMP_API_KEY first.",
+    loginCommand: 'amp',
+  },
+  crush: {
+    packageManager: 'npm',
+    packageName: '@charmland/crush',
+    description: "Charm's terminal-native AI coding agent.",
+    postInstall: "Run 'crush' to start. Configure provider in ~/.config/crush/crush.json.",
+    loginCommand: 'crush',
+  },
+  kilo: {
+    packageManager: 'npm',
+    packageName: 'kilo-code',
+    description: 'OpenAI-compatible coding agent with persistent Memory Bank.',
+    postInstall: "Run 'kilo' to start. Supports any OpenAI-compatible endpoint.",
+    loginCommand: 'kilo',
+  },
+  kiro: {
+    packageManager: 'npm',
+    packageName: '@aws/kiro',
+    description: "AWS's spec-driven AI coding assistant.",
+    postInstall: "Run 'kiro' to start. Authenticate with AWS credentials (AWS_PROFILE).",
+    loginCommand: 'kiro',
+  },
+  droid: {
+    packageManager: 'npm',
+    packageName: '@factory/droid',
+    description: "Factory AI's autonomous coding droid.",
+    postInstall: "Run 'droid' to start. Set provider API key (ANTHROPIC, OPENAI, GOOGLE, or MISTRAL).",
+    loginCommand: 'droid',
+  },
 };
 
 // ============================================================================

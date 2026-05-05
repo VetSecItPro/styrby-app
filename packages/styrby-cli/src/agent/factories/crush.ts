@@ -33,6 +33,7 @@ import type {
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
+import { resolveApiKeyEnv, type ApiKeyProvider } from '@/utils/apiKeyProvider';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
 import type { CostReport } from '@styrby/shared/cost';
 
@@ -516,15 +517,15 @@ class CrushBackend extends StreamingAgentBackendBase {
           cwd: this.options.cwd,
           env: buildSafeEnv({
             ...this.options.env,
-            // WHY: Crush reads from the environment for LLM API keys.
-            // We inject the user's key under common names so Crush auto-detects
-            // the right one based on its configured provider.
-            ...(this.options.apiKey
-              ? {
-                  ANTHROPIC_API_KEY: this.options.apiKey,
-                  OPENAI_API_KEY: this.options.apiKey,
-                }
-              : {}),
+            // SECURITY (audit 2026-05-05 HIGH fix): see goose.ts for full
+            // rationale. Inject only the env-var matching the detected
+            // provider so we don't ship sk-ant-* keys to OpenAI servers.
+            ...resolveApiKeyEnv(
+              this.options.apiKey,
+              ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'],
+              this.options.provider as ApiKeyProvider | undefined,
+              'CrushBackend',
+            ),
           }),
           stdio: ['pipe', 'pipe', 'pipe'],
         });
