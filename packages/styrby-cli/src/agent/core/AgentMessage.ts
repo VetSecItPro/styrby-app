@@ -149,6 +149,26 @@ export interface PatchApplyEndMessage {
 }
 
 /**
+ * Cost report emitted by an agent backend after a model call completes.
+ *
+ * WHY this lives in the AgentMessage union: every agent factory
+ * (claude/codex/gemini/opencode/aider/goose/amp/crush/kilo/kiro/droid)
+ * emits this same shape on each turn so the cost-reporter can persist a
+ * unified row to `cost_records`. Adding it to the union eliminates the
+ * `as any` cast that was previously required at every emit site.
+ *
+ * The `report` field is a `CostReport` from `@styrby/shared/cost`, but
+ * the type is kept loose here (`unknown`) to avoid pulling the shared
+ * package into the universal-message graph — the cost-reporter parses
+ * + validates with `CostReportSchema.safeParse()` at the consumer end.
+ */
+export interface CostReportMessage {
+  type: 'cost-report';
+  /** Validated against `CostReportSchema` from `@styrby/shared/cost` at the consumer. */
+  report: unknown;
+}
+
+/**
  * Union type of all agent messages.
  *
  * These messages are emitted by agent backends and forwarded
@@ -167,7 +187,8 @@ export type AgentMessage =
   | TokenCountMessage
   | ExecApprovalRequestMessage
   | PatchApplyBeginMessage
-  | PatchApplyEndMessage;
+  | PatchApplyEndMessage
+  | CostReportMessage;
 
 /**
  * Handler function type for agent messages

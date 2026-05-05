@@ -271,7 +271,7 @@ class OpenCodeBackend extends StreamingAgentBackendBase {
               cacheWriteTokens: 0,
               rawAgentPayload: session as unknown as Record<string, unknown>,
             };
-            this.emit({ type: 'cost-report', report: costReport } as any);
+            this.emit({ type: 'cost-report', report: costReport });
           }
         }
         break;
