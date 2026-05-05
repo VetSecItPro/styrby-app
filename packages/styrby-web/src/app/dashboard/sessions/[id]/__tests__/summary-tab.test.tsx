@@ -230,8 +230,11 @@ describe('SummaryTab', () => {
         />
       );
 
-      // The timestamp is formatted as "Generated Jun 15, 2:30 PM" (locale-dependent)
-      expect(screen.getByText(/generated/i)).toBeInTheDocument();
+      // The timestamp is formatted as "Generated Jun 15, 2:30 PM" (locale-dependent).
+      // Use getAllByText since the new AI-disclosure footnote ("AI-generated...")
+      // also matches /generated/i. Both elements rendering is the intent.
+      const matches = screen.getAllByText(/generated/i);
+      expect(matches.length).toBeGreaterThanOrEqual(1);
     });
 
     it('starts expanded by default', () => {

@@ -49,6 +49,7 @@ import {
 } from '@/middleware/api-auth';
 import { createAdminClient, createClient } from '@/lib/supabase/server';
 import { resolveEffectiveTier } from '@/lib/tier-enforcement';
+import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -253,6 +254,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { error: 'Unauthorized', code: 'UNAUTHORIZED' },
       { status: 401 }
     );
+  }
+
+  // OWASP LLM10 (unbounded consumption): API-key path inherits the per-key
+  // 30/min rate-limit from withApiAuthAndRateLimit. The cookie-auth path
+  // skips that wrapper, so a browser script could spam clicks and spike
+  // OpenRouter spend. Apply a per-user rate-limit here to close the gap.
+  // Documented 2026-05-05 audit. Limit: same 30/min as the API-key path.
+  const { allowed, retryAfter } = await rateLimit(
+    request,
+    { windowMs: 60_000, maxRequests: 30 },
+    `summary:cookie:${user.id}`
+  );
+  if (!allowed) {
+    // rateLimitResponse returns Response; wrap into NextResponse for the
+    // route's typed signature.
+    const r = rateLimitResponse(retryAfter ?? 60);
+    return NextResponse.json(await r.json(), { status: r.status, headers: r.headers });
   }
 
   const cookieContext: ApiAuthContext = {

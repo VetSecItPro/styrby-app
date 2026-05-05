@@ -190,6 +190,14 @@ async function checkOpenRouter(): Promise<boolean> {
  * works but DNS is broken" silent-failure mode that a plain reachability
  * ping would miss. If RESEND_API_KEY is unset (preview / local), we report
  * healthy so health checks don't fail in dev.
+ *
+ * WHY 4xx is treated as healthy (warn + continue, mirrors PR #260's OR
+ * /credits fix): /domains requires a FULL ACCESS Resend key. The runtime
+ * RESEND_API_KEY only needs sending scope, so a 401/403 here is an
+ * informational scope mismatch - NOT a real outage. Actual send capability
+ * is verified by transactional emails landing (welcome, budget alerts,
+ * weekly digests). 5xx still means Resend itself is genuinely down and
+ * our send pipeline is broken, so that path keeps returning false.
  */
 async function checkResend(): Promise<boolean> {
   const key = process.env.RESEND_API_KEY;
@@ -200,7 +208,17 @@ async function checkResend(): Promise<boolean> {
       headers: { Authorization: `Bearer ${key}` },
       cache: 'no-store',
     });
-    if (!res.ok) return false;
+    // 5xx = real Resend outage; flip the dependency to unhealthy.
+    if (res.status >= 500) return false;
+    // 4xx = scope/auth issue on this informational probe. Log + treat as
+    // healthy: actual sending uses a different code path (Resend SDK).
+    if (!res.ok) {
+      console.warn(
+        `[health] Resend /domains returned ${res.status} (likely scope mismatch). ` +
+        'Treating as healthy since send capability is verified by transactional emails.'
+      );
+      return true;
+    }
     // Resend's /domains response shape is { data: [{ status: 'verified' | ... }] }.
     // We treat status === 'verified' as the only acceptable state; any other
     // value (pending, failed, temporary_failure) means we cannot reliably send.

@@ -7,7 +7,8 @@
  *   - polar down => 503 status='degraded'
  *   - openrouter down => 503 status='degraded'
  *   - openrouter unset (e.g. preview env) => skipped (treated healthy)
- *   - resend down (4xx) => 503 status='degraded'
+ *   - resend down (4xx) => 200 status='ok' (informational scope mismatch, warn+continue)
+ *   - resend down (5xx) => 503 status='degraded' (real outage)
  *   - resend domains unverified => 503 status='degraded'
  *   - resend unset => skipped (treated healthy)
  */
@@ -53,6 +54,8 @@ function mockFetch(behavior: {
   polarOk?: boolean;
   openrouterOk?: boolean;
   resendOk?: boolean;
+  /** When set, overrides the resend response status (e.g. 502 for 5xx outage). */
+  resendStatus?: number;
   resendVerifiedDomains?: number;
   polarThrows?: boolean;
   openrouterThrows?: boolean;
@@ -81,9 +84,10 @@ function mockFetch(behavior: {
       const data = Array.from({ length: verifiedCount }, () => ({
         status: 'verified',
       }));
+      const status = behavior.resendStatus ?? (ok ? 200 : 401);
       return Promise.resolve({
         ok,
-        status: ok ? 200 : 401,
+        status,
         json: () => Promise.resolve({ data }),
       });
     }
@@ -151,8 +155,22 @@ describe('GET /api/health', () => {
     expect(body.status).toBe('ok');
   });
 
-  it('resend down (4xx): 503 status=degraded', async () => {
-    mockFetch({ polarOk: true, openrouterOk: true, resendOk: false });
+  it('resend down (4xx): 200 status=ok (warn+continue, scope mismatch)', async () => {
+    // 4xx on /domains is informational only - actual send capability uses
+    // the Resend SDK with a sending-scope key. Health stays green.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockFetch({ polarOk: true, openrouterOk: true, resendOk: false, resendStatus: 401 });
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as HealthBody;
+    expect(body.status).toBe('ok');
+    expect(body.checks.resend).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Resend /domains returned 401'));
+    warnSpy.mockRestore();
+  });
+
+  it('resend down (5xx): 503 status=degraded (real outage)', async () => {
+    mockFetch({ polarOk: true, openrouterOk: true, resendOk: false, resendStatus: 503 });
     const res = await GET();
     expect(res.status).toBe(503);
     const body = (await res.json()) as HealthBody;

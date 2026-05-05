@@ -4,6 +4,19 @@
  * Usage:
  *   import { sendEmail, sendWelcomeEmail } from '@/lib/resend';
  *   await sendWelcomeEmail({ email: 'user@example.com', displayName: 'John' });
+ *
+ * @auth-tier RESEND_API_KEY required - SENDING SCOPE minimum.
+ *   Every export in this module (sendEmail + the typed senders) only needs
+ *   Resend's "sending" scope (smtp.resend.com / POST /emails). The key is
+ *   safe to provision as a sending-only key in production.
+ *
+ *   Account-level reads (GET /domains, GET /api-keys, audit logs) require
+ *   a FULL ACCESS key. None of those are called from this module today;
+ *   the only place that hits /domains is /api/health/route.ts as an
+ *   informational probe (see WHY in that file - 4xx is treated as
+ *   non-fatal precisely because the runtime key intentionally lacks the
+ *   broader scope). If you add a method here that needs FULL ACCESS,
+ *   annotate it inline with `// SCOPE: FULL ACCESS required`.
  */
 
 import { Resend } from 'resend';
@@ -87,11 +100,18 @@ export async function sendEmail({
     return { success: false, error: 'Email sending is disabled (RESEND_API_KEY not set)' };
   }
 
+  // CVE-2026-3854 class defense: strip CRLF/null bytes from subject before
+  // it reaches the SMTP-adjacent layer. Resend uses JSON+HTTPS internally so
+  // header injection isn't directly exploitable, but defense-in-depth keeps
+  // the residual class closed AND protects against email clients rendering
+  // literal `\r\n` as ugly artifacts. 2026-05-05 audit hardening.
+  const safeSubject = subject.replace(/[\r\n\x00]/g, ' ').slice(0, 998);
+
   try {
     const { data, error } = await client.emails.send({
       from,
       to,
-      subject,
+      subject: safeSubject,
       // @ts-ignore React 19 types may be incompatible with Resend ReactElement type in CI
       react,
       replyTo,
