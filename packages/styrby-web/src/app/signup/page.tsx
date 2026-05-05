@@ -370,14 +370,14 @@ function SignUpPageInner() {
                   ? 'Create your Pro account'
                   : plan === 'growth'
                   ? 'Create your Growth account'
-                  : 'Create your free account'}
+                  : 'Create your account'}
               </h1>
               <p className="mt-1 text-xs text-muted-foreground text-center">
                 {step === 'otp'
                   ? `We sent a 6-digit code to ${email}`
                   : plan
                   ? 'Verify your email, then complete checkout.'
-                  : 'Free on one machine. Upgrade to a paid tier whenever you outgrow it.'}
+                  : 'Pick a plan, pair your first agent in under a minute, cancel anytime.'}
               </p>
               {plan && step === 'info' && (
                 <span className="mt-2 inline-flex items-center rounded-full bg-amber-500/10 border border-amber-500/20 px-3 py-0.5 text-xs font-medium text-amber-500">
@@ -406,7 +406,7 @@ function SignUpPageInner() {
                     {decodeURIComponent(invitedBy)} invited you to Styrby
                   </p>
                   <p className="mt-0.5 text-xs text-amber-500/70">
-                    Create your free account and pair your first agent in under a minute.
+                    Create your account and pair your first agent in under a minute.
                   </p>
                 </div>
               </div>
@@ -493,17 +493,12 @@ function SignUpPageInner() {
                   <div className="h-px flex-1 bg-border/40" />
                 </div>
 
-                {/* Google OAuth */}
-                <Button
-                  variant="outline"
-                  onClick={handleGoogleSignUp}
-                  disabled={loading}
-                  className="w-full gap-2 border-border/60 text-foreground bg-transparent hover:bg-accent mb-3"
-                  aria-label="Sign up with Google"
-                >
-                  <GoogleIcon className="h-4 w-4" />
-                  Continue with Google
-                </Button>
+                {/* Google OAuth — DISABLED 2026-05-04. The OAuth client has not
+                    been provisioned in Google Cloud Console (operator hit the
+                    GCP project quota and tabled it). Re-enable here AND in
+                    Supabase Auth → Providers once a Google OAuth Web Client is
+                    created and its credentials are pasted into Supabase. See
+                    `runbooks/enable-google-oauth.md` for the step-by-step. */}
 
                 {/* GitHub OAuth */}
                 <Button

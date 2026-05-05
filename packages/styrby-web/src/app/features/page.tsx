@@ -497,7 +497,7 @@ export default function FeaturesPage() {
                 Pair your first agent in under a minute.
               </h2>
               <p className="mx-auto mt-3 max-w-md text-sm text-muted-foreground">
-                Free on one machine. No credit card. No expiring trial.
+                Pro at $39/mo, Growth at $99/mo (3 seats included). Cancel anytime.
               </p>
               <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
                 <Button asChild size="sm" className="bg-amber-500 text-background hover:bg-amber-600 font-medium px-6">

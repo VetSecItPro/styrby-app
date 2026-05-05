@@ -439,17 +439,12 @@ function LoginForm() {
                   {passkeyLoading ? 'Waiting for passkey...' : 'Continue with Passkey'}
                 </Button>
 
-                {/* Google OAuth */}
-                <Button
-                  variant="outline"
-                  onClick={handleGoogleLogin}
-                  disabled={loading || passkeyLoading}
-                  className="w-full gap-2 border-border/60 text-foreground bg-transparent hover:bg-accent mb-3"
-                  aria-label="Sign in with Google"
-                >
-                  <GoogleIcon className="h-4 w-4" />
-                  Continue with Google
-                </Button>
+                {/* Google OAuth — DISABLED 2026-05-04. The OAuth client has not
+                    been provisioned in Google Cloud Console (operator hit the
+                    GCP project quota and tabled it). Re-enable here AND in
+                    Supabase Auth → Providers once a Google OAuth Web Client is
+                    created and its credentials are pasted into Supabase. See
+                    `runbooks/enable-google-oauth.md` for the step-by-step. */}
 
                 {/* GitHub OAuth */}
                 <Button

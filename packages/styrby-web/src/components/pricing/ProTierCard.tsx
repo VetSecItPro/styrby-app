@@ -134,7 +134,7 @@ export function ProTierCard({ annual }: ProTierCardProps) {
       </div>
 
       <p className="mt-3 text-center text-[11px] text-muted-foreground/50">
-        14-day free trial. No credit card required.
+        Cancel anytime. Upgrade to Growth in one click when your team grows.
       </p>
     </div>
   );
