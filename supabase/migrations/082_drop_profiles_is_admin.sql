@@ -1,0 +1,47 @@
+-- Migration 082: Drop deprecated profiles.is_admin column
+--
+-- BACKGROUND
+-- ----------
+-- Migration 042 (`042_deprecate_profiles_is_admin.sql`) marked this column
+-- DEPRECATED on 2026-04-XX as part of the cutover from row-level admin flag
+-- to the dedicated `site_admins` table. The column was kept in place during
+-- a 2-week soak window so legacy clients (any cached or rolling-deployed
+-- web/mobile builds) could continue reading it without 5xx-ing.
+--
+-- The 2-week soak window has long since expired (today is 2026-05-05).
+-- The canonical source of admin truth is now `public.site_admins`, queried
+-- via the `is_site_admin()` RPC. All current code paths in
+-- `packages/styrby-web` and `packages/styrby-mobile` use that RPC; the only
+-- remaining `is_admin` references in the source tree are historical comments
+-- documenting the cutover. See `packages/styrby-web/src/lib/admin.ts` and
+-- `packages/styrby-web/src/app/dashboard/admin/layout.tsx`.
+--
+-- WHY DROP NOW (vs. leaving the column in place indefinitely)
+-- -----------------------------------------------------------
+--   * Defense in depth — a stale column with privileged semantics is a
+--     standing OWASP A01 (Broken Access Control) hazard. Any future code
+--     that mistakenly reads `profiles.is_admin` instead of `site_admins`
+--     would silently grant admin to no-one (column is NULL/false for all
+--     post-cutover users) — failing closed is good, but the column being
+--     present at all invites the bug.
+--   * Schema clarity — the column has been documented as DEPRECATED in the
+--     comment for 2+ weeks. Auditors reading the schema should see only
+--     the canonical mechanism.
+--   * SOC2 CC6.1 — least-privilege access enforcement requires removing
+--     deprecated authorization signals, not just disusing them.
+--
+-- COMPATIBILITY
+-- -------------
+-- `DROP COLUMN IF EXISTS` is idempotent. Re-applying this migration on a
+-- database where the column has already been dropped is a no-op.
+--
+-- Mobile zod schema (`packages/styrby-mobile/src/lib/schemas.ts`) still
+-- declares `is_admin: z.boolean().optional()` for backward-compat with any
+-- cached profile payloads in offline storage. Optional means dropping the
+-- column server-side will NOT cause schema validation errors when the field
+-- is simply absent from new responses.
+--
+-- RLS policies on `profiles` do not reference `is_admin` (verified via
+-- `pg_policies` audit) — all admin-gated views use `is_site_admin()`.
+
+ALTER TABLE public.profiles DROP COLUMN IF EXISTS is_admin;
