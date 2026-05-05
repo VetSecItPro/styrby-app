@@ -108,107 +108,11 @@ interface OpenRouterAuthKeyResponse {
   };
 }
 
-/**
- * Numbers used by both the route response and the email template. Computed
- * once in `computeCycleMetrics` for testability + a single source of truth.
- */
-interface CycleMetrics {
-  capUsd: number;
-  remainingUsd: number;
-  usedThisCycleUsd: number;
-  capPctUsed: number;
-  daysIntoCycle: number;
-  daysRemainingInCycle: number;
-  dailyBurnUsd: number;
-  projectedEndOfCycleUsd: number;
-  projectedOverageUsd: number;
-  nextResetIso: string;
-  nextResetLabel: string;
-}
-
-/**
- * Pure cycle-math helper. Exported for unit-testability.
- *
- * @param now - Reference instant (UTC). Tests inject a fixed Date so the
- *   day-into-cycle / days-remaining numbers are deterministic.
- * @param capUsd - The per-key monthly cap (USD). 0 means uncapped (treated
- *   as "no projection").
- * @param remainingUsd - Cap minus this-cycle usage (USD). Source of truth
- *   for "how much can we still spend before features fail."
- * @param usageMonthlyUsd - This-cycle usage rolled up by OpenRouter.
- * @returns Pre-rendered cycle metrics for both the JSON response and the
- *   email template.
- */
-export function computeCycleMetrics(
-  now: Date,
-  capUsd: number,
-  remainingUsd: number,
-  usageMonthlyUsd: number
-): CycleMetrics {
-  // Use UTC-anchored calendar month — the cron also fires on UTC, and the
-  // OpenRouter cap rolls on a calendar boundary (their docs are silent on
-  // tz, observed behavior is UTC midnight on the 1st).
-  const year = now.getUTCFullYear();
-  const month = now.getUTCMonth();
-  const dayOfMonth = now.getUTCDate();
-  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-
-  const daysIntoCycle = Math.max(dayOfMonth, 1);
-  const daysRemainingInCycle = Math.max(daysInMonth - dayOfMonth, 0);
-
-  const usedThisCycleUsd = Math.max(capUsd - remainingUsd, 0);
-  const capPctUsed = capUsd > 0 ? (usedThisCycleUsd / capUsd) * 100 : 0;
-
-  const dailyBurnUsd = usageMonthlyUsd / daysIntoCycle;
-  const projectedEndOfCycleUsd = dailyBurnUsd * daysInMonth;
-  const projectedOverageUsd =
-    capUsd > 0 ? Math.max(projectedEndOfCycleUsd - capUsd, 0) : 0;
-
-  // Next reset = first day of next month at 00:00:00 UTC.
-  const nextReset = new Date(Date.UTC(year, month + 1, 1, 0, 0, 0));
-  const nextResetIso = nextReset.toISOString();
-  // WHY toLocaleDateString with a fixed locale: deterministic across server
-  // tz, gives "Saturday, June 1, 2026"-style output that's grep-friendly
-  // in the email.
-  const nextResetLabel = nextReset.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
-
-  return {
-    capUsd,
-    remainingUsd,
-    usedThisCycleUsd,
-    capPctUsed,
-    daysIntoCycle,
-    daysRemainingInCycle,
-    dailyBurnUsd,
-    projectedEndOfCycleUsd,
-    projectedOverageUsd,
-    nextResetIso,
-    nextResetLabel,
-  };
-}
-
-/**
- * Render the now-instant in Central Time (project standard for human
- * timestamps, per CLAUDE.md "Time Zone Rules"). Pure helper for testability.
- */
-export function formatCentralTimestamp(now: Date): string {
-  return now.toLocaleString('en-US', {
-    timeZone: 'America/Chicago',
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short',
-  });
-}
+import {
+  computeCycleMetrics,
+  formatCentralTimestamp,
+  type CycleMetrics,
+} from './cycle-metrics';
 
 export async function GET(request: NextRequest) {
   // ---- Auth: timing-safe cron secret comparison ----

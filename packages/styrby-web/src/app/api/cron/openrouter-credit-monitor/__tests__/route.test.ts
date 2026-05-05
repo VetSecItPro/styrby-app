@@ -64,7 +64,8 @@ vi.mock('@/emails/openrouter-credit-alert', () => ({
 }));
 
 // Import handler AFTER mocks
-import { GET, computeCycleMetrics, formatCentralTimestamp } from '../route';
+import { GET } from '../route';
+import { computeCycleMetrics, formatCentralTimestamp } from '../cycle-metrics';
 
 // ----------------------------------------------------------------------------
 // Helpers

@@ -47,6 +47,16 @@
         "EXPO_PUBLIC_SUPABASE_URL",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY",
         "RESEND_API_KEY",
+        "OPENROUTER_API_KEY",
+        "OPENROUTER_LOW_BALANCE_THRESHOLD",
+        "OPENROUTER_ALERT_EMAIL",
+        "CRON_SECRET",
+        "REDIS_URL",
+        "SENTRY_AUTH_TOKEN",
+        "SENTRY_DSN",
+        "SENTRY_ORG",
+        "SENTRY_PROJECT",
+        "STYRBY_SENTRY_MUTED",
         "ANALYZE"
       ]
     },
