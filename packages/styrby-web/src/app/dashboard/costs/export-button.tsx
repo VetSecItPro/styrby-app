@@ -30,7 +30,10 @@ type ExportFormat = 'csv' | 'json';
  */
 interface ExportButtonProps {
   /**
-   * Whether the current user is on the Power tier.
+   * Whether the current user is on a paid tier (Pro or Growth). The
+   * variable name is a historical artifact from when the gating tier
+   * was called "Power"; renaming would touch every consumer in the
+   * dashboard. Semantics today: "is on Pro or Growth".
    * When false the button is rendered in a locked/disabled state.
    */
   isPowerTier: boolean;
@@ -47,9 +50,11 @@ interface ExportButtonProps {
 
 /**
  * A dropdown "Export" button that downloads cost data as CSV or JSON.
- * Only functional for Power tier users.
+ * Only functional for users on Pro or Growth.
  *
- * @param isPowerTier - Enables the button for Power users, shows upgrade prompt otherwise
+ * @param isPowerTier - Enables the button for paid-tier users (Pro/Growth);
+ *   shows upgrade prompt otherwise. Variable name retained for back-compat
+ *   with existing call sites.
  * @param days - Lookback window passed to the export API
  *
  * @example
@@ -143,7 +148,7 @@ export function ExportButton({ isPowerTier, days = 30 }: ExportButtonProps) {
         <button
           type="button"
           disabled
-          title="Cost export requires Power plan"
+          title="Cost export requires a Pro or Growth plan"
           className="flex items-center gap-1.5 rounded-lg border border-border/40 px-3 py-1.5 text-xs font-medium text-muted-foreground/50 cursor-not-allowed select-none"
           aria-disabled="true"
         >
@@ -184,7 +189,7 @@ export function ExportButton({ isPowerTier, days = 30 }: ExportButtonProps) {
   }
 
   // ---------------------------------------------------------------------------
-  // Active state - Power users
+  // Active state - paid-tier users (Pro/Growth)
   // ---------------------------------------------------------------------------
 
   const isExporting = loading !== null;

@@ -72,12 +72,6 @@ export function PricingCards({ currentTier }: PricingCardsProps) {
                   : 'bg-zinc-900 border border-zinc-800'
               }`}
             >
-              {isPopular && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-orange-500 px-3 py-1 text-xs font-medium text-white">
-                  Most Popular
-                </div>
-              )}
-
               {isCurrentTier && (
                 <div className="absolute top-4 right-4">
                   <span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-1 text-xs font-medium text-green-400">

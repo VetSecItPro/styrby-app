@@ -164,12 +164,13 @@ export default function TermsOfServicePage() {
               session history
             </li>
             <li>
-              <strong>Pro</strong>: full feature access with 90 days of
-              session history
+              <strong>Pro</strong>: full individual-developer feature
+              access with 1 year of session history
             </li>
             <li>
-              <strong>Power</strong>: maximum limits with 1 year of session
-              history
+              <strong>Growth</strong>: everything in Pro plus team
+              workspace, role-based access, audit-trail export, approval
+              chains, and shared dashboards
             </li>
           </ul>
 

@@ -457,9 +457,9 @@ export function DashboardRealtime({
         )}
       </div>
 
-      {/* Cloud Tasks Panel - async agent task monitoring - Power tier only
-          WHY: Cloud Monitoring is listed as a Power-exclusive feature in the TIERS
-          config. Pro users see a locked upgrade card; Free users also see it. */}
+      {/* Cloud Tasks Panel - async agent task monitoring - Pro and Growth tiers
+          WHY: Cloud Monitoring is gated to paid tiers in the TIERS config.
+          Free users see a locked upgrade card. */}
       {userTier === 'growth' ? (
         <div className="mt-8 rounded-xl bg-zinc-900 border border-zinc-800 p-4">
           <CloudTasksPanel userId={userId} />

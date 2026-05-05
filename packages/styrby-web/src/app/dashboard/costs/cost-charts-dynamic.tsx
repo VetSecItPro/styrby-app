@@ -55,7 +55,7 @@ function CostChartsSkeleton() {
 
 /**
  * Dynamically imported CostCharts — Recharts bundle is only fetched when this
- * component is rendered (i.e. the user is on the Power tier).
+ * component is rendered (i.e. the user is on a paid tier — Pro or Growth).
  */
 export const CostChartsDynamic = dynamic(
   () => import('./cost-charts').then((mod) => ({ default: mod.CostCharts })),

@@ -1,4 +1,15 @@
--- Migration 0395: Disable migration 018's broken audit_log_* triggers.
+-- Migration 047: Disable migration 018's broken audit_log_* triggers.
+--
+-- RENAMED 2026-05-04: was originally `0395_disable_broken_audit_triggers.sql`,
+-- a hotfix applied between 039 and 040 (hence the "03 9.5" version). The
+-- numeric prefix `0395` triggered a Supabase CLI sort-order bug — ASCII
+-- sorts `0395_*` BEFORE `039_*` (because '5' = 0x35 < '_' = 0x5F) while
+-- Postgres sorts the version column the other way (039 < 0395). The
+-- mismatched orderings broke `supabase db push` indefinitely. Renamed to
+-- 047 (a previously-unused gap between 046 and 048) to fix the CLI; the
+-- corresponding tracker row was UPDATEd from version='0395' to '047' at
+-- the same time. Application order in production is unchanged — this
+-- migration was applied to remote on 2026-04 (long before this rename).
 --
 -- WHY THIS MIGRATION EXISTS (context):
 --   Migration 018 attached an audit_trigger_fn to profiles, subscriptions,

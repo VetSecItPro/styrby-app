@@ -25,8 +25,9 @@ import type { OtelSettingsProps } from '@/components/dashboard/otel-settings';
 
 /**
  * WHY OtelSettings is dynamic: OtelSettings is a 506-line form component
- * (~30 kB parsed JS) that is gated behind the Power tier. Only ~10-15% of
- * users are on Power; the other 85-90% pay this parse cost needlessly if it
+ * (~30 kB parsed JS) that is gated to paid tiers (Pro and Growth). Only
+ * ~10-15% of users are on a paid tier; the other 85-90% pay this parse
+ * cost needlessly if it
  * is in the eager bundle. Dynamic import moves it to an async chunk that is
  * only fetched when the settings page renders AND the user is on Power.
  *

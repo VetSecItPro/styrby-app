@@ -39,6 +39,12 @@ import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { isAdmin } from '@/lib/admin';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
+// Aliased imports keep the doc-style helper names readable inside
+// `mrrUsdForSubscription` while pointing at the canonical price helpers.
+import {
+  calculateMonthlyCostCents as calculateMonthlyCostCentsHelper,
+  calculateAnnualCostCents as calculateAnnualCostCentsHelper,
+} from '@/lib/billing/polar-products';
 
 // ============================================================================
 // Types
@@ -131,29 +137,59 @@ export interface FounderMetrics {
 // ============================================================================
 
 /**
- * Monthly value in USD for each subscription tier.
+ * Static fallback MRR-per-row for LEGACY tiers only (Phase 5 collapsed
+ * Pro+Power+Team+Business+Enterprise into Pro+Growth). The DB
+ * `subscription_tier` enum still permits the legacy values for historical
+ * subscriptions that haven't been migrated; we keep them here as
+ * best-effort estimates so historical MRR is not silently zero.
  *
- * WHY hard-coded here: These match the published pricing page. They are not
- * stored in the database. Keeping them here (not in an env var) avoids a
- * configuration mismatch between what the pricing page shows and what the
- * MRR calculation uses.
- *
- * Pro = $49/mo (monthly billing). Power = $49/mo.
- * Team = $19/seat (3-seat minimum = $57/mo floor).
- * Free = $0.
- *
- * WHY we use the base seat price for team not the floor: Supabase subscriptions
- * table stores one row per subscription. For team plans, each row represents
- * one seat, so summing the per-seat price gives the correct MRR.
+ * Pro and Growth are NOT in this table — they're computed from the
+ * canonical pricing helpers below to guarantee MRR matches what Polar
+ * actually charges.
  */
-const TIER_MRR_USD: Record<string, number> = {
+const LEGACY_TIER_MRR_USD: Record<string, number> = {
   free: 0,
-  pro: 49,
-  power: 49,
-  team: 19,
-  business: 39,
-  enterprise: 0, // custom pricing — exclude from MRR computation
+  power: 49, // legacy $49/mo individual plan
+  team: 19, // legacy per-seat (one row per seat = $19/row contribution)
+  business: 39, // legacy per-seat
+  enterprise: 0, // custom pricing — never in self-serve MRR
 };
+
+/**
+ * Computes the MRR contribution (USD, integer) for a single active
+ * subscription row.
+ *
+ * WHY route Pro/Growth through `calculateMonthlyCostCents`: it's the same
+ * helper the pricing page uses, sandbox-validated to match Polar's actual
+ * charges to the cent. Legacy tiers fall through to the static table.
+ *
+ * For annual billing, divides annual cost by 12 to express as a monthly
+ * recurring number (this is the standard MRR convention).
+ *
+ * @param tier - subscription_tier enum value
+ * @param isAnnual - whether the subscription is on the annual cycle
+ * @param seats - per-Polar seat count (only meaningful for Growth; null for others)
+ */
+function mrrUsdForSubscription(
+  tier: string,
+  isAnnual: boolean,
+  seats: number | null,
+): number {
+  if (tier === 'pro') {
+    const monthlyCents = isAnnual
+      ? Math.floor(calculateAnnualCostCentsHelper('pro', 1) / 12)
+      : calculateMonthlyCostCentsHelper('pro', 1);
+    return monthlyCents / 100;
+  }
+  if (tier === 'growth') {
+    const effectiveSeats = seats ?? 3; // 3 = GROWTH_BASE_SEATS minimum
+    const monthlyCents = isAnnual
+      ? Math.floor(calculateAnnualCostCentsHelper('growth', effectiveSeats) / 12)
+      : calculateMonthlyCostCentsHelper('growth', effectiveSeats);
+    return monthlyCents / 100;
+  }
+  return LEGACY_TIER_MRR_USD[tier] ?? 0;
+}
 
 // ============================================================================
 // Route handler
@@ -218,9 +254,14 @@ export async function GET(request: NextRequest) {
       cohortResult,
     ] = await Promise.all([
       // Active subscriptions — for MRR + tier mix + LTV
+      // WHY include `seats` and `is_annual`: MRR for Growth depends on the
+      // per-row seat count (tiered seat-based pricing) and the billing
+      // cycle. Without these, Growth subs would contribute $0 to MRR
+      // (they'd fall through the LEGACY_TIER_MRR_USD lookup which has no
+      // 'growth' entry).
       adminDb
         .from('subscriptions')
-        .select('tier, status, created_at, user_id')
+        .select('tier, status, created_at, user_id, seats, is_annual')
         .eq('status', 'active'),
 
       // Canceled subscriptions — for churn rate (last 90 days)
@@ -262,7 +303,11 @@ export async function GET(request: NextRequest) {
     for (const sub of activeSubs) {
       const tier = (sub.tier as string) || 'free';
       tierCounts[tier] = (tierCounts[tier] ?? 0) + 1;
-      totalMrrUsd += TIER_MRR_USD[tier] ?? 0;
+      totalMrrUsd += mrrUsdForSubscription(
+        tier,
+        Boolean(sub.is_annual),
+        (sub.seats as number | null | undefined) ?? null,
+      );
 
       // Compute tenure in months for LTV estimate.
       const createdMs = new Date(sub.created_at as string).getTime();
@@ -299,16 +344,34 @@ export async function GET(request: NextRequest) {
     // WHY: LTV estimate = (avg subscription value) * (avg tenure months).
     // This is a simple cohort-naive estimate; a proper LTV model requires
     // historical retention curves which are in the cohortRetention section.
+    // WHY canonical helper here too: the "is paid" filter and the avg-MRR
+    // calc must agree with the totalMrrUsd loop above. Routing through
+    // mrrUsdForSubscription guarantees they use the same Pro/Growth math
+    // (sandbox-validated against Polar) and the same legacy fallback table.
     const paidSubs = activeSubs.filter((s) => {
       const tier = (s.tier as string) || 'free';
-      return (TIER_MRR_USD[tier] ?? 0) > 0;
+      return (
+        mrrUsdForSubscription(
+          tier,
+          Boolean(s.is_annual),
+          (s.seats as number | null | undefined) ?? null,
+        ) > 0
+      );
     });
 
     let avgLtvUsd: number | null = null;
     if (paidSubs.length > 0) {
       const avgMrrPerPaidSub =
-        paidSubs.reduce((sum, s) => sum + (TIER_MRR_USD[(s.tier as string) ?? 'free'] ?? 0), 0) /
-        paidSubs.length;
+        paidSubs.reduce(
+          (sum, s) =>
+            sum +
+            mrrUsdForSubscription(
+              (s.tier as string) ?? 'free',
+              Boolean(s.is_annual),
+              (s.seats as number | null | undefined) ?? null,
+            ),
+          0,
+        ) / paidSubs.length;
       const avgTenureMonths = totalTenureMonths / activeSubs.length;
       avgLtvUsd = avgMrrPerPaidSub * Math.max(avgTenureMonths, 1);
     }

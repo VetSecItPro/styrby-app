@@ -364,7 +364,7 @@ export default function APIReferencePage() {
       </h2>
       <p className="mt-2 text-sm text-muted-foreground">
         Lists or creates named checkpoints inside a session timeline. POST
-        requires the Power tier and rejects names longer than 80 characters or
+        requires the Pro plan and rejects names longer than 80 characters or
         outside the <code className="rounded bg-secondary px-1.5 py-0.5 text-xs text-foreground/75">[a-zA-Z0-9 \-_.]</code>{" "}
         character class. Names must be unique within a session.
       </p>
@@ -385,7 +385,7 @@ curl -X POST -H "Authorization: Bearer styrby_abc123" \\
 
 # Errors
 # 400 { "error": <Zod validation message> }
-# 403 { "error": "Power tier required" }
+# 403 { "error": "Pro plan required" }
 # 409 { "error": "Checkpoint name already exists" }`}</code>
       </pre>
 
@@ -394,8 +394,8 @@ curl -X POST -H "Authorization: Bearer styrby_abc123" \\
         GET /costs/export
       </h2>
       <p className="mt-2 text-sm text-muted-foreground">
-        Streams raw cost records as CSV for accounting and reconciliation. Power
-        tier only. Throttled to 1 request per hour per API key (export is
+        Streams raw cost records as CSV for accounting and reconciliation. Pro
+        and Growth only. Throttled to 1 request per hour per API key (export is
         expensive); the standard 100 req/min ceiling still applies for everything
         else.
       </p>
@@ -409,7 +409,7 @@ curl -X POST -H "Authorization: Bearer styrby_abc123" \\
 # output_tokens, cache_tokens, cost_usd
 
 # Errors
-# 403 { "error": "Power tier required" }
+# 403 { "error": "Pro plan required" }
 # 429 { "error": "RATE_LIMITED" }`}</code>
       </pre>
 

@@ -302,6 +302,85 @@ describe('SignUpPage — OTP step', () => {
 
     expect(screen.getByRole('heading', { name: 'Create your free account' })).toBeInTheDocument();
   });
+
+  /**
+   * POST-SIGNUP-1 — proves that when the user lands at signup from the
+   * /pricing slider (`?plan=growth&seats=5&billing=annual`), post-OTP we
+   * POST to /api/billing/checkout with the right body and redirect to the
+   * returned Polar URL — instead of dropping the user on /dashboard with
+   * the seat count silently lost.
+   */
+  it('POST-SIGNUP-1: redirects to Polar checkout URL when plan=growth&seats=5', async () => {
+    mockVerifyOtp.mockResolvedValue({ error: null });
+    mockSearchParams.get.mockImplementation((key: string) => {
+      if (key === 'plan') return 'growth';
+      if (key === 'seats') return '5';
+      if (key === 'billing') return 'annual';
+      return null;
+    });
+
+    // Mock global fetch to return a Polar checkout URL
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: 'https://polar.sh/checkout/test-123' }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    // Track location.href assignments without triggering jsdom nav
+    const hrefSetter = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: {
+        get href() { return ''; },
+        set href(v: string) { hrefSetter(v); },
+        origin: 'http://localhost',
+      },
+      writable: true,
+    });
+
+    const { user } = setup();
+    await advanceToOtpStep(user);
+    await user.type(screen.getByLabelText('6-digit code'), '123456');
+    await user.click(screen.getByRole('button', { name: /create account/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/billing/checkout',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ tierId: 'growth', billingCycle: 'annual', seats: 5 }),
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(hrefSetter).toHaveBeenCalledWith('https://polar.sh/checkout/test-123');
+    });
+    // Should NOT have pushed to /dashboard — the Polar redirect took over.
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  /**
+   * POST-SIGNUP-1 fallback — if the checkout call fails (network error,
+   * bad config), the user still lands on /dashboard with the params
+   * preserved so they can retry from the dashboard upgrade button.
+   */
+  it('POST-SIGNUP-1: falls back to /dashboard?plan=...&seats=... when checkout API fails', async () => {
+    mockVerifyOtp.mockResolvedValue({ error: null });
+    mockSearchParams.get.mockImplementation((key: string) => {
+      if (key === 'plan') return 'growth';
+      if (key === 'seats') return '5';
+      return null;
+    });
+    global.fetch = vi.fn().mockRejectedValue(new Error('network down')) as unknown as typeof fetch;
+
+    const { user } = setup();
+    await advanceToOtpStep(user);
+    await user.type(screen.getByLabelText('6-digit code'), '123456');
+    await user.click(screen.getByRole('button', { name: /create account/i }));
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith('/dashboard?plan=growth&seats=5');
+    });
+  });
 });
 
 describe('SignUpPage — GitHub OAuth', () => {

@@ -47,12 +47,14 @@ const DEFAULT_THRESHOLD_PCT = 80;
  * These are conservative caps; the upgrade screen shows tighter estimates.
  */
 const TIER_MONTHLY_COST_CAP: Record<string, number> = {
-  free: 10,      // $10 soft cap for free tier
-  pro: 49,       // Power plan price as cost proxy
-  power: 200,    // $200 generous cap for Power users
-  team: 500,     // Team base price as proxy
-  business: 1500,
-  enterprise: 5000,
+  free: 10, // $10 soft cap for free tier
+  pro: 39, // current Pro plan price as cost proxy ($39/mo)
+  growth: 99, // Growth base price as proxy (covers 3 seats; per-seat cost on top scales the cap)
+  // Legacy enum values kept so historical rows don't fall through to default 0:
+  power: 200, // legacy (was the old individual paid plan; collapsed into pro)
+  team: 500, // legacy
+  business: 1500, // legacy
+  enterprise: 5000, // legacy / custom
 };
 
 const BATCH_SIZE = 300;

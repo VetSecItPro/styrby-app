@@ -64,7 +64,7 @@ describe('SummaryTab', () => {
       expect(screen.getByText('AI Session Summaries')).toBeInTheDocument();
       expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument();
       expect(
-        screen.getByText('Available on Pro and Power plans')
+        screen.getByText('Available on Pro and Growth plans')
       ).toBeInTheDocument();
     });
 

@@ -4,6 +4,11 @@ import { useState, useMemo, useId } from 'react';
 import { DollarSign } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { cn } from '@/lib/utils';
+import {
+  calculateMonthlyCostCents,
+  GROWTH_BASE_SEATS,
+  GROWTH_MAX_SEATS,
+} from '@/lib/billing/polar-products';
 
 /**
  * ROI calculator inputs.
@@ -154,10 +159,26 @@ export function ROICalculator() {
 
   const annualROI = useMemo(() => computeAnnualROI(inputs), [inputs]);
 
-  // WHY $19/seat × 12: Growth seat add-on price for an annualised back-of-the-
-  // envelope. Conservative — the $99/mo base covers the first 3 seats but we
-  // ignore that here so the ROI ratio is never overstated for small teams.
-  const annualStyrbyEstimate = inputs.developers * 19 * 12;
+  // WHY route through calculateMonthlyCostCents (single source of truth):
+  // The previous `inputs.developers * 19 * 12` formula understated Styrby
+  // cost by ignoring the $99 base for first 3 seats. For 5 devs it showed
+  // $1,140/yr instead of $1,644/yr (5 × $137 × 12). Worse for small teams:
+  // 1 dev showed $228/yr vs the actual $1,188/yr minimum (3-seat floor).
+  // That broke the "honesty commitment" the doc block claims.
+  //
+  // Now uses the canonical pricing helper, which mirrors Polar's tiered
+  // seat-based pricing exactly: $33/seat for first 3 (=$99 base), $19/seat
+  // for 4+. Sandbox-validated to match real Polar charges to the cent.
+  // Clamped to GROWTH_BASE_SEATS minimum because Growth has a 3-seat floor.
+  const annualStyrbyEstimate = useMemo(() => {
+    const clampedSeats = Math.max(
+      GROWTH_BASE_SEATS,
+      Math.min(GROWTH_MAX_SEATS, inputs.developers),
+    );
+    const monthlyCents = calculateMonthlyCostCents('growth', clampedSeats);
+    return (monthlyCents * 12) / 100; // cents → dollars
+  }, [inputs.developers]);
+
   const roi = annualStyrbyEstimate > 0 ? annualROI / annualStyrbyEstimate : 0;
 
   const update = (key: keyof ROIInputs) => (v: number) =>
@@ -184,7 +205,7 @@ export function ROICalculator() {
             label="Developers on your team"
             value={inputs.developers}
             min={1}
-            max={100}
+            max={GROWTH_MAX_SEATS}
             step={1}
             format={(v) => `${v}`}
             onChange={update('developers')}
@@ -251,10 +272,10 @@ export function ROICalculator() {
                 Styrby Growth cost
               </p>
               <p className="mt-1 text-lg font-bold text-foreground">
-                ~{formatDollars(annualStyrbyEstimate)}/yr
+                {formatDollars(annualStyrbyEstimate)}/yr
               </p>
               <p className="text-[10px] text-muted-foreground/50">
-                ({inputs.developers} seats x $19/mo)
+                ({Math.max(GROWTH_BASE_SEATS, Math.min(GROWTH_MAX_SEATS, inputs.developers))} seats; $99 base + $19/seat after 3)
               </p>
             </div>
             <div>

@@ -24,7 +24,7 @@ export const metadata: Metadata = {
  * Data Processing Agreement page.
  *
  * WHY: GDPR Article 28 requires a written contract between data controllers
- * (B2B customers, typically on Power tier) and data processors (Styrby).
+ * (B2B customers, typically on Growth tier) and data processors (Styrby).
  * This DPA sets out the obligations of both parties when Styrby processes
  * personal data on behalf of Controller's team members.
  *

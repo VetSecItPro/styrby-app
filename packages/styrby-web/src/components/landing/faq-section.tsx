@@ -54,7 +54,7 @@ const faqs = [
   },
   {
     q: "Can I use it with my team?",
-    a: "Yes. Growth is $99/month and includes 3 seats. Each additional seat is $19/month, billed via a separate seat add-on so you can add or remove seats from the dashboard without leaving Styrby. Pro covers a single developer end-to-end if you are flying solo.",
+    a: "Yes. Growth is $99/month and includes 3 seats. Each additional seat (up to 25 total) is $19/month, added to the same Growth subscription. Adjust seat count anytime from your team dashboard without leaving Styrby. Pro covers a single developer end-to-end if you are flying solo.",
   },
   {
     q: "How is this different from checking my API dashboard?",

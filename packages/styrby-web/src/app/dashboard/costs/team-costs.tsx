@@ -86,9 +86,9 @@ function UsersIcon({ className }: { className?: string }) {
 // ---------------------------------------------------------------------------
 
 /**
- * TeamCosts - renders a per-member cost breakdown for the user's Power team.
+ * TeamCosts - renders a per-member cost breakdown for the user's Growth team.
  *
- * Renders nothing if the user has no team or is not on Power tier. The parent
+ * Renders nothing if the user has no team or is not on Growth tier. The parent
  * page (costs/page.tsx) is responsible for gatekeeping the render.
  *
  * @param props - TeamCostsProps
@@ -288,7 +288,7 @@ export function TeamCosts({ teamId, rangeStartDate }: TeamCostsProps) {
       </div>
 
       <p className="text-xs text-muted-foreground/60 mt-2">
-        Team cost data is visible to all Power plan team members.
+        Team cost data is visible to all Growth plan team members.
       </p>
     </section>
   );

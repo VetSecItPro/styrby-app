@@ -296,7 +296,7 @@ describe('Teams API — /api/teams', () => {
       expect(response.status).toBe(403);
 
       const body = await response.json();
-      expect(body.error).toContain('Power plan');
+      expect(body.error).toContain('Growth plan');
     });
 
     it('returns 403 for pro tier user', async () => {
@@ -311,7 +311,7 @@ describe('Teams API — /api/teams', () => {
       expect(response.status).toBe(403);
 
       const body = await response.json();
-      expect(body.error).toContain('Power plan');
+      expect(body.error).toContain('Growth plan');
     });
 
     it('creates team successfully for power tier user', async () => {

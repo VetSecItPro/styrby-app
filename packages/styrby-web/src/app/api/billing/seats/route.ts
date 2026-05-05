@@ -16,7 +16,7 @@
  *
  * @auth Required - Supabase Auth JWT via cookie (web) OR Authorization: Bearer
  *   <access_token> header (mobile). Same dual-path pattern as
- *   /api/invitations/accept and /api/billing/checkout/team.
+ *   /api/invitations/accept and /api/billing/checkout.
  *
  * @rateLimit 30 requests per minute (RATE_LIMITS.standard)
  *

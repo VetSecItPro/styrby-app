@@ -94,7 +94,7 @@ export const faqs = [
   },
   {
     q: 'How does seat billing work on Growth?',
-    a: 'Growth is $99/month and includes 3 seats. Each additional seat is $19/month, billed via a separate seat add-on so you can add or remove seats from the dashboard without leaving Styrby. The base $99 covers the team workspace, audit trail, approval chains, and shared dashboards regardless of seat count.',
+    a: 'Growth is $99/month and includes 3 seats. Each additional seat (up to 25 total) is $19/month. Polar bills the whole subscription as one line item using tiered seat-based pricing — no separate add-on charge to manage. Adjust seat count anytime from your team dashboard. The base $99 covers the team workspace, audit trail, approval chains, and shared dashboards regardless of seat count.',
   },
   {
     q: 'Can I add seats mid-month?',
@@ -133,7 +133,7 @@ export const faqs = [
     a: 'The ROI estimator models the value of recovered developer time using published research from GitHub Copilot studies, the McKinsey 2023 developer productivity survey, and the Stripe developer productivity report. All three show 20-40% gains on repetitive coding tasks. We cap the slider at 40% and default to a conservative 25% — claims above 50% are not supported by independent research for typical engineering work.',
   },
   {
-    q: 'What if my team needs more than 100 seats or a custom contract?',
+    q: 'What if my team needs more than 25 seats or a custom contract?',
     a: 'For larger orgs, custom data residency, dedicated SLAs, or procurement-driven purchasing, email hello@styrbyapp.com or use the "Talk to founders" link on the Growth card. We will reply within one business day with a written proposal.',
   },
 ];

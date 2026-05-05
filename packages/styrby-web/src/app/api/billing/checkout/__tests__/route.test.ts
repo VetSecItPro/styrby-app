@@ -70,13 +70,13 @@ const { mockGetUser, mockCheckoutCreate, MOCK_TIERS } = vi.hoisted(() => ({
         apiKeys: 0,
       },
     },
-    power: {
-      id: 'power' as const,
-      name: 'Power',
-      price: { monthly: 59, annual: 590 },
+    growth: {
+      id: 'growth' as const,
+      name: 'Growth',
+      price: { monthly: 99, annual: 990 },
       polarProductId: {
-        monthly: 'polar_test_power_monthly',
-        annual: 'polar_test_power_annual',
+        monthly: 'polar_test_growth_monthly',
+        annual: 'polar_test_growth_annual',
       },
       features: [] as string[],
       limits: {
@@ -218,7 +218,10 @@ describe('POST /api/billing/checkout', () => {
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data.error).toContain("tierId must be 'pro' or 'power'");
+    // Zod discriminated union produces "Invalid discriminator value. Expected 'pro' | 'growth'".
+    // Match on the value list so this stays robust if the prefix wording changes.
+    expect(data.error).toContain("'pro'");
+    expect(data.error).toContain("'growth'");
   });
 
   /**
@@ -265,7 +268,10 @@ describe('POST /api/billing/checkout', () => {
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data.error).toContain("tierId must be 'pro' or 'power'");
+    // Zod discriminated union produces "Invalid discriminator value. Expected 'pro' | 'growth'".
+    // Match on the value list so this stays robust if the prefix wording changes.
+    expect(data.error).toContain("'pro'");
+    expect(data.error).toContain("'growth'");
   });
 
   /**
@@ -290,7 +296,33 @@ describe('POST /api/billing/checkout', () => {
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data.error).toContain("tierId must be 'pro' or 'power'");
+    // P1-BILLING-7: discriminated union also rejects free.
+    // Zod discriminated union produces "Invalid discriminator value. Expected 'pro' | 'growth'".
+    // Match on the value list so this stays robust if the prefix wording changes.
+    expect(data.error).toContain("'pro'");
+    expect(data.error).toContain("'growth'");
+  });
+
+  /**
+   * P1-BILLING-7 — Pro rejects `seats` at the schema layer.
+   * WHY: Pro is a single-seat plan. Sending `seats` should produce a loud
+   * 400 (client bug), not silent acceptance. Discriminated union enforces
+   * the per-tier shape.
+   */
+  it('returns 400 when Pro request includes seats field (discriminated union)', async () => {
+    mockGetUser.mockResolvedValueOnce({
+      data: { user: { id: 'user1', email: 'test@example.com' } },
+      error: null,
+    });
+
+    const request = new Request('http://localhost/api/billing/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tierId: 'pro', seats: 5 }),
+    });
+
+    const response = await POST(request as never);
+    expect(response.status).toBe(400);
   });
 
   /**
@@ -384,21 +416,33 @@ describe('POST /api/billing/checkout', () => {
     const request = new Request('http://localhost/api/billing/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tierId: 'power', billingCycle: 'annual' }),
+      body: JSON.stringify({ tierId: 'growth', billingCycle: 'annual', seats: 5 }),
     });
 
     const response = await POST(request as never);
     expect(response.status).toBe(200);
 
-    expect(mockCheckoutCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        metadata: {
-          userId: 'user-abc-123',
-          tierId: 'power',
-          billingCycle: 'annual',
-        },
-      })
-    );
+    // WHY this exact shape: validated against Polar sandbox 2026-05-04 —
+    // Growth is a single tiered seat-based product. The slider value (total
+    // seats) maps directly to Polar's `seats` field. NO seat-addon product
+    // in the products array; that pattern was the wrong assumption.
+    //
+    // minSeats/maxSeats: defense-in-depth so Polar's hosted checkout page
+    // locks the seat selector to our validated range (P1-BILLING-5).
+    expect(mockCheckoutCreate).toHaveBeenCalledWith({
+      products: [MOCK_TIERS.growth.polarProductId.annual],
+      seats: 5,
+      minSeats: 3,
+      maxSeats: 25,
+      successUrl: expect.stringContaining('/settings?checkout=success'),
+      customerEmail: 'metadata@test.com',
+      metadata: {
+        userId: 'user-abc-123',
+        tierId: 'growth',
+        billingCycle: 'annual',
+        seats: 5,
+      },
+    });
   });
 
   /**
