@@ -48,8 +48,12 @@ function getHappyClaudePathAllowedRoots(): string[] {
  *   2. No `..` after normalisation (path traversal)
  *   3. Must resolve under an allowed install root
  *   4. Must exist on disk
+ *
+ * @internal exported (was unexported) so the CLI-003 security hardening
+ * can be unit-tested directly. Not part of the package's public API
+ * surface — call sites outside utils.ts should not use it.
  */
-function validateHappyClaudePath(raw: string): string | null {
+export function validateHappyClaudePath(raw: string): string | null {
     // Reject control chars outright
     if (/[\x00\r\n]/.test(raw)) {
         logger.warn('[Claude SDK] HAPPY_CLAUDE_PATH contains control characters - ignoring')
