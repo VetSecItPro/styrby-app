@@ -3,6 +3,7 @@ import { claudeLocal, ExitCodeError } from "./claudeLocal";
 import { Session } from "./session";
 import { Future } from "@/utils/future";
 import { createSessionScanner } from "./utils/sessionScanner";
+import { createLaunchRetryState, decideRetry } from "./utils/launchRetryPolicy";
 
 export type LauncherResult = { type: 'switch' } | { type: 'exit', code: number };
 
@@ -90,7 +91,9 @@ export async function claudeLocalLauncher(session: Session): Promise<LauncherRes
             scanner.onNewSession(sessionId);
         }
 
-        // Run local mode
+        // Run local mode (B4-Wave3: bounded-retry via decideRetry helper —
+        // see claude/utils/launchRetryPolicy.ts for the exact policy).
+        const retryState = createLaunchRetryState();
         while (true) {
             // If we already have an exit reason, return it
             if (exitReason) {
@@ -99,6 +102,7 @@ export async function claudeLocalLauncher(session: Session): Promise<LauncherRes
 
             // Launch
             logger.debug('[local]: launch');
+            const launchStartMs = Date.now();
             try {
                 await claudeLocal({
                     path: session.path,
@@ -130,6 +134,21 @@ export async function claudeLocalLauncher(session: Session): Promise<LauncherRes
                     break;
                 }
                 if (!exitReason) {
+                    // Decide whether to keep retrying or give up. The policy
+                    // gives up after N consecutive fast failures (default 3
+                    // within 2s each) — that pattern means the binary itself
+                    // is broken (missing PATH, corrupt install) and looping
+                    // burns CPU without making progress.
+                    const decision = decideRetry(retryState, Date.now() - launchStartMs);
+                    if (decision.action === 'give-up') {
+                        logger.error('[local]: launch retry policy gave up', {
+                            reason: decision.reason,
+                            consecutiveFastFailures: decision.consecutiveFastFailures,
+                        });
+                        session.client.sendSessionEvent({ type: 'message', message: decision.reason });
+                        exitReason = { type: 'exit', code: 1 };
+                        break;
+                    }
                     session.client.sendSessionEvent({ type: 'message', message: 'Process exited unexpectedly' });
                     continue;
                 } else {
