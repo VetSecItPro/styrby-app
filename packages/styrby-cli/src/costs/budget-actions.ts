@@ -18,6 +18,7 @@ import type {
   BudgetAlertAction,
   BudgetMonitor,
 } from './budget-monitor.js';
+import { logger } from '@/ui/logger';
 
 // ============================================================================
 // Types
@@ -569,7 +570,17 @@ export class BudgetActions {
         });
       }
     } catch (error) {
-      this.log('Failed to send stop notification:', error);
+      // WHY warn (B4-Wave2): a budget-stop notification failure means the
+      // user's mobile UI never learns the session was force-stopped due to
+      // budget. The local stop callback (this.config.onStopSession) still
+      // fires below, so the CLI does halt — but the user sees a frozen
+      // mobile UI until they manually refresh. The previous `this.log`
+      // only emitted in debug mode, masking this in production.
+      logger.warn('Budget stop-notification failed (CLI stops anyway, mobile UI may show stale state)', {
+        alertId: result.alert.id,
+        alertName: result.alert.name,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
     // Call the stop callback if configured

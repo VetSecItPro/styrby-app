@@ -19,6 +19,7 @@ import type { AgentBackend, AgentMessage, AgentMessageHandler } from '@/agent/co
 import type { RelayMessage, AgentType as SharedAgentType } from 'styrby-shared';
 import { logger } from '@/ui/logger';
 import { classifyRelayMessage } from './relayMessageDispatch';
+import { safeRelaySend } from './safeRelaySend';
 
 /**
  * Callback type for session updates (status changes, errors, completion).
@@ -215,10 +216,13 @@ export class ApiSessionManager {
         // Update session status in Supabase
         await this.updateSessionStatus(supabase, sessionId, 'stopped');
 
-        // Send final session state to mobile
-        await api.sendSessionState(sessionId, agentType, 'idle').catch(() => {
-          // Swallow errors -- relay might already be disconnected
-        });
+        // Send final session state to mobile (B4-Wave2: warn-on-failure
+        // via safeRelaySend; relay may already be disconnected at stop time
+        // so this is allowed to fail, but the failure is now visible).
+        await safeRelaySend(
+          api.sendSessionState(sessionId, agentType, 'idle'),
+          { sessionId, messageType: 'session-state', detail: 'idle-on-stop' }
+        );
 
         // End session on the API (clears relay presence)
         await api.endSession(sessionId);
@@ -267,12 +271,13 @@ export class ApiSessionManager {
         // Stream agent text output to mobile
         const content = msg.textDelta ?? msg.fullText ?? '';
         if (content) {
-          api.sendAgentResponse(sessionId, agentType, content, {
-            isStreaming: !!msg.textDelta,
-            isComplete: !!msg.fullText,
-          }).catch((error) => {
-            logger.debug('Failed to send agent response to relay', { error });
-          });
+          void safeRelaySend(
+            api.sendAgentResponse(sessionId, agentType, content, {
+              isStreaming: !!msg.textDelta,
+              isComplete: !!msg.fullText,
+            }),
+            { sessionId, messageType: 'agent-response', detail: 'model-output' }
+          );
         }
         break;
       }
@@ -288,16 +293,17 @@ export class ApiSessionManager {
         };
         const relayState = stateMap[msg.status] || 'idle';
 
-        api.sendSessionState(
-          sessionId,
-          agentType,
-          relayState,
-          msg.status === 'error' && msg.detail
-            ? { error: { type: 'agent', message: msg.detail, recoverable: true } }
-            : undefined
-        ).catch((error) => {
-          logger.debug('Failed to send session state to relay', { error });
-        });
+        void safeRelaySend(
+          api.sendSessionState(
+            sessionId,
+            agentType,
+            relayState,
+            msg.status === 'error' && msg.detail
+              ? { error: { type: 'agent', message: msg.detail, recoverable: true } }
+              : undefined
+          ),
+          { sessionId, messageType: 'session-state', detail: relayState }
+        );
 
         // Emit local update
         this.emitUpdate(sessionId, { type: 'status', payload: { status: msg.status, detail: msg.detail } });
@@ -307,62 +313,78 @@ export class ApiSessionManager {
       case 'permission-request': {
         // Forward permission request to mobile for user approval
         const payload = msg.payload as Record<string, unknown>;
-        api.sendPermissionRequest(sessionId, agentType, {
-          requestId: msg.id,
-          toolName: msg.reason,
-          toolArgs: payload || {},
-          riskLevel: 'medium',
-          description: `${agentType} wants to use: ${msg.reason}`,
-        }).catch((error) => {
-          logger.debug('Failed to send permission request to relay', { error });
-        });
+        void safeRelaySend(
+          api.sendPermissionRequest(sessionId, agentType, {
+            requestId: msg.id,
+            toolName: msg.reason,
+            toolArgs: payload || {},
+            riskLevel: 'medium',
+            description: `${agentType} wants to use: ${msg.reason}`,
+          }),
+          { sessionId, messageType: 'permission-request', detail: msg.reason }
+        );
         break;
       }
 
       case 'tool-call': {
         // Notify mobile that agent is executing a tool
-        api.sendSessionState(sessionId, agentType, 'executing').catch(() => {});
+        void safeRelaySend(
+          api.sendSessionState(sessionId, agentType, 'executing'),
+          { sessionId, messageType: 'session-state', detail: 'executing-tool' }
+        );
 
         // Also send tool info as an agent response so mobile can display it
-        api.sendAgentResponse(
-          sessionId,
-          agentType,
-          JSON.stringify({ type: 'tool-call', toolName: msg.toolName, args: msg.args }),
-          { isStreaming: false, isComplete: true }
-        ).catch(() => {});
+        void safeRelaySend(
+          api.sendAgentResponse(
+            sessionId,
+            agentType,
+            JSON.stringify({ type: 'tool-call', toolName: msg.toolName, args: msg.args }),
+            { isStreaming: false, isComplete: true }
+          ),
+          { sessionId, messageType: 'agent-response', detail: `tool-call:${msg.toolName}` }
+        );
         break;
       }
 
       case 'tool-result': {
         // Send tool result back to mobile
-        api.sendAgentResponse(
-          sessionId,
-          agentType,
-          JSON.stringify({ type: 'tool-result', toolName: msg.toolName, result: msg.result }),
-          { isStreaming: false, isComplete: true }
-        ).catch(() => {});
+        void safeRelaySend(
+          api.sendAgentResponse(
+            sessionId,
+            agentType,
+            JSON.stringify({ type: 'tool-result', toolName: msg.toolName, result: msg.result }),
+            { isStreaming: false, isComplete: true }
+          ),
+          { sessionId, messageType: 'agent-response', detail: `tool-result:${msg.toolName}` }
+        );
         break;
       }
 
       case 'fs-edit': {
         // Send file edit notification to mobile
-        api.sendAgentResponse(
-          sessionId,
-          agentType,
-          JSON.stringify({ type: 'fs-edit', description: msg.description, path: msg.path }),
-          { isStreaming: false, isComplete: true }
-        ).catch(() => {});
+        void safeRelaySend(
+          api.sendAgentResponse(
+            sessionId,
+            agentType,
+            JSON.stringify({ type: 'fs-edit', description: msg.description, path: msg.path }),
+            { isStreaming: false, isComplete: true }
+          ),
+          { sessionId, messageType: 'agent-response', detail: 'fs-edit' }
+        );
         break;
       }
 
       case 'terminal-output': {
         // Stream terminal output to mobile
-        api.sendAgentResponse(
-          sessionId,
-          agentType,
-          msg.data,
-          { isStreaming: true, isComplete: false }
-        ).catch(() => {});
+        void safeRelaySend(
+          api.sendAgentResponse(
+            sessionId,
+            agentType,
+            msg.data,
+            { isStreaming: true, isComplete: false }
+          ),
+          { sessionId, messageType: 'agent-response', detail: 'terminal-output' }
+        );
         break;
       }
 
@@ -448,13 +470,23 @@ export class ApiSessionManager {
         });
         agent.sendPrompt(verdict.sessionId, verdict.content).catch((error) => {
           logger.error('Failed to send prompt to agent', { error });
-          api.sendSessionState(verdict.sessionId, agentType, 'error', {
-            error: {
-              type: 'agent',
-              message: error instanceof Error ? error.message : String(error),
-              recoverable: true,
-            },
-          }).catch(() => {});
+          // Also surface the error to mobile via session-state. Wrapped in
+          // safeRelaySend so a relay-down condition doesn't mask the
+          // already-logged agent error.
+          void safeRelaySend(
+            api.sendSessionState(verdict.sessionId, agentType, 'error', {
+              error: {
+                type: 'agent',
+                message: error instanceof Error ? error.message : String(error),
+                recoverable: true,
+              },
+            }),
+            {
+              sessionId: verdict.sessionId,
+              messageType: 'session-state-error',
+              detail: 'sendPrompt-failed',
+            }
+          );
         });
         return;
 
