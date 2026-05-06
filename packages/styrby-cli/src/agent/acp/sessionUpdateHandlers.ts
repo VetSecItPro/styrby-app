@@ -732,16 +732,19 @@ export function handleGeminiUsageMetadata(
   );
 
   // Emit legacy token-count (keep for existing consumers).
+  // The 'token-count' AgentMessage variant has `[key: string]: unknown`,
+  // which permits extra fields like inputTokens / outputTokens / etc.
   ctx.emit({
     type: 'token-count',
     inputTokens,
     outputTokens,
     cacheReadTokens,
     estimatedCostUsd: costUsd,
-  } as any);
+  });
 
-  // Emit unified CostReport.
-  ctx.emit({ type: 'cost-report', report: costReport } as any);
+  // Emit unified CostReport (CostReportMessage variant added to AgentMessage
+  // union in PR #266 — no `as any` needed).
+  ctx.emit({ type: 'cost-report', report: costReport });
 
   return { handled: true };
 }

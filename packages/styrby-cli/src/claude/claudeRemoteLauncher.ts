@@ -276,8 +276,17 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
             let umessage = message as SDKAssistantMessage;
             if (umessage.message.content && Array.isArray(umessage.message.content)) {
                 for (let c of umessage.message.content) {
-                    if (c.type === 'tool_use' && c.name === 'Task' && c.input && typeof (c.input as any).prompt === 'string') {
-                        const logMessage2 = sdkToLogConverter.convertSidechainUserMessage(c.id!, (c.input as any).prompt);
+                    // c.input is typed as `unknown` by the SDK; narrow once
+                    // and reach for `prompt` defensively to avoid runtime crash
+                    // when upstream sends a non-object input shape.
+                    const inputObj = (c.input && typeof c.input === 'object')
+                        ? (c.input as Record<string, unknown>)
+                        : null;
+                    const taskPrompt = (inputObj && typeof inputObj.prompt === 'string')
+                        ? inputObj.prompt
+                        : null;
+                    if (c.type === 'tool_use' && c.name === 'Task' && taskPrompt !== null) {
+                        const logMessage2 = sdkToLogConverter.convertSidechainUserMessage(c.id!, taskPrompt);
                         if (logMessage2) {
                             messageQueue.enqueue(logMessage2);
                         }

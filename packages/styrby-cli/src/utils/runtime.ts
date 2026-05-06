@@ -17,12 +17,12 @@ export function getRuntime(): Runtime {
     if (cachedRuntime) return cachedRuntime;
 
     // Method 1: Global runtime objects (most reliable)
-    if (typeof (globalThis as any).Bun !== 'undefined') {
+    if ('Bun' in globalThis) {
         cachedRuntime = 'bun';
         return cachedRuntime;
     }
 
-    if (typeof (globalThis as any).Deno !== 'undefined') {
+    if ('Deno' in globalThis) {
         cachedRuntime = 'deno';
         return cachedRuntime;
     }
