@@ -6,6 +6,8 @@
  * @module cli/handlers/costs
  */
 
+import { formatTokens, formatCost } from '@/cli/handlers/costs-helpers';
+
 /**
  * Handle the `styrby costs` command.
  *
@@ -30,14 +32,9 @@ export async function handleCosts(args: string[]): Promise<void> {
     summary = await aggregateCosts();
   }
 
-  // Format numbers
-  const formatTokens = (n: number): string => {
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
-    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-    return n.toString();
-  };
-
-  const formatCost = (n: number): string => `$${n.toFixed(4)}`;
+  // formatTokens + formatCost imported from sibling costs-helpers (extracted
+  // 2026-05-05 so they could be unit-tested independently of this I/O-heavy
+  // handler). See cli/handlers/__tests__/costs-helpers.test.ts.
 
   // Print summary
   console.log(`\n📊 Cost Summary (${periodLabel})`);
