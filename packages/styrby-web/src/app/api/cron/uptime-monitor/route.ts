@@ -193,23 +193,34 @@ export async function GET(request: NextRequest) {
     // WHY upsert: first-ever tick on a new URL has no prior row. Writing
     // unconditionally also makes the cron self-healing if a prior row
     // was deleted out-of-band.
+    //
+    // CRITICAL FIX (2026-05-05): on a recovery, BOTH alert_sent_at and
+    // recovery_sent_at must be cleared in the SAME write (or always
+    // preserved together). The previous logic preserved alert_sent_at
+    // forever AND cleared recovery_sent_at on every healthy non-recovery
+    // tick, which caused the wasAlerting predicate to fire on the NEXT
+    // healthy tick → infinite recovery-email loop (~17 emails observed
+    // 2026-05-05 evening). The new policy: on a successful recovery,
+    // RESET BOTH to a clean slate. The next outage starts from zero —
+    // throttle is enforced naturally by the new alert_sent_at being null
+    // (so the threshold check is the only gate), which means re-alerts
+    // can fire as soon as the failure threshold is met again. That's
+    // the correct "incident is over, watch for the next one" semantics.
+    const isRecovered = didRecover; // landed a recovery email this tick
     const nextRow: UptimeAlertRow = {
       url: ping.url,
       last_success_at: ping.ok ? nowIso : (prior?.last_success_at ?? null),
       last_failure_at: ping.ok ? (prior?.last_failure_at ?? null) : nowIso,
-      // Stamp alert_sent_at on ANY threshold breach we tried to alert
-      // for, even if Resend failed — otherwise a Resend outage would
-      // re-trigger every tick.
-      alert_sent_at: didAlert
-        ? nowIso
-        : decision.action === 'alert'
+      alert_sent_at: isRecovered
+        ? null  // ← CLEAN SLATE on recovery
+        : didAlert
           ? nowIso
-          : (prior?.alert_sent_at ?? null),
-      recovery_sent_at: didRecover
-        ? nowIso
-        : ping.ok
-          ? null // healthy = clear so the next outage can alert again
-          : (prior?.recovery_sent_at ?? null),
+          : decision.action === 'alert'
+            ? nowIso
+            : (prior?.alert_sent_at ?? null),
+      recovery_sent_at: isRecovered
+        ? null  // ← CLEAN SLATE on recovery (was: nowIso, but with alert_sent_at also null this is unused)
+        : (prior?.recovery_sent_at ?? null),
       consecutive_failures: decision.nextConsecutiveFailures,
       last_status_code: ping.status,
       last_error: ping.error,

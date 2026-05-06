@@ -8,7 +8,8 @@
  *   - two consecutive failures: alert email + uptime_alert audit row
  *   - third failure within throttle window: no second alert
  *   - recovery: previously alerting URL returns 200, recovery email + audit row
- *   - state upsert clears recovery_sent_at on healthy ticks (so next outage can alert)
+ *   - state upsert resets BOTH alert_sent_at + recovery_sent_at on recovery
+ *     (regression test for 2026-05-05 noise incident — see new test below)
  *   - decideAction pure-helper correctness
  *   - parseUrlList: defaults + CSV parsing + bad input filtered
  *   - formatDuration: short + long ranges
@@ -382,5 +383,45 @@ describe('GET /api/cron/uptime-monitor', () => {
 
     // State upserts should clear consecutive_failures back to 0.
     expect(upserts.every((r) => r.consecutive_failures === 0)).toBe(true);
+
+    // CRITICAL regression assertion (2026-05-05 noise incident):
+    // After firing recovery, BOTH alert_sent_at and recovery_sent_at must
+    // be NULL in the upserted row. Otherwise wasAlerting (in decideAction)
+    // re-fires on the next healthy tick → infinite recovery-email loop.
+    expect(upserts.every((r) => r.alert_sent_at === null)).toBe(true);
+    expect(upserts.every((r) => r.recovery_sent_at === null)).toBe(true);
+  });
+
+  it('regression (2026-05-05): healthy tick after recovery does NOT re-fire recovery', async () => {
+    // Simulate the state RIGHT AFTER a recovery fired in a prior tick:
+    // alert_sent_at and recovery_sent_at both null (per the new fix). The
+    // URL is healthy. Expectation: no email, no recovery audit row,
+    // action_taken = 'none' on the audit_log row.
+    priorRows = [
+      {
+        url: 'https://www.styrbyapp.com/api/health',
+        last_success_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+        last_failure_at: new Date(Date.now() - 30 * 60_000).toISOString(),
+        alert_sent_at: null,
+        recovery_sent_at: null,
+        consecutive_failures: 0,
+        last_status_code: 200,
+        last_error: null,
+      },
+    ];
+    mockAllUrls(200, { status: 'ok', checks: { db: true, polar: true, openrouter: true, resend: true } });
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.recoveries_sent).toBe(0);
+    expect(body.alerts_sent).toBe(0);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+
+    // The audit row should reflect "no action taken" for the healthy probe.
+    const healthChecks = auditInserts.filter((r) => r.action === 'uptime_check');
+    expect(healthChecks.length).toBeGreaterThan(0);
+    const healthRow = healthChecks.find((r) => r.metadata?.url === 'https://www.styrbyapp.com/api/health');
+    expect(healthRow?.metadata?.action_taken).toBe('none');
   });
 });
