@@ -17,8 +17,8 @@ import type { ApiSession, ApiMessage, SessionUpdate } from './types';
 import type { StyrbyApi } from './api';
 import type { AgentBackend, AgentMessage, AgentMessageHandler } from '@/agent/core/AgentBackend';
 import type { RelayMessage, AgentType as SharedAgentType } from 'styrby-shared';
-import { RelayMessageSchema } from 'styrby-shared';
 import { logger } from '@/ui/logger';
+import { classifyRelayMessage } from './relayMessageDispatch';
 
 /**
  * Callback type for session updates (status changes, errors, completion).
@@ -397,62 +397,58 @@ export class ApiSessionManager {
     agentType: SharedAgentType,
     api: StyrbyApi
   ): void {
-    // SECURITY (CLI-008, audit 2026-05-04): Validate the relay payload with
-    // zod BEFORE acting on it. Without this, a malicious or buggy peer could
-    // blast oversized strings (memory DoS), inject unexpected types, or send
-    // fields the dispatch logic doesn't expect. The schema enforces hard
-    // length caps (MAX_CONTENT_LEN=100KB, MAX_ID_LEN=128, etc.) and
-    // discriminated-union shape per message type.
-    const parsed = RelayMessageSchema.safeParse(message);
-    if (!parsed.success) {
-      logger.warn('Dropping invalid relay message (schema validation failed)', {
-        sessionId,
-        type: (message as { type?: unknown })?.type,
-        issues: parsed.error.issues.slice(0, 5).map((i) => ({ path: i.path.join('.'), code: i.code })),
-      });
-      return;
-    }
-    message = parsed.data;
+    // SECURITY: classification (schema validation + nonce verify + routing)
+    // is delegated to the pure `classifyRelayMessage` helper. See
+    // `relayMessageDispatch.ts` for the full decision sequence + the
+    // CLI-008/CLI-009 audit context. Tests live in
+    // `__tests__/relayMessageDispatch.test.ts` (the helper is fully
+    // unit-tested in isolation; this method is pure dispatch on the
+    // returned verdict).
+    const verdict = classifyRelayMessage(
+      sessionId,
+      message,
+      (id, nonce) => api.verifyAndConsumePermissionNonce(id, nonce),
+    );
 
-    // SECURITY (CLI-009, audit 2026-05-04): Verify the echoed nonce on
-    // permission_response BEFORE forwarding to the agent. Closes the
-    // compromised-account-key -> approve-all -> RCE chain. An attacker with
-    // only the API key (no live mobile session) cannot fabricate a valid
-    // nonce, so the response is rejected.
-    if (message.type === 'permission_response') {
-      const { request_id, request_nonce } = message.payload;
-      const ok = api.verifyAndConsumePermissionNonce(request_id, request_nonce);
-      if (!ok) {
-        logger.warn('Rejecting permission_response: nonce mismatch or unknown request_id', {
+    switch (verdict.action) {
+      case 'drop-schema-invalid':
+        logger.warn('Dropping invalid relay message (schema validation failed)', {
           sessionId,
-          requestId: request_id,
+          type: verdict.type,
+          issues: verdict.issues.map((i) => ({ path: i.path.join('.'), code: i.code })),
         });
         return;
-      }
-    }
 
-    switch (message.type) {
-      case 'chat': {
-        const { content, session_id } = message.payload;
-
-        // Only process messages for this session (or no session specified)
-        if (session_id && session_id !== sessionId) {
-          logger.debug('Chat message for different session, ignoring', {
-            targetSession: session_id,
-            ourSession: sessionId,
-          });
-          return;
-        }
-
-        logger.debug('Relay chat received, forwarding to agent', {
+      case 'drop-nonce-mismatch':
+        logger.warn('Rejecting permission_response: nonce mismatch or unknown request_id', {
           sessionId,
-          contentLength: content.length,
+          requestId: verdict.requestId,
         });
+        return;
 
-        // Forward user message to agent
-        agent.sendPrompt(sessionId, content).catch((error) => {
+      case 'drop-wrong-session':
+        logger.debug('Chat message for different session, ignoring', {
+          targetSession: verdict.targetSession,
+          ourSession: sessionId,
+        });
+        return;
+
+      case 'drop-unhandled-command':
+        logger.debug('Unhandled relay command', { action: verdict.commandAction });
+        return;
+
+      case 'drop-unhandled-type':
+        logger.debug('Unhandled relay message type in bridge', { type: verdict.type });
+        return;
+
+      case 'chat':
+        logger.debug('Relay chat received, forwarding to agent', {
+          sessionId: verdict.sessionId,
+          contentLength: verdict.content.length,
+        });
+        agent.sendPrompt(verdict.sessionId, verdict.content).catch((error) => {
           logger.error('Failed to send prompt to agent', { error });
-          api.sendSessionState(sessionId, agentType, 'error', {
+          api.sendSessionState(verdict.sessionId, agentType, 'error', {
             error: {
               type: 'agent',
               message: error instanceof Error ? error.message : String(error),
@@ -460,54 +456,34 @@ export class ApiSessionManager {
             },
           }).catch(() => {});
         });
-        break;
-      }
+        return;
 
-      case 'permission_response': {
-        const { request_id, approved } = message.payload;
-        logger.debug('Relay permission response received', { requestId: request_id, approved });
-
+      case 'permission-response':
+        logger.debug('Relay permission response received', {
+          requestId: verdict.requestId,
+          approved: verdict.approved,
+        });
         if (agent.respondToPermission) {
-          agent.respondToPermission(request_id, approved).catch((error) => {
+          agent.respondToPermission(verdict.requestId, verdict.approved).catch((error) => {
             logger.debug('Error responding to permission', { error });
           });
         }
-        break;
-      }
+        return;
 
-      case 'command': {
-        const { action, params } = message.payload;
-        logger.debug('Relay command received', { action, params });
+      case 'cancel':
+        agent.cancel(verdict.sessionId).catch((error) => {
+          logger.debug('Error cancelling agent', { error });
+        });
+        return;
 
-        switch (action) {
-          case 'cancel':
-          case 'interrupt':
-            agent.cancel(sessionId).catch((error) => {
-              logger.debug('Error cancelling agent', { error });
-            });
-            break;
+      case 'end-session':
+        // Session stop is handled by the caller via ActiveSession.stop()
+        this.emitUpdate(verdict.sessionId, { type: 'end_session_requested' });
+        return;
 
-          case 'end_session':
-            // Session stop is handled by the caller via ActiveSession.stop()
-            this.emitUpdate(sessionId, { type: 'end_session_requested' });
-            break;
-
-          case 'ping':
-            // Heartbeat -- no action needed, relay handles it
-            break;
-
-          default:
-            logger.debug('Unhandled relay command', { action });
-            break;
-        }
-        break;
-      }
-
-      default: {
-        // Ignore other relay message types (ack, cost_update, etc.)
-        logger.debug('Unhandled relay message type in bridge', { type: message.type });
-        break;
-      }
+      case 'ping':
+        // Heartbeat — no action needed, relay handles it
+        return;
     }
   }
 
