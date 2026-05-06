@@ -421,7 +421,12 @@ describe('GET /api/cron/uptime-monitor', () => {
     // The audit row should reflect "no action taken" for the healthy probe.
     const healthChecks = auditInserts.filter((r) => r.action === 'uptime_check');
     expect(healthChecks.length).toBeGreaterThan(0);
-    const healthRow = healthChecks.find((r) => r.metadata?.url === 'https://www.styrbyapp.com/api/health');
-    expect(healthRow?.metadata?.action_taken).toBe('none');
+    // `metadata` is typed as `unknown` on auditInserts; narrow when reading.
+    const healthRow = healthChecks.find((r) => {
+      const meta = r.metadata as { url?: string } | undefined;
+      return meta?.url === 'https://www.styrbyapp.com/api/health';
+    });
+    const meta = healthRow?.metadata as { action_taken?: string } | undefined;
+    expect(meta?.action_taken).toBe('none');
   });
 });
