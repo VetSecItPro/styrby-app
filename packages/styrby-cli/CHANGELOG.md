@@ -5,6 +5,188 @@ All notable changes to `styrby-cli` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 2026-05-05 — CLI optimization sprint + B4 error-handling completeness
+
+Single-day sprint hardening the CLI across five dimensions: cold-start
+performance, type safety, test coverage on security gates, security-
+critical refactors, and **error-handling completeness** (B4) — the latter
+under [ADR-006](../../docs/decisions/ADR-006-error-handling-conventions.md)
+joining [ADR-003](../../docs/decisions/ADR-003-extract-decision-then-test-pattern.md),
+[ADR-004](../../docs/decisions/ADR-004-b1-refactor-roi-deferral.md), and
+[ADR-005](../../docs/decisions/ADR-005-as-any-forbidden-in-production-code.md).
+24 PRs touching the CLI; full per-PR list below.
+
+### Performance
+
+- **CLI cold-start cut by 54-60%** (PR #265).
+  - `styrby --version`: 676 ms → **305 ms** (now under the 500 ms perf budget).
+  - `styrby status`: 1041 ms → **420 ms** (now under the 600 ms budget).
+  - Implementation: every command handler is now loaded via dynamic
+    `import()` in `commandRouter.ts`. Previously every static import at
+    the top of the router pulled in the full transitive module graph
+    (agent factories, daemon, Supabase SDK) for every CLI invocation,
+    even `styrby --version`.
+  - Ultra-fast path added in `index.ts` for `--version` / `--help` /
+    `version` / `help` / `-v` / `-h` — bypasses Sentry init + the router
+    entirely. These two commands are the most common (CI scripts, shell
+    completions, first-time discovery).
+- **`axios` removed** (PR #265). Only one consumer in the codebase
+  (`utils/serverConnectionErrors.ts`). Replaced with native `fetch +
+  AbortSignal.timeout()`. Tree-shaken from the bundle (`grep axios
+  dist/index.js` returns 0). Saves ~80 KB minified.
+
+### Security
+
+- **CLI-008 + CLI-009 regression coverage** (PR #279).
+  - Extracted `api/relayMessageDispatch.ts` from `apiSession.ts`.
+    The schema-validation gate (CLI-008) and permission-response
+    nonce-verification gate (CLI-009) — both shipped as defenses in
+    PR #262 — were at 0% test coverage. Now covered by 23 unit tests
+    against the pure `classifyRelayMessage()` helper.
+  - Discriminated-union `RelayDispatchVerdict` makes the dispatch
+    obviously-correct: one branch per variant, no nested conditions,
+    TS exhaustiveness checking on missing cases.
+- **Bash-permission auto-approval rules** now tested (PR #280).
+  - Extracted `claude/utils/bashPermissionRules.ts` from
+    `permissionHandler.ts`. The `parseBashPermission()` and
+    `isBashCommandAllowed()` decisions gate every `Bash(command)`
+    auto-approval. Now covered by 24 unit tests including the
+    SECURITY-CRITICAL "prefix at START, not anywhere" assertion that
+    catches a naive `.includes()` regression.
+- **`HAPPY_CLAUDE_PATH` validator regression coverage** (PR #278).
+  - `validateHappyClaudePath()` (CLI-003 hardening) is the gate
+    against an attacker poisoning the env var to redirect the agent-
+    binary spawn to `/tmp/evil`. Was at 0% coverage. Now covered by
+    14 unit tests (control-char rejection, path-traversal rejection,
+    allowed-root enforcement, existence checks, positive-path fixtures).
+
+### Type safety
+
+- **`as any` count in production: 32 → 1** (-97%, 5 PRs).
+  - Single remaining instance is intentional + ESLint-disabled +
+    documented in [ADR-005](../../docs/decisions/ADR-005-as-any-forbidden-in-production-code.md)
+    (Headers constructor union narrowing limitation).
+  - `CostReportMessage` variant added to `AgentMessage` union (PR #266)
+    — eliminates `as any` cast at every cost-report emit site across
+    8 agent factories + the ACP session-update handler.
+  - `gemini/messageHandler.ts` rewritten with proper switch-case
+    narrowing (PR #270) — 10 `as any` casts removed in one file.
+  - 6 approved narrowing patterns documented in ADR-005 cover ~95% of
+    cases where `as any` is tempting.
+
+### Tests
+
+- **Suite size: 2696 → 2918 tests** (+222 net new tests across the day,
+  including +38 from the B4 error-handling waves below).
+- 9 files moved from 0% test coverage to ~95-100% coverage:
+  - `auth/local-server.ts` (OAuth callback server, PR #267) — 11 tests
+  - `cli/handlers/status-helpers.ts` (extracted, PR #268) — 20 tests
+  - `cli/handlers/costs-helpers.ts` (extracted, PR #273) — 10 tests
+  - `gemini/utils/errorFormatter.ts` (PR #275) — 30 tests
+  - `ui/ink/messageBuffer.ts` (PR #276) — 15 tests
+  - `claude/sdk/stream.ts` (PR #277) — 11 tests
+  - `claude/sdk/utils.ts: validateHappyClaudePath` (PR #278) — 14 tests
+  - `api/relayMessageDispatch.ts` (extracted, PR #279) — 23 tests
+  - `claude/utils/bashPermissionRules.ts` (extracted, PR #280) — 24 tests
+- **Conformance test for the 9 streaming agent factories** (PR #269).
+  Catches the recurring "added agent #12 but forgot to wire it into
+  the registry / index barrel" bug class at build time with a clear
+  "X is not registered" message.
+- Vitest config updated (PR #265): perf tests now excluded from default
+  `pnpm test` runs (env-gated via `STYRBY_SKIP_PERF_TESTS=1` in the
+  package.json script). They were unreliable under parallel test load
+  (~2x inflated measurements). CI's dedicated `perf-budgets` job runs
+  them in isolation where measurements are stable.
+
+### Error-handling completeness (B4)
+
+3-wave audit + fix sprint closing 17 real error-handling smells across the
+CLI's security, data-integrity, and operational tiers. Audit produced 67
+candidates; read-the-code triage rejected 33 false positives (66% false-
+positive rate overall), leaving 17 actionable fixes shipped as 3 PRs.
+
+- **Auth + token-refresh resilience** (PR #281). `TokenManager` now emits
+  a typed `'refresh-failed'` event with `trigger: 'hydrate' | 'scheduled'`
+  on background refresh failure (was silent `logger.debug`). Subscribers
+  (daemon, session manager) can react to stale auth instead of waiting
+  for the next API call to 401.
+- **OAuth + GDPR fetch timeouts** (PR #281). `AbortSignal.timeout(15_000)`
+  added to `exchangeCodeForTokens` (Supabase OAuth POST) and
+  `AbortSignal.timeout(30_000)` to both `/api/account/export` and
+  `/api/account/delete` fetches in `commands/privacy.ts`. A hung backend
+  no longer wedges the CLI indefinitely.
+- **Relay-send wrapper** (PR #282). NEW `api/safeRelaySend.ts` (~70 LOC)
+  replaces 10 disparate `.catch(() => {})` and `.catch((e) => logger.debug
+  (...))` sites in `apiSession.ts` with a single typed wrapper. Returns
+  `{ ok: true; result } | { ok: false; error }` and always logs at
+  `logger.warn` with structured `{ sessionId, messageType, detail, error }`
+  context. Single seam for future Sentry capture + telemetry.
+- **Budget-stop notification visibility** (PR #282). `budget-actions.ts`
+  stop-notification failure now uses `logger.warn` with `{ alertId,
+  alertName, error }` instead of `this.log()` (which only emitted in
+  debug mode). Local stop callback still fires; only the mobile-side
+  notification was previously silent.
+- **Bounded launch retry** (PR #283). `claudeLocalLauncher.ts` now uses
+  the new `claude/utils/launchRetryPolicy.ts` decision helper to cap
+  consecutive fast failures at 3 (each within a 2s window). Previously
+  `while (true) { try { spawn } catch { continue } }` could burn CPU
+  forever on persistent synchronous spawn failures (missing PATH,
+  corrupt install). Give-up path emits an actionable error message
+  pointing at `styrby doctor`.
+
+### Documentation
+
+- NEW [ADR-006: Error-handling conventions](../../docs/decisions/ADR-006-error-handling-conventions.md)
+  codifies the 4 allowed error-handling shapes (Surface-loudly /
+  Wrap-and-warn / Best-effort-with-WHY-comment / Structured-emit-and-
+  continue), the false-positive checklist (8 patterns future audits
+  should NOT re-flag), the 5-site rule for wrapper extraction, and
+  the audit-vs-reality calibration (66% false-positive rate by tier).
+
+### Discovered + filed for future cleanup
+
+- `readReconnectHistory()` parser has an off-by-one quirk: with `[close,
+  connected]` (only 2 lines, fresh log), produces 2 orphan events instead
+  of 1 paired-success. For 3+ events the pairing works. Documented in
+  the PR #268 tests; fix queued.
+- `createGeminiBackend()` does heavy work at construction time (5+ s) —
+  likely an eager spawn of the gemini CLI binary. All 8 other streaming
+  agent factories construct in <1 ms. Filed; gemini is `skipIf`'d in the
+  factory-matrix conformance test until fixed.
+
+### Per-PR ledger (CLI-touching only)
+
+| PR | Title | Squash |
+|----|-------|--------|
+| #265 | perf(cli): lazy-load command router + drop axios = 56% startup win | `3df7896` |
+| #266 | clean(cli): add CostReportMessage to AgentMessage union, drop 8 `as any` | `ad38611` |
+| #267 | test(cli): add 11 tests for auth/local-server.ts (0% → ~95% coverage) | `1f3ea39` |
+| #268 | test(cli): extract + test status-helpers (3 pure fns, +20 tests) | `43f068a` |
+| #269 | test(cli): conformance matrix for 9 streaming agent factories (C3) | `325b730` |
+| #270 | clean(cli): proper type narrowing in gemini messageHandler (-10 `as any`) | `48a4272` |
+| #271 | clean(cli): drop 6 more `as any` across 3 files (B2 batch 2) | `4c68153` |
+| #273 | test(cli): extract + test costs.ts formatters (formatTokens, formatCost) | `5d0ead1` |
+| #274 | clean(cli): final B2 batch — drop 6 more `as any` (1 intentional remains) | `2442eaa` |
+| #275 | test(cli): 30 tests for gemini errorFormatter (0% → ~95% coverage) | `ca5e070` |
+| #276 | test(cli): 15 tests for ui/ink/messageBuffer (0% → 100%) | `06b7296` |
+| #277 | test(cli): 11 tests for claude/sdk/stream (0% → 100%) | `3cde2f3` |
+| #278 | test(cli): export + test validateHappyClaudePath (CLI-003 security gate) | `b125933` |
+| #279 | refactor+test(cli): extract relay-dispatch decision logic + 23 tests | `5923ca3` |
+| #280 | refactor+test(cli): extract bash-permission rules + 24 tests | `7d2ca96` |
+| #281 | fix(cli): B4-Wave1 — security-tier error-handling completeness | `e5258c4` |
+| #282 | fix(cli): B4-Wave2 — data-integrity error-handling via safeRelaySend wrapper | `4b1a3ca` |
+| #283 | fix(cli): B4-Wave3 — operational error-handling (bounded launch retry) | `4bc77d6` |
+
+(Earlier-day non-CLI PRs — #258 webhook health monitor, #259 polar env
+schema fix, #260 OR credit-monitor non-fatal, #261 web hardening,
+#262 CLI security+UX bundle (already in the 0.2.0-beta.1 entry below),
+#263 + #264 db hardening, #272 uptime monitor recovery-loop fix —
+not listed here as they don't change the CLI shape.)
+
+---
+
 ## [0.2.0-beta.1] — 2026-04-30
 
 ### H41 Strategy C — CLI architectural refactor
