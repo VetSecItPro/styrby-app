@@ -15,6 +15,7 @@ import { getToolName } from "./getToolName";
 import { EnhancedMode, PermissionMode } from "../loop";
 import { getToolDescriptor } from "./getToolDescriptor";
 import { delay } from "@/utils/time";
+import { parseBashPermission, isBashCommandAllowed } from "./bashPermissionRules";
 
 interface PermissionResponse {
     id: string;
@@ -115,20 +116,15 @@ export class PermissionHandler {
      */
     handleToolCall = async (toolName: string, input: unknown, mode: EnhancedMode, options: { signal: AbortSignal }): Promise<PermissionResult> => {
 
-        // Check if tool is explicitly allowed
+        // Check if tool is explicitly allowed.
+        // Bash uses literal+prefix matching via the pure isBashCommandAllowed
+        // helper (extracted 2026-05-05 from bashPermissionRules.ts so the
+        // matching logic could be unit-tested without standing up the full
+        // PermissionHandler class).
         if (toolName === 'Bash') {
             const inputObj = input as { command?: string };
-            if (inputObj?.command) {
-                // Check literal matches
-                if (this.allowedBashLiterals.has(inputObj.command)) {
-                    return { behavior: 'allow', updatedInput: input as Record<string, unknown> };
-                }
-                // Check prefix matches
-                for (const prefix of this.allowedBashPrefixes) {
-                    if (inputObj.command.startsWith(prefix)) {
-                        return { behavior: 'allow', updatedInput: input as Record<string, unknown> };
-                    }
-                }
+            if (inputObj?.command && isBashCommandAllowed(inputObj.command, this.allowedBashLiterals, this.allowedBashPrefixes)) {
+                return { behavior: 'allow', updatedInput: input as Record<string, unknown> };
             }
         } else if (this.allowedTools.has(toolName)) {
             return { behavior: 'allow', updatedInput: input as Record<string, unknown> };
@@ -231,31 +227,25 @@ export class PermissionHandler {
 
 
     /**
-     * Parses Bash permission strings into literal and prefix sets
+     * Parses Bash permission strings into literal and prefix sets.
+     * Delegates to the pure `parseBashPermission` helper in
+     * bashPermissionRules.ts (extracted 2026-05-05 for unit-testability).
      */
     private parseBashPermission(permission: string): void {
-        // Ignore plain "Bash"
-        if (permission === 'Bash') {
-            return;
-        }
-
-        // Match Bash(command) or Bash(command:*)
-        const bashPattern = /^Bash\((.+?)\)$/;
-        const match = permission.match(bashPattern);
-        
-        if (!match) {
-            return;
-        }
-
-        const command = match[1];
-        
-        // Check if it's a prefix pattern (ends with :*)
-        if (command.endsWith(':*')) {
-            const prefix = command.slice(0, -2); // Remove :*
-            this.allowedBashPrefixes.add(prefix);
-        } else {
-            // Literal match
-            this.allowedBashLiterals.add(command);
+        const parsed = parseBashPermission(permission);
+        switch (parsed.kind) {
+            case 'literal':
+                this.allowedBashLiterals.add(parsed.command);
+                return;
+            case 'prefix':
+                this.allowedBashPrefixes.add(parsed.prefix);
+                return;
+            case 'plain':
+            case 'invalid':
+                // No-op: bare 'Bash' is tracked elsewhere; invalid strings
+                // are silently ignored to avoid crashing the permission flow
+                // on operator typos.
+                return;
         }
     }
 
