@@ -102,14 +102,10 @@ describe('readReconnectHistory', () => {
     expect(readReconnectHistory(logFile)).toEqual([]);
   });
 
-  it('parses a close+connected pair (documents off-by-one in parser)', () => {
-    // KNOWN PARSER QUIRK: with just [close, connected] (the file's first ever
-    // events), the reverse-scan algorithm pushes the connected as 'initial'
-    // and treats the close as orphaned/failed. This is an off-by-one at the
-    // START of the log — for any subsequent close+connected pair, the
-    // pairing works (verified in a test below). Filed as parser refactor
-    // candidate; documenting actual behavior here so a future fix is
-    // intentional, not accidental.
+  it('correctly pairs a single close+connected at the START of the log (CLI-FOLLOWUP #73)', () => {
+    // Regression test for CLI-FOLLOWUP #73: the previous reverse-scan
+    // algorithm produced 2 events (orphan-close + initial-connect) for this
+    // exact input. The forward-scan fix produces 1 event with success=true.
     fs.writeFileSync(
       logFile,
       [
@@ -119,23 +115,19 @@ describe('readReconnectHistory', () => {
     );
 
     const events = readReconnectHistory(logFile);
-    // Actual behavior: 2 events (orphan-close + initial-connect)
-    expect(events).toHaveLength(2);
-    const initial = events.find((e) => e.reason === 'initial');
-    expect(initial?.success).toBe(true);
-    const orphanClose = events.find((e) => e.reason === 'timeout after 30s');
-    expect(orphanClose?.success).toBe(false);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      timestamp: '2026-04-21T12:00:00.000Z',
+      reason: 'timeout after 30s',
+      success: true,
+    });
   });
 
-  it('correctly pairs middle close+connected events (parser works after warmup)', () => {
-    // After the file has accumulated ≥ 1 prior event, subsequent close+connected
-    // pairs DO get correctly matched. This test documents the working path.
+  it('correctly pairs close+connected after a baseline initial-connect event', () => {
     fs.writeFileSync(
       logFile,
       [
-        // Initial baseline event
         '[2026-04-21T10:00:00.000Z] [daemon] Relay connected',
-        // First reconnect cycle
         '[2026-04-21T11:00:00.000Z] [daemon] Relay closed, will reconnect first-cycle',
         '[2026-04-21T11:00:05.000Z] [daemon] Relay connected',
       ].join('\n')
@@ -144,7 +136,50 @@ describe('readReconnectHistory', () => {
     const events = readReconnectHistory(logFile);
     const firstCycle = events.find((e) => e.reason === 'first-cycle');
     expect(firstCycle).toBeDefined();
-    expect(firstCycle?.success).toBe(true); // properly paired
+    expect(firstCycle?.success).toBe(true);
+  });
+
+  it('pairs each connected with the LATEST unpaired close (close-close-connected)', () => {
+    // Two consecutive closes without an intervening connected = first
+    // close was followed by another close (still failed), second close
+    // was followed by a successful connect. Result: c1=false, c2=true.
+    fs.writeFileSync(
+      logFile,
+      [
+        '[2026-04-21T12:00:00.000Z] [daemon] Relay closed, will reconnect first-attempt',
+        '[2026-04-21T12:00:30.000Z] [daemon] Relay closed, will reconnect retry-attempt',
+        '[2026-04-21T12:01:00.000Z] [daemon] Relay connected',
+      ].join('\n')
+    );
+
+    const events = readReconnectHistory(logFile);
+    expect(events).toHaveLength(2);
+    const firstAttempt = events.find((e) => e.reason === 'first-attempt');
+    const retryAttempt = events.find((e) => e.reason === 'retry-attempt');
+    expect(firstAttempt?.success).toBe(false); // never paired
+    expect(retryAttempt?.success).toBe(true);  // paired with the connected
+  });
+
+  it('returns events in most-recent-first chronological order', () => {
+    fs.writeFileSync(
+      logFile,
+      [
+        '[2026-04-21T08:00:00.000Z] [daemon] Relay closed, will reconnect oldest',
+        '[2026-04-21T08:00:05.000Z] [daemon] Relay connected',
+        '[2026-04-21T09:00:00.000Z] [daemon] Relay closed, will reconnect middle',
+        '[2026-04-21T09:00:05.000Z] [daemon] Relay connected',
+        '[2026-04-21T10:00:00.000Z] [daemon] Relay closed, will reconnect newest',
+        '[2026-04-21T10:00:05.000Z] [daemon] Relay connected',
+      ].join('\n')
+    );
+
+    const events = readReconnectHistory(logFile);
+    expect(events).toHaveLength(3);
+    expect(events[0].reason).toBe('newest');
+    expect(events[1].reason).toBe('middle');
+    expect(events[2].reason).toBe('oldest');
+    // All paired → all success
+    expect(events.every((e) => e.success)).toBe(true);
   });
 
   it('parses a failed reconnect (closed without subsequent connected) and marks failure', () => {
@@ -176,7 +211,7 @@ describe('readReconnectHistory', () => {
     });
   });
 
-  it('respects the limit parameter', () => {
+  it('respects the limit parameter (returns the N most-recent paired events)', () => {
     const lines: string[] = [];
     // Write 10 successful close→connected pairs
     for (let i = 0; i < 10; i++) {
@@ -187,11 +222,14 @@ describe('readReconnectHistory', () => {
 
     const events = readReconnectHistory(logFile, 3);
     expect(events).toHaveLength(3);
-    // Note: order in returned array reflects the parser's reverse-scan
-    // visit sequence, not strict chronological order. The first event
-    // (events[0]) corresponds to the most-recently-PROCESSED line during
-    // reverse scan, which is the latest-timestamp connected line ('initial').
-    // We only assert COUNT here; ordering semantics are exercised separately.
+    // After CLI-FOLLOWUP #73 fix: ordering is now meaningful
+    // (most-recent first). With 10 pairs (attempts 0-9), limit=3 returns
+    // attempts 9, 8, 7 in that order.
+    expect(events[0].reason).toBe('attempt-9');
+    expect(events[1].reason).toBe('attempt-8');
+    expect(events[2].reason).toBe('attempt-7');
+    // All paired
+    expect(events.every((e) => e.success)).toBe(true);
   });
 
   it('uses default limit of 5 when not specified', () => {
