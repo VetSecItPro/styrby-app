@@ -88,8 +88,12 @@ async function main() {
       try {
         const client = await ensureHttpClient();
         const response = await client.callTool({ name: 'change_title', arguments: args });
-        // Pass-through response from HTTP server
-        return response as any;
+        // Pass-through response from HTTP server. SDK callTool returns
+        // CallToolResult-compatible shape; we forward verbatim. The MCP
+        // SDK's overlapping result types occasionally don't structurally
+        // unify across versions, hence the targeted cast (was `as any`,
+        // now scoped to the SDK result shape).
+        return response as Awaited<ReturnType<typeof client.callTool>>;
       } catch (error) {
         return {
           content: [

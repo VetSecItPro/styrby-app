@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { resolve, join } from "node:path";
 import { createInterface } from "node:readline";
+import type { Readable } from "node:stream";
 import { mkdirSync, existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { logger } from "@/ui/logger";
@@ -251,10 +252,14 @@ export async function claudeLocal(opts: {
                 env,
             });
 
-            // Listen to the custom fd (fd 3) for thinking state tracking
+            // Listen to the custom fd (fd 3) for thinking state tracking.
+            // child.stdio[3] is typed as Readable | Writable | null per Node;
+            // we know fd 3 is configured as a 'pipe' (read side) so cast to
+            // Readable. Avoids `as any` while keeping the cast scoped to
+            // a known-correct narrowing.
             if (child.stdio[3]) {
                 const rl = createInterface({
-                    input: child.stdio[3] as any,
+                    input: child.stdio[3] as Readable,
                     crlfDelay: Infinity
                 });
 
