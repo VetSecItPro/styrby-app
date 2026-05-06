@@ -206,7 +206,15 @@ export function attachGeminiMessageHandler(
         }
 
         if (isError) {
-          const errorMsg = (msg.result as any).error || 'Tool call failed';
+          // msg.result is `unknown` per the AgentMessage union shape. Narrow
+          // before reaching for .error to avoid a runtime crash if upstream
+          // sent a non-object (string, null, etc.).
+          const resultObj = (typeof msg.result === 'object' && msg.result !== null)
+            ? (msg.result as Record<string, unknown>)
+            : null;
+          const errorMsg = (resultObj && typeof resultObj.error === 'string')
+            ? resultObj.error
+            : 'Tool call failed';
           logger.debug(`[gemini] ❌ Tool call error: ${errorMsg.substring(0, 300)}`);
           messageBuffer.addMessage(`Error: ${errorMsg}`, 'status');
         } else {
@@ -242,25 +250,45 @@ export function attachGeminiMessageHandler(
         session.sendAgentMessage('gemini', {
           type: 'terminal-output',
           data: msg.data,
-          callId: (msg as any).callId || randomUUID(),
+          // The AgentMessage union for 'terminal-output' is {type, data} —
+          // no callId. Some ACP-side variants attach a callId at runtime
+          // even though the static type doesn't list it; check defensively.
+          callId: ('callId' in msg && typeof (msg as { callId?: unknown }).callId === 'string')
+            ? (msg as { callId: string }).callId
+            : randomUUID(),
         });
         break;
 
       case 'permission-request': {
-        const payload = (msg as any).payload || {};
+        // msg is narrowed to { type, id, reason, payload } here — payload is
+        // typed as `unknown` so we narrow once and read fields defensively.
+        // The previous `as any` casts were gratuitous (every field referenced
+        // was already in the discriminated union shape).
+        const payloadObj = (typeof msg.payload === 'object' && msg.payload !== null)
+          ? (msg.payload as Record<string, unknown>)
+          : {};
+        const payloadToolName = typeof payloadObj.toolName === 'string'
+          ? payloadObj.toolName
+          : undefined;
         session.sendAgentMessage('gemini', {
           type: 'permission-request',
           permissionId: msg.id,
-          toolName: payload.toolName || (msg as any).reason || 'unknown',
-          description: (msg as any).reason || payload.toolName || '',
-          options: payload,
+          toolName: payloadToolName || msg.reason || 'unknown',
+          description: msg.reason || payloadToolName || '',
+          options: payloadObj,
         });
         break;
       }
 
       case 'exec-approval-request': {
-        const execApprovalMsg = msg as any;
-        const callId = execApprovalMsg.call_id || execApprovalMsg.callId || randomUUID();
+        // msg has shape { type, call_id, [key: string]: unknown } — index
+        // signature lets us reach the lowercase-camelCase `callId` fallback
+        // some upstream variants send. Use Record<string, unknown> instead
+        // of `any` to preserve type safety on subsequent property access.
+        const execApprovalMsg = msg as Record<string, unknown>;
+        const callId = (typeof execApprovalMsg.call_id === 'string' && execApprovalMsg.call_id)
+          || (typeof execApprovalMsg.callId === 'string' && execApprovalMsg.callId)
+          || randomUUID();
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { call_id, type, ...inputs } = execApprovalMsg;
 
@@ -278,8 +306,11 @@ export function attachGeminiMessageHandler(
       }
 
       case 'patch-apply-begin': {
-        const patchBeginMsg = msg as any;
-        const patchCallId = patchBeginMsg.call_id || patchBeginMsg.callId || randomUUID();
+        // Same Record<string, unknown> approach as exec-approval-request.
+        const patchBeginMsg = msg as Record<string, unknown>;
+        const patchCallId = (typeof patchBeginMsg.call_id === 'string' && patchBeginMsg.call_id)
+          || (typeof patchBeginMsg.callId === 'string' && patchBeginMsg.callId)
+          || randomUUID();
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { call_id: _pId, type: _pType, auto_approved, changes } = patchBeginMsg;
 
@@ -299,8 +330,11 @@ export function attachGeminiMessageHandler(
       }
 
       case 'patch-apply-end': {
-        const patchEndMsg = msg as any;
-        const patchEndCallId = patchEndMsg.call_id || patchEndMsg.callId || randomUUID();
+        // Same Record<string, unknown> approach.
+        const patchEndMsg = msg as Record<string, unknown>;
+        const patchEndCallId = (typeof patchEndMsg.call_id === 'string' && patchEndMsg.call_id)
+          || (typeof patchEndMsg.callId === 'string' && patchEndMsg.callId)
+          || randomUUID();
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { call_id: _peId, type: _peType, stdout, stderr, success } = patchEndMsg;
 
@@ -348,16 +382,20 @@ export function attachGeminiMessageHandler(
         }
         break;
 
-      default:
+      default: {
         // Forward token-count and any other unmodelled message types.
-        if ((msg as any).type === 'token-count') {
+        // In the default case `msg` is narrowed to `never`, but the runtime
+        // value still has discriminator + payload — reach via a typed cast.
+        const fallbackMsg = msg as { type: string } & Record<string, unknown>;
+        if (fallbackMsg.type === 'token-count') {
           session.sendAgentMessage('gemini', {
             type: 'token_count',
-            ...(msg as any),
+            ...fallbackMsg,
             id: randomUUID(),
           });
         }
         break;
+      }
     }
   });
 }
