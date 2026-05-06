@@ -46,12 +46,26 @@ export function readReconnectHistory(logFile: string, limit = 5): ReconnectEvent
     const content = fs.readFileSync(logFile, 'utf-8');
     const lines = content.split('\n').filter((l) => l.trim().length > 0);
 
+    // WHY forward-scan in chronological order (CLI-FOLLOWUP #73 fix):
+    //   The previous reverse-scan algorithm had an off-by-one at the START
+    //   of the log. For `[close at T0, connected at T1]` (the simplest
+    //   close+connected pair), reverse-scan visited `connected` first (no
+    //   pending events yet → pushed as 'initial'), then visited `close`
+    //   (no subsequent connected to pair with → marked as orphan-failed).
+    //   Result: 2 events instead of 1 paired success.
+    //
+    //   Forward-scan is the natural shape for "pair X with the X-after-it":
+    //   when we see a `connected`, look back at events we've already
+    //   collected for an unpaired close and mark it succeeded. This produces
+    //   exactly the right number of events with correct success flags
+    //   regardless of where in the log the pair appears.
+    //
+    //   The original "stop early" optimization was premature — daemon log
+    //   files are bounded by rotation, and the typical case is <100 lines.
+    //   Scan all lines, return the last `limit` chronologically.
     const events: ReconnectEvent[] = [];
 
-    // WHY scan in reverse: we want the most-recent events first and we can
-    // stop early once we have `limit` matching entries.
-    for (let i = lines.length - 1; i >= 0 && events.length < limit; i--) {
-      const line = lines[i];
+    for (const line of lines) {
       // Match lines like: [2026-04-21T12:34:56.789Z] [daemon] Relay closed, will reconnect ...
       //              or:  [2026-04-21T12:34:56.789Z] [daemon] Relay connected
       const tsMatch = line.match(/^\[(\d{4}-\d{2}-\d{2}T[\d:.]+Z)\]/);
@@ -64,21 +78,35 @@ export function readReconnectHistory(logFile: string, limit = 5): ReconnectEvent
         events.push({
           timestamp,
           reason: reasonMatch?.[1]?.trim() || 'unknown',
-          success: false, // will be updated when we see the matching 'connected'
+          success: false, // pending — flipped to true when we see the matching `connected`
         });
       } else if (line.includes('Relay connected')) {
-        // Mark the most recent pending (success=false) event as succeeded
-        const pending = events.find((e) => !e.success);
-        if (pending) {
-          pending.success = true;
-        } else {
-          // Standalone connect (initial connect, not a reconnect)
+        // Pair with the LATEST unpaired close (search backward through
+        // events). WHY latest-not-earliest: in chronological order, a
+        // `connected` confirms the immediately-preceding `close`, not
+        // some earlier disconnection that may have been followed by
+        // another (still-failed) close before this success.
+        let paired = false;
+        for (let i = events.length - 1; i >= 0; i--) {
+          if (!events[i].success) {
+            events[i].success = true;
+            paired = true;
+            break;
+          }
+        }
+        if (!paired) {
+          // No preceding unpaired close — this is an initial connect
+          // (process startup) or a redundant connected. Either way, it's
+          // a successful event with no associated close.
           events.push({ timestamp, reason: 'initial', success: true });
         }
       }
     }
 
-    return events.slice(0, limit);
+    // Most-recent first, capped at `limit`. After the forward-scan, `events`
+    // is in chronological order (oldest → newest). slice(-limit) takes the
+    // tail; .reverse() flips to newest-first for caller convenience.
+    return events.slice(-limit).reverse();
   } catch {
     return [];
   }
