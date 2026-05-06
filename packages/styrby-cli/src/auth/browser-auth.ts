@@ -241,12 +241,19 @@ export async function exchangeCodeForTokens(
   });
 
   try {
+    // WHY 15s timeout: OAuth token-exchange is the choke point of the entire
+    // browser auth flow. Without an explicit timeout, a hung Supabase auth
+    // server (or a captive portal stripping the request) leaves the CLI
+    // wedged on the spinner with no recovery path. 15s is well above the
+    // p99 successful exchange (~800ms) but short enough that the user
+    // notices and can retry.
     const response = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: body.toString(),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {

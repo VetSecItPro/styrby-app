@@ -471,6 +471,49 @@ describe('exchangeCodeForTokens', () => {
     expect(err).toBeInstanceOf(AuthError);
     expect((err as AuthError).type).toBe('invalid_code');
   });
+
+  // --------------------------------------------------------------------------
+  // B4-Wave1: timeout regression coverage
+  // --------------------------------------------------------------------------
+
+  it('passes an AbortSignal to fetch (B4-Wave1: hung Supabase auth must not wedge CLI)', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => SUCCESS_RESPONSE,
+    } as Response);
+
+    await exchangeCodeForTokens(SUPABASE_URL, CODE, VERIFIER, REDIRECT_URI);
+
+    const [, options] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('the AbortSignal is initially un-aborted (timeout fires later, not synchronously)', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => SUCCESS_RESPONSE,
+    } as Response);
+
+    await exchangeCodeForTokens(SUPABASE_URL, CODE, VERIFIER, REDIRECT_URI);
+
+    const [, options] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect((options.signal as AbortSignal).aborted).toBe(false);
+  });
+
+  it('wraps abort/timeout errors as network_error (B4-Wave1: caller sees recoverable error)', async () => {
+    // Simulate AbortSignal.timeout() firing — fetch rejects with TimeoutError
+    const timeoutErr = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    vi.mocked(fetch).mockRejectedValueOnce(timeoutErr);
+
+    const err = await exchangeCodeForTokens(SUPABASE_URL, CODE, VERIFIER, REDIRECT_URI).catch(
+      (e: unknown) => e
+    );
+
+    // The catch block in browser-auth wraps non-AuthError throws as network_error;
+    // this proves a real timeout doesn't propagate as an unhandled rejection.
+    expect(err).toBeInstanceOf(AuthError);
+    expect((err as AuthError).type).toBe('network_error');
+  });
 });
 
 // ============================================================================

@@ -244,6 +244,35 @@ describe('handleExportData', () => {
 
     await expect(handleExportData([])).rejects.toThrow('process.exit(1)');
   });
+
+  // --------------------------------------------------------------------------
+  // B4-Wave1: timeout regression coverage
+  // --------------------------------------------------------------------------
+
+  it('passes an AbortSignal to the export fetch (B4-Wave1: hung backend must not wedge CLI)', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () => '{}',
+    });
+
+    const { handleExportData } = await import('../privacy');
+    await handleExportData([]);
+
+    const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+    expect((options.signal as AbortSignal).aborted).toBe(false);
+  });
+
+  it('treats fetch timeout as a Network error and exits 1 (B4-Wave1)', async () => {
+    const timeoutErr = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    mockFetch.mockRejectedValueOnce(timeoutErr);
+
+    const { handleExportData } = await import('../privacy');
+
+    // Per the existing pattern: fetch error → console.error('Network error...') → process.exit(1)
+    await expect(handleExportData([])).rejects.toThrow('process.exit(1)');
+  });
 });
 
 // ============================================================================
@@ -369,6 +398,53 @@ describe('handleDeleteAccount', () => {
     await handleDeleteAccount([]); // should NOT throw
 
     expect(mockFetch).toHaveBeenCalled();
+  });
+
+  // --------------------------------------------------------------------------
+  // B4-Wave1: timeout regression coverage
+  // --------------------------------------------------------------------------
+
+  it('passes an AbortSignal to the delete fetch (B4-Wave1: GDPR-critical path must time out)', async () => {
+    const TEST_EMAIL = 'test@example.com';
+
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: 'user-1', email: TEST_EMAIL } },
+      error: null,
+    });
+
+    mockPromptAnswers.push('yes');
+    mockPromptAnswers.push(TEST_EMAIL);
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, message: 'Deleted' }),
+    });
+
+    const { handleDeleteAccount } = await import('../privacy');
+    await handleDeleteAccount([]);
+
+    const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+    expect((options.signal as AbortSignal).aborted).toBe(false);
+  });
+
+  it('treats delete-fetch timeout as Network error and exits 1 (B4-Wave1)', async () => {
+    const TEST_EMAIL = 'test@example.com';
+
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: 'user-1', email: TEST_EMAIL } },
+      error: null,
+    });
+
+    mockPromptAnswers.push('yes');
+    mockPromptAnswers.push(TEST_EMAIL);
+
+    const timeoutErr = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    mockFetch.mockRejectedValueOnce(timeoutErr);
+
+    const { handleDeleteAccount } = await import('../privacy');
+    await expect(handleDeleteAccount([])).rejects.toThrow('process.exit(1)');
   });
 });
 

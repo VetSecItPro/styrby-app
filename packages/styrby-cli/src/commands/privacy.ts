@@ -158,6 +158,10 @@ export async function handleExportData(args: string[]): Promise<void> {
 
   let response: Response;
   try {
+    // WHY 30s timeout: full account export bundles every session + audit
+    // entry, so the server-side build can take many seconds. 30s tolerates
+    // a power user with months of history without leaving the CLI hung
+    // forever if the API becomes unreachable mid-flight.
     response = await fetch(`${getWebApiBase()}/api/account/export`, {
       method: 'POST',
       headers: {
@@ -165,6 +169,7 @@ export async function handleExportData(args: string[]): Promise<void> {
         'Content-Type': 'application/json',
         'User-Agent': `styrby-cli/${VERSION}`,
       },
+      signal: AbortSignal.timeout(30_000),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -334,6 +339,12 @@ export async function handleDeleteAccount(_args: string[]): Promise<void> {
 
   let deleteResponse: Response;
   try {
+    // WHY 30s timeout: the delete endpoint enqueues a soft-delete job +
+    // sends a confirmation email, which can take a few seconds. Hard cap
+    // at 30s so a hung backend doesn't trap the user mid-confirmation;
+    // they'll see a Network error and can retry (the server-side
+    // idempotency is what keeps the action safe across retries, not the
+    // client-side wait).
     deleteResponse = await fetch(`${getWebApiBase()}/api/account/delete`, {
       method: 'DELETE',
       headers: {
@@ -345,6 +356,7 @@ export async function handleDeleteAccount(_args: string[]): Promise<void> {
         confirmation: 'DELETE MY ACCOUNT',
         reason: 'User-initiated from styrby-cli delete-account command',
       }),
+      signal: AbortSignal.timeout(30_000),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

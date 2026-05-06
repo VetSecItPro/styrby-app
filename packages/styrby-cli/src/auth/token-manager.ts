@@ -65,6 +65,23 @@ export interface LogoutEventPayload {
 }
 
 /**
+ * Payload emitted with the 'refresh-failed' event.
+ *
+ * WHY: Background token refresh failures (setImmediate hydration on cold
+ * start; scheduleRefresh timer near expiry) used to be log-only, leaving
+ * the in-memory access token stale and silently breaking the next API call.
+ * Subscribers (daemon, session manager, UI) need to know so they can
+ * trigger reconnect / re-prompt / surface a banner instead of waiting for
+ * the next request to fail with a 401.
+ */
+export interface RefreshFailedEventPayload {
+  /** Which background path triggered the refresh (`hydrate` = cold-start, `scheduled` = pre-expiry timer) */
+  trigger: 'hydrate' | 'scheduled';
+  /** The error thrown by the underlying refresh attempt (already logged at warn) */
+  error: unknown;
+}
+
+/**
  * Typed event map for TokenManager's EventEmitter interface.
  *
  * WHY: Explicit event map provides type-safe `.on('logout', ...)` callers
@@ -72,6 +89,7 @@ export interface LogoutEventPayload {
  */
 export interface TokenManagerEvents {
   logout: (payload: LogoutEventPayload) => void;
+  'refresh-failed': (payload: RefreshFailedEventPayload) => void;
 }
 
 /**
@@ -442,9 +460,16 @@ export class TokenManager extends EventEmitter {
       // Schedule a refresh check on next tick
       setImmediate(() => {
         if (this.state.refreshToken) {
-          this.refresh().catch(() => {
-            // Refresh failed, user will need to re-auth
-            logger.debug('Background token refresh failed');
+          this.refresh().catch((error: unknown) => {
+            // WHY warn (not debug): a stale access token after cold-start
+            // hydration causes the next API call to 401 with no obvious
+            // signal to the user. The warn line + the emitted event are
+            // the only durable signals subscribers (daemon, session mgr)
+            // get to trigger re-auth flow.
+            logger.warn('Background token refresh failed (cold-start hydration)', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+            this.emit('refresh-failed', { trigger: 'hydrate', error } satisfies RefreshFailedEventPayload);
           });
         }
       });
@@ -500,8 +525,15 @@ export class TokenManager extends EventEmitter {
 
     if (delay > 0) {
       this.refreshTimer = setTimeout(() => {
-        this.refresh().catch((error) => {
-          logger.debug('Scheduled token refresh failed', { error });
+        this.refresh().catch((error: unknown) => {
+          // WHY warn + event: same reasoning as the hydrate path — a
+          // refresh failure ~5 minutes before expiry means the next call
+          // will 401 if subscribers don't react. Event lets the daemon
+          // queue a re-auth prompt instead of failing the next user action.
+          logger.warn('Scheduled token refresh failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          this.emit('refresh-failed', { trigger: 'scheduled', error } satisfies RefreshFailedEventPayload);
         });
       }, delay);
 
