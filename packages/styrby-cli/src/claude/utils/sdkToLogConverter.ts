@@ -295,7 +295,10 @@ export class SDKToLogConverter {
             this.sidechainLastUUID.set(parentToolUseId, uuid)
         }
         
-        const logMessage: RawJSONLines = {
+        // RawJSONLines uses zod passthrough() so the runtime accepts extra
+        // fields like `toolUseResult`. Intersection type lets the literal
+        // typecheck without `as any`.
+        const logMessage: RawJSONLines & { toolUseResult: string } = {
             type: 'user',
             isSidechain: isSidechain,
             uuid,
@@ -318,7 +321,7 @@ export class SDKToLogConverter {
             gitBranch: this.context.gitBranch,
             timestamp,
             toolUseResult: `Error: ${errorMessage}`
-        } as any
+        }
         
         // Update last UUID for tracking
         this.lastUuid = uuid

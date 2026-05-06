@@ -700,9 +700,13 @@ export async function runCodex(opts: {
                         storedSessionIdForResume = null; // consume once
                     }
                     
-                    // Apply resume file if found
+                    // Apply resume file if found.
+                    // experimental_resume is a per-version Codex CLI option
+                    // not declared on CodexSessionConfig; assign via
+                    // Record cast (was `as any`) to keep the rest of the
+                    // object typed.
                     if (resumeFile) {
-                        (startConfig.config as any).experimental_resume = resumeFile;
+                        (startConfig.config as unknown as Record<string, unknown>).experimental_resume = resumeFile;
                     }
                     
                     await client.startSession(

@@ -213,10 +213,22 @@ export interface PromptRetryClassification {
  * @param error - Unknown thrown value from sendPrompt / waitForResponseComplete.
  */
 export function classifyPromptError(error: unknown): PromptRetryClassification {
-  const errObj = (error as any) || {};
+  // Narrow `unknown` to a defensive shape via Record<string, unknown>.
+  // Avoids the `as any` previously here while still tolerating the variety
+  // of error envelopes seen in practice (axios-style with .data, JSON-RPC
+  // with .code, plain Error with .message).
+  const errObj: Record<string, unknown> =
+    (typeof error === 'object' && error !== null)
+      ? (error as Record<string, unknown>)
+      : {};
+  const data = (typeof errObj.data === 'object' && errObj.data !== null)
+    ? (errObj.data as Record<string, unknown>)
+    : null;
   const details: string =
-    errObj?.data?.details || errObj?.details || errObj?.message || '';
-  const errorCode = errObj?.code;
+    (typeof data?.details === 'string' ? data.details : '') ||
+    (typeof errObj.details === 'string' ? errObj.details : '') ||
+    (typeof errObj.message === 'string' ? errObj.message : '');
+  const errorCode = errObj.code;
 
   const isQuotaError =
     details.includes('exhausted') ||

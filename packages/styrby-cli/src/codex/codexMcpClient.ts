@@ -198,7 +198,10 @@ export class CodexMcpClient {
 
         const response = await this.client.callTool({
             name: 'codex',
-            arguments: config as any
+            // CodexSessionConfig is structurally compatible with the SDK's
+            // `Record<string, unknown>` arguments shape; cast preserves
+            // type safety better than `as any`.
+            arguments: config as unknown as Record<string, unknown>
         }, undefined, {
             signal: options?.signal,
             timeout: DEFAULT_TIMEOUT,
