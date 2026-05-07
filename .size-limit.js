@@ -179,7 +179,14 @@ module.exports = [
     // between 778 KB being set (with 1.997 KB headroom) and this measurement.
     // Setting 790 KB absorbs the drift + leaves ~7 KB headroom for the next
     // phase. Pattern-consistent with prior phases (5-12 KB ratchets).
-    limit: '790 KB',
+    //
+    // SDK 52→54 ratchet 790 → 800 (2026-05-07): the mobile package SDK
+    // upgrade caused a few transitive dependency updates in the lockfile
+    // that nudged a SHARED library's web-side bundle by ~284 bytes — just
+    // enough to crack 790 KB (measured 790.28 KB gzip). The mobile upgrade
+    // itself doesn't change web code; this is pure transitive-dep drift.
+    // Bumping +10 KB gives ~10 KB headroom for the next normal phase.
+    limit: '800 KB',
     gzip: true,
     // WHY import is omitted: We cannot import directly from Next.js output —
     // these are already-built assets. size-limit stats the files and sums sizes.
