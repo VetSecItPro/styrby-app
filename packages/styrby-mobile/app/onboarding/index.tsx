@@ -82,8 +82,19 @@ const STEPS: OnboardingStep[] = [
   },
 ];
 
-/** Terminal command for CLI installation (step 2). */
-const INSTALL_COMMAND = 'npm install -g styrby';
+/** Terminal command for CLI installation (step 2).
+ *
+ * WHY 'styrby-cli' not 'styrby': the package is published to npm as
+ * `styrby-cli` (latest: 0.2.0-beta.1). The installed bin name is `styrby`
+ * (set in styrby-cli/package.json bin field), so users type `styrby start`
+ * after install — but the install command must reference the actual
+ * published package. `npm install -g styrby` returns 404 (that name is
+ * not claimed on the registry).
+ *
+ * If we publish under the bare `styrby` name later, both forms will work
+ * and this comment becomes vestigial.
+ */
+const INSTALL_COMMAND = 'npm install -g styrby-cli';
 
 /** Terminal command for device pairing (step 3). */
 const PAIR_COMMAND = 'styrby pair';

@@ -14,7 +14,17 @@ import { useEffect } from 'react';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import * as SecureStore from 'expo-secure-store';
 import { OnboardingProgress } from '../../src/components/OnboardingProgress';
+
+/**
+ * SecureStore key the root layout reads to decide whether to redirect to
+ * /onboarding. Must match `ONBOARDING_KEY` in app/_layout.tsx exactly —
+ * historical drift between this key and `styrby_onboarding_complete` (the
+ * pager-side key) is what caused the notifications↔complete redirect loop
+ * before this fix.
+ */
+const ROOT_ONBOARDING_KEY = 'styrby_onboarded';
 
 /** Total number of steps in the onboarding flow */
 const TOTAL_STEPS = 5;
@@ -56,9 +66,29 @@ export default function CompleteScreen() {
   /**
    * Navigates to the main dashboard, replacing the onboarding stack
    * so the user cannot navigate back to onboarding.
+   *
+   * WHY we write ROOT_ONBOARDING_KEY here BEFORE navigating: the root
+   * layout's routing effect re-runs on segment change and checks
+   * `hasOnboarded` (its own React-state cache of this SecureStore key).
+   * If we navigate without writing first, the cached state can still be
+   * `false`, the routing effect redirects back to /onboarding, the pager
+   * resume logic jumps the user to /onboarding/notifications, and the
+   * loop repeats forever. Writing here makes the SecureStore value the
+   * ground truth before any redirect can fire; the layout's auto-mark
+   * effect then picks it up on the next render.
    */
   const handleContinue = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      await SecureStore.setItemAsync(ROOT_ONBOARDING_KEY, 'true');
+    } catch (err) {
+      // Don't block navigation on a SecureStore failure — the layout's
+      // auto-mark effect will retry once `session` is truthy. Worst case:
+      // user completes onboarding once more.
+      if (__DEV__) {
+        console.warn('[CompleteScreen] failed to mark onboarded:', err);
+      }
+    }
     router.replace('/(tabs)');
   };
 

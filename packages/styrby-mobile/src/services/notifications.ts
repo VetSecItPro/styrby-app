@@ -128,8 +128,12 @@ export async function savePushToken(token: string): Promise<boolean> {
     } = await supabase.auth.getUser();
 
     if (!user) {
+      // Pre-login state — caller already handles the false return.
+      // WHY console.debug not console.error: this is the expected path before
+      // login completes. Logging at error severity makes the dev console look
+      // alarming on every cold-start of an unauthenticated app.
       if (__DEV__) {
-        console.error('No authenticated user');
+        console.debug('[savePushToken] skipped — no authenticated user (expected pre-login)');
       }
       return false;
     }
