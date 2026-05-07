@@ -135,6 +135,39 @@ export async function handleStart(args: string[]): Promise<void> {
   const { initializeAgents, agentRegistry } = await import('@/agent/index');
   initializeAgents();
 
+  // ── Special case: claude integrates via Claude Code's own MCP server,
+  //                 not via a programmatic agent factory.
+  //
+  // WHY: Anthropic's `claude` CLI ships its own MCP client. When the user
+  // runs `claude` in a project directory, Claude Code auto-connects to
+  // any MCP servers configured at the user/project level — which includes
+  // Styrby's MCP server. The mobile app sees the session through that
+  // path, not through an agentRegistry entry that styrby-cli would spawn
+  // and manage.
+  //
+  // Pre-this-fix the registry check below would print
+  //   "Agent 'claude' is not available. Registered agents: gemini, ..."
+  // which is technically true (no factory) but actively misleading —
+  // Claude Code IS the recommended agent. Detecting it here and printing
+  // the correct guidance instead lets users run `claude` directly with
+  // confidence.
+  if (agentType === 'claude') {
+    console.log(chalk.yellow('\nClaude Code uses Anthropic\'s own MCP integration — it does not'));
+    console.log(chalk.yellow('require a Styrby-managed backend.'));
+    console.log('');
+    console.log(`Run ${chalk.cyan('claude')} in your project directory:`);
+    console.log(chalk.gray(`  cd ${projectPath}`));
+    console.log(chalk.gray('  claude'));
+    console.log('');
+    console.log('Claude Code will auto-connect to Styrby via MCP. The mobile app');
+    console.log(`will see the session at the Styrby home tab. Look for ${chalk.cyan('/remote-control')}`);
+    console.log('in the Claude Code prompt to confirm the bridge is active.');
+    console.log('');
+    console.log(`For other agents (Codex, Gemini, Aider, etc.) use ${chalk.cyan('styrby start --agent <name>')}.\n`);
+    await apiClient.disconnect();
+    process.exit(0);
+  }
+
   // Validate the requested agent is available
   const validAgentId = agentType as import('@/agent/core/AgentBackend').AgentId;
   if (!agentRegistry.has(validAgentId)) {
