@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "531471972009",
+    "project_id": "rowan-c8006",
+    "storage_bucket": "rowan-c8006.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:531471972009:android:35147bdb41a99e69e0dbb8",
+        "android_client_info": {
+          "package_name": "com.rowan.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAre5jzoUi8WBMFKiJw9K1yy2C03zAeI7g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:531471972009:android:de6480a0a56ca74fe0dbb8",
+        "android_client_info": {
+          "package_name": "com.steelmotion.styrby"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAre5jzoUi8WBMFKiJw9K1yy2C03zAeI7g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
