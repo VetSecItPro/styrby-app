@@ -42,12 +42,14 @@ const TOTAL_ONBOARDING_STEPS = 5;
  */
 const ONBOARDING_STEP_KEY = 'styrby_onboarding_step';
 
-/**
- * SecureStore key for marking onboarding as fully completed.
- * WHY: Separate from the step key because completion indicates the entire
- * flow is done, not just a particular pager step.
- */
-const ONBOARDING_COMPLETE_KEY = 'styrby_onboarding_complete';
+// NOTE: There used to be an `ONBOARDING_COMPLETE_KEY = 'styrby_onboarding_complete'`
+// constant here. It was removed 2026-05-07 because nothing read it — the
+// canonical "is the user onboarded?" signal lives in `styrby_onboarded`,
+// which app/_layout.tsx reads and app/onboarding/complete.tsx writes
+// before navigating to /(tabs). Keeping a parallel key here just produced
+// silent drift (writes that never propagated to any reader). If a future
+// design needs a separate "pager finished" marker distinct from "user
+// fully onboarded," reintroduce it WITH a documented reader.
 
 interface OnboardingStep {
   title: string;
@@ -164,16 +166,22 @@ async function saveOnboardingStep(stepIndex: number): Promise<void> {
 }
 
 /**
- * Marks onboarding as fully completed in SecureStore and clears the step key.
- * Called when the user navigates past the final pager step to the scan screen.
+ * Clears the resume-step key in SecureStore so the user starts from
+ * Welcome on the next fresh onboarding run. Called when the user
+ * navigates past the final pager step to the scan screen.
+ *
+ * WHY no completion marker write: the canonical "user is onboarded"
+ * signal is `styrby_onboarded`, written by app/onboarding/complete.tsx
+ * before navigating to /(tabs). This function used to also write a
+ * parallel `styrby_onboarding_complete` key but nothing read it —
+ * removed 2026-05-07.
  */
-async function markOnboardingPagerComplete(): Promise<void> {
+async function clearOnboardingPagerStep(): Promise<void> {
   try {
-    await SecureStore.setItemAsync(ONBOARDING_COMPLETE_KEY, 'true');
     await SecureStore.deleteItemAsync(ONBOARDING_STEP_KEY);
   } catch {
     if (__DEV__) {
-      console.warn('[Onboarding] Failed to mark pager complete');
+      console.warn('[Onboarding] Failed to clear pager step');
     }
   }
 }
@@ -252,7 +260,7 @@ export default function OnboardingScreen() {
       await saveOnboardingStep(nextPage);
     } else {
       // Mark pager steps as complete before navigating to scan
-      await markOnboardingPagerComplete();
+      await clearOnboardingPagerStep();
       // Go to scan screen (step 3 completion leads to camera scanner)
       router.push('/(auth)/scan');
     }
@@ -264,7 +272,7 @@ export default function OnboardingScreen() {
    */
   const handleSkip = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await markOnboardingPagerComplete();
+    await clearOnboardingPagerStep();
     router.replace('/(tabs)');
   };
 
