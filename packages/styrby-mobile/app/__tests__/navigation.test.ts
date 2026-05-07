@@ -102,7 +102,7 @@ describe('Navigation', () => {
 
     it('should resolve styrby://dashboard to /(tabs)/', () => {
       const parsed = parseDeepLink('styrby://dashboard');
-      expect(resolveDeepLinkToRoute(parsed!.screen)).toBe('/(tabs)/');
+      expect(resolveDeepLinkToRoute(parsed!.screen)).toBe('/(tabs)');
     });
 
     it('should resolve styrby://chat to /(tabs)/chat', () => {

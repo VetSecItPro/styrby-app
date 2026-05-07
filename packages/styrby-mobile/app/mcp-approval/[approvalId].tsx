@@ -48,7 +48,7 @@ export default function McpApprovalScreen(): React.ReactElement {
     if (router.canGoBack()) {
       router.back();
     } else {
-      router.replace('/(tabs)/');
+      router.replace('/(tabs)');
     }
   }, [router]);
 

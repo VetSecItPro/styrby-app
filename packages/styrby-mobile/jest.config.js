@@ -57,10 +57,22 @@ module.exports = {
     ],
   },
   transformIgnorePatterns: [
-    // Transform Expo/RN packages that ship untranspiled ESM
+    // Transform Expo/RN packages that ship untranspiled ESM.
+    //
     // WHY @supabase: @supabase/supabase-js ships ESM. We need to transform it
     // so Jest can mock the createClient export in supabase.test.ts.
-    'node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|react-navigation|@react-navigation/.*|native-base|react-native-svg|styrby-shared|@styrby/shared|@supabase)/)',
+    //
+    // WHY the optional `\\.pnpm/.*\\/node_modules/` prefix: pnpm uses a
+    // content-addressable store at `node_modules/.pnpm/<pkg>@<version>_<hash>/
+    // node_modules/<pkg>/`. The first `node_modules/` matches but then
+    // `.pnpm/` doesn't match the allow-list, so files get incorrectly
+    // skipped from transformation. The optional prefix lets the regex
+    // recognise the pnpm layout and apply the allow-list to the inner
+    // `<pkg>` path. (npm's flat layout is unaffected — the prefix is
+    // optional.) Surfaced during the SDK 52→54 upgrade when
+    // `expo/virtual/env.js` (a new internal SDK 54 module) failed to
+    // transpile and broke ~20 test suites.
+    'node_modules/(?!(\\.pnpm/.*/node_modules/)?((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|react-navigation|@react-navigation/.*|native-base|react-native-svg|styrby-shared|@styrby/shared|@supabase)/)',
   ],
   setupFiles: ['./jest.setup.js'],
   collectCoverageFrom: [

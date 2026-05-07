@@ -24,9 +24,21 @@
 // Mocks
 // ============================================================================
 
+// SDK 54 upgrade: production code migrated from `getInfoAsync` to the
+// new `File` class API. Test mock now exposes mutable `mockFileExists` /
+// `mockFileSize` getters so individual tests can control the simulated
+// file state without re-mocking. `getFreeDiskStorageAsync` retained
+// (still used by production code via named import).
+const mockFile = {
+  exists: false as boolean,
+  size: 0 as number,
+  text: jest.fn(async () => ''),
+  write: jest.fn(async () => {}),
+};
+
 jest.mock('expo-file-system', () => ({
-  documentDirectory: 'file:///mock/documents/',
-  getInfoAsync: jest.fn(),
+  Paths: { document: { uri: 'file:///mock/documents/' } },
+  File: jest.fn().mockImplementation(() => mockFile),
   getFreeDiskStorageAsync: jest.fn(),
 }));
 
@@ -209,7 +221,8 @@ describe('StorageQuotaGuard — subscribe()', () => {
 // ============================================================================
 
 describe('StorageQuotaGuard — getStorageQuota()', () => {
-  const mockGetInfo = FileSystem.getInfoAsync as jest.Mock;
+  // SDK 54 upgrade: getInfoAsync replaced by File class. Tests now mutate
+  // mockFile.exists/size directly instead of calling mockGetInfo.mockResolvedValue.
   const mockGetFree = FileSystem.getFreeDiskStorageAsync as jest.Mock;
 
   let guard: StorageQuotaGuard;
@@ -220,7 +233,8 @@ describe('StorageQuotaGuard — getStorageQuota()', () => {
   });
 
   it('returns bytesUsed from DB file and bytesAvailable from free space', async () => {
-    mockGetInfo.mockResolvedValue({ exists: true, size: 512_000 });
+    mockFile.exists = true;
+    mockFile.size = 512_000;
     mockGetFree.mockResolvedValue(50 * 1024 * 1024); // 50 MB
 
     const quota = await guard.getStorageQuota();
@@ -232,7 +246,8 @@ describe('StorageQuotaGuard — getStorageQuota()', () => {
   });
 
   it('sets isNearLimit = true when available < STORAGE_WARN_THRESHOLD_BYTES', async () => {
-    mockGetInfo.mockResolvedValue({ exists: true, size: 1_000 });
+    mockFile.exists = true;
+    mockFile.size = 1_000;
     mockGetFree.mockResolvedValue(STORAGE_WARN_THRESHOLD_BYTES - 1);
 
     const quota = await guard.getStorageQuota();
@@ -241,7 +256,8 @@ describe('StorageQuotaGuard — getStorageQuota()', () => {
   });
 
   it('sets isFull = true when guard has recorded a quota error', async () => {
-    mockGetInfo.mockResolvedValue({ exists: false });
+    mockFile.exists = false;
+    mockFile.size = 0;
     mockGetFree.mockResolvedValue(100 * 1024 * 1024);
 
     guard.recordQuotaError();
@@ -251,7 +267,8 @@ describe('StorageQuotaGuard — getStorageQuota()', () => {
   });
 
   it('returns zero bytesUsed when DB file does not exist', async () => {
-    mockGetInfo.mockResolvedValue({ exists: false });
+    mockFile.exists = false;
+    mockFile.size = 0;
     mockGetFree.mockResolvedValue(100 * 1024 * 1024);
 
     const quota = await guard.getStorageQuota();
@@ -259,7 +276,11 @@ describe('StorageQuotaGuard — getStorageQuota()', () => {
   });
 
   it('returns fallback object (all zeros, isFull from guard) when filesystem read fails', async () => {
-    mockGetInfo.mockRejectedValue(new Error('filesystem unavailable'));
+    // SDK 54: simulate File constructor itself throwing (the new equivalent of
+    // getInfoAsync.mockRejectedValue) — handled by the catch in getStorageQuota.
+    (FileSystem.File as unknown as jest.Mock).mockImplementationOnce(() => {
+      throw new Error('filesystem unavailable');
+    });
     mockGetFree.mockRejectedValue(new Error('filesystem unavailable'));
 
     guard.recordQuotaError();

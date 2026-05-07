@@ -25,6 +25,12 @@ function callHook(sessions: SessionRow[]): UseSessionTagsResult {
     return null;
   }
   renderer.act(() => {
+    // SDK 54 upgrade: React 19's ReactNode now includes `bigint` while
+    // react-test-renderer's `create()` signature still expects React 18-era
+    // ReactElement. The runtime is fully compatible (Probe returns null);
+    // only the typing has drifted. Remove this directive once
+    // react-test-renderer ships React 19-aligned typings.
+    // @ts-expect-error react-test-renderer typings haven't caught up to React 19
     renderer.create(React.createElement(Probe));
   });
   return result!;

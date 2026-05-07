@@ -190,10 +190,10 @@ export function InviteAcceptScreen(): React.ReactElement {
       );
 
     case 'expired':
-      return <InviteExpiredState onGoHome={() => router.replace('/(tabs)/' as never)} />;
+      return <InviteExpiredState onGoHome={() => router.replace('/(tabs)' as never)} />;
 
     case 'invalid':
-      return <InviteInvalidState onGoHome={() => router.replace('/(tabs)/' as never)} />;
+      return <InviteInvalidState onGoHome={() => router.replace('/(tabs)' as never)} />;
 
     case 'error':
       return <InviteErrorState message={state.message} onRetry={handleRetry} />;

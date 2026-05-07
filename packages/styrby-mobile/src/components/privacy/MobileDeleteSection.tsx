@@ -59,7 +59,9 @@ export function MobileDeleteSection({ userEmail, userDisplayName }: MobileDelete
           {
             text: 'Delete',
             style: 'destructive',
-            onPress: async (value) => {
+            // SDK 54 upgrade: React Native's Alert.alert prompt callback type
+            // tightened — explicit `string | undefined` annotation now required.
+            onPress: async (value?: string) => {
               if (value?.trim() !== DELETE_CONFIRMATION_PHRASE) {
                 Alert.alert(
                   'Confirmation Required',

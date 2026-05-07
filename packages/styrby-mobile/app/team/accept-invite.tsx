@@ -342,7 +342,7 @@ export default function AcceptInviteScreen() {
           {state.reason}
         </Text>
         <Pressable
-          onPress={() => router.replace('/(tabs)/')}
+          onPress={() => router.replace('/(tabs)')}
           className="bg-brand px-6 py-3 rounded-xl active:opacity-80"
           accessibilityRole="button"
           accessibilityLabel="Go to dashboard"
@@ -370,7 +370,7 @@ export default function AcceptInviteScreen() {
           {state.message}
         </Text>
         <Pressable
-          onPress={() => router.replace('/(tabs)/')}
+          onPress={() => router.replace('/(tabs)')}
           className="bg-brand px-6 py-3 rounded-xl active:opacity-80"
           accessibilityRole="button"
           accessibilityLabel="Go to dashboard"
@@ -426,7 +426,7 @@ export default function AcceptInviteScreen() {
           You have declined the team invitation.
         </Text>
         <Pressable
-          onPress={() => router.replace('/(tabs)/')}
+          onPress={() => router.replace('/(tabs)')}
           className="bg-brand px-6 py-3 rounded-xl active:opacity-80"
           accessibilityRole="button"
           accessibilityLabel="Go to dashboard"
