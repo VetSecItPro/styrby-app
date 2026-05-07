@@ -50,7 +50,7 @@ pnpm test          # Jest test suite
 
 **Project binding (completed 2026-05-06):**
 
-`app.json` is bound to the Expo project `@vetsecitpro/styrby`
+`app.json` is bound to the Expo project `@vetsecitpro/styrby-app`
 (projectId: `747dccfc-82d1-4d4d-9544-19c5632a6c5e`). The projectId is
 not a secret — it's a stable public identifier for the project in EAS.
 
