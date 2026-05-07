@@ -177,7 +177,17 @@ export default function RootLayout() {
     return () => subscription.unsubscribe();
   }, [initialize]);
 
-  // Handle routing based on auth state
+  // Handle routing based on auth state + onboarding state.
+  //
+  // WHY one merged effect (not two): the previous design had separate
+  // routing and markOnboarded effects, both depending on `segments`. React
+  // fires effects in registration order, so the routing effect ran FIRST
+  // with stale `hasOnboarded` cached state and redirected to /onboarding
+  // BEFORE markOnboarded had a chance to re-read SecureStore. Result: a
+  // hard redirect loop after the onboarding/complete screen wrote
+  // ONBOARDING_KEY and then navigated. Merging the SecureStore re-read INTO
+  // the routing effect, before any redirect decision, eliminates the race
+  // by making one effect's async-await complete before the next runs.
   useEffect(() => {
     if (isLoading) return;
 
@@ -195,57 +205,48 @@ export default function RootLayout() {
     // InviteAcceptScreen's own returnTo logic fire correctly after auth completes.
     const inInvite = segments[0] === 'invite';
 
-    // Not onboarded → show onboarding (public screens exempt)
-    if (!hasOnboarded && !inOnboarding && !inShared && !inInvite) {
-      router.replace('/onboarding');
-      return;
-    }
+    const route = async () => {
+      // Refresh hasOnboarded from disk if the cached value is false. The
+      // onboarding/complete screen writes ONBOARDING_KEY before navigating,
+      // so we may have just-written truth on disk that React state hasn't
+      // observed yet. Re-reading here is the only way to break the
+      // notifications↔complete redirect loop without races.
+      let onboarded = hasOnboarded;
+      if (!onboarded) {
+        const stored = await SecureStore.getItemAsync(ONBOARDING_KEY);
+        if (stored === 'true') {
+          onboarded = true;
+          // Also update React state so subsequent renders skip the disk read.
+          setHasOnboarded(true);
+        } else if (session) {
+          // Auto-mark: once a Supabase session exists, treat the user as
+          // onboarded. Covers returning users whose old build did not write
+          // ONBOARDING_KEY.
+          await SecureStore.setItemAsync(ONBOARDING_KEY, 'true');
+          onboarded = true;
+          setHasOnboarded(true);
+        }
+      }
 
-    // Onboarded but not logged in → show login (unless already in auth, shared, or invite)
-    if (hasOnboarded && !session && !inAuthGroup && !inShared && !inInvite) {
-      router.replace('/(auth)/login');
-      return;
-    }
-
-    // Logged in → go to tabs (unless already there or on a public screen)
-    if (session && !inTabs && !inAuthGroup && !inShared) {
-      router.replace('/(tabs)');
-    }
-  }, [session, hasOnboarded, segments, isLoading, router]);
-
-  // Mark onboarding complete
-  //
-  // WHY this effect also depends on `segments`: the onboarding-complete
-  // screen (app/onboarding/complete.tsx) writes ONBOARDING_KEY to SecureStore
-  // before calling `router.replace('/(tabs)')`. Without re-reading SecureStore
-  // on segment change, our cached `hasOnboarded` stays stale, the routing
-  // effect above sees `!hasOnboarded` and redirects to /onboarding, and the
-  // user is stuck in a notifications↔complete loop. By re-reading on every
-  // navigation we pick up that write on the very next routing pass.
-  useEffect(() => {
-    const markOnboarded = async () => {
-      if (hasOnboarded) return; // already true; no need to re-read
-
-      // Ground truth from disk — covers writes by this layout's earlier runs,
-      // by complete.tsx pre-navigation, and by the onboarding pager's
-      // markOnboardingPagerComplete().
-      const stored = await SecureStore.getItemAsync(ONBOARDING_KEY);
-      if (stored === 'true') {
-        setHasOnboarded(true);
+      // Not onboarded → show onboarding (public screens exempt)
+      if (!onboarded && !inOnboarding && !inShared && !inInvite) {
+        router.replace('/onboarding');
         return;
       }
 
-      // Auto-mark: once a Supabase session exists we treat the user as
-      // onboarded. This is the original pre-fix behaviour, retained because
-      // existing returning users have a session but may not have had
-      // ONBOARDING_KEY written by an old build.
-      if (session && !hasOnboarded) {
-        await SecureStore.setItemAsync(ONBOARDING_KEY, 'true');
-        setHasOnboarded(true);
+      // Onboarded but not logged in → show login (unless already in auth, shared, or invite)
+      if (onboarded && !session && !inAuthGroup && !inShared && !inInvite) {
+        router.replace('/(auth)/login');
+        return;
+      }
+
+      // Logged in → go to tabs (unless already there or on a public screen)
+      if (session && !inTabs && !inAuthGroup && !inShared) {
+        router.replace('/(tabs)');
       }
     };
-    markOnboarded();
-  }, [session, hasOnboarded, segments]);
+    route();
+  }, [session, hasOnboarded, segments, isLoading, router]);
 
   // Initialization failed — show a recovery screen with retry action.
   // This prevents the app from appearing blank or frozen when SecureStore,
