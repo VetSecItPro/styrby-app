@@ -85,24 +85,11 @@ export function readGeminiLocalConfig(): GeminiLocalConfig {
     }
   }
 
-  // Try gcloud Application Default Credentials
-  // Gemini CLI might use gcloud auth application-default print-access-token
-  if (!token) {
-    try {
-      const gcloudToken = execSync('gcloud auth application-default print-access-token', { 
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-        timeout: 5000
-      }).trim();
-      if (gcloudToken && gcloudToken.length > 0) {
-        token = gcloudToken;
-        logger.debug('[Gemini] Found token via gcloud Application Default Credentials');
-      }
-    } catch (error) {
-      // gcloud not available or not authenticated - this is fine
-      logger.debug('[Gemini] gcloud Application Default Credentials not available');
-    }
-  }
+  // gcloud Application Default Credentials lookup is now opt-in via the
+  // tryGcloudADCToken() function below — see CLI-FOLLOWUP #74. Removed from
+  // this synchronous path because the underlying `gcloud` shell-out blocks
+  // for up to 5 seconds when gcloud is uninstalled or unauthenticated, which
+  // violated the "construction is cheap" invariant codified in ADR-003.
 
   // Also check environment variable for Google Cloud Project
   if (!googleCloudProject) {
@@ -115,6 +102,46 @@ export function readGeminiLocalConfig(): GeminiLocalConfig {
   }
 
   return { token, model, googleCloudProject, googleCloudProjectEmail };
+}
+
+/**
+ * Probe Google Cloud SDK Application Default Credentials for an access token.
+ *
+ * WHY a separate function (CLI-FOLLOWUP #74 fix): the underlying `gcloud`
+ * shell-out blocks for up to 5 seconds when gcloud is uninstalled or
+ * unauthenticated (the timeout fires waiting for command-not-found or for
+ * the credential lookup to fail). Running this synchronously inside
+ * `createGeminiBackend()` violated the "construction is cheap" invariant
+ * codified in ADR-003 — making the gemini factory take 5+ seconds where
+ * every other agent factory constructs in <1ms.
+ *
+ * **Opt-in behavior:** This function only attempts the gcloud shell-out when
+ * `STYRBY_USE_GCLOUD_ADC=1` is set in the environment. The 95% of users who
+ * authenticate via `happy connect gemini` OAuth or `GEMINI_API_KEY` env var
+ * never pay the latency tax. Users who actively rely on gcloud Application
+ * Default Credentials for Gemini auth set the env var once.
+ *
+ * @returns The ADC access token, or null if unavailable / opt-out.
+ */
+export function tryGcloudADCToken(): string | null {
+  if (process.env.STYRBY_USE_GCLOUD_ADC !== '1') {
+    return null;
+  }
+  try {
+    const gcloudToken = execSync('gcloud auth application-default print-access-token', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 5000,
+    }).trim();
+    if (gcloudToken && gcloudToken.length > 0) {
+      logger.debug('[Gemini] Found token via gcloud Application Default Credentials');
+      return gcloudToken;
+    }
+  } catch {
+    // gcloud not available or not authenticated — this is fine.
+    logger.debug('[Gemini] gcloud Application Default Credentials not available');
+  }
+  return null;
 }
 
 /**

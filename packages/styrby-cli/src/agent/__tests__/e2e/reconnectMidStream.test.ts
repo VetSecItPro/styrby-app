@@ -75,6 +75,7 @@ vi.mock('@/gemini/utils/config', () => ({
   readGeminiLocalConfig: vi.fn(() => ({ token: null, model: null, googleCloudProject: null, googleCloudProjectEmail: null })),
   determineGeminiModel: vi.fn((_m: unknown) => 'gemini-2.5-pro'),
   getGeminiModelSource: vi.fn(() => 'default'),
+  tryGcloudADCToken: vi.fn(() => null),
 }));
 
 vi.mock('@/gemini/constants', () => ({

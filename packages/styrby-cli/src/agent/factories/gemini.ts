@@ -19,10 +19,11 @@ import {
   GEMINI_MODEL_ENV, 
   DEFAULT_GEMINI_MODEL 
 } from '@/gemini/constants';
-import { 
-  readGeminiLocalConfig, 
+import {
+  readGeminiLocalConfig,
   determineGeminiModel,
-  getGeminiModelSource
+  getGeminiModelSource,
+  tryGcloudADCToken
 } from '@/gemini/utils/config';
 
 /**
@@ -87,6 +88,17 @@ export function createGeminiBackend(options: GeminiBackendOptions): GeminiBacken
     || process.env[GEMINI_API_KEY_ENV]  // 3. GEMINI_API_KEY env var
     || process.env[GOOGLE_API_KEY_ENV]  // 4. GOOGLE_API_KEY env var
     || options.apiKey;                  // 5. Explicit apiKey option (fallback)
+
+  // 6. gcloud Application Default Credentials — opt-in via STYRBY_USE_GCLOUD_ADC
+  // (see CLI-FOLLOWUP #74). The shell-out can block 5+ seconds when gcloud is
+  // uninstalled / unauthenticated, so it's gated behind an env var. Users who
+  // actively rely on ADC set the var once; everyone else gets a fast factory.
+  if (!apiKey) {
+    const adcToken = tryGcloudADCToken();
+    if (adcToken) {
+      apiKey = adcToken;
+    }
+  }
 
   if (!apiKey) {
     logger.warn(`[Gemini] No API key found. Run 'happy connect gemini' to authenticate via Google OAuth, or set ${GEMINI_API_KEY_ENV} environment variable.`);
