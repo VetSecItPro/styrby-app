@@ -214,15 +214,38 @@ export default function RootLayout() {
   }, [session, hasOnboarded, segments, isLoading, router]);
 
   // Mark onboarding complete
+  //
+  // WHY this effect also depends on `segments`: the onboarding-complete
+  // screen (app/onboarding/complete.tsx) writes ONBOARDING_KEY to SecureStore
+  // before calling `router.replace('/(tabs)')`. Without re-reading SecureStore
+  // on segment change, our cached `hasOnboarded` stays stale, the routing
+  // effect above sees `!hasOnboarded` and redirects to /onboarding, and the
+  // user is stuck in a notifications↔complete loop. By re-reading on every
+  // navigation we pick up that write on the very next routing pass.
   useEffect(() => {
     const markOnboarded = async () => {
+      if (hasOnboarded) return; // already true; no need to re-read
+
+      // Ground truth from disk — covers writes by this layout's earlier runs,
+      // by complete.tsx pre-navigation, and by the onboarding pager's
+      // markOnboardingPagerComplete().
+      const stored = await SecureStore.getItemAsync(ONBOARDING_KEY);
+      if (stored === 'true') {
+        setHasOnboarded(true);
+        return;
+      }
+
+      // Auto-mark: once a Supabase session exists we treat the user as
+      // onboarded. This is the original pre-fix behaviour, retained because
+      // existing returning users have a session but may not have had
+      // ONBOARDING_KEY written by an old build.
       if (session && !hasOnboarded) {
         await SecureStore.setItemAsync(ONBOARDING_KEY, 'true');
         setHasOnboarded(true);
       }
     };
     markOnboarded();
-  }, [session, hasOnboarded]);
+  }, [session, hasOnboarded, segments]);
 
   // Initialization failed — show a recovery screen with retry action.
   // This prevents the app from appearing blank or frozen when SecureStore,

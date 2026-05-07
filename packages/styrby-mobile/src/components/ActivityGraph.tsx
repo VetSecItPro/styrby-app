@@ -300,6 +300,25 @@ export function ActivityGraph({ showTitle = true }: ActivityGraphProps) {
    * Using cost record dates would fragment a session that spans midnight.
    */
   const fetchData = useCallback(async () => {
+    // WHY pre-flight auth check: the `sessions` RLS policy
+    // `sessions_select_own_or_team` includes a branch that calls
+    // is_team_member() when a session row has team_id IS NOT NULL.
+    // is_team_member is REVOKE'd from `anon`. If the calling JWT is
+    // missing/expired/anon, Postgres returns 42501 and the whole
+    // query fails — including the rows we'd otherwise be allowed to see.
+    // Pre-checking auth here is the proper fix: when there is no user,
+    // there is nothing for us to fetch under any circumstance, so we
+    // skip the call entirely and render an empty state. This avoids
+    // the spurious permission-denied error AND makes the not-yet-authed
+    // path correct by construction (the graph stays empty until the user
+    // is fully authenticated).
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData?.user) {
+      setRawData(new Map());
+      setIsLoading(false);
+      return;
+    }
+
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - MAX_WEEKS * DAYS_PER_WEEK);
     const cutoffStr = toDateStr(cutoff);
