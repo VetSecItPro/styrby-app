@@ -54,6 +54,16 @@ pnpm test          # Jest test suite
 (projectId: `747dccfc-82d1-4d4d-9544-19c5632a6c5e`). The projectId is
 not a secret — it's a stable public identifier for the project in EAS.
 
+**Push credentials wired (2026-05-06 → 2026-05-07):**
+
+- iOS APNs: managed by EAS Credentials (Developer Portal ID
+  `Q96HYC3PR9`). Apple Team `L68P4Y7N55`. Built into binaries
+  automatically; not stored in this repo.
+- Android FCM: `google-services.json` committed at the root of this
+  package. Firebase project `rowan-c8006` (shared with Rowan). Per
+  Firebase docs, `google-services.json` is safe to commit — the
+  values are public identifiers, not secrets.
+
 To run EAS commands locally for the first time on a fresh clone, you
 must authenticate the EAS CLI with your Expo account:
 
