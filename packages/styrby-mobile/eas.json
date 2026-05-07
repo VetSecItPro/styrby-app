@@ -53,11 +53,21 @@
   },
   "submit": {
     "production": {
+      "ios": {
+        "appleId": "anouarb@gmail.com",
+        "ascAppId": "6767102756",
+        "appleTeamId": "L68P4Y7N55"
+      },
       "android": {
         "track": "production"
       }
     },
     "preview": {
+      "ios": {
+        "appleId": "anouarb@gmail.com",
+        "ascAppId": "6767102756",
+        "appleTeamId": "L68P4Y7N55"
+      },
       "android": {
         "track": "internal"
       }
