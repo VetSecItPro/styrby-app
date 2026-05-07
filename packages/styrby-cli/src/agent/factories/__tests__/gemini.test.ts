@@ -48,6 +48,10 @@ vi.mock('@/gemini/utils/config', () => ({
     if (model !== undefined && model !== null) return 'explicit';
     return 'default';
   }),
+  // CLI-FOLLOWUP #74: gcloud ADC lookup is now opt-in via the
+  // tryGcloudADCToken function. Default mock returns null (the fast-path
+  // behavior); individual tests can override via mockTryGcloudADC below.
+  tryGcloudADCToken: vi.fn(() => null),
 }));
 
 vi.mock('@/gemini/constants', () => ({
@@ -80,12 +84,13 @@ vi.mock('../../acp/AcpBackend', () => ({
 import { createGeminiBackend, registerGeminiAgent } from '../gemini';
 import { agentRegistry } from '../../core';
 import { AcpBackend } from '../../acp/AcpBackend';
-import { readGeminiLocalConfig, determineGeminiModel, getGeminiModelSource } from '@/gemini/utils/config';
+import { readGeminiLocalConfig, determineGeminiModel, getGeminiModelSource, tryGcloudADCToken } from '@/gemini/utils/config';
 
 const MockAcpBackend = AcpBackend as unknown as ReturnType<typeof vi.fn>;
 const mockReadConfig = readGeminiLocalConfig as unknown as ReturnType<typeof vi.fn>;
 const mockDetermineModel = determineGeminiModel as unknown as ReturnType<typeof vi.fn>;
 const mockGetModelSource = getGeminiModelSource as unknown as ReturnType<typeof vi.fn>;
+const mockTryGcloudADC = tryGcloudADCToken as unknown as ReturnType<typeof vi.fn>;
 
 // ---------------------------------------------------------------------------
 // Test suite

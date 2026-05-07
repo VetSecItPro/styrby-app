@@ -240,6 +240,7 @@ vi.mock('@/gemini/utils/config', () => ({
     model ?? 'gemini-2.5-pro',
   ),
   getGeminiModelSource: vi.fn(() => 'default'),
+  tryGcloudADCToken: vi.fn(() => null),
 }));
 
 vi.mock('@/gemini/constants', () => ({

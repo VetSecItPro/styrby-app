@@ -118,14 +118,16 @@ describe('Agent factory conformance matrix (9 streaming agents)', () => {
    * Agents excluded from construction-time tests because they violate the
    * "construction is cheap" invariant (do I/O during factory call).
    *
-   * - gemini: calls readGeminiLocalConfig() + (likely) spawns the gemini CLI
-   *   binary during createGeminiBackend(). Times out under 5s test budget.
-   *   Filed as CLI-FOLLOWUP to defer I/O until startSession() is called.
+   * Empty as of CLI-FOLLOWUP #74 (2026-05-06): gemini was previously
+   * quarantined here because `createGeminiBackend()` did a synchronous
+   * `gcloud auth application-default print-access-token` shell-out that
+   * blocked for 5+ seconds when gcloud was uninstalled or unauthenticated.
+   * The fix made gcloud ADC opt-in via STYRBY_USE_GCLOUD_ADC=1 — the
+   * factory is now sub-millisecond by default, restoring the invariant.
    *
-   * Registration test still applies to ALL agents (registry membership only,
-   * no factory invocation).
+   * Construction tests now apply to ALL streaming agents.
    */
-  const EAGER_INIT_AGENTS: AgentId[] = ['gemini'];
+  const EAGER_INIT_AGENTS: AgentId[] = [];
 
   describe.each(EXPECTED_STREAMING_AGENTS)('agent: %s', (agentId) => {
     it('is registered after register*Agent() is called', () => {
