@@ -19,10 +19,12 @@ import { OnboardingProgress } from '../../src/components/OnboardingProgress';
 
 /**
  * SecureStore key the root layout reads to decide whether to redirect to
- * /onboarding. Must match `ONBOARDING_KEY` in app/_layout.tsx exactly —
- * historical drift between this key and `styrby_onboarding_complete` (the
- * pager-side key) is what caused the notifications↔complete redirect loop
- * before this fix.
+ * /onboarding. Must match `ONBOARDING_KEY` in app/_layout.tsx exactly.
+ * This is the SINGLE canonical "user is onboarded" marker for the app —
+ * the pager-side `styrby_onboarding_complete` parallel key was removed
+ * 2026-05-07 because nothing read it, and the historical drift between
+ * the two keys caused the notifications↔complete redirect loop fixed
+ * in PRs #296 + #297.
  */
 const ROOT_ONBOARDING_KEY = 'styrby_onboarded';
 
