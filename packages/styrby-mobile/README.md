@@ -48,19 +48,22 @@ pnpm test          # Jest test suite
 
 ### EAS Builds (CI/CD)
 
-**First-time setup (one-shot, per fresh clone of the repo):**
+**Project binding (completed 2026-05-06):**
 
-`app.json` ships with `extra.eas.projectId` set to the placeholder
-`TODO_OPERATOR_RUN_eas_init`. Before the first EAS Build will succeed,
-an operator must claim the project from the Expo dashboard:
+`app.json` is bound to the Expo project `@vetsecitpro/styrby`
+(projectId: `747dccfc-82d1-4d4d-9544-19c5632a6c5e`). The projectId is
+not a secret — it's a stable public identifier for the project in EAS.
+
+To run EAS commands locally for the first time on a fresh clone, you
+must authenticate the EAS CLI with your Expo account:
 
 ```bash
 cd packages/styrby-mobile
-npx eas init     # writes the real projectId UUID into app.json
+npx eas-cli@latest login   # one-time auth; tied to your Expo account
 ```
 
-Commit the resulting change (the projectId is not a secret — it's a
-stable public identifier for the project in EAS).
+After login, you can run any EAS command (`eas build`, `eas
+credentials`, `eas submit`) without re-authenticating.
 
 ```bash
 pnpm build:dev     # EAS development build
