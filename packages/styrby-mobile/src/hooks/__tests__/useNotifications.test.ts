@@ -344,7 +344,7 @@ describe('useNotifications', () => {
       mockResponseCallback!(response);
     });
 
-    expect(mockRouterPush).toHaveBeenCalledWith('/(tabs)/');
+    expect(mockRouterPush).toHaveBeenCalledWith('/(tabs)');
   });
 
   it('navigates to sessions when screen=sessions', async () => {
@@ -516,7 +516,7 @@ describe('useNotifications', () => {
 
     // Zod validation passes (passthrough), but type doesn't match enum -> undefined
     // Falls through to default: dashboard
-    expect(mockRouterPush).toHaveBeenCalledWith('/(tabs)/');
+    expect(mockRouterPush).toHaveBeenCalledWith('/(tabs)');
   });
 
   // --------------------------------------------------------------------------
@@ -534,7 +534,7 @@ describe('useNotifications', () => {
       mockResponseCallback!(response);
     });
 
-    expect(mockRouterPush).toHaveBeenCalledWith('/(tabs)/');
+    expect(mockRouterPush).toHaveBeenCalledWith('/(tabs)');
   });
 
   it('navigates to dashboard when data is empty object', async () => {
@@ -549,7 +549,7 @@ describe('useNotifications', () => {
     });
 
     // Empty object passes Zod but no screen and no type => default dashboard
-    expect(mockRouterPush).toHaveBeenCalledWith('/(tabs)/');
+    expect(mockRouterPush).toHaveBeenCalledWith('/(tabs)');
   });
 
   // --------------------------------------------------------------------------

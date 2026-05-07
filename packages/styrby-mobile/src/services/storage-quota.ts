@@ -25,7 +25,16 @@
  */
 
 import * as SQLite from 'expo-sqlite';
-import * as FileSystem from 'expo-file-system';
+// SDK 54 upgrade: expo-file-system v19 ships a new class-based API
+// (File / Directory / Paths). The deprecated top-level functions are still
+// available at `expo-file-system/legacy` but that subpath ships TypeScript
+// source that Jest can't transpile by default. Using the new File/Paths
+// API directly works in both runtime and Jest.
+import { File, Paths } from 'expo-file-system';
+// `getFreeDiskStorageAsync` doesn't have a class-based equivalent yet;
+// it's still exported as a top-level function on the default `expo-file-system`
+// module.
+import { getFreeDiskStorageAsync } from 'expo-file-system';
 import { supabase } from '../lib/supabase';
 
 // ============================================================================
@@ -233,13 +242,15 @@ export class StorageQuotaGuard {
    */
   async getStorageQuota(): Promise<StorageQuotaInfo> {
     try {
-      // Read the database file size (bytes used by Styrby queue data)
-      const dbPath = `${FileSystem.documentDirectory}SQLite/styrby_offline_queue.db`;
-      const dbInfo = await FileSystem.getInfoAsync(dbPath, { size: true });
-      const bytesUsed = dbInfo.exists && 'size' in dbInfo ? (dbInfo.size as number) : 0;
+      // Read the database file size (bytes used by Styrby queue data).
+      // SDK 54 upgrade: use the new File/Paths API instead of the deprecated
+      // FileSystem.documentDirectory + getInfoAsync({ size: true }).
+      const dbDir = new File(Paths.document, 'SQLite');
+      const dbFile = new File(dbDir, 'styrby_offline_queue.db');
+      const bytesUsed = dbFile.exists ? (dbFile.size ?? 0) : 0;
 
-      // Read available space on the device's document directory partition
-      const dirInfo = await FileSystem.getFreeDiskStorageAsync();
+      // Read available space on the device's document directory partition.
+      const dirInfo = await getFreeDiskStorageAsync();
       const bytesAvailable = typeof dirInfo === 'number' ? dirInfo : 0;
 
       return {

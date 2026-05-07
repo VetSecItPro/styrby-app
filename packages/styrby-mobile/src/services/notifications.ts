@@ -269,11 +269,14 @@ export function addNotificationResponseListener(
 
 /**
  * Remove notification listener.
+ *
+ * SDK 54 upgrade: `Notifications.removeNotificationSubscription(sub)` was
+ * removed in favour of `sub.remove()` on the subscription object itself.
  */
 export function removeNotificationListener(
   subscription: Notifications.Subscription
 ): void {
-  Notifications.removeNotificationSubscription(subscription);
+  subscription.remove();
 }
 
 /**

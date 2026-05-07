@@ -43,7 +43,7 @@ export const UNIVERSAL_LINK_DOMAIN = 'styrbyapp.com' as const;
  */
 export const DEEP_LINK_ROUTES = {
   'styrby://auth/callback': '/(auth)/callback',
-  'styrby://dashboard': '/(tabs)/',
+  'styrby://dashboard': '/(tabs)',
   'styrby://chat': '/(tabs)/chat',
   'styrby://sessions': '/(tabs)/sessions',
   'styrby://costs': '/(tabs)/costs',

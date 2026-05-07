@@ -44,6 +44,12 @@ function renderHook(): { results: UseTeamMembershipResult[] } {
   }
   let root: renderer.ReactTestRenderer;
   renderer.act(() => {
+    // SDK 54 upgrade: React 19's ReactNode now includes `bigint` while
+    // react-test-renderer's `create()` signature still expects React 18-era
+    // ReactElement. The runtime is fully compatible (Probe returns null);
+    // only the typing has drifted. Remove this directive once
+    // react-test-renderer ships React 19-aligned typings.
+    // @ts-expect-error react-test-renderer typings haven't caught up to React 19
     root = renderer.create(React.createElement(Probe));
   });
   // Flush the useEffect's microtasks so the async getUser resolves.

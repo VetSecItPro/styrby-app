@@ -350,9 +350,13 @@ describe('Notifications Service', () => {
     });
 
     it('removeNotificationListener removes subscription', () => {
-      const sub = { remove: jest.fn() } as { remove: jest.Mock };
-      removeNotificationListener(sub);
-      expect(Notifications.removeNotificationSubscription).toHaveBeenCalledWith(sub);
+      // SDK 54 upgrade: Notifications.removeNotificationSubscription(sub) was
+      // removed in favour of sub.remove() on the subscription object itself.
+      // The contract being tested is now "the subscription's own remove() got
+      // called" — independent of the SDK module.
+      const sub = { remove: jest.fn() };
+      removeNotificationListener(sub as unknown as Parameters<typeof removeNotificationListener>[0]);
+      expect(sub.remove).toHaveBeenCalledTimes(1);
     });
   });
 

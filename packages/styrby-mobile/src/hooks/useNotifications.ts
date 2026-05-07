@@ -141,8 +141,11 @@ export function useNotifications(): UseNotificationsResult {
   const [isRegistered, setIsRegistered] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const notificationListener = useRef<Notifications.Subscription>();
-  const responseListener = useRef<Notifications.Subscription>();
+  // SDK 54 upgrade (was SDK 52): React 19's useRef now requires an explicit
+  // initial value (was previously optional). Defaulting to undefined matches
+  // the prior behaviour where the listener is set inside the effect below.
+  const notificationListener = useRef<Notifications.Subscription | undefined>(undefined);
+  const responseListener = useRef<Notifications.Subscription | undefined>(undefined);
 
   /**
    * Navigates to a screen based on the explicit `screen` field in the
@@ -184,7 +187,7 @@ export function useNotifications(): UseNotificationsResult {
           return true;
 
         case 'dashboard':
-          router.push('/(tabs)/');
+          router.push('/(tabs)');
           return true;
 
         case 'sessions':
@@ -240,7 +243,7 @@ export function useNotifications(): UseNotificationsResult {
 
       if (!data) {
         // No data payload at all -- go to dashboard as a safe default
-        router.push('/(tabs)/');
+        router.push('/(tabs)');
         return;
       }
 
@@ -317,7 +320,7 @@ export function useNotifications(): UseNotificationsResult {
           break;
 
         default:
-          router.push('/(tabs)/');
+          router.push('/(tabs)');
       }
     },
     [router, navigateToScreen]

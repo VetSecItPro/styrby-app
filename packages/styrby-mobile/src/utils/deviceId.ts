@@ -18,11 +18,15 @@
  * @module utils/deviceId
  */
 
-import * as FileSystem from 'expo-file-system';
+// SDK 54 upgrade: expo-file-system v19 ships a new class-based API
+// (File / Directory / Paths). The deprecated top-level functions
+// (documentDirectory, readAsStringAsync, writeAsStringAsync, getInfoAsync)
+// were extracted to a `/legacy` subpath that ships as TypeScript source —
+// Jest can't transpile node_modules .ts files by default, so the legacy
+// path breaks our test suite. The new File/Paths API works in both runtime
+// and Jest, so we use it directly.
+import { File, Paths } from 'expo-file-system';
 import { generateDeviceId, isValidDeviceId } from '@styrby/shared/session-handoff';
-
-/** Path to the persisted device ID file in Expo's document directory. */
-const DEVICE_ID_FILE = `${FileSystem.documentDirectory}styrby-device-id.txt`;
 
 /**
  * In-process cache — avoids repeated file I/O after the first call.
@@ -44,10 +48,11 @@ export async function getMobileDeviceId(): Promise<string> {
   }
 
   try {
-    const info = await FileSystem.getInfoAsync(DEVICE_ID_FILE);
+    const file = new File(Paths.document, 'styrby-device-id.txt');
 
-    if (info.exists) {
-      const stored = (await FileSystem.readAsStringAsync(DEVICE_ID_FILE)).trim();
+    if (file.exists) {
+      // File.text() returns a Promise<string> in SDK 54.
+      const stored = (await file.text()).trim();
 
       if (isValidDeviceId(stored)) {
         _cached = stored;
@@ -58,7 +63,7 @@ export async function getMobileDeviceId(): Promise<string> {
 
     // Generate and persist a new device ID.
     const newId = generateDeviceId();
-    await FileSystem.writeAsStringAsync(DEVICE_ID_FILE, newId);
+    file.write(newId);
     _cached = newId;
     return newId;
   } catch {

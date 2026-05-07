@@ -38,7 +38,7 @@ describe('deep-links', () => {
     it('should have correct DEEP_LINK_ROUTES mapping', () => {
       expect(DEEP_LINK_ROUTES).toEqual({
         'styrby://auth/callback': '/(auth)/callback',
-        'styrby://dashboard': '/(tabs)/',
+        'styrby://dashboard': '/(tabs)',
         'styrby://chat': '/(tabs)/chat',
         'styrby://sessions': '/(tabs)/sessions',
         'styrby://costs': '/(tabs)/costs',
@@ -385,8 +385,8 @@ describe('deep-links', () => {
     });
 
     it('should correctly type RouterPath', () => {
-      const path: RouterPath = '/(tabs)/';
-      expect(path).toBe('/(tabs)/');
+      const path: RouterPath = '/(tabs)';
+      expect(path).toBe('/(tabs)');
     });
   });
 
