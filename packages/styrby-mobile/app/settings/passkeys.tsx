@@ -39,8 +39,9 @@ import {
 import { useState, useEffect, useCallback } from 'react';
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-// See login.tsx for the rationale on using bare 'expo-passkey' over '/native'.
-import ExpoPasskey from 'expo-passkey';
+// See login.tsx for the rationale on the '/native' subpath import (Metro 0.82+
+// honors the package's exports map, so the bare specifier hits the guard stub).
+import ExpoPasskey from 'expo-passkey/native';
 import { supabase } from '../../src/lib/supabase';
 import { getApiBaseUrl } from '../../src/lib/config';
 

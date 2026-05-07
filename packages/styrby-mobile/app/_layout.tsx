@@ -4,6 +4,15 @@
  * Sets up the navigation stack, auth state, and global providers.
  */
 
+// WHY this polyfill must be the FIRST import in the app:
+// `react-native-get-random-values` shims `crypto.getRandomValues` onto the
+// JS global before any code that needs it runs. tweetnacl (used by our E2E
+// session encryption), uuid generators, and any WebCrypto consumer would
+// otherwise throw "No secure random number generator found" the first time
+// they hit the @babel/runtime construct.js path. Side-effect import — do
+// NOT remove or reorder past the Sentry init below.
+import 'react-native-get-random-values';
+
 // WHY Sentry must be initialised before any other imports in _layout.tsx:
 // @sentry/react-native wraps React Native's global error handler and the
 // React error boundary machinery at init time. If any navigation or component

@@ -31,6 +31,23 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, 'node_modules/.pnpm/node_modules'),
 ];
 
+// WHY extraNodeModules for Node built-ins: Expo SDK 54's expo-notifications
+// pulls in @ide/backoff which does `require('assert')` — Node's built-in,
+// not bundled by Metro for React Native. The userland `assert` package
+// (https://github.com/browserify/commonjs-assert) is the standard Node-API
+// polyfill. Adding it here makes Metro resolve `require('assert')` to the
+// polyfill regardless of pnpm's isolated-store hoisting layout.
+//
+// If a future SDK upgrade pulls in another Node built-in (path, util, fs,
+// etc.) and the bundle errors with "Unable to resolve module <name>", add
+// the matching polyfill (`path-browserify`, `util`, etc.) here. Don't rely
+// on pnpm hoisting — the .pnpm/<pkg>@<ver>/node_modules layout means a
+// transitive dep can't see siblings outside its own scope.
+config.resolver.extraNodeModules = {
+  ...config.resolver.extraNodeModules,
+  assert: require.resolve('assert/'),
+};
+
 // WHY blockList for tokenizer packages:
 // `@anthropic-ai/tokenizer` and `gpt-tokenizer` are installed as
 // optionalDependencies of `@styrby/shared` for the CLI's exact-token-count
@@ -50,6 +67,15 @@ config.resolver.blockList = [
   /node_modules\/@anthropic-ai\/tokenizer\/.*/,
   /node_modules\/gpt-tokenizer\/.*/,
   /node_modules\/tiktoken\/.*/,
+  // WHY block __tests__ directories under app/: SDK 54 / expo-router v6 uses
+  // require.context() to scan every file in app/ as a potential route.
+  // Test files inside app/__tests__ and app/**/__tests__ get bundled and
+  // executed at module-load time, throwing `Property 'jest' doesn't exist`
+  // because jest globals only exist under the jest-jsdom test runner. Blocking
+  // them at the Metro layer keeps the route scan clean. Jest still finds these
+  // files via its own resolver (jest.config.js' testMatch / roots), so unit
+  // tests are unaffected.
+  /\/app\/(.*\/)?__tests__\/.*$/,
 ];
 
 module.exports = withNativeWind(config, { input: './global.css' });

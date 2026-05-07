@@ -25,13 +25,15 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../src/lib/supabase';
 import { getApiBaseUrl } from '../../src/lib/config';
-// WHY bare 'expo-passkey' not 'expo-passkey/native': Metro (pre-0.82) does
-// not honor the package's `exports` map, so subpath imports fail at bundle
-// time. Importing the package name instead lets Metro's platform-aware
-// resolution pick up `build/index.native.js` (the native client) over
-// `build/index.js` (the guard-rail stub) automatically.
-// Types are augmented locally via types/expo-passkey.d.ts.
-import ExpoPasskey from 'expo-passkey';
+// WHY 'expo-passkey/native' (subpath): Expo SDK 54 ships Metro 0.82+, which
+// now DOES honor the package's `exports` map. The bare `expo-passkey` import
+// previously relied on platform-extension resolution to pick `index.native.js`
+// over `index.js`, but with the new exports map honoured, the bare specifier
+// resolves to `./build/index.js` — the guard-rail stub that throws
+// `Property '_guard' doesn't exist` at module-load time. Subpath import is
+// what the package author intended; only the pre-0.82 workaround required
+// the bare form. Types are augmented locally via types/expo-passkey.d.ts.
+import ExpoPasskey from 'expo-passkey/native';
 
 // ============================================================================
 // Types
