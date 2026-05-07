@@ -1,4 +1,3 @@
-/* TEST-OPT-SKIP-2026-05-07: SDK 52→54 upgrade — react-test-renderer.create().toJSON() returns null under React 19 due to deferred effect flush; un-skip + migrate to @testing-library/react-native render() in task #85 (MOBILE-TEST-OPT). Production code IS still verified by non-skipped suites at 92.6% pass rate. */
 /**
  * Support Screens Render Tests
  *
@@ -12,6 +11,7 @@
 
 import React from 'react';
 import renderer from 'react-test-renderer';
+import { renderAsync } from '../../__tests__/utils/renderAsync';
 
 // ============================================================================
 // Helpers
@@ -153,7 +153,7 @@ import SupportDetailScreen from '../support/[id]';
 // Support Index Screen Tests
 // ============================================================================
 
-describe.skip('SupportIndexScreen', () => {
+describe('SupportIndexScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSupport.isLoading = false;
@@ -161,24 +161,24 @@ describe.skip('SupportIndexScreen', () => {
     mockSupport.error = null;
   });
 
-  it('renders without crashing', () => {
-    const tree = renderer.create(<SupportIndexScreen />).toJSON();
+  it('renders without crashing', async () => {
+    const tree = await renderAsync(<SupportIndexScreen />);
     expect(tree).toBeTruthy();
   });
 
-  it('renders in loading state without error', () => {
+  it('renders in loading state without error', async () => {
     mockSupport.isLoading = true;
-    const tree = renderer.create(<SupportIndexScreen />).toJSON();
+    const tree = await renderAsync(<SupportIndexScreen />);
     // Loading shows ActivityIndicator (no text), but should not crash
     expect(tree).toBeTruthy();
   });
 
-  it('shows empty state when no tickets', () => {
-    const tree = renderer.create(<SupportIndexScreen />).toJSON();
+  it('shows empty state when no tickets', async () => {
+    const tree = await renderAsync(<SupportIndexScreen />);
     expect(hasText(tree, 'No support tickets')).toBe(true);
   });
 
-  it('displays existing tickets', () => {
+  it('displays existing tickets', async () => {
     mockSupport.tickets = [
       {
         id: 'ticket-1',
@@ -191,11 +191,11 @@ describe.skip('SupportIndexScreen', () => {
         updated_at: new Date().toISOString(),
       },
     ];
-    const tree = renderer.create(<SupportIndexScreen />).toJSON();
+    const tree = await renderAsync(<SupportIndexScreen />);
     expect(hasText(tree, 'App crashes on launch')).toBe(true);
   });
 
-  it('shows status badge on tickets', () => {
+  it('shows status badge on tickets', async () => {
     mockSupport.tickets = [
       {
         id: 'ticket-1',
@@ -208,13 +208,13 @@ describe.skip('SupportIndexScreen', () => {
         updated_at: new Date().toISOString(),
       },
     ];
-    const tree = renderer.create(<SupportIndexScreen />).toJSON();
+    const tree = await renderAsync(<SupportIndexScreen />);
     expect(hasText(tree, 'Open')).toBe(true);
   });
 
-  it('shows error banner when error exists', () => {
+  it('shows error banner when error exists', async () => {
     mockSupport.error = 'Network error';
-    const tree = renderer.create(<SupportIndexScreen />).toJSON();
+    const tree = await renderAsync(<SupportIndexScreen />);
     expect(hasText(tree, 'Network error')).toBe(true);
   });
 });
@@ -223,21 +223,21 @@ describe.skip('SupportIndexScreen', () => {
 // Support Detail Screen Tests
 // ============================================================================
 
-describe.skip('SupportDetailScreen', () => {
+describe('SupportDetailScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockTicketData.ticket = null;
     mockTicketData.replies = [];
   });
 
-  it('renders without crashing', () => {
-    const tree = renderer.create(<SupportDetailScreen />).toJSON();
+  it('renders without crashing', async () => {
+    const tree = await renderAsync(<SupportDetailScreen />);
     expect(tree).toBeTruthy();
   });
 
-  it('renders loading state on mount', () => {
+  it('renders loading state on mount', async () => {
     // On mount, isLoading = true, shows ActivityIndicator
-    const tree = renderer.create(<SupportDetailScreen />).toJSON();
+    const tree = await renderAsync(<SupportDetailScreen />);
     expect(tree).toBeTruthy();
   });
 

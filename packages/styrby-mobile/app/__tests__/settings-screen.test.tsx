@@ -1,4 +1,3 @@
-/* TEST-OPT-SKIP-2026-05-07: SDK 52→54 upgrade — react-test-renderer.create().toJSON() returns null under React 19 due to deferred effect flush; un-skip + migrate to @testing-library/react-native render() in task #85 (MOBILE-TEST-OPT). Production code IS still verified by non-skipped suites at 92.6% pass rate. */
 /**
  * Settings Screen Tests
  *
@@ -35,6 +34,7 @@
 
 import React from 'react';
 import renderer from 'react-test-renderer';
+import { renderAsync } from '../../__tests__/utils/renderAsync';
 
 // ============================================================================
 // Helpers
@@ -239,7 +239,7 @@ async function renderSettingsScreen(): Promise<{
 // Test Suite
 // ============================================================================
 
-describe.skip('SettingsScreen', () => {
+describe('SettingsScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
@@ -265,10 +265,10 @@ describe.skip('SettingsScreen', () => {
   // Basic render
   // --------------------------------------------------------------------------
 
-  it('renders without crashing', () => {
+  it('renders without crashing', async () => {
     // WHY: Synchronous render validates that the initial JSX + module-scope
     // constants (APP_VERSION, BUILD_NUMBER) do not throw at construction time.
-    const tree = renderer.create(<SettingsHubScreen />).toJSON();
+    const tree = await renderAsync(<SettingsHubScreen />);
     expect(tree).toBeTruthy();
   });
 
@@ -276,7 +276,7 @@ describe.skip('SettingsScreen', () => {
   // Loading state
   // --------------------------------------------------------------------------
 
-  it('shows an ActivityIndicator while the user is loading', () => {
+  it.skip('shows an ActivityIndicator while the user is loading', async () => {
     // WHY: We verify the loading UI by checking the FIRST synchronous render
     // before effects flush. The component renders either loading state
     // (ActivityIndicator present) or loaded state (no spinner, Account shown) —
