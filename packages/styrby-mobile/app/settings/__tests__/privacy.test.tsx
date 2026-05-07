@@ -1,4 +1,3 @@
-/* TEST-OPT-SKIP-2026-05-07: SDK 52→54 upgrade — react-test-renderer.create().toJSON() returns null under React 19 due to deferred effect flush; un-skip + migrate to @testing-library/react-native render() in task #85 (MOBILE-TEST-OPT). Production code IS still verified by non-skipped suites at 92.6% pass rate. */
 /**
  * Privacy Settings Screen Tests
  *
@@ -15,6 +14,7 @@
 
 import React from 'react';
 import renderer from 'react-test-renderer';
+import { renderAsync } from '../../../__tests__/utils/renderAsync';
 
 // ============================================================================
 // Global Mocks
@@ -126,17 +126,15 @@ function collectText(
 // RetentionPicker
 // ============================================================================
 
-describe.skip('RetentionPicker', () => {
+describe('RetentionPicker', () => {
   const { RetentionPicker } = require('@/components/privacy/RetentionPicker');
 
-  it('renders all 5 retention options', () => {
-    const tree = renderer.create(
-      <RetentionPicker
+  it('renders all 5 retention options', async () => {
+    const tree = await renderAsync(<RetentionPicker
         initialRetentionDays={null}
         onRetentionChanged={jest.fn()}
         userId="user-123"
-      />,
-    ).toJSON();
+      />);
 
     const texts = collectText(tree);
     expect(texts).toContain('7 days');
@@ -146,28 +144,24 @@ describe.skip('RetentionPicker', () => {
     expect(texts).toContain('Never');
   });
 
-  it('shows loading state when initialRetentionDays is "loading"', () => {
-    const tree = renderer.create(
-      <RetentionPicker
+  it('shows loading state when initialRetentionDays is "loading"', async () => {
+    const tree = await renderAsync(<RetentionPicker
         initialRetentionDays="loading"
         onRetentionChanged={jest.fn()}
         userId="user-123"
-      />,
-    ).toJSON();
+      />);
 
     // Should not render individual options while loading
     const texts = collectText(tree);
     expect(texts).not.toContain('7 days');
   });
 
-  it('renders GDPR citation in section header', () => {
-    const tree = renderer.create(
-      <RetentionPicker
+  it('renders GDPR citation in section header', async () => {
+    const tree = await renderAsync(<RetentionPicker
         initialRetentionDays={30}
         onRetentionChanged={jest.fn()}
         userId="user-123"
-      />,
-    ).toJSON();
+      />);
 
     const texts = collectText(tree);
     expect(texts.join(' ')).toContain('Session Retention');
@@ -178,17 +172,17 @@ describe.skip('RetentionPicker', () => {
 // MobileExportButton
 // ============================================================================
 
-describe.skip('MobileExportButton', () => {
+describe('MobileExportButton', () => {
   const { MobileExportButton } = require('@/components/privacy/MobileExportButton');
 
-  it('renders Export My Data button', () => {
-    const tree = renderer.create(<MobileExportButton />).toJSON();
+  it('renders Export My Data button', async () => {
+    const tree = await renderAsync(<MobileExportButton />);
     const texts = collectText(tree);
     expect(texts).toContain('Export My Data');
   });
 
-  it('renders GDPR citation', () => {
-    const tree = renderer.create(<MobileExportButton />).toJSON();
+  it('renders GDPR citation', async () => {
+    const tree = await renderAsync(<MobileExportButton />);
     const texts = collectText(tree);
     expect(texts.join(' ')).toMatch(/GDPR Art\. 15/);
   });
@@ -198,21 +192,17 @@ describe.skip('MobileExportButton', () => {
 // MobileDeleteSection
 // ============================================================================
 
-describe.skip('MobileDeleteSection', () => {
+describe('MobileDeleteSection', () => {
   const { MobileDeleteSection } = require('@/components/privacy/MobileDeleteSection');
 
-  it('renders Delete Account button in idle state', () => {
-    const tree = renderer.create(
-      <MobileDeleteSection userEmail="test@example.com" />,
-    ).toJSON();
+  it('renders Delete Account button in idle state', async () => {
+    const tree = await renderAsync(<MobileDeleteSection userEmail="test@example.com" />);
     const texts = collectText(tree);
     expect(texts).toContain('Delete Account');
   });
 
-  it('renders GDPR Art. 17 citation', () => {
-    const tree = renderer.create(
-      <MobileDeleteSection userEmail="test@example.com" />,
-    ).toJSON();
+  it('renders GDPR Art. 17 citation', async () => {
+    const tree = await renderAsync(<MobileDeleteSection userEmail="test@example.com" />);
     const texts = collectText(tree);
     expect(texts.join(' ')).toMatch(/GDPR Art\. 17/);
   });
@@ -222,17 +212,17 @@ describe.skip('MobileDeleteSection', () => {
 // MobilePrivacyLinks
 // ============================================================================
 
-describe.skip('MobilePrivacyLinks', () => {
+describe('MobilePrivacyLinks', () => {
   const { MobilePrivacyLinks } = require('@/components/privacy/MobilePrivacyLinks');
 
-  it('renders data map link', () => {
-    const tree = renderer.create(<MobilePrivacyLinks />).toJSON();
+  it('renders data map link', async () => {
+    const tree = await renderAsync(<MobilePrivacyLinks />);
     const texts = collectText(tree);
     expect(texts).toContain('Data Map - What We Store');
   });
 
-  it('renders encryption details link', () => {
-    const tree = renderer.create(<MobilePrivacyLinks />).toJSON();
+  it('renders encryption details link', async () => {
+    const tree = await renderAsync(<MobilePrivacyLinks />);
     const texts = collectText(tree);
     expect(texts).toContain('Encryption Details');
   });
@@ -242,7 +232,7 @@ describe.skip('MobilePrivacyLinks', () => {
 // Privacy Screen (orchestrator)
 // ============================================================================
 
-describe.skip('PrivacyScreen', () => {
+describe('PrivacyScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockFetch.mockResolvedValueOnce({
@@ -260,7 +250,7 @@ describe.skip('PrivacyScreen', () => {
     // renderer.create() synchronously captures the first-render tree before
     // the effect fires. The heading is always rendered on first render when
     // user is not null (mocked above), so this is a stable snapshot.
-    const tree = renderer.create(<PrivacyScreen />).toJSON();
+    const tree = await renderAsync(<PrivacyScreen />);
 
     const texts = collectText(tree);
     expect(texts).toContain('Privacy Control Center');

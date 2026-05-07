@@ -1,4 +1,3 @@
-/* TEST-OPT-SKIP-2026-05-07: SDK 52→54 upgrade — react-test-renderer.create().toJSON() returns null under React 19 due to deferred effect flush; un-skip + migrate to @testing-library/react-native render() in task #85 (MOBILE-TEST-OPT). Production code IS still verified by non-skipped suites at 92.6% pass rate. */
 /**
  * Tests for invite UI sub-components.
  *
@@ -16,6 +15,7 @@
 
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
+import { renderAsync, renderAsyncInstance } from '../../../../__tests__/utils/renderAsync';
 
 // ============================================================================
 // Mocks (must precede component imports)
@@ -147,19 +147,19 @@ import {
 // InviteLoadingState
 // ============================================================================
 
-describe.skip('InviteLoadingState', () => {
-  it('renders without crashing', () => {
-    const tree = renderer.create(<InviteLoadingState />).toJSON();
+describe('InviteLoadingState', () => {
+  it('renders without crashing', async () => {
+    const tree = await renderAsync(<InviteLoadingState />);
     expect(tree).toBeTruthy();
   });
 
-  it('shows "Joining team..." text', () => {
-    const tree = renderer.create(<InviteLoadingState />).toJSON();
+  it('shows "Joining team..." text', async () => {
+    const tree = await renderAsync(<InviteLoadingState />);
     expect(hasText(tree, 'Joining team')).toBe(true);
   });
 
-  it('has accessible loading label', () => {
-    const tree = renderer.create(<InviteLoadingState />).toJSON();
+  it('has accessible loading label', async () => {
+    const tree = await renderAsync(<InviteLoadingState />);
     expect(hasAccessibilityLabel(tree, 'Loading, joining team')).toBe(true);
   });
 });
@@ -168,49 +168,32 @@ describe.skip('InviteLoadingState', () => {
 // InviteWrongAccountState
 // ============================================================================
 
-describe.skip('InviteWrongAccountState', () => {
+describe('InviteWrongAccountState', () => {
   const mockSignOut = jest.fn();
   const mockSwitchAccount = jest.fn();
 
-  it('renders without crashing', () => {
-    const tree = renderer
-      .create(
-        <InviteWrongAccountState onSignOut={mockSignOut} onSwitchAccount={mockSwitchAccount} />
-      )
-      .toJSON();
+  it('renders without crashing', async () => {
+    const tree = await renderAsync(<InviteWrongAccountState onSignOut={mockSignOut} onSwitchAccount={mockSwitchAccount} />);
     expect(tree).toBeTruthy();
   });
 
-  it('shows "Wrong account" heading', () => {
-    const tree = renderer
-      .create(
-        <InviteWrongAccountState onSignOut={mockSignOut} onSwitchAccount={mockSwitchAccount} />
-      )
-      .toJSON();
+  it('shows "Wrong account" heading', async () => {
+    const tree = await renderAsync(<InviteWrongAccountState onSignOut={mockSignOut} onSwitchAccount={mockSwitchAccount} />);
     expect(hasText(tree, 'Wrong account')).toBe(true);
   });
 
-  it('has accessible Sign Out button', () => {
-    const tree = renderer
-      .create(
-        <InviteWrongAccountState onSignOut={mockSignOut} onSwitchAccount={mockSwitchAccount} />
-      )
-      .toJSON();
+  it('has accessible Sign Out button', async () => {
+    const tree = await renderAsync(<InviteWrongAccountState onSignOut={mockSignOut} onSwitchAccount={mockSwitchAccount} />);
     expect(hasAccessibilityLabel(tree, 'Sign out and use a different account')).toBe(true);
   });
 
-  it('has accessible Switch Account button', () => {
-    const tree = renderer
-      .create(
-        <InviteWrongAccountState onSignOut={mockSignOut} onSwitchAccount={mockSwitchAccount} />
-      )
-      .toJSON();
+  it('has accessible Switch Account button', async () => {
+    const tree = await renderAsync(<InviteWrongAccountState onSignOut={mockSignOut} onSwitchAccount={mockSwitchAccount} />);
     expect(hasAccessibilityLabel(tree, 'Switch to a different account')).toBe(true);
   });
 
   it('calls onSignOut when Sign Out is pressed', async () => {
-    const instance = renderer.create(
-      <InviteWrongAccountState onSignOut={mockSignOut} onSwitchAccount={mockSwitchAccount} />
+    const { testRenderer: instance } = await renderAsyncInstance(<InviteWrongAccountState onSignOut={mockSignOut} onSwitchAccount={mockSwitchAccount} />
     );
     const signOutButton = instance.root.findAll(
       (n) => n.props.accessibilityLabel === 'Sign out and use a different account'
@@ -222,7 +205,7 @@ describe.skip('InviteWrongAccountState', () => {
   });
 
   it('calls onSwitchAccount when Switch Account is pressed', async () => {
-    const instance = renderer.create(
+    const { testRenderer: instance } = await renderAsyncInstance(
       <InviteWrongAccountState onSignOut={mockSignOut} onSwitchAccount={mockSwitchAccount} />
     );
     const switchButton = instance.root.findAll(
@@ -239,27 +222,27 @@ describe.skip('InviteWrongAccountState', () => {
 // InviteExpiredState
 // ============================================================================
 
-describe.skip('InviteExpiredState', () => {
+describe('InviteExpiredState', () => {
   const mockGoHome = jest.fn();
 
-  it('renders without crashing', () => {
-    const tree = renderer.create(<InviteExpiredState onGoHome={mockGoHome} />).toJSON();
+  it('renders without crashing', async () => {
+    const tree = await renderAsync(<InviteExpiredState onGoHome={mockGoHome} />);
     expect(tree).toBeTruthy();
   });
 
-  it('shows expired messaging', () => {
-    const tree = renderer.create(<InviteExpiredState onGoHome={mockGoHome} />).toJSON();
+  it('shows expired messaging', async () => {
+    const tree = await renderAsync(<InviteExpiredState onGoHome={mockGoHome} />);
     // Should mention "expired" somewhere
     expect(hasText(tree, 'expired')).toBe(true);
   });
 
-  it('has accessible Go to Dashboard button', () => {
-    const tree = renderer.create(<InviteExpiredState onGoHome={mockGoHome} />).toJSON();
+  it('has accessible Go to Dashboard button', async () => {
+    const tree = await renderAsync(<InviteExpiredState onGoHome={mockGoHome} />);
     expect(hasAccessibilityLabel(tree, 'Go to dashboard')).toBe(true);
   });
 
   it('calls onGoHome when the button is pressed', async () => {
-    const instance = renderer.create(<InviteExpiredState onGoHome={mockGoHome} />);
+    const { testRenderer: instance } = await renderAsyncInstance(<InviteExpiredState onGoHome={mockGoHome} />);
     const btn = instance.root.findAll(
       (n) => n.props.accessibilityLabel === 'Go to dashboard'
     )[0];
@@ -274,21 +257,21 @@ describe.skip('InviteExpiredState', () => {
 // InviteInvalidState
 // ============================================================================
 
-describe.skip('InviteInvalidState', () => {
+describe('InviteInvalidState', () => {
   const mockGoHome = jest.fn();
 
-  it('renders without crashing', () => {
-    const tree = renderer.create(<InviteInvalidState onGoHome={mockGoHome} />).toJSON();
+  it('renders without crashing', async () => {
+    const tree = await renderAsync(<InviteInvalidState onGoHome={mockGoHome} />);
     expect(tree).toBeTruthy();
   });
 
-  it('shows "Invalid link" messaging', () => {
-    const tree = renderer.create(<InviteInvalidState onGoHome={mockGoHome} />).toJSON();
+  it('shows "Invalid link" messaging', async () => {
+    const tree = await renderAsync(<InviteInvalidState onGoHome={mockGoHome} />);
     expect(hasText(tree, 'Invalid')).toBe(true);
   });
 
-  it('has accessible Go to Dashboard button', () => {
-    const tree = renderer.create(<InviteInvalidState onGoHome={mockGoHome} />).toJSON();
+  it('has accessible Go to Dashboard button', async () => {
+    const tree = await renderAsync(<InviteInvalidState onGoHome={mockGoHome} />);
     expect(hasAccessibilityLabel(tree, 'Go to dashboard')).toBe(true);
   });
 });
@@ -297,32 +280,27 @@ describe.skip('InviteInvalidState', () => {
 // InviteErrorState
 // ============================================================================
 
-describe.skip('InviteErrorState', () => {
+describe('InviteErrorState', () => {
   const mockRetry = jest.fn();
 
-  it('renders without crashing', () => {
+  it('renders without crashing', async () => {
     const tree = renderer
-      .create(<InviteErrorState message="Connection failed" onRetry={mockRetry} />)
-      .toJSON();
+      .create(<InviteErrorState message="Connection failed" onRetry={mockRetry} />);
     expect(tree).toBeTruthy();
   });
 
-  it('shows the error message', () => {
-    const tree = renderer
-      .create(<InviteErrorState message="Connection failed" onRetry={mockRetry} />)
-      .toJSON();
+  it('shows the error message', async () => {
+    const tree = await renderAsync(<InviteErrorState message="Connection failed" onRetry={mockRetry} />);
     expect(hasText(tree, 'Connection failed')).toBe(true);
   });
 
-  it('has accessible Retry button', () => {
-    const tree = renderer
-      .create(<InviteErrorState message="Connection failed" onRetry={mockRetry} />)
-      .toJSON();
+  it('has accessible Retry button', async () => {
+    const tree = await renderAsync(<InviteErrorState message="Connection failed" onRetry={mockRetry} />);
     expect(hasAccessibilityLabel(tree, 'Retry joining the team')).toBe(true);
   });
 
   it('calls onRetry when Retry is pressed', async () => {
-    const instance = renderer.create(
+    const { testRenderer: instance } = await renderAsyncInstance(
       <InviteErrorState message="Connection failed" onRetry={mockRetry} />
     );
     const retryBtn = instance.root.findAll(
@@ -339,7 +317,7 @@ describe.skip('InviteErrorState', () => {
 // InviteAcceptScreen — retry-guard (Fix 3)
 // ============================================================================
 
-describe.skip('InviteAcceptScreen — handleRetry loading guard', () => {
+describe('InviteAcceptScreen — handleRetry loading guard', () => {
   const mockGetSession = require('@/lib/supabase').supabase.auth.getSession as jest.Mock;
   const mockUseLocalSearchParams = require('expo-router').useLocalSearchParams as jest.Mock;
 
@@ -384,7 +362,7 @@ describe.skip('InviteAcceptScreen — handleRetry loading guard', () => {
     });
 
     // Create a controlled InviteErrorState with our mock
-    const instance = renderer.create(
+    const { testRenderer: instance } = await renderAsyncInstance(
       <InviteErrorState message="Network error" onRetry={onRetryMock} />
     );
 

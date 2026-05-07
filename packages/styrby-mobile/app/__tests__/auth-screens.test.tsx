@@ -1,4 +1,3 @@
-/* TEST-OPT-SKIP-2026-05-07: SDK 52→54 upgrade — react-test-renderer.create().toJSON() returns null under React 19 due to deferred effect flush; un-skip + migrate to @testing-library/react-native render() in task #85 (MOBILE-TEST-OPT). Production code IS still verified by non-skipped suites at 92.6% pass rate. */
 /**
  * Auth Screens Render Tests
  *
@@ -13,6 +12,7 @@
 
 import React from 'react';
 import renderer from 'react-test-renderer';
+import { renderAsync } from '../../__tests__/utils/renderAsync';
 
 // ============================================================================
 // Helpers
@@ -128,38 +128,38 @@ import AuthCallbackScreen from '../(auth)/callback';
 // Login Screen Tests
 // ============================================================================
 
-describe.skip('LoginScreen', () => {
+describe('LoginScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('renders without crashing', () => {
-    const tree = renderer.create(<LoginScreen />).toJSON();
+  it('renders without crashing', async () => {
+    const tree = await renderAsync(<LoginScreen />);
     expect(tree).toBeTruthy();
   });
 
-  it('displays the Styrby branding', () => {
-    const tree = renderer.create(<LoginScreen />).toJSON();
+  it('displays the Styrby branding', async () => {
+    const tree = await renderAsync(<LoginScreen />);
     expect(hasText(tree, 'Styrby')).toBe(true);
   });
 
-  it('shows Send Magic Link button', () => {
-    const tree = renderer.create(<LoginScreen />).toJSON();
+  it('shows Send Magic Link button', async () => {
+    const tree = await renderAsync(<LoginScreen />);
     expect(hasText(tree, 'Send Magic Link')).toBe(true);
   });
 
-  it('shows password toggle option', () => {
-    const tree = renderer.create(<LoginScreen />).toJSON();
+  it('shows password toggle option', async () => {
+    const tree = await renderAsync(<LoginScreen />);
     expect(hasTextMatch(tree, /password instead/i)).toBe(true);
   });
 
-  it('shows GitHub OAuth button', () => {
-    const tree = renderer.create(<LoginScreen />).toJSON();
+  it('shows GitHub OAuth button', async () => {
+    const tree = await renderAsync(<LoginScreen />);
     expect(hasText(tree, 'Continue with GitHub')).toBe(true);
   });
 
-  it('shows sign in link text', () => {
-    const tree = renderer.create(<LoginScreen />).toJSON();
+  it('shows sign in link text', async () => {
+    const tree = await renderAsync(<LoginScreen />);
     expect(hasText(tree, 'Sign in')).toBe(true);
   });
 });
@@ -168,24 +168,24 @@ describe.skip('LoginScreen', () => {
 // Scan Screen Tests
 // ============================================================================
 
-describe.skip('ScanScreen', () => {
+describe('ScanScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('renders without crashing', () => {
-    const tree = renderer.create(<ScanScreen />).toJSON();
+  it('renders without crashing', async () => {
+    const tree = await renderAsync(<ScanScreen />);
     expect(tree).toBeTruthy();
   });
 
-  it('contains scan-related text', () => {
-    const tree = renderer.create(<ScanScreen />).toJSON();
+  it('contains scan-related text', async () => {
+    const tree = await renderAsync(<ScanScreen />);
     expect(hasTextMatch(tree, /scan|qr|pair/i)).toBe(true);
   });
 
-  it('renders as a non-null tree', () => {
-    const instance = renderer.create(<ScanScreen />);
-    expect(instance.toJSON()).not.toBeNull();
+  it('renders as a non-null tree', async () => {
+    const tree = await renderAsync(<ScanScreen />);
+    expect(tree).not.toBeNull();
   });
 });
 
@@ -193,7 +193,7 @@ describe.skip('ScanScreen', () => {
 // Auth Callback Screen Tests
 // ============================================================================
 
-describe.skip('AuthCallbackScreen', () => {
+describe('AuthCallbackScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     Object.keys(mockLocalSearchParams).forEach((k) => delete mockLocalSearchParams[k]);

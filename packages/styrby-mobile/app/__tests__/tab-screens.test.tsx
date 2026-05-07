@@ -1,4 +1,3 @@
-/* TEST-OPT-SKIP-2026-05-07: SDK 52→54 upgrade — react-test-renderer.create().toJSON() returns null under React 19 due to deferred effect flush; un-skip + migrate to @testing-library/react-native render() in task #85 (MOBILE-TEST-OPT). Production code IS still verified by non-skipped suites at 92.6% pass rate. */
 /**
  * Tab Screens Render Tests
  *
@@ -15,6 +14,7 @@
 
 import React from 'react';
 import renderer from 'react-test-renderer';
+import { renderAsync } from '../../__tests__/utils/renderAsync';
 
 // ============================================================================
 // Helpers
@@ -363,7 +363,7 @@ import TeamScreen from '../(tabs)/team';
 // Dashboard Tests
 // ============================================================================
 
-describe.skip('DashboardScreen', () => {
+describe('DashboardScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockDashboardData.isLoading = false;
@@ -374,13 +374,13 @@ describe.skip('DashboardScreen', () => {
     mockRelay.pairingInfo = null;
   });
 
-  it('renders without crashing', () => {
-    const tree = renderer.create(<DashboardScreen />).toJSON();
+  it('renders without crashing', async () => {
+    const tree = await renderAsync(<DashboardScreen />);
     expect(tree).toBeTruthy();
   });
 
-  it('displays quick stats with cost and agent count', () => {
-    const tree = renderer.create(<DashboardScreen />).toJSON();
+  it('displays quick stats with cost and agent count', async () => {
+    const tree = await renderAsync(<DashboardScreen />);
     // WHY: JSX template literals split into separate text children (e.g., "$" + "12.34")
     expect(hasText(tree, '12.34')).toBe(true);
     expect(hasText(tree, '2')).toBe(true);
@@ -388,62 +388,62 @@ describe.skip('DashboardScreen', () => {
     expect(hasText(tree, 'Active agents')).toBe(true);
   });
 
-  it('shows "Not paired" when no pairing info exists', () => {
-    const tree = renderer.create(<DashboardScreen />).toJSON();
+  it('shows "Not paired" when no pairing info exists', async () => {
+    const tree = await renderAsync(<DashboardScreen />);
     expect(hasText(tree, 'Not paired')).toBe(true);
   });
 
-  it('shows "Connected to CLI" when relay is connected and CLI is online', () => {
+  it('shows "Connected to CLI" when relay is connected and CLI is online', async () => {
     mockRelay.isConnected = true;
     mockRelay.isCliOnline = true;
     mockRelay.pairingInfo = { channelId: 'test' };
-    const tree = renderer.create(<DashboardScreen />).toJSON();
+    const tree = await renderAsync(<DashboardScreen />);
     expect(hasText(tree, 'Connected to CLI')).toBe(true);
   });
 
-  it('shows agent cards for Claude, Codex, and Gemini', () => {
-    const tree = renderer.create(<DashboardScreen />).toJSON();
+  it('shows agent cards for Claude, Codex, and Gemini', async () => {
+    const tree = await renderAsync(<DashboardScreen />);
     expect(hasText(tree, 'Claude Code')).toBe(true);
     expect(hasText(tree, 'Codex CLI')).toBe(true);
     expect(hasText(tree, 'Gemini CLI')).toBe(true);
   });
 
-  it('shows NOTIFICATIONS section header', () => {
-    const tree = renderer.create(<DashboardScreen />).toJSON();
+  it('shows NOTIFICATIONS section header', async () => {
+    const tree = await renderAsync(<DashboardScreen />);
     expect(hasText(tree, 'NOTIFICATIONS')).toBe(true);
   });
 
-  it('shows onboarding banner when onboarding is incomplete', () => {
+  it('shows onboarding banner when onboarding is incomplete', async () => {
     mockOnboarding.isComplete = false;
     mockOnboarding.isLoading = false;
     mockOnboarding.completedCount = 2;
     mockOnboarding.totalCount = 5;
-    const tree = renderer.create(<DashboardScreen />).toJSON();
+    const tree = await renderAsync(<DashboardScreen />);
     expect(hasText(tree, 'Complete setup')).toBe(true);
     // WHY: JSX "{count}/{total} steps done" splits into separate text children
     expect(hasText(tree, 'steps done')).toBe(true);
   });
 
-  it('hides onboarding banner when onboarding is complete', () => {
+  it('hides onboarding banner when onboarding is complete', async () => {
     mockOnboarding.isComplete = true;
-    const tree = renderer.create(<DashboardScreen />).toJSON();
+    const tree = await renderAsync(<DashboardScreen />);
     expect(hasText(tree, 'Complete setup')).toBe(false);
   });
 
-  it('shows "Disconnected" when relay is connected but not CLI', () => {
+  it('shows "Disconnected" when relay is connected but not CLI', async () => {
     mockRelay.isConnected = false;
     mockRelay.pairingInfo = { channelId: 'test' };
-    const tree = renderer.create(<DashboardScreen />).toJSON();
+    const tree = await renderAsync(<DashboardScreen />);
     expect(hasText(tree, 'Disconnected')).toBe(true);
   });
 
-  it('shows TODAY section', () => {
-    const tree = renderer.create(<DashboardScreen />).toJSON();
+  it('shows TODAY section', async () => {
+    const tree = await renderAsync(<DashboardScreen />);
     expect(hasText(tree, 'TODAY')).toBe(true);
   });
 
-  it('shows AGENTS section', () => {
-    const tree = renderer.create(<DashboardScreen />).toJSON();
+  it('shows AGENTS section', async () => {
+    const tree = await renderAsync(<DashboardScreen />);
     expect(hasText(tree, 'AGENTS')).toBe(true);
   });
 });
@@ -452,7 +452,7 @@ describe.skip('DashboardScreen', () => {
 // Sessions Tests
 // ============================================================================
 
-describe.skip('SessionsScreen', () => {
+describe('SessionsScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSessions.isLoading = false;
@@ -462,51 +462,51 @@ describe.skip('SessionsScreen', () => {
     mockSessions.filters = { status: null, agent: null, scope: null, teamId: null, dateRange: null };
   });
 
-  it('renders without crashing', () => {
-    const tree = renderer.create(<SessionsScreen />).toJSON();
+  it('renders without crashing', async () => {
+    const tree = await renderAsync(<SessionsScreen />);
     expect(tree).toBeTruthy();
   });
 
-  it('shows loading spinner when isLoading is true', () => {
+  it('shows loading spinner when isLoading is true', async () => {
     mockSessions.isLoading = true;
-    const tree = renderer.create(<SessionsScreen />).toJSON();
+    const tree = await renderAsync(<SessionsScreen />);
     expect(hasText(tree, 'Loading sessions...')).toBe(true);
   });
 
-  it('shows error state with retry button', () => {
+  it('shows error state with retry button', async () => {
     mockSessions.error = 'Network timeout';
-    const tree = renderer.create(<SessionsScreen />).toJSON();
+    const tree = await renderAsync(<SessionsScreen />);
     expect(hasText(tree, 'Failed to Load Sessions')).toBe(true);
     expect(hasText(tree, 'Network timeout')).toBe(true);
     expect(hasText(tree, 'Try Again')).toBe(true);
   });
 
-  it('shows empty state when no sessions and no filters', () => {
-    const tree = renderer.create(<SessionsScreen />).toJSON();
+  it('shows empty state when no sessions and no filters', async () => {
+    const tree = await renderAsync(<SessionsScreen />);
     expect(hasText(tree, 'No sessions yet')).toBe(true);
   });
 
-  it('displays status filter chips', () => {
-    const tree = renderer.create(<SessionsScreen />).toJSON();
+  it('displays status filter chips', async () => {
+    const tree = await renderAsync(<SessionsScreen />);
     expect(hasText(tree, 'Active')).toBe(true);
     expect(hasText(tree, 'Completed')).toBe(true);
   });
 
-  it('displays agent filter chips', () => {
-    const tree = renderer.create(<SessionsScreen />).toJSON();
+  it('displays agent filter chips', async () => {
+    const tree = await renderAsync(<SessionsScreen />);
     expect(hasText(tree, 'Claude')).toBe(true);
     expect(hasText(tree, 'Codex')).toBe(true);
     expect(hasText(tree, 'Gemini')).toBe(true);
   });
 
-  it('displays scope filter chips', () => {
+  it('displays scope filter chips', async () => {
     // WHY: "Team Sessions" chip is only visible when the user is a team member.
     // The mock supabase returns no team membership, so only "My Sessions" shows.
-    const tree = renderer.create(<SessionsScreen />).toJSON();
+    const tree = await renderAsync(<SessionsScreen />);
     expect(hasText(tree, 'My Sessions')).toBe(true);
   });
 
-  it('renders sessions when data exists', () => {
+  it('renders sessions when data exists', async () => {
     mockSessions.sessions = [
       {
         id: 'sess-1',
@@ -523,7 +523,7 @@ describe.skip('SessionsScreen', () => {
         tags: [],
       },
     ];
-    const tree = renderer.create(<SessionsScreen />).toJSON();
+    const tree = await renderAsync(<SessionsScreen />);
     expect(hasText(tree, 'Fix login bug')).toBe(true);
   });
 });
@@ -532,7 +532,7 @@ describe.skip('SessionsScreen', () => {
 // Costs Tests
 // ============================================================================
 
-describe.skip('CostsScreen', () => {
+describe('CostsScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockCosts.isLoading = false;
@@ -540,55 +540,55 @@ describe.skip('CostsScreen', () => {
     mockCosts.data = mockCostData;
   });
 
-  it('renders without crashing', () => {
-    const tree = renderer.create(<CostsScreen />).toJSON();
+  it('renders without crashing', async () => {
+    const tree = await renderAsync(<CostsScreen />);
     expect(tree).toBeTruthy();
   });
 
-  it('shows loading spinner when isLoading is true', () => {
+  it('shows loading spinner when isLoading is true', async () => {
     mockCosts.isLoading = true;
-    const tree = renderer.create(<CostsScreen />).toJSON();
+    const tree = await renderAsync(<CostsScreen />);
     expect(hasText(tree, 'Loading costs...')).toBe(true);
   });
 
-  it('shows error state with retry button', () => {
+  it('shows error state with retry button', async () => {
     mockCosts.error = 'Failed to fetch';
-    const tree = renderer.create(<CostsScreen />).toJSON();
+    const tree = await renderAsync(<CostsScreen />);
     expect(hasText(tree, 'Failed to Load Costs')).toBe(true);
     expect(hasText(tree, 'Failed to fetch')).toBe(true);
     expect(hasText(tree, 'Try Again')).toBe(true);
   });
 
-  it('displays SPENDING header', () => {
-    const tree = renderer.create(<CostsScreen />).toJSON();
+  it('displays SPENDING header', async () => {
+    const tree = await renderAsync(<CostsScreen />);
     expect(hasText(tree, 'SPENDING')).toBe(true);
   });
 
-  it('displays time range selector', () => {
-    const tree = renderer.create(<CostsScreen />).toJSON();
+  it('displays time range selector', async () => {
+    const tree = await renderAsync(<CostsScreen />);
     expect(hasText(tree, '7D')).toBe(true);
     expect(hasText(tree, '30D')).toBe(true);
     expect(hasText(tree, '90D')).toBe(true);
   });
 
-  it('displays BY AGENT section', () => {
-    const tree = renderer.create(<CostsScreen />).toJSON();
+  it('displays BY AGENT section', async () => {
+    const tree = await renderAsync(<CostsScreen />);
     expect(hasText(tree, 'BY AGENT')).toBe(true);
   });
 
-  it('displays TOKEN USAGE section', () => {
-    const tree = renderer.create(<CostsScreen />).toJSON();
+  it('displays TOKEN USAGE section', async () => {
+    const tree = await renderAsync(<CostsScreen />);
     expect(hasText(tree, 'TOKEN USAGE (MONTH)')).toBe(true);
   });
 
-  it('displays BUDGET ALERTS section', () => {
-    const tree = renderer.create(<CostsScreen />).toJSON();
+  it('displays BUDGET ALERTS section', async () => {
+    const tree = await renderAsync(<CostsScreen />);
     expect(hasText(tree, 'BUDGET ALERTS')).toBe(true);
   });
 
-  it('shows "No cost data available" when data is null', () => {
+  it('shows "No cost data available" when data is null', async () => {
     mockCosts.data = null;
-    const tree = renderer.create(<CostsScreen />).toJSON();
+    const tree = await renderAsync(<CostsScreen />);
     expect(hasText(tree, 'No cost data available')).toBe(true);
   });
 });
@@ -597,7 +597,7 @@ describe.skip('CostsScreen', () => {
 // Team Tests
 // ============================================================================
 
-describe.skip('TeamScreen', () => {
+describe('TeamScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockTeamManagement.isLoading = false;
@@ -611,14 +611,14 @@ describe.skip('TeamScreen', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'test-user-id' } as any }, error: null });
   });
 
-  it('renders without crashing', () => {
-    const tree = renderer.create(<TeamScreen />).toJSON();
+  it('renders without crashing', async () => {
+    const tree = await renderAsync(<TeamScreen />);
     expect(tree).toBeTruthy();
   });
 
-  it('shows loading spinner when isLoading is true', () => {
+  it('shows loading spinner when isLoading is true', async () => {
     mockTeamManagement.isLoading = true;
-    const tree = renderer.create(<TeamScreen />).toJSON();
+    const tree = await renderAsync(<TeamScreen />);
     expect(hasText(tree, 'Loading team...')).toBe(true);
   });
 

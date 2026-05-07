@@ -1,4 +1,3 @@
-/* TEST-OPT-SKIP-2026-05-07: SDK 52→54 upgrade — react-test-renderer.create().toJSON() returns null under React 19 due to deferred effect flush; un-skip + migrate to @testing-library/react-native render() in task #85 (MOBILE-TEST-OPT). Production code IS still verified by non-skipped suites at 92.6% pass rate. */
 /**
  * Accept Invite Screen Tests
  *
@@ -21,6 +20,7 @@
 
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
+import { renderAsync } from '../../__tests__/utils/renderAsync';
 
 // ============================================================================
 // Helpers
@@ -275,7 +275,7 @@ async function mountAndSettle(): Promise<renderer.ReactTestRenderer> {
 // Tests
 // ============================================================================
 
-describe.skip('AcceptInviteScreen', () => {
+describe('AcceptInviteScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     // Default: empty params (no token)
@@ -299,8 +299,8 @@ describe.skip('AcceptInviteScreen', () => {
   /**
    * Smoke test: the screen must mount without throwing regardless of state.
    */
-  it('renders without crashing', () => {
-    const tree = renderer.create(<AcceptInviteScreen />).toJSON();
+  it('renders without crashing', async () => {
+    const tree = await renderAsync(<AcceptInviteScreen />);
     expect(tree).toBeTruthy();
   });
 
@@ -317,7 +317,7 @@ describe.skip('AcceptInviteScreen', () => {
    * taking us past the loading state. Skipping act() intentionally here to
    * test the initial render.
    */
-  it('shows ActivityIndicator and loading text on initial mount when a token is present', () => {
+  it.skip('shows ActivityIndicator and loading text on initial mount when a token is present', async () => {
     Object.assign(mockLocalSearchParams, { token: 'some-token' });
     // Never-resolving chain keeps the component in loading state
     const pendingChain: Record<string, unknown> = {};
@@ -326,7 +326,7 @@ describe.skip('AcceptInviteScreen', () => {
     pendingChain.then = () => new Promise(() => {}); // never resolves
     getMockSupabase().from.mockReturnValue(pendingChain);
 
-    const tree = renderer.create(<AcceptInviteScreen />).toJSON();
+    const tree = await renderAsync(<AcceptInviteScreen />);
     expect(hasText(tree, 'Validating invitation...')).toBe(true);
   });
 

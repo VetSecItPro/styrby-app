@@ -1,4 +1,3 @@
-/* TEST-OPT-SKIP-2026-05-07: SDK 52→54 upgrade — react-test-renderer.create().toJSON() returns null under React 19 due to deferred effect flush; un-skip + migrate to @testing-library/react-native render() in task #85 (MOBILE-TEST-OPT). Production code IS still verified by non-skipped suites at 92.6% pass rate. */
 /**
  * Chat Screen Render Tests
  *
@@ -21,6 +20,7 @@
 
 import React from 'react';
 import renderer from 'react-test-renderer';
+import { renderAsync } from '../../__tests__/utils/renderAsync';
 
 // ============================================================================
 // Helpers
@@ -297,7 +297,7 @@ import ChatScreen from '../(tabs)/chat';
  * and input-field availability. Each `beforeEach` resets shared mock state
  * so tests remain independent.
  */
-describe.skip('ChatScreen', () => {
+describe('ChatScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
@@ -329,8 +329,8 @@ describe.skip('ChatScreen', () => {
   /**
    * Smoke test — the component must mount without throwing.
    */
-  it('renders without crashing', () => {
-    const tree = renderer.create(<ChatScreen />).toJSON();
+  it('renders without crashing', async () => {
+    const tree = await renderAsync(<ChatScreen />);
     expect(tree).toBeTruthy();
   });
 
@@ -342,21 +342,21 @@ describe.skip('ChatScreen', () => {
    * When pairingInfo is null the user has not yet scanned a QR code.
    * The screen should prompt them to connect their CLI.
    */
-  it('shows "Connect Your CLI" prompt when not paired', () => {
+  it('shows "Connect Your CLI" prompt when not paired', async () => {
     mockRelay.pairingInfo = null;
-    const tree = renderer.create(<ChatScreen />).toJSON();
+    const tree = await renderAsync(<ChatScreen />);
     expect(hasText(tree, 'Connect Your CLI')).toBe(true);
   });
 
-  it('shows "Scan QR Code" button when not paired', () => {
+  it('shows "Scan QR Code" button when not paired', async () => {
     mockRelay.pairingInfo = null;
-    const tree = renderer.create(<ChatScreen />).toJSON();
+    const tree = await renderAsync(<ChatScreen />);
     expect(hasText(tree, 'Scan QR Code')).toBe(true);
   });
 
-  it('shows pairing description text when not paired', () => {
+  it('shows pairing description text when not paired', async () => {
     mockRelay.pairingInfo = null;
-    const tree = renderer.create(<ChatScreen />).toJSON();
+    const tree = await renderAsync(<ChatScreen />);
     expect(hasText(tree, 'Pair your CLI')).toBe(true);
   });
 
@@ -368,27 +368,27 @@ describe.skip('ChatScreen', () => {
    * When pairingInfo exists but isConnected is false (relay dropped or
    * reconnecting) the screen shows a "Connecting..." or "Offline" placeholder.
    */
-  it('shows "Connecting..." when paired but not yet connected (online)', () => {
+  it('shows "Connecting..." when paired but not yet connected (online)', async () => {
     mockRelay.pairingInfo = { machineId: 'machine-abc', channelId: 'chan-1' };
     mockRelay.isConnected = false;
     mockRelay.isOnline = true;
-    const tree = renderer.create(<ChatScreen />).toJSON();
+    const tree = await renderAsync(<ChatScreen />);
     expect(hasText(tree, 'Connecting...')).toBe(true);
   });
 
-  it('shows "Offline" when paired and device has no internet', () => {
+  it('shows "Offline" when paired and device has no internet', async () => {
     mockRelay.pairingInfo = { machineId: 'machine-abc', channelId: 'chan-1' };
     mockRelay.isConnected = false;
     mockRelay.isOnline = false;
-    const tree = renderer.create(<ChatScreen />).toJSON();
+    const tree = await renderAsync(<ChatScreen />);
     expect(hasText(tree, 'Offline')).toBe(true);
   });
 
-  it('shows internet-check hint when device is offline', () => {
+  it('shows internet-check hint when device is offline', async () => {
     mockRelay.pairingInfo = { machineId: 'machine-abc', channelId: 'chan-1' };
     mockRelay.isConnected = false;
     mockRelay.isOnline = false;
-    const tree = renderer.create(<ChatScreen />).toJSON();
+    const tree = await renderAsync(<ChatScreen />);
     expect(hasText(tree, 'Check your internet connection')).toBe(true);
   });
 
@@ -400,31 +400,31 @@ describe.skip('ChatScreen', () => {
    * When isConnected is true the agent selector row should be rendered,
    * allowing the user to switch between Claude, Codex, and Gemini.
    */
-  it('shows Claude agent selector when connected', () => {
+  it('shows Claude agent selector when connected', async () => {
     mockRelay.isConnected = true;
     mockRelay.pairingInfo = { machineId: 'machine-abc' };
-    const tree = renderer.create(<ChatScreen />).toJSON();
+    const tree = await renderAsync(<ChatScreen />);
     expect(hasText(tree, 'Claude')).toBe(true);
   });
 
-  it('shows Codex agent selector when connected', () => {
+  it('shows Codex agent selector when connected', async () => {
     mockRelay.isConnected = true;
     mockRelay.pairingInfo = { machineId: 'machine-abc' };
-    const tree = renderer.create(<ChatScreen />).toJSON();
+    const tree = await renderAsync(<ChatScreen />);
     expect(hasText(tree, 'Codex')).toBe(true);
   });
 
-  it('shows Gemini agent selector when connected', () => {
+  it('shows Gemini agent selector when connected', async () => {
     mockRelay.isConnected = true;
     mockRelay.pairingInfo = { machineId: 'machine-abc' };
-    const tree = renderer.create(<ChatScreen />).toJSON();
+    const tree = await renderAsync(<ChatScreen />);
     expect(hasText(tree, 'Gemini')).toBe(true);
   });
 
-  it('does NOT show agent selector when disconnected', () => {
+  it('does NOT show agent selector when disconnected', async () => {
     mockRelay.isConnected = false;
     mockRelay.pairingInfo = null;
-    const tree = renderer.create(<ChatScreen />).toJSON();
+    const tree = await renderAsync(<ChatScreen />);
     // WHY: The selector only renders inside `{isConnected && ...}` so these
     // agent names should not appear in the disconnected / unpaired states.
     expect(hasText(tree, 'Codex')).toBe(false);
@@ -439,19 +439,19 @@ describe.skip('ChatScreen', () => {
    * When the relay is connected but the CLI process itself has not yet
    * registered as online, a yellow banner warns the user.
    */
-  it('shows "Waiting for CLI" banner when connected but CLI is not online', () => {
+  it('shows "Waiting for CLI" banner when connected but CLI is not online', async () => {
     mockRelay.isConnected = true;
     mockRelay.isCliOnline = false;
     mockRelay.pairingInfo = { machineId: 'machine-abc' };
-    const tree = renderer.create(<ChatScreen />).toJSON();
+    const tree = await renderAsync(<ChatScreen />);
     expect(hasText(tree, 'Waiting for CLI to come online')).toBe(true);
   });
 
-  it('does NOT show CLI banner when CLI is online', () => {
+  it('does NOT show CLI banner when CLI is online', async () => {
     mockRelay.isConnected = true;
     mockRelay.isCliOnline = true;
     mockRelay.pairingInfo = { machineId: 'machine-abc' };
-    const tree = renderer.create(<ChatScreen />).toJSON();
+    const tree = await renderAsync(<ChatScreen />);
     expect(hasText(tree, 'Waiting for CLI to come online')).toBe(false);
   });
 
@@ -502,15 +502,15 @@ describe.skip('ChatScreen', () => {
    * The message input field must always be present in the rendered tree,
    * regardless of connection state, so the layout remains stable.
    */
-  it('renders the message input field', () => {
-    const tree = renderer.create(<ChatScreen />).toJSON();
+  it('renders the message input field', async () => {
+    const tree = await renderAsync(<ChatScreen />);
     expect(hasText(tree, 'Connect to start chatting')).toBe(true);
   });
 
-  it('shows "Message your agent..." placeholder when connected', () => {
+  it('shows "Message your agent..." placeholder when connected', async () => {
     mockRelay.isConnected = true;
     mockRelay.pairingInfo = { machineId: 'machine-abc' };
-    const tree = renderer.create(<ChatScreen />).toJSON();
+    const tree = await renderAsync(<ChatScreen />);
     // WHY: The placeholder prop value is included as a prop in the JSON tree,
     // but react-test-renderer only surfaces props on native elements. We
     // check the disconnected placeholder instead (rendered as text prop).
@@ -519,8 +519,8 @@ describe.skip('ChatScreen', () => {
     expect(hasText(tree, 'Message your agent...')).toBe(true);
   });
 
-  it('shows send button accessibility label in the input area', () => {
-    const tree = renderer.create(<ChatScreen />).toJSON();
+  it('shows send button accessibility label in the input area', async () => {
+    const tree = await renderAsync(<ChatScreen />);
     // WHY: The send Pressable has accessibilityLabel="Send message" which is
     // included in the tree props and captured by collectText's prop traversal.
     expect(hasText(tree, 'Send message')).toBe(true);
@@ -617,14 +617,14 @@ describe.skip('ChatScreen', () => {
    * When an agent param is provided in the route, the chat screen should
    * pre-select that agent and display the correct agent label.
    */
-  it('pre-selects agent from route param when connected', () => {
+  it('pre-selects agent from route param when connected', async () => {
     const { useLocalSearchParams } = require('expo-router');
     useLocalSearchParams.mockReturnValue({ agent: 'codex' });
 
     mockRelay.isConnected = true;
     mockRelay.pairingInfo = { machineId: 'machine-abc' };
 
-    const tree = renderer.create(<ChatScreen />).toJSON();
+    const tree = await renderAsync(<ChatScreen />);
     // WHY: When isConnected=true, all three agent names render in the selector.
     // The Codex label confirms the agent selector is present and the param
     // was accepted without error.
@@ -694,7 +694,7 @@ describe.skip('ChatScreen', () => {
     expect(hasText(tree, 'Start a Conversation')).toBe(true);
   });
 
-  it('shows loading state UI text is defined in the component source', () => {
+  it('shows loading state UI text is defined in the component source', async () => {
     // WHY: This test documents the existence of the loading state strings
     // by verifying the component source exports a screen that can reach
     // that branch. The actual transient loading UI is validated by the
@@ -702,7 +702,7 @@ describe.skip('ChatScreen', () => {
     // We verify the component itself defines this state by rendering the
     // unpaired state (which is always synchronously reachable):
     mockRelay.pairingInfo = null;
-    const tree = renderer.create(<ChatScreen />).toJSON();
+    const tree = await renderAsync(<ChatScreen />);
     // The unpaired state renders — confirming the component is mountable
     // and that the renderEmptyState() branch structure is working.
     expect(hasText(tree, 'Connect Your CLI')).toBe(true);
