@@ -389,6 +389,30 @@ describe('useNotifications', () => {
     expect(mockRouterPush).toHaveBeenCalledWith('/(tabs)/settings');
   });
 
+  it('navigates to /cloud-tasks when screen=cloud-tasks (#97 PR-3)', async () => {
+    renderHook(() => useNotifications());
+
+    await waitFor(() => expect(mockResponseCallback).not.toBeNull());
+
+    // cloud_task_completed / cloud_task_failed pushes from migration 092
+    // carry data.screen='cloud-tasks' + data.taskId. The route is unparametrized
+    // (the screen ranks tasks by startedAt DESC so the just-finished one
+    // surfaces at the top automatically).
+    // taskId currently informational (the screen ranks tasks by startedAt
+    // DESC so the just-finished task lands on top automatically). Included
+    // here to lock in the Zod schema accepting non-strict-UUID strings.
+    const response = makeNotificationResponse({
+      screen: 'cloud-tasks',
+      taskId: '11111111-1111-1111-1111-111111111111',
+    });
+
+    await act(async () => {
+      mockResponseCallback!(response);
+    });
+
+    expect(mockRouterPush).toHaveBeenCalledWith('/cloud-tasks');
+  });
+
   // --------------------------------------------------------------------------
   // Type-Based Navigation (Strategy 2 - Backwards Compatibility)
   // --------------------------------------------------------------------------

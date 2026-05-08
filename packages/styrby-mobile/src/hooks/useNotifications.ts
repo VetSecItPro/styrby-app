@@ -45,7 +45,12 @@ type NotificationScreen =
   // push trigger fans out to the user's devices with data.screen='mcp_approval'
   // and data.approvalId so this hook can deep-link straight to the
   // /mcp-approval/[approvalId] screen for sub-second decision UX.
-  | 'mcp_approval';
+  | 'mcp_approval'
+  // WHY cloud-tasks added in #97 PR-3: the cloud_tasks status trigger
+  // (migration 092) fires data.screen='cloud-tasks' on terminal status
+  // transitions. Tap routes the user to /cloud-tasks where they can see
+  // the just-finished task at the top of the list.
+  | 'cloud-tasks';
 
 /**
  * Shape of the `data` payload attached to Styrby push notifications.
@@ -69,6 +74,13 @@ interface NotificationData {
    * audit_log row.
    */
   approvalId?: string;
+  /**
+   * Task ID for screen='cloud-tasks' deep links. Currently informational —
+   * the destination screen ranks tasks by startedAt DESC so the just-
+   * finished task surfaces at the top automatically. Preserved here so a
+   * future iteration can auto-open its detail sheet on launch.
+   */
+  taskId?: string;
   /**
    * MCP-approval-only flag. When the audit_log push trigger fires for
    * action='mcp_approval_requested' the payload carries action='mcp_approval'
@@ -99,9 +111,17 @@ const NotificationDataSchema = z.object({
     'budget_alert',
     'daemon_reconnected',
   ]).optional(),
-  screen: z.enum(['chat', 'dashboard', 'sessions', 'costs', 'settings', 'mcp_approval']).optional(),
+  screen: z.enum(['chat', 'dashboard', 'sessions', 'costs', 'settings', 'mcp_approval', 'cloud-tasks']).optional(),
   sessionId: z.string().optional(),
   approvalId: z.string().uuid().optional(),
+  // taskId routes the user to /cloud-tasks for screen='cloud-tasks' deep-links
+  // (cloud_task_completed / cloud_task_failed push events from migration 092).
+  // WHY z.string() rather than .uuid(): Zod's uuid() validator rejects some
+  // valid UUID variants (notably non-v4 hex strings used in test fixtures)
+  // and a strict failure would cause the WHOLE payload to be discarded —
+  // breaking routing too. Validation here is opt-in to type safety, not a
+  // security boundary; the cloud_tasks RLS policy is the actual gate.
+  taskId: z.string().optional(),
   action: z.string().optional(),
 }).passthrough();
 
@@ -200,6 +220,18 @@ export function useNotifications(): UseNotificationsResult {
 
         case 'settings':
           router.push('/(tabs)/settings');
+          return true;
+
+        case 'cloud-tasks':
+          // WHY just push the screen route: cloud_task_completed /
+          // cloud_task_failed pushes carry a taskId in the data payload, but
+          // the screen's <CloudTasks/> list already auto-loads the most recent
+          // 25 tasks and ranks them by startedAt DESC, so the just-completed
+          // task is virtually guaranteed to be at the top of the list when the
+          // user lands. A deep-link to the detail sheet would be a useful
+          // follow-up, but for now landing on the list satisfies the
+          // "tap notification -> see the task that finished" UX promise.
+          router.push('/cloud-tasks');
           return true;
 
         default:
