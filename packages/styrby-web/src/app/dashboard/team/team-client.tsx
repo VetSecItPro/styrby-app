@@ -442,7 +442,7 @@ export function TeamClient({
                         ? 'bg-orange-500/10 text-orange-400'
                         : member.role === 'admin'
                         ? 'bg-purple-500/10 text-purple-400'
-                        : 'bg-zinc-700 text-zinc-400'
+                        : 'bg-zinc-700 text-zinc-300'
                     }`}
                   >
                     {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
@@ -525,7 +525,7 @@ export function TeamClient({
                   className={`px-3 py-1 rounded-full text-xs font-medium ${
                     invite.role === 'admin'
                       ? 'bg-purple-500/10 text-purple-400'
-                      : 'bg-zinc-700 text-zinc-400'
+                      : 'bg-zinc-700 text-zinc-300'
                   }`}
                 >
                   {invite.role.charAt(0).toUpperCase() + invite.role.slice(1)}

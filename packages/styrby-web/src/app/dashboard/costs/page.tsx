@@ -656,7 +656,7 @@ export default async function CostsPage({
           {Object.keys(tagTotals).length === 0 && (
             <div className="px-4 py-8 text-center">
               <p className="text-muted-foreground text-sm">No tagged sessions yet</p>
-              <p className="text-xs text-muted-foreground/60 mt-1">
+              <p className="text-xs text-muted-foreground/80 mt-1">
                 Add tags to sessions to see cost breakdowns by client or project.
               </p>
             </div>
