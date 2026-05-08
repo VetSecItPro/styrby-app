@@ -71,7 +71,8 @@ export default function PricingPage() {
       {/* Hero */}
       <section className="pt-32 pb-16">
         <div className="mx-auto max-w-7xl px-6 text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/70">
+          {/* Decorative eyebrow; the h1 below is the accessible heading. */}
+          <p aria-hidden="true" className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/70">
             Pricing
           </p>
           <h1 className="mt-3 text-balance text-4xl font-bold tracking-tight text-foreground md:text-5xl">
@@ -152,7 +153,8 @@ export default function PricingPage() {
       <section className="py-16 border-t border-zinc-800/40">
         <div className="mx-auto max-w-5xl px-6">
           <div className="mx-auto max-w-2xl text-center mb-10">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/70">
+            {/* Decorative eyebrow; the h2 below is the accessible heading. */}
+            <p aria-hidden="true" className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/70">
               ROI Estimator
             </p>
             <h2 className="mt-3 text-balance text-3xl font-bold tracking-tight text-foreground">
@@ -183,7 +185,8 @@ export default function PricingPage() {
       <section className="py-24 border-t border-zinc-800/40">
         <div className="mx-auto max-w-7xl px-6">
           <div className="mx-auto max-w-2xl text-center">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/70">
+            {/* Decorative eyebrow; the h2 below is the accessible heading. */}
+            <p aria-hidden="true" className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/70">
               FAQ
             </p>
             <h2 className="mt-3 text-balance text-3xl font-bold tracking-tight text-foreground">

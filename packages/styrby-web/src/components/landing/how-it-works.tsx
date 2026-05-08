@@ -231,8 +231,11 @@ export function HowItWorks() {
                   >
                     {/* Text block */}
                     <div className={isLeft ? "md:order-2" : "md:order-1"}>
-                      {/* Step number - mobile only */}
-                      <span className="mb-3 block font-mono text-4xl font-bold text-amber-500/20 md:hidden">
+                      {/* Step number - mobile only. Decorative duplicate of step.title heading; hidden from AT. */}
+                      <span
+                        aria-hidden="true"
+                        className="mb-3 block font-mono text-4xl font-bold text-amber-500/20 md:hidden"
+                      >
                         {step.number}
                       </span>
                       <h3 className="text-xl font-semibold text-foreground md:text-2xl">

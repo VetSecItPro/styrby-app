@@ -405,7 +405,7 @@ function SignUpPageInner() {
                   <p className="text-sm font-medium text-amber-400">
                     {decodeURIComponent(invitedBy)} invited you to Styrby
                   </p>
-                  <p className="mt-0.5 text-xs text-amber-500/70">
+                  <p className="mt-0.5 text-xs text-amber-400">
                     Create your account and pair your first agent in under a minute.
                   </p>
                 </div>
