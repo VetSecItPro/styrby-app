@@ -39,7 +39,7 @@ export function DownloadDpaButton() {
         type="button"
         aria-label="Open print dialog to save this DPA as a PDF"
         onClick={() => window.print()}
-        className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-orange-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-600 transition-colors"
+        className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-orange-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-600 transition-colors"
       >
         <Printer className="h-4 w-4" aria-hidden="true" />
         Print or Save as PDF

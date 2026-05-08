@@ -49,7 +49,7 @@ export function WebhookEmptyState({ webhookLimit, onCreate }: WebhookEmptyStateP
           </p>
           <button
             onClick={onCreate}
-            className="rounded-lg bg-orange-500 px-6 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+            className="rounded-lg bg-orange-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-orange-800 transition-colors"
             aria-label="Create your first webhook"
           >
             Create Your First Webhook
@@ -63,7 +63,7 @@ export function WebhookEmptyState({ webhookLimit, onCreate }: WebhookEmptyStateP
           </p>
           <Link
             href="/pricing"
-            className="inline-block rounded-lg bg-orange-500 px-6 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+            className="inline-block rounded-lg bg-orange-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-orange-800 transition-colors"
           >
             Upgrade to Pro
           </Link>

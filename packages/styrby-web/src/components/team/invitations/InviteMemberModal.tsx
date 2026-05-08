@@ -195,7 +195,7 @@ export function InviteMemberModal({ isOpen, teamId, onClose, onSuccess }: Invite
               </p>
               <a
                 href={upgradeCta}
-                className="inline-block text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 px-4 py-2 rounded-lg transition-colors"
+                className="inline-block text-sm font-medium text-white bg-orange-700 hover:bg-orange-800 px-4 py-2 rounded-lg transition-colors"
               >
                 Add a seat
               </a>
@@ -264,7 +264,7 @@ export function InviteMemberModal({ isOpen, teamId, onClose, onSuccess }: Invite
               <button
                 type="submit"
                 disabled={isSubmitting || !email}
-                className="flex-1 px-4 py-2.5 rounded-lg bg-orange-500 hover:bg-orange-600 disabled:bg-orange-500/50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-2.5 rounded-lg bg-orange-700 hover:bg-orange-800 disabled:bg-orange-500/50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
               >
                 {isSubmitting ? (
                   <>

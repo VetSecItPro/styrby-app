@@ -151,7 +151,7 @@ export function SettingsAccount({ user, profile }: SettingsAccountProps) {
                 <button
                   onClick={handleEmailChange}
                   disabled={emailLoading || !newEmail.trim()}
-                  className="rounded-lg bg-orange-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="rounded-lg bg-orange-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-orange-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {emailLoading ? 'Sending...' : 'Send confirmation'}
                 </button>
@@ -204,7 +204,7 @@ export function SettingsAccount({ user, profile }: SettingsAccountProps) {
                 <button
                   onClick={handleNameSave}
                   disabled={nameSaving}
-                  className="rounded-lg bg-orange-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="rounded-lg bg-orange-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-orange-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   aria-label="Save display name"
                 >
                   {nameSaving ? 'Saving...' : 'Save'}
@@ -282,7 +282,7 @@ export function SettingsAccount({ user, profile }: SettingsAccountProps) {
                 <button
                   onClick={handlePasswordReset}
                   disabled={passwordLoading}
-                  className="rounded-lg bg-orange-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="rounded-lg bg-orange-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-orange-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {passwordLoading ? 'Sending...' : 'Send reset link'}
                 </button>

@@ -68,7 +68,7 @@ export function SettingsSubscription({ subscription }: SettingsSubscriptionProps
                 window.location.href = '/api/billing/portal';
               }
             }}
-            className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+            className="rounded-lg bg-orange-700 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-800 transition-colors"
             aria-label={isFree ? 'Upgrade subscription' : 'Manage subscription'}
           >
             {isFree ? 'Upgrade' : 'Manage'}
@@ -82,7 +82,7 @@ export function SettingsSubscription({ subscription }: SettingsSubscriptionProps
             </p>
             <div className="mt-2 h-2 rounded-full bg-zinc-800 overflow-hidden">
               <div
-                className="h-full bg-orange-500 rounded-full transition-all duration-500"
+                className="h-full bg-orange-700 rounded-full transition-all duration-500"
                 style={{ width: `${Math.min(monthlySpend * 2, 100)}%` }}
               />
             </div>

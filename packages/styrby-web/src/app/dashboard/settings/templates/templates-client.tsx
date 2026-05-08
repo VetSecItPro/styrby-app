@@ -265,7 +265,7 @@ export function TemplatesClient({ initialTemplates, userId }: TemplatesClientPro
         </div>
         <button
           onClick={handleCreate}
-          className="flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+          className="flex items-center gap-2 rounded-lg bg-orange-700 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-800 transition-colors"
           aria-label="Create new template"
         >
           <PlusIcon className="h-4 w-4" />
@@ -291,7 +291,7 @@ export function TemplatesClient({ initialTemplates, userId }: TemplatesClientPro
           </p>
           <button
             onClick={handleCreate}
-            className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+            className="inline-flex items-center gap-2 rounded-lg bg-orange-700 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-800 transition-colors"
             aria-label="Create your first template"
           >
             <PlusIcon className="h-4 w-4" />

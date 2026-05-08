@@ -46,7 +46,7 @@ export function InviteMemberButton({ teamId, onSuccess }: InviteMemberButtonProp
     <>
       <button
         onClick={() => setIsModalOpen(true)}
-        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-medium transition-colors"
+        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-orange-700 hover:bg-orange-800 text-white font-medium transition-colors"
       >
         <Mail className="w-4 h-4" aria-hidden="true" />
         Invite Member

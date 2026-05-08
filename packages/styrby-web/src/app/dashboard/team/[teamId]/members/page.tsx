@@ -215,7 +215,7 @@ export default async function MembersPage({ params }: MembersPageProps) {
 
         <Link
           href={`/dashboard/team/${teamId}/invitations`}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg transition-colors"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-orange-700 hover:bg-orange-800 text-white text-sm font-medium rounded-lg transition-colors"
         >
           Invite member
         </Link>

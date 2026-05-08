@@ -314,7 +314,7 @@ export function SessionCheckpoints({
               type="button"
               onClick={handleSave}
               disabled={isSaving || !newName.trim()}
-              className="flex-1 rounded-lg bg-orange-500 px-3 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50 transition-colors"
+              className="flex-1 rounded-lg bg-orange-700 px-3 py-2 text-sm font-medium text-white hover:bg-orange-800 disabled:opacity-50 transition-colors"
               aria-label={isSaving ? 'Saving checkpoint...' : 'Save checkpoint'}
             >
               {isSaving ? 'Saving…' : 'Save'}

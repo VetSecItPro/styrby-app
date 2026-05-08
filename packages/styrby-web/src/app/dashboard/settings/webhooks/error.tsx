@@ -53,7 +53,7 @@ export default function WebhooksError({ error, reset }: ErrorProps) {
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
           <button
             onClick={reset}
-            className="w-full sm:w-auto rounded-lg bg-orange-500 px-6 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+            className="w-full sm:w-auto rounded-lg bg-orange-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-orange-800 transition-colors"
           >
             Try Again
           </button>

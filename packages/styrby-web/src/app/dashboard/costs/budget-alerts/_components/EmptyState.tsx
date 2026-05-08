@@ -50,7 +50,7 @@ export function EmptyState({ alertLimit, onCreate }: EmptyStateProps) {
           </p>
           <button
             onClick={onCreate}
-            className="rounded-lg bg-orange-500 px-6 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+            className="rounded-lg bg-orange-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-orange-800 transition-colors"
             aria-label="Create your first budget alert"
           >
             Create Your First Alert
@@ -64,7 +64,7 @@ export function EmptyState({ alertLimit, onCreate }: EmptyStateProps) {
           </p>
           <Link
             href="/pricing"
-            className="inline-block rounded-lg bg-orange-500 px-6 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+            className="inline-block rounded-lg bg-orange-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-orange-800 transition-colors"
           >
             Upgrade to Pro
           </Link>

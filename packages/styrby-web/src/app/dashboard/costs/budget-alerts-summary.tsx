@@ -57,7 +57,7 @@ interface BudgetAlertsSummaryProps {
  */
 function getProgressColor(percentage: number): string {
   if (percentage >= 100) return 'bg-red-500';
-  if (percentage >= 80) return 'bg-orange-500';
+  if (percentage >= 80) return 'bg-orange-700';
   if (percentage >= 50) return 'bg-yellow-500';
   return 'bg-green-500';
 }
@@ -136,7 +136,7 @@ export function BudgetAlertsSummary({
             </div>
             <Link
               href="/pricing"
-              className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors flex-shrink-0"
+              className="rounded-lg bg-orange-700 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-800 transition-colors flex-shrink-0"
             >
               Upgrade to Pro
             </Link>

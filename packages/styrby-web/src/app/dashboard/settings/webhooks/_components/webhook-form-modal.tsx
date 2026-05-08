@@ -116,7 +116,7 @@ function SecretRevealPanel({ secret, onClose }: SecretRevealPanelProps) {
       <div className="flex justify-end">
         <button
           onClick={onClose}
-          className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+          className="rounded-lg bg-orange-700 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-800 transition-colors"
         >
           Done
         </button>
@@ -220,7 +220,7 @@ function CreateEditPanel({
                     <div
                       className={`h-4 w-4 rounded border-2 flex items-center justify-center ${
                         isSelected
-                          ? 'bg-orange-500 border-orange-500'
+                          ? 'bg-orange-700 border-orange-500'
                           : 'border-zinc-500'
                       }`}
                     >
@@ -270,7 +270,7 @@ function CreateEditPanel({
         <button
           onClick={onSubmit}
           disabled={isSubmitting || !submittable}
-          className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          className="rounded-lg bg-orange-700 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
         >
           {isSubmitting && (
             <div
