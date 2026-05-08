@@ -138,7 +138,7 @@ export function ReferralSection({ referralCode, displayName }: ReferralSectionPr
             </button>
             <button
               onClick={handleShare}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-400 transition-colors"
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-orange-700 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-400 transition-colors"
             >
               <Users className="h-3.5 w-3.5" />
               Share

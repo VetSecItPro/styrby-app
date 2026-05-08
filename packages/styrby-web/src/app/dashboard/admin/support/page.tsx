@@ -157,7 +157,7 @@ export default function AdminSupportPage() {
             onClick={() => setStatusFilter(status)}
             className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
               statusFilter === status
-                ? 'bg-amber-500 text-white'
+                ? 'bg-amber-700 text-white'
                 : 'border border-zinc-700 text-zinc-400 hover:text-zinc-100'
             }`}
           >

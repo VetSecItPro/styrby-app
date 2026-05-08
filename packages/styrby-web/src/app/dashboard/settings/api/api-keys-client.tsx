@@ -266,7 +266,7 @@ export function ApiKeysClient({
           {canCreateKey ? (
             <button
               onClick={handleOpenCreate}
-              className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors flex items-center gap-2"
+              className="rounded-lg bg-orange-700 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-800 transition-colors flex items-center gap-2"
               aria-label="Create a new API key"
             >
               <svg
@@ -283,7 +283,7 @@ export function ApiKeysClient({
           ) : !isPowerTier ? (
             <Link
               href="/pricing"
-              className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+              className="rounded-lg bg-orange-700 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-800 transition-colors"
             >
               Upgrade to Power
             </Link>
@@ -319,7 +319,7 @@ export function ApiKeysClient({
           </p>
           <Link
             href="/pricing"
-            className="inline-block rounded-lg bg-orange-500 px-6 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+            className="inline-block rounded-lg bg-orange-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-orange-800 transition-colors"
           >
             Upgrade to Power Plan
           </Link>
@@ -351,7 +351,7 @@ export function ApiKeysClient({
           </p>
           <button
             onClick={handleOpenCreate}
-            className="rounded-lg bg-orange-500 px-6 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+            className="rounded-lg bg-orange-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-orange-800 transition-colors"
             aria-label="Create your first API key"
           >
             Create Your First API Key
@@ -559,7 +559,7 @@ export function ApiKeysClient({
                 <div className="flex justify-end">
                   <button
                     onClick={handleCloseModal}
-                    className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+                    className="rounded-lg bg-orange-700 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-800 transition-colors"
                   >
                     Done
                   </button>
@@ -643,7 +643,7 @@ export function ApiKeysClient({
                   <button
                     onClick={handleSubmit}
                     disabled={isSubmitting || !formData.name.trim()}
-                    className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    className="rounded-lg bg-orange-700 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   >
                     {isSubmitting && (
                       <div

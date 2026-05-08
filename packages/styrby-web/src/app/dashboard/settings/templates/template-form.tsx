@@ -497,7 +497,7 @@ export function TemplateForm({ isOpen, onClose, template, onSubmit }: TemplateFo
                 onChange={(e) => handleFieldChange('isDefault', e.target.checked)}
                 aria-label="Set as default template"
               />
-              <div className="h-6 w-11 rounded-full bg-zinc-700 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-orange-500 peer-checked:after:translate-x-full" />
+              <div className="h-6 w-11 rounded-full bg-zinc-700 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-orange-700 peer-checked:after:translate-x-full" />
             </label>
           </div>
 
@@ -514,7 +514,7 @@ export function TemplateForm({ isOpen, onClose, template, onSubmit }: TemplateFo
             <button
               type="submit"
               disabled={submitting}
-              className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="rounded-lg bg-orange-700 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {submitting ? 'Saving...' : isEditMode ? 'Save Changes' : 'Create Template'}
             </button>

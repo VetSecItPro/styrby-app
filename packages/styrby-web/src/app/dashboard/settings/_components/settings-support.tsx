@@ -64,7 +64,7 @@ export function SettingsSupport() {
             </div>
             <button
               onClick={() => setShowSupportModal(true)}
-              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 transition-colors"
+              className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-800 transition-colors"
               aria-label="Submit a new support ticket"
             >
               New Ticket
@@ -83,7 +83,7 @@ export function SettingsSupport() {
             </div>
             <button
               onClick={() => setShowFeedbackDialog(true)}
-              className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+              className="rounded-lg bg-orange-700 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-800 transition-colors"
               aria-label="Send feedback"
             >
               Feedback

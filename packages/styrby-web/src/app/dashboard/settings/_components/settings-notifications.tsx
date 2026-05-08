@@ -196,7 +196,7 @@ export function SettingsNotifications({
               disabled={notifSaving}
               aria-label="Toggle push notifications"
             />
-            <div className="h-6 w-11 rounded-full bg-zinc-700 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-orange-500 peer-checked:after:translate-x-full" />
+            <div className="h-6 w-11 rounded-full bg-zinc-700 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-orange-700 peer-checked:after:translate-x-full" />
           </label>
         </div>
 
@@ -230,7 +230,7 @@ export function SettingsNotifications({
                   <button
                     onClick={webPush.subscribe}
                     disabled={webPush.loading || webPush.permission === 'denied'}
-                    className="px-3 py-1.5 text-sm font-medium text-white bg-orange-500 rounded-lg hover:bg-orange-600 disabled:opacity-50 transition-colors"
+                    className="px-3 py-1.5 text-sm font-medium text-white bg-orange-700 rounded-lg hover:bg-orange-800 disabled:opacity-50 transition-colors"
                     aria-label="Subscribe to push notifications"
                   >
                     {webPush.loading ? 'Processing...' : 'Enable'}
@@ -272,7 +272,7 @@ export function SettingsNotifications({
               disabled={notifSaving}
               aria-label="Toggle email notifications"
             />
-            <div className="h-6 w-11 rounded-full bg-zinc-700 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-orange-500 peer-checked:after:translate-x-full" />
+            <div className="h-6 w-11 rounded-full bg-zinc-700 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-orange-700 peer-checked:after:translate-x-full" />
           </label>
         </div>
 
@@ -324,7 +324,7 @@ export function SettingsNotifications({
               <button
                 onClick={handleQuietHoursSave}
                 disabled={quietHoursSaving}
-                className="rounded-md bg-orange-500 px-3 py-1 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50 transition-colors"
+                className="rounded-md bg-orange-700 px-3 py-1 text-sm font-medium text-white hover:bg-orange-800 disabled:opacity-50 transition-colors"
               >
                 {quietHoursSaving ? 'Saving...' : 'Save'}
               </button>

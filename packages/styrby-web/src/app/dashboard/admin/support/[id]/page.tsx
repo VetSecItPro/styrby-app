@@ -443,7 +443,7 @@ export default function AdminTicketDetailPage() {
               <button
                 onClick={handleSendReply}
                 disabled={sending || !replyText.trim()}
-                className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Send className="h-4 w-4" />
                 {sending ? 'Sending...' : 'Send Reply'}

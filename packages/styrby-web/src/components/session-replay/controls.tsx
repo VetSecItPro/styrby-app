@@ -290,7 +290,7 @@ export function ReplayControls({
         >
           {/* Progress fill */}
           <div
-            className="absolute inset-y-0 left-0 bg-orange-500 rounded-full transition-all"
+            className="absolute inset-y-0 left-0 bg-orange-700 rounded-full transition-all"
             style={{ width: `${progressPercent}%` }}
           />
 
@@ -333,7 +333,7 @@ export function ReplayControls({
           {/* Play/Pause */}
           <button
             onClick={onTogglePlay}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-500 text-white hover:bg-orange-600 transition-colors"
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-700 text-white hover:bg-orange-800 transition-colors"
             aria-label={isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying ? (

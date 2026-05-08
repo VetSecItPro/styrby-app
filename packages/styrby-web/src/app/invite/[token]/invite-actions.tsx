@@ -95,7 +95,7 @@ export function InviteActions({ token, teamName }: InviteActionsProps) {
       <button
         onClick={handleAccept}
         disabled={isAccepting}
-        className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-500/50 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+        className="w-full bg-orange-700 hover:bg-orange-800 disabled:bg-orange-500/50 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
       >
         {isAccepting ? (
           <>

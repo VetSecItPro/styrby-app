@@ -614,7 +614,7 @@ export function SessionsFilter({
               onClick={() => handleScopeChange('mine')}
               className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
                 scope === 'mine'
-                  ? 'bg-orange-500 text-white shadow-sm'
+                  ? 'bg-orange-700 text-white shadow-sm'
                   : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
@@ -626,7 +626,7 @@ export function SessionsFilter({
               onClick={() => handleScopeChange('team')}
               className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
                 scope === 'team'
-                  ? 'bg-orange-500 text-white shadow-sm'
+                  ? 'bg-orange-700 text-white shadow-sm'
                   : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >

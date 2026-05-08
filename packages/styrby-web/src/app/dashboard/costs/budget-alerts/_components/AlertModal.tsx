@@ -391,7 +391,7 @@ export function AlertModal({
               (formData.alert_type === 'subscription_quota' && !formData.threshold_quota_fraction) ||
               (formData.alert_type === 'credits' && !formData.threshold_credits)
             }
-            className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="rounded-lg bg-orange-700 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {isSubmitting && (
               <div

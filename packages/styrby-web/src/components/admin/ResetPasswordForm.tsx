@@ -175,7 +175,7 @@ export function ResetPasswordForm({ targetUserId, targetEmail, action }: ResetPa
       <button
         type="submit"
         disabled={isPending}
-        className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
         data-testid="submit-button"
       >
         {isPending ? 'Sending…' : 'Confirm — send reset link'}

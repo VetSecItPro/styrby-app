@@ -225,7 +225,7 @@ export default async function InvitePage({ params }: InvitePageProps) {
         </p>
         <Link
           href={`/login?returnTo=/invite/${token}`}
-          className="inline-block bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+          className="inline-block bg-orange-700 hover:bg-orange-800 text-white px-6 py-3 rounded-lg font-medium transition-colors"
         >
           Sign in to accept
         </Link>
@@ -257,7 +257,7 @@ export default async function InvitePage({ params }: InvitePageProps) {
           This invitation was sent to a different email address. Sign out and sign in with the correct
           account to accept.
         </p>
-        <Link href="/login" className="inline-block bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+        <Link href="/login" className="inline-block bg-orange-700 hover:bg-orange-800 text-white px-6 py-3 rounded-lg font-medium transition-colors">
           Switch Account
         </Link>
       </PageWrapper>

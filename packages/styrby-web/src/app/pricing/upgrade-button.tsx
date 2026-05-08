@@ -83,7 +83,7 @@ export function UpgradeButton({ tierId, billingCycle, isPopular, seatCount }: Up
         disabled={loading}
         className={`w-full rounded-lg py-3 text-sm font-semibold transition-colors ${
           isPopular
-            ? 'bg-orange-500 text-white hover:bg-orange-600'
+            ? 'bg-orange-700 text-white hover:bg-orange-800'
             : 'bg-zinc-800 text-zinc-100 hover:bg-zinc-700'
         } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
