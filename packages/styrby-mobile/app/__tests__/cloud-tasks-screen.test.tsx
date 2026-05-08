@@ -72,6 +72,12 @@ jest.mock('@/components/CloudTasks', () => ({
   CloudTasks: 'CloudTasks',
 }));
 
+// CloudTaskSubmitSheet: sentinel-mocked to skip its session-fetch effect.
+// The sheet has its own dedicated test in src/components/cloud-tasks/__tests__/.
+jest.mock('@/components/cloud-tasks/CloudTaskSubmitSheet', () => ({
+  CloudTaskSubmitSheet: 'CloudTaskSubmitSheet',
+}));
+
 // useSubscriptionTier: per-test override via a mutable mock value.
 const mockTierValue: { tier: string; isLoading: boolean; isPaid: boolean; error: Error | null } = {
   tier: 'free',
