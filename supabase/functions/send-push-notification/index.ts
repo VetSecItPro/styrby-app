@@ -47,7 +47,13 @@ type NotificationEventType =
   // Phase 2.4 — team approval request notification
   // Sent to all eligible approvers when the CLI submits a review-class command.
   // The mobile app surfaces "Approve / Deny / View diff" action buttons.
-  | 'approval_request';
+  | 'approval_request'
+  // #97 PR-3 — cloud task lifecycle notifications
+  // Fired by the notify_push_for_cloud_task trigger (migration 092) on
+  // terminal status transitions of public.cloud_tasks. cancelled tasks
+  // intentionally skip the push (user-initiated, no need to re-notify).
+  | 'cloud_task_completed'
+  | 'cloud_task_failed';
 
 /**
  * Data payload included with the notification event.
@@ -91,6 +97,16 @@ interface NotificationEventData {
 
   /** Session duration in milliseconds (for session completion events) */
   sessionDurationMs?: number;
+
+  // #97 PR-3 — cloud task fields
+  /** UUID of the cloud_tasks row (for deep-link to task detail). */
+  taskId?: string;
+  /**
+   * First ~80 chars of the task prompt — used in the notification body so
+   * the user knows which task finished without opening the app. The trigger
+   * (migration 092) already truncates to 80 chars on the server side.
+   */
+  prompt?: string;
 }
 
 /**
@@ -206,7 +222,9 @@ const VALID_EVENT_TYPES: NotificationEventType[] = [
   'session_error',
   'budget_warning',
   'budget_exceeded',
-  'approval_request',  // Phase 2.4
+  'approval_request',         // Phase 2.4
+  'cloud_task_completed',     // #97 PR-3
+  'cloud_task_failed',        // #97 PR-3
 ];
 
 /**
@@ -223,6 +241,13 @@ const BASE_PRIORITY_BY_EVENT: Record<NotificationEventType, number> = {
   // WHY priority 1 for approval_request: team members are blocked at the CLI
   // waiting for this notification to be acted on. Maximum urgency is appropriate.
   approval_request: 1,
+  // WHY priority 4 for cloud_task_completed: a cloud task finishing is
+  // structurally the same as a session completing — informational, not
+  // urgent. Same priority as session_completed.
+  cloud_task_completed: 4,
+  // WHY priority 2 for cloud_task_failed: agent error is actionable; the
+  // user may need to retry or investigate. Same priority as session_error.
+  cloud_task_failed: 2,
 };
 
 /**
@@ -551,6 +576,16 @@ function isTypeAllowed(
       // approver assignment — that's an admin-level change, not a preference
       // toggle. (SOC2 CC6.3 — governance controls must not be user-bypassable.)
       return true;
+    case 'cloud_task_completed':
+      // WHY reuse push_session_complete: structurally the same kind of event
+      // (an agent finished a job). Reusing the existing toggle avoids a
+      // schema migration and keeps the settings UI from growing yet another
+      // checkbox. Default = false (per migration 001), matching session_completed.
+      return prefs.push_session_complete;
+    case 'cloud_task_failed':
+      // WHY reuse push_session_errors: cloud-task failure is structurally the
+      // same as session error (agent ran into a problem). Default = true.
+      return prefs.push_session_errors;
     default:
       return true;
   }
@@ -704,6 +739,48 @@ function buildNotificationPayload(
           screen: 'chat',
           sessionId: data.sessionId,
           type: 'session_error',
+        },
+        sound: 'default',
+        priority: 'high',
+      };
+
+    case 'cloud_task_completed':
+      // WHY: tap takes user to the cloud-tasks screen (where the task list
+      // and detail sheet live); the taskId is forwarded so the screen can
+      // optionally auto-open the matching task on launch.
+      return {
+        title: data.title || 'Cloud Task Complete',
+        body:
+          data.body ||
+          (data.prompt && data.prompt.length > 0
+            ? `${data.agentType || 'Agent'}: ${data.prompt}`
+            : data.costUsd !== undefined
+              ? `Task finished — cost $${data.costUsd.toFixed(4)}`
+              : 'Cloud task finished'),
+        data: {
+          screen: 'cloud-tasks',
+          taskId: data.taskId,
+          type: 'cloud_task_completed',
+        },
+        sound: 'default',
+        priority: 'default',
+      };
+
+    case 'cloud_task_failed':
+      // WHY priority 'high' on the Expo channel: matches session_error so
+      // the OS surfaces it more prominently — a failed cloud task is
+      // actionable (user may need to retry from the dispatcher).
+      return {
+        title: data.title || 'Cloud Task Failed',
+        body:
+          data.body ||
+          (data.prompt && data.prompt.length > 0
+            ? `${data.agentType || 'Agent'} failed on: ${data.prompt}`
+            : `${data.agentType || 'Agent'} encountered an error`),
+        data: {
+          screen: 'cloud-tasks',
+          taskId: data.taskId,
+          type: 'cloud_task_failed',
         },
         sound: 'default',
         priority: 'high',
