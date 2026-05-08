@@ -522,6 +522,36 @@ export default function DashboardScreen() {
         })}
       </View>
 
+      {/* Cloud Tasks — Power-tier feature for monitoring async agent jobs.
+          The destination screen handles tier gating (free/pro see upgrade
+          prompt, power see the live task list), so the link is unconditional
+          here for discoverability. */}
+      <View className="mx-4 mt-6">
+        <Text className="text-zinc-400 text-sm font-medium mb-3">CLOUD</Text>
+        <Pressable
+          onPress={() => router.push('/cloud-tasks')}
+          className="bg-background-secondary rounded-xl overflow-hidden"
+          accessibilityRole="button"
+          accessibilityLabel="Cloud Tasks. Monitor long-running agent jobs from your CLI."
+        >
+          <View className="flex-row items-center p-4">
+            <View
+              style={{ backgroundColor: 'rgba(249, 115, 22, 0.1)' }}
+              className="w-12 h-12 rounded-xl items-center justify-center"
+            >
+              <Ionicons name="cloud" size={24} color="#f97316" />
+            </View>
+            <View className="flex-1 ml-4">
+              <Text className="text-zinc-100 font-semibold text-base">Cloud Tasks</Text>
+              <Text className="text-zinc-500 text-sm mt-0.5">
+                Monitor async agent jobs from your CLI
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#71717a" />
+          </View>
+        </Pressable>
+      </View>
+
       {/* Activity Graph — 52-week coding activity heatmap */}
       <View className="mx-4 mt-6">
         <Text className="text-zinc-400 text-sm font-medium mb-3">ACTIVITY</Text>
