@@ -115,7 +115,7 @@ export function SupportListClient({ tickets }: SupportListClientProps) {
         <div className="flex flex-col items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 py-16">
           <HelpCircle className="mb-4 h-12 w-12 text-zinc-400" />
           <p className="text-sm font-medium text-zinc-300">No tickets yet.</p>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-zinc-400">
             Need help? Submit a ticket and we will get back to you.
           </p>
           <button
@@ -156,7 +156,7 @@ export function SupportListClient({ tickets }: SupportListClientProps) {
                       {ticket.subject}
                     </p>
                   </div>
-                  <span className="shrink-0 text-xs text-zinc-500">
+                  <span className="shrink-0 text-xs text-zinc-400">
                     {getRelativeTime(ticket.created_at)}
                   </span>
                 </div>

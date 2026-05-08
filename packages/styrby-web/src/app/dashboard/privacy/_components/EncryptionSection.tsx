@@ -78,9 +78,9 @@ function FaqRow({ item }: { item: FaqItem }) {
         aria-expanded={expanded}
       >
         {expanded ? (
-          <ChevronDown className="h-4 w-4 text-zinc-500 flex-shrink-0 mt-0.5" aria-hidden />
+          <ChevronDown className="h-4 w-4 text-zinc-400 flex-shrink-0 mt-0.5" aria-hidden />
         ) : (
-          <ChevronRight className="h-4 w-4 text-zinc-500 flex-shrink-0 mt-0.5" aria-hidden />
+          <ChevronRight className="h-4 w-4 text-zinc-400 flex-shrink-0 mt-0.5" aria-hidden />
         )}
         <span className="text-sm text-zinc-200">{item.question}</span>
       </button>
@@ -103,7 +103,7 @@ export function EncryptionSection() {
       <div className="px-6 py-4 border-b border-zinc-800 flex items-center gap-3">
         <Lock className="h-4 w-4 text-yellow-400" aria-hidden />
         <h2 className="text-base font-semibold text-zinc-100">Encryption Details</h2>
-        <span className="ml-auto text-xs text-zinc-500">For technical verification</span>
+        <span className="ml-auto text-xs text-zinc-400">For technical verification</span>
       </div>
 
       <div className="px-6 py-4 border-b border-zinc-800">

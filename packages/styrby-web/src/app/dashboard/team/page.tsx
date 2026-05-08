@@ -177,7 +177,7 @@ export default async function TeamPage() {
               </Link>
             </div>
 
-            <p className="mt-6 text-sm text-zinc-500">
+            <p className="mt-6 text-sm text-zinc-400">
               Pro plan: ${TIERS.pro.price.monthly}/month · Growth plan: ${TIERS.growth.price.monthly}/month
             </p>
           </div>

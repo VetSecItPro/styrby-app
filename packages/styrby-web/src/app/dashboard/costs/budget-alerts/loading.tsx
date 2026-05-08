@@ -13,7 +13,7 @@ export default function BudgetAlertsLoading() {
           role="status"
           aria-label="Loading budget alerts"
         />
-        <p className="text-sm text-zinc-500">Loading Budget Alerts...</p>
+        <p className="text-sm text-zinc-400">Loading Budget Alerts...</p>
       </div>
     </div>
   );

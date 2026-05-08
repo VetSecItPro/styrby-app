@@ -39,7 +39,7 @@ export default function Error({
 
         {process.env.NODE_ENV === 'development' && error.message && (
           <div className="mb-6 p-3 rounded-lg bg-zinc-900 border border-zinc-800 text-left max-w-sm mx-auto">
-            <p className="text-xs text-zinc-500 mb-1">Dev only:</p>
+            <p className="text-xs text-zinc-400 mb-1">Dev only:</p>
             <pre className="text-xs text-red-400 whitespace-pre-wrap break-words">{error.message}</pre>
           </div>
         )}

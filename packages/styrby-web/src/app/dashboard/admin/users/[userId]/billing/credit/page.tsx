@@ -83,7 +83,7 @@ export default async function IssueCreditPage({ params }: CreditPageProps) {
       </Link>
 
       <h1 className="mb-2 text-xl font-bold text-zinc-100">Issue account credit</h1>
-      <p className="mb-6 text-sm text-zinc-500">
+      <p className="mb-6 text-sm text-zinc-400">
         For:{' '}
         <span className="font-mono text-zinc-300">{profile.email ?? userId}</span>
       </p>

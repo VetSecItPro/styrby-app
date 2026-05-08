@@ -13,7 +13,7 @@ export default function DashboardLoading() {
           role="status"
           aria-label="Loading dashboard"
         />
-        <p className="text-sm text-zinc-500">Loading Dashboard...</p>
+        <p className="text-sm text-zinc-400">Loading Dashboard...</p>
       </div>
     </div>
   );

@@ -69,7 +69,7 @@ export function Footer() {
           </nav>
 
           {/* Credit + veteran badge */}
-          <div className="flex items-center gap-3 shrink-0 text-xs text-zinc-500">
+          <div className="flex items-center gap-3 shrink-0 text-xs text-zinc-400">
             <p>&copy; 2026 Steel Motion LLC</p>
             <span className="text-zinc-700" aria-hidden="true">·</span>
             <div className="flex items-center gap-1">

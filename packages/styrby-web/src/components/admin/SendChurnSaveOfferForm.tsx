@@ -178,7 +178,7 @@ export function SendChurnSaveOfferForm({ targetUserId, action }: SendChurnSaveOf
       <div className="flex flex-col gap-1">
         <label htmlFor="polar_discount_code" className="text-sm font-medium text-zinc-300">
           Polar discount code{' '}
-          <span className="text-zinc-500 font-normal">(optional — create in Polar dashboard first)</span>
+          <span className="text-zinc-400 font-normal">(optional — create in Polar dashboard first)</span>
         </label>
         <input
           id="polar_discount_code"

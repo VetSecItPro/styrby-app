@@ -143,7 +143,7 @@ export async function TeamsCard({ userId }: { userId: string }) {
                     {m.role}
                   </span>
                 </td>
-                <td className="py-2 text-xs text-zinc-500" title={m.joined_at ?? ''}>
+                <td className="py-2 text-xs text-zinc-400" title={m.joined_at ?? ''}>
                   {fmtDate(m.joined_at)}
                 </td>
               </tr>
@@ -151,7 +151,7 @@ export async function TeamsCard({ userId }: { userId: string }) {
           </tbody>
         </table>
       ) : (
-        <p className="text-sm text-zinc-500" data-testid="no-teams">
+        <p className="text-sm text-zinc-400" data-testid="no-teams">
           Not a member of any teams.
         </p>
       )}

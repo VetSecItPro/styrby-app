@@ -26,7 +26,7 @@ export function WebhookEmptyState({ webhookLimit, onCreate }: WebhookEmptyStateP
     <div className="rounded-xl bg-zinc-900 border border-zinc-800 px-4 py-16 text-center">
       <div className="mx-auto h-16 w-16 rounded-full bg-zinc-800 flex items-center justify-center mb-4">
         <svg
-          className="h-8 w-8 text-zinc-500"
+          className="h-8 w-8 text-zinc-400"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -43,7 +43,7 @@ export function WebhookEmptyState({ webhookLimit, onCreate }: WebhookEmptyStateP
       <h3 className="text-lg font-medium text-zinc-100 mb-2">No webhooks</h3>
       {webhookLimit > 0 ? (
         <>
-          <p className="text-zinc-500 mb-6 max-w-sm mx-auto">
+          <p className="text-zinc-400 mb-6 max-w-sm mx-auto">
             Create webhooks to receive event notifications in Slack, Discord,
             or any custom endpoint.
           </p>
@@ -57,7 +57,7 @@ export function WebhookEmptyState({ webhookLimit, onCreate }: WebhookEmptyStateP
         </>
       ) : (
         <>
-          <p className="text-zinc-500 mb-6 max-w-sm mx-auto">
+          <p className="text-zinc-400 mb-6 max-w-sm mx-auto">
             Webhooks let you integrate Styrby with Slack, Discord, and more.
             Upgrade to Pro to create webhooks.
           </p>

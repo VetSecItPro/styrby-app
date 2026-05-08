@@ -68,8 +68,8 @@ export function CostSummaryCard({
       }`}
     >
       <div className="flex items-center gap-2">
-        {icon && <span className="text-zinc-500">{icon}</span>}
-        <p className="text-sm text-zinc-500">{title}</p>
+        {icon && <span className="text-zinc-400">{icon}</span>}
+        <p className="text-sm text-zinc-400">{title}</p>
       </div>
 
       <p
@@ -81,11 +81,11 @@ export function CostSummaryCard({
       </p>
 
       <div className="flex items-center gap-2 mt-1">
-        <p className="text-xs text-zinc-500">{formatTokens(totalTokens)} tokens</p>
+        <p className="text-xs text-zinc-400">{formatTokens(totalTokens)} tokens</p>
         {summary.requestCount > 0 && (
           <>
             <span className="text-zinc-700">|</span>
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-zinc-400">
               {summary.requestCount.toLocaleString()} requests
             </p>
           </>

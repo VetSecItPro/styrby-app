@@ -77,7 +77,7 @@ export function DailyCostChart({
     return (
       <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
         <h3 className="text-lg font-semibold text-zinc-100 mb-4">{title}</h3>
-        <div className="py-8 text-center text-zinc-500">No daily data available</div>
+        <div className="py-8 text-center text-zinc-400">No daily data available</div>
       </div>
     );
   }
@@ -128,7 +128,7 @@ export function DailyCostChart({
       </div>
 
       {/* X-axis labels showing date range */}
-      <div className="flex justify-between mt-2 text-xs text-zinc-500">
+      <div className="flex justify-between mt-2 text-xs text-zinc-400">
         {data.length > 0 && (
           <>
             <span>{formatDate(data[0].date)}</span>

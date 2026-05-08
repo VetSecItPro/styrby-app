@@ -211,9 +211,9 @@ function DataMapRow({ entry }: { entry: DataMapEntry }) {
         aria-expanded={expanded}
       >
         {expanded ? (
-          <ChevronDown className="h-4 w-4 text-zinc-500 flex-shrink-0" aria-hidden />
+          <ChevronDown className="h-4 w-4 text-zinc-400 flex-shrink-0" aria-hidden />
         ) : (
-          <ChevronRight className="h-4 w-4 text-zinc-500 flex-shrink-0" aria-hidden />
+          <ChevronRight className="h-4 w-4 text-zinc-400 flex-shrink-0" aria-hidden />
         )}
         <span className="font-mono text-xs text-zinc-300 flex-shrink-0 w-44">{entry.table}</span>
         <span className="text-xs text-zinc-400 flex-1 truncate">{entry.description.split(':')[0]}</span>
@@ -237,12 +237,12 @@ function DataMapRow({ entry }: { entry: DataMapEntry }) {
         <div className="px-11 pb-4 space-y-2">
           <p className="text-xs text-zinc-400">{entry.description}</p>
           {entry.plaintextFields && (
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-zinc-400">
               <span className="text-zinc-400 font-medium">What is not encrypted: </span>
               {entry.plaintextFields}
             </p>
           )}
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-zinc-400">
             <span className="text-zinc-400 font-medium">Retention: </span>
             {entry.retention}
           </p>
@@ -263,7 +263,7 @@ export function DataMapSection() {
       <div className="px-6 py-4 border-b border-zinc-800 flex items-center gap-3">
         <Database className="h-4 w-4 text-purple-400" aria-hidden />
         <h2 className="text-base font-semibold text-zinc-100">What We Store</h2>
-        <span className="ml-auto text-xs text-zinc-500">GDPR Art. 13/14</span>
+        <span className="ml-auto text-xs text-zinc-400">GDPR Art. 13/14</span>
       </div>
 
       <div className="px-6 py-4">

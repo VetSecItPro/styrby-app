@@ -13,7 +13,7 @@ export default function PricingLoading() {
           role="status"
           aria-label="Loading pricing"
         />
-        <p className="text-sm text-zinc-500">Loading Pricing...</p>
+        <p className="text-sm text-zinc-400">Loading Pricing...</p>
       </div>
     </div>
   );

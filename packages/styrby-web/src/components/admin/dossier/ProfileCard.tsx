@@ -116,12 +116,12 @@ export async function ProfileCard({ userId }: { userId: string }) {
 
       {/* Profile fields */}
       <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
-        <dt className="text-zinc-500">User ID</dt>
+        <dt className="text-zinc-400">User ID</dt>
         <dd className="font-mono text-xs text-zinc-300 break-all" data-testid="profile-user-id">
           {profile.id}
         </dd>
 
-        <dt className="text-zinc-500">Email</dt>
+        <dt className="text-zinc-400">Email</dt>
         <dd className="font-mono text-zinc-100" data-testid="profile-email">
           {/* WHY React JSX render: email from Supabase is rendered via JSX text
               nodes — React escapes all special characters automatically. We never
@@ -132,12 +132,12 @@ export async function ProfileCard({ userId }: { userId: string }) {
 
         {profile.full_name && (
           <>
-            <dt className="text-zinc-500">Name</dt>
+            <dt className="text-zinc-400">Name</dt>
             <dd className="text-zinc-100">{profile.full_name}</dd>
           </>
         )}
 
-        <dt className="text-zinc-500">Joined</dt>
+        <dt className="text-zinc-400">Joined</dt>
         <dd className="text-zinc-300" title={profile.created_at ?? ''}>
           {fmtDate(profile.created_at)}
         </dd>
@@ -146,7 +146,7 @@ export async function ProfileCard({ userId }: { userId: string }) {
       {/* Consent flags */}
       {consentFlags.length > 0 && (
         <div className="mt-5 border-t border-zinc-800 pt-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-400">
             Consent Flags
           </h3>
           <table className="w-full text-xs" aria-label="Consent flags for this user">
@@ -168,10 +168,10 @@ export async function ProfileCard({ userId }: { userId: string }) {
                 return (
                   <tr key={flag.purpose} data-testid="consent-flag-row">
                     <td className="py-1.5 font-mono text-zinc-300">{flag.purpose}</td>
-                    <td className="py-1.5 text-zinc-500" title={flag.granted_at ?? ''}>
+                    <td className="py-1.5 text-zinc-400" title={flag.granted_at ?? ''}>
                       {fmtDate(flag.granted_at)}
                     </td>
-                    <td className="py-1.5 text-zinc-500" title={flag.revoked_at ?? ''}>
+                    <td className="py-1.5 text-zinc-400" title={flag.revoked_at ?? ''}>
                       {fmtDate(flag.revoked_at)}
                     </td>
                     <td className="py-1.5">
@@ -179,7 +179,7 @@ export async function ProfileCard({ userId }: { userId: string }) {
                         className={`inline-flex rounded-full px-1.5 py-0.5 text-xs font-medium ${
                           isGranted
                             ? 'bg-green-500/10 text-green-400'
-                            : 'bg-zinc-700/50 text-zinc-500'
+                            : 'bg-zinc-700/50 text-zinc-400'
                         }`}
                         data-testid={`consent-status-${flag.purpose}`}
                       >

@@ -259,7 +259,7 @@ export function TemplatesClient({ initialTemplates, userId }: TemplatesClientPro
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-zinc-100">Context Templates</h1>
-          <p className="text-sm text-zinc-500 mt-1">
+          <p className="text-sm text-zinc-400 mt-1">
             Create reusable context that can be injected into agent sessions.
           </p>
         </div>
@@ -283,9 +283,9 @@ export function TemplatesClient({ initialTemplates, userId }: TemplatesClientPro
       {/* Templates grid */}
       {templates.length === 0 ? (
         <div className="rounded-xl border border-dashed border-zinc-700 bg-zinc-900/50 p-12 text-center">
-          <DocumentTextIcon className="h-12 w-12 mx-auto text-zinc-500 mb-4" />
+          <DocumentTextIcon className="h-12 w-12 mx-auto text-zinc-400 mb-4" />
           <h3 className="text-lg font-medium text-zinc-300 mb-2">No templates yet</h3>
-          <p className="text-sm text-zinc-500 mb-6 max-w-md mx-auto">
+          <p className="text-sm text-zinc-400 mb-6 max-w-md mx-auto">
             Context templates let you define reusable project context with variables
             that get substituted at runtime.
           </p>

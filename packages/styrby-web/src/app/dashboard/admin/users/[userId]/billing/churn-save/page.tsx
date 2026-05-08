@@ -117,12 +117,12 @@ export default async function SendChurnSaveOfferPage({ params }: ChurnSavePagePr
       </Link>
 
       <h1 className="mb-2 text-xl font-bold text-zinc-100">Send churn-save offer</h1>
-      <p className="mb-1 text-sm text-zinc-500">
+      <p className="mb-1 text-sm text-zinc-400">
         For:{' '}
         <span className="font-mono text-zinc-300">{profile.email ?? userId}</span>
       </p>
       {sub && (
-        <p className="mb-6 text-sm text-zinc-500">
+        <p className="mb-6 text-sm text-zinc-400">
           Current tier:{' '}
           <span className="font-medium text-zinc-300">
             {sub.tier ?? 'unknown'} / {sub.is_annual ? 'annual' : 'monthly'}

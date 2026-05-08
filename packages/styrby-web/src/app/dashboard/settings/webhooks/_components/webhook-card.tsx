@@ -63,7 +63,7 @@ export function WebhookCard({
               </span>
             )}
           </div>
-          <p className="text-xs text-zinc-500 mt-1 truncate" title={webhook.url}>
+          <p className="text-xs text-zinc-400 mt-1 truncate" title={webhook.url}>
             {webhook.url}
           </p>
         </div>
@@ -98,7 +98,7 @@ export function WebhookCard({
 
       {/* Footer with status and actions */}
       <div className="flex items-center justify-between">
-        <div className="text-xs text-zinc-500">
+        <div className="text-xs text-zinc-400">
           {webhook.last_success_at ? (
             <span className="text-green-400">
               Last success: {formatLastSuccess(webhook.last_success_at)}

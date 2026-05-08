@@ -265,7 +265,7 @@ export function DashboardRealtime({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {/* Today's spend - with real-time ticker */}
         <dl className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-          <dt className="text-sm text-zinc-500 mb-1">Today&apos;s Spend</dt>
+          <dt className="text-sm text-zinc-400 mb-1">Today&apos;s Spend</dt>
           <dd>
             <CostTicker
               userId={userId}
@@ -278,7 +278,7 @@ export function DashboardRealtime({
 
         {/* Active sessions */}
         <dl className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-          <dt className="text-sm text-zinc-500">Active Sessions</dt>
+          <dt className="text-sm text-zinc-400">Active Sessions</dt>
           <dd className="text-2xl font-bold text-zinc-100 mt-1">
             {activeSessionCount}
           </dd>
@@ -286,7 +286,7 @@ export function DashboardRealtime({
 
         {/* Connected machines */}
         <dl className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-          <dt className="text-sm text-zinc-500">Connected Machines</dt>
+          <dt className="text-sm text-zinc-400">Connected Machines</dt>
           <dd className="text-2xl font-bold text-zinc-100 mt-1">
             {connectedMachineCount}
           </dd>
@@ -294,7 +294,7 @@ export function DashboardRealtime({
 
         {/* Total machines */}
         <dl className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-          <dt className="text-sm text-zinc-500">Total Machines</dt>
+          <dt className="text-sm text-zinc-400">Total Machines</dt>
           <dd className="text-2xl font-bold text-zinc-100 mt-1">
             {machines.length}
           </dd>
@@ -307,12 +307,12 @@ export function DashboardRealtime({
       {userTier === 'free' ? (
         <div className="mb-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <svg className="h-5 w-5 text-zinc-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <svg className="h-5 w-5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
             <div>
               <p className="text-sm font-medium text-zinc-300">Activity Graph</p>
-              <p className="text-xs text-zinc-500">52-week coding activity heatmap. Available on Pro.</p>
+              <p className="text-xs text-zinc-400">52-week coding activity heatmap. Available on Pro.</p>
             </div>
           </div>
           <a
@@ -398,7 +398,7 @@ export function DashboardRealtime({
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-4 text-sm text-zinc-500">
+                  <div className="flex items-center gap-4 text-sm text-zinc-400">
                     <span>{session.message_count} messages</span>
                     <span>${Number(session.total_cost_usd).toFixed(4)}</span>
                   </div>
@@ -407,7 +407,7 @@ export function DashboardRealtime({
             ))}
           </ul>
         ) : (
-          <div className="px-4 py-8 text-center text-zinc-500">
+          <div className="px-4 py-8 text-center text-zinc-400">
             <p>No sessions yet.</p>
             <p className="mt-1 text-sm">
               Install the CLI and start a session to see it here.
@@ -438,7 +438,7 @@ export function DashboardRealtime({
                     />
                     <span className="text-zinc-100">{machine.name}</span>
                   </div>
-                  <span className="text-sm text-zinc-500">
+                  <span className="text-sm text-zinc-400">
                     {machine.is_online
                       ? 'Online'
                       : `Last seen ${new Date(machine.last_seen_at).toLocaleDateString()}`}
@@ -448,7 +448,7 @@ export function DashboardRealtime({
             ))}
           </ul>
         ) : (
-          <div className="px-4 py-8 text-center text-zinc-500">
+          <div className="px-4 py-8 text-center text-zinc-400">
             <p>No machines registered.</p>
             <p className="mt-1 text-sm">
               Run <code className="text-orange-500">styrby auth</code> on your development machine to get started.
@@ -467,12 +467,12 @@ export function DashboardRealtime({
       ) : (
         <div className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <svg className="h-5 w-5 text-zinc-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <svg className="h-5 w-5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
             <div>
               <p className="text-sm font-medium text-zinc-300">Cloud Monitoring</p>
-              <p className="text-xs text-zinc-500">Real-time cloud task monitoring. Available on Power.</p>
+              <p className="text-xs text-zinc-400">Real-time cloud task monitoring. Available on Power.</p>
             </div>
           </div>
           <a

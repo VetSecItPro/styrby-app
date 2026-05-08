@@ -193,7 +193,7 @@ export function SessionShareButton({ sessionId, machineId }: SessionShareButtonP
               </h2>
               <button
                 onClick={() => setIsOpen(false)}
-                className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                className="text-zinc-400 hover:text-zinc-300 transition-colors"
                 aria-label="Close share dialog"
               >
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -274,7 +274,7 @@ export function SessionShareButton({ sessionId, machineId }: SessionShareButtonP
                       {machineId ? ` (machine ${machineId.slice(0, 8)}...)` : ''}.
                       Ask the session owner to share the key via a secure channel (Signal, 1Password, etc.).
                     </p>
-                    <p className="mt-2 text-xs text-zinc-500">
+                    <p className="mt-2 text-xs text-zinc-400">
                       The key is never stored in Styrby. This ensures your session content
                       is private even from Styrby servers.
                     </p>

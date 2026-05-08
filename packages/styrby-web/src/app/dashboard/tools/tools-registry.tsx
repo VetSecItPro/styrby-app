@@ -110,7 +110,7 @@ function ToolCard({ tool }: { tool: MCPToolDescriptor }) {
           }`}
         >
           <Icon
-            className={`h-5 w-5 ${isAvailable ? 'text-amber-500' : 'text-zinc-500'}`}
+            className={`h-5 w-5 ${isAvailable ? 'text-amber-500' : 'text-zinc-400'}`}
             aria-hidden="true"
           />
         </div>

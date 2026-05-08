@@ -123,15 +123,15 @@ export function NpsTab({ initialData, nps_window }: NpsTabProps) {
             <div className="mt-4 grid grid-cols-3 gap-2 text-center">
               <div>
                 <p className="text-xl font-bold text-green-400">{currentNps.promoters}</p>
-                <p className="text-xs text-zinc-500">Promoters</p>
+                <p className="text-xs text-zinc-400">Promoters</p>
               </div>
               <div>
                 <p className="text-xl font-bold text-yellow-400">{currentNps.passives}</p>
-                <p className="text-xs text-zinc-500">Passives</p>
+                <p className="text-xs text-zinc-400">Passives</p>
               </div>
               <div>
                 <p className="text-xl font-bold text-red-400">{currentNps.detractors}</p>
-                <p className="text-xs text-zinc-500">Detractors</p>
+                <p className="text-xs text-zinc-400">Detractors</p>
               </div>
             </div>
           )}
@@ -159,7 +159,7 @@ export function NpsTab({ initialData, nps_window }: NpsTabProps) {
                     {formatNpsScore(comment.score)}
                   </span>
                   {comment.nps_window && (
-                    <span className="text-xs text-zinc-500">
+                    <span className="text-xs text-zinc-400">
                       {comment.nps_window === '7d' ? '7-day survey' : '30-day survey'}
                     </span>
                   )}
@@ -176,7 +176,7 @@ export function NpsTab({ initialData, nps_window }: NpsTabProps) {
 
       {currentNps.total === 0 && (
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center">
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-zinc-400">
             No NPS responses yet.
             Prompts are scheduled for day 7 and day 30 after signup.
           </p>

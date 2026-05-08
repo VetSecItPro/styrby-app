@@ -291,8 +291,8 @@ export default function AdminTicketDetailPage() {
   if (loading) {
     return (
       <div className="py-16 text-center">
-        <RefreshCw className="mx-auto h-8 w-8 animate-spin text-zinc-500" />
-        <p className="mt-4 text-sm text-zinc-500">Loading ticket...</p>
+        <RefreshCw className="mx-auto h-8 w-8 animate-spin text-zinc-400" />
+        <p className="mt-4 text-sm text-zinc-400">Loading ticket...</p>
       </div>
     );
   }
@@ -341,14 +341,14 @@ export default function AdminTicketDetailPage() {
                   Priority: {ticket.priority}
                 </span>
               )}
-              <span className="font-mono text-xs text-zinc-500">{ticket.id.slice(0, 8)}</span>
+              <span className="font-mono text-xs text-zinc-400">{ticket.id.slice(0, 8)}</span>
             </div>
 
             <h1 className="mb-2 text-xl font-bold text-zinc-100">{ticket.subject}</h1>
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">
               {ticket.description}
             </p>
-            <p className="mt-4 text-xs text-zinc-500">
+            <p className="mt-4 text-xs text-zinc-400">
               Submitted {getRelativeTime(ticket.created_at)}
               {ticket.updated_at !== ticket.created_at && (
                 <> &middot; Updated {getRelativeTime(ticket.updated_at)}</>
@@ -404,7 +404,7 @@ export default function AdminTicketDetailPage() {
                       <p className="whitespace-pre-wrap text-sm text-zinc-200">
                         {reply.message}
                       </p>
-                      <p className="mt-2 text-xs text-zinc-500">
+                      <p className="mt-2 text-xs text-zinc-400">
                         {getRelativeTime(reply.created_at)}
                       </p>
                     </div>
@@ -437,7 +437,7 @@ export default function AdminTicketDetailPage() {
               <p className="mb-3 text-sm text-green-400">{replySuccess}</p>
             )}
             <div className="flex items-center justify-between">
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-zinc-400">
                 Reply will be emailed to {ticketUser?.email || 'the user'}.
               </p>
               <button
@@ -457,7 +457,7 @@ export default function AdminTicketDetailPage() {
               <label htmlFor="admin-notes" className="text-sm font-medium text-zinc-300">
                 Internal Notes
               </label>
-              <span className="text-xs text-zinc-500">
+              <span className="text-xs text-zinc-400">
                 {notesSaving ? 'Saving...' : notesSaved ? 'Saved' : 'Auto-saves on blur'}
               </span>
             </div>
@@ -485,13 +485,13 @@ export default function AdminTicketDetailPage() {
                 <p className="truncate text-sm font-medium text-zinc-100">
                   {ticketUser?.display_name || 'No display name'}
                 </p>
-                <p className="truncate text-xs text-zinc-500">{ticketUser?.email}</p>
+                <p className="truncate text-xs text-zinc-400">{ticketUser?.email}</p>
               </div>
             </div>
 
             <div className="space-y-3 border-t border-zinc-800 pt-4">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-500">Tier</span>
+                <span className="text-xs text-zinc-400">Tier</span>
                 <span
                   className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${tierBadge.bg} ${tierBadge.text}`}
                 >
@@ -499,17 +499,17 @@ export default function AdminTicketDetailPage() {
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-500">Machines</span>
+                <span className="text-xs text-zinc-400">Machines</span>
                 <span className="text-xs text-zinc-300">{ticketUser?.machines_count || 0}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-500">Account ID</span>
-                <span className="font-mono text-xs text-zinc-500">
+                <span className="text-xs text-zinc-400">Account ID</span>
+                <span className="font-mono text-xs text-zinc-400">
                   {ticketUser?.id?.slice(0, 8) || 'N/A'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-500">Joined</span>
+                <span className="text-xs text-zinc-400">Joined</span>
                 <span className="text-xs text-zinc-300">
                   {ticketUser?.joined_at
                     ? new Date(ticketUser.joined_at).toLocaleDateString()
@@ -543,11 +543,11 @@ export default function AdminTicketDetailPage() {
             </div>
 
             {grantsLoading ? (
-              <p className="text-xs text-zinc-500" data-testid="grants-loading">
+              <p className="text-xs text-zinc-400" data-testid="grants-loading">
                 Loading grants...
               </p>
             ) : accessGrants.length === 0 ? (
-              <p className="text-xs text-zinc-500" data-testid="no-grants-message">
+              <p className="text-xs text-zinc-400" data-testid="no-grants-message">
                 No session access grants yet for this ticket.
               </p>
             ) : (
@@ -563,7 +563,7 @@ export default function AdminTicketDetailPage() {
                     ? 'text-green-400'
                     : isPendingGrant
                     ? 'text-amber-400'
-                    : 'text-zinc-500';
+                    : 'text-zinc-400';
 
                   return (
                     <div
@@ -572,7 +572,7 @@ export default function AdminTicketDetailPage() {
                       data-testid={`grant-item-${grant.id}`}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <p className="font-mono text-xs text-zinc-500">
+                        <p className="font-mono text-xs text-zinc-400">
                           {grant.session_id.slice(0, 8)}...
                         </p>
                         <span className={`shrink-0 text-xs font-medium ${statusColor}`}>
@@ -587,7 +587,7 @@ export default function AdminTicketDetailPage() {
                         {grant.reason.slice(0, 60)}
                         {grant.reason.length > 60 ? '…' : ''}
                       </p>
-                      <p className="mt-1 text-xs text-zinc-500">
+                      <p className="mt-1 text-xs text-zinc-400">
                         Expires {new Date(grant.expires_at).toLocaleDateString()}
                       </p>
                     </div>

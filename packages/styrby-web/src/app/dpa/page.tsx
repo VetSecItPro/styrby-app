@@ -115,7 +115,7 @@ export default function DpaPage() {
 
         <article className="prose prose-lg prose-invert max-w-none prose-headings:text-zinc-100 prose-p:text-zinc-300 prose-li:text-zinc-300 prose-a:text-orange-400 prose-a:no-underline hover:prose-a:text-orange-300 prose-strong:text-zinc-200">
           <h1>Data Processing Agreement</h1>
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-zinc-400">
             Effective date: March 22, 2026. Last updated: March 22, 2026.
           </p>
 
@@ -459,7 +459,7 @@ export default function DpaPage() {
 
           {/* ── Related ──────────────────────────────────────── */}
           <hr />
-          <p className="dpa-related-links text-sm text-zinc-500">
+          <p className="dpa-related-links text-sm text-zinc-400">
             Related documents:{' '}
             <Link href="/privacy">Privacy Policy</Link>
             {' | '}

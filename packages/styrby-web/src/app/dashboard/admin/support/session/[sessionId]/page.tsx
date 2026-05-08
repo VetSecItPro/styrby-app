@@ -223,7 +223,7 @@ function SessionMetaCard({
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <h2 className="text-sm font-semibold text-zinc-300">Session Overview</h2>
-          <p className="mt-0.5 font-mono text-xs text-zinc-500">{session.id}</p>
+          <p className="mt-0.5 font-mono text-xs text-zinc-400">{session.id}</p>
         </div>
         <span
           className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
@@ -240,46 +240,46 @@ function SessionMetaCard({
 
       <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
         <div>
-          <dt className="text-xs text-zinc-500">Agent</dt>
+          <dt className="text-xs text-zinc-400">Agent</dt>
           <dd className="mt-0.5 font-medium text-zinc-200">{session.agent_type}</dd>
         </div>
         {session.model && (
           <div>
-            <dt className="text-xs text-zinc-500">Model</dt>
+            <dt className="text-xs text-zinc-400">Model</dt>
             <dd className="mt-0.5 font-medium text-zinc-200">{session.model}</dd>
           </div>
         )}
         <div>
-          <dt className="text-xs text-zinc-500">Started</dt>
+          <dt className="text-xs text-zinc-400">Started</dt>
           <dd className="mt-0.5 text-zinc-200">
             {new Date(session.started_at).toLocaleString()}
           </dd>
         </div>
         {session.ended_at && (
           <div>
-            <dt className="text-xs text-zinc-500">Ended</dt>
+            <dt className="text-xs text-zinc-400">Ended</dt>
             <dd className="mt-0.5 text-zinc-200">
               {new Date(session.ended_at).toLocaleString()}
             </dd>
           </div>
         )}
         <div>
-          <dt className="text-xs text-zinc-500">Total tokens</dt>
+          <dt className="text-xs text-zinc-400">Total tokens</dt>
           <dd className="mt-0.5 text-zinc-200">{totalTokens.toLocaleString()}</dd>
         </div>
         <div>
-          <dt className="text-xs text-zinc-500">Cost (USD)</dt>
+          <dt className="text-xs text-zinc-400">Cost (USD)</dt>
           <dd className="mt-0.5 text-zinc-200">${session.total_cost_usd.toFixed(4)}</dd>
         </div>
         <div>
-          <dt className="text-xs text-zinc-500">Messages</dt>
+          <dt className="text-xs text-zinc-400">Messages</dt>
           <dd className="mt-0.5 text-zinc-200">{session.message_count}</dd>
         </div>
       </dl>
 
       {/* Grant context — shows grant_id (never token_hash) */}
       <div className="mt-4 border-t border-zinc-800 pt-4">
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-zinc-400">
           Support grant:{' '}
           <span className="font-mono text-zinc-400">#{grantId.toString()}</span>
           {' · '}
@@ -307,7 +307,7 @@ function MessageMetaTable({ messages }: { messages: MessageRow[] }) {
   if (messages.length === 0) {
     return (
       <div className="rounded-xl border border-zinc-800 bg-zinc-900 px-6 py-10 text-center">
-        <p className="text-sm text-zinc-500">No messages found for this session.</p>
+        <p className="text-sm text-zinc-400">No messages found for this session.</p>
       </div>
     );
   }
@@ -331,13 +331,13 @@ function MessageMetaTable({ messages }: { messages: MessageRow[] }) {
         >
           <thead>
             <tr className="border-b border-zinc-800 text-left">
-              <th className="px-4 py-3 text-xs font-semibold text-zinc-500">#</th>
-              <th className="px-4 py-3 text-xs font-semibold text-zinc-500">Timestamp</th>
-              <th className="px-4 py-3 text-xs font-semibold text-zinc-500">Type</th>
-              <th className="px-4 py-3 text-xs font-semibold text-zinc-500">Tool</th>
-              <th className="px-4 py-3 text-xs font-semibold text-zinc-500">In tokens</th>
-              <th className="px-4 py-3 text-xs font-semibold text-zinc-500">Out tokens</th>
-              <th className="px-4 py-3 text-xs font-semibold text-zinc-500">Duration (ms)</th>
+              <th className="px-4 py-3 text-xs font-semibold text-zinc-400">#</th>
+              <th className="px-4 py-3 text-xs font-semibold text-zinc-400">Timestamp</th>
+              <th className="px-4 py-3 text-xs font-semibold text-zinc-400">Type</th>
+              <th className="px-4 py-3 text-xs font-semibold text-zinc-400">Tool</th>
+              <th className="px-4 py-3 text-xs font-semibold text-zinc-400">In tokens</th>
+              <th className="px-4 py-3 text-xs font-semibold text-zinc-400">Out tokens</th>
+              <th className="px-4 py-3 text-xs font-semibold text-zinc-400">Duration (ms)</th>
             </tr>
           </thead>
           <tbody>
@@ -346,7 +346,7 @@ function MessageMetaTable({ messages }: { messages: MessageRow[] }) {
                 key={msg.id}
                 className="border-b border-zinc-800/50 transition-colors hover:bg-zinc-800/30"
               >
-                <td className="px-4 py-2.5 font-mono text-xs text-zinc-500">
+                <td className="px-4 py-2.5 font-mono text-xs text-zinc-400">
                   {msg.sequence_number}
                 </td>
                 <td className="px-4 py-2.5 text-xs text-zinc-400">
@@ -380,7 +380,7 @@ function MessageMetaTable({ messages }: { messages: MessageRow[] }) {
       </div>
 
       <div className="border-t border-zinc-800 px-4 py-3">
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-zinc-400">
           Showing {messages.length} most recent message{messages.length !== 1 ? 's' : ''}
           {messages.length === MESSAGE_LIMIT ? ` (limited to ${MESSAGE_LIMIT})` : ''}
         </p>

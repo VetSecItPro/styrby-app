@@ -296,7 +296,7 @@ export function MembersTable({
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <Users size={40} className="text-zinc-400 mb-3" aria-hidden />
         <p className="text-zinc-400 font-medium">No members yet</p>
-        <p className="text-zinc-500 text-sm mt-1">
+        <p className="text-zinc-400 text-sm mt-1">
           Invite your first team member from the Invitations panel.
         </p>
       </div>
@@ -355,10 +355,10 @@ export function MembersTable({
                       <div>
                         <div className="text-zinc-200 font-medium flex items-center gap-1.5">
                           {member.display_name ?? member.email}
-                          {isSelf && <span className="text-zinc-500 text-xs">(you)</span>}
+                          {isSelf && <span className="text-zinc-400 text-xs">(you)</span>}
                         </div>
                         {member.display_name && (
-                          <div className="text-zinc-500 text-xs">{member.email}</div>
+                          <div className="text-zinc-400 text-xs">{member.email}</div>
                         )}
                       </div>
                     </div>
@@ -386,7 +386,7 @@ export function MembersTable({
                       <RoleBadge role={member.role} />
                     )}
                     {isChangingRole && (
-                      <span className="text-zinc-500 text-xs ml-2">Saving...</span>
+                      <span className="text-zinc-400 text-xs ml-2">Saving...</span>
                     )}
                   </td>
 

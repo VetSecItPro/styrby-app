@@ -193,7 +193,7 @@ export default async function SessionPage({ params }: SessionPageProps) {
           <div className="flex items-center gap-2">
             {session.project_path && (
               <span
-                className="text-xs text-zinc-500 font-mono max-w-[200px] truncate"
+                className="text-xs text-zinc-400 font-mono max-w-[200px] truncate"
                 title={session.project_path}
               >
                 {session.project_path}
@@ -213,7 +213,7 @@ export default async function SessionPage({ params }: SessionPageProps) {
             {userTier === 'free' ? (
               <a
                 href="/pricing"
-                className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-zinc-500 hover:text-orange-400 transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-zinc-400 hover:text-orange-400 transition-colors"
                 title="Upgrade to Pro to share sessions"
                 aria-label="Session sharing requires Pro plan"
               >
@@ -242,7 +242,7 @@ export default async function SessionPage({ params }: SessionPageProps) {
             after a session completes, which is the most common workflow for freelancers
             billing multiple clients. */}
         <div className="mt-3 flex items-center gap-2">
-          <span className="text-xs text-zinc-500 shrink-0">Tags:</span>
+          <span className="text-xs text-zinc-400 shrink-0">Tags:</span>
           <SessionTagEditor
             sessionId={session.id}
             initialTags={(session.tags as string[]) ?? []}
@@ -281,12 +281,12 @@ export default async function SessionPage({ params }: SessionPageProps) {
           {!isSessionActive && userTier === 'free' ? (
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
               <div className="flex items-center gap-2 mb-2">
-                <svg className="h-4 w-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                <svg className="h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
-                <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-500">Context Breakdown</h3>
+                <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-400">Context Breakdown</h3>
               </div>
-              <p className="text-xs text-zinc-500 mb-3">
+              <p className="text-xs text-zinc-400 mb-3">
                 Per-file context usage is a Pro feature.
               </p>
               <a
@@ -307,12 +307,12 @@ export default async function SessionPage({ params }: SessionPageProps) {
           {userTier === 'free' ? (
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
               <div className="flex items-center gap-2 mb-2">
-                <svg className="h-4 w-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                <svg className="h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
-                <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-500">Checkpoints</h3>
+                <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-400">Checkpoints</h3>
               </div>
-              <p className="text-xs text-zinc-500 mb-3">
+              <p className="text-xs text-zinc-400 mb-3">
                 Session checkpoints are a Pro feature.
               </p>
               <a

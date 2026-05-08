@@ -40,7 +40,7 @@ const STATUS_CONFIG: Record<
   running:   { label: 'Running',   dotColor: '#3b82f6', badgeBg: 'bg-blue-500/10',    badgeText: 'text-blue-400' },
   completed: { label: 'Done',      dotColor: '#22c55e', badgeBg: 'bg-green-500/10',   badgeText: 'text-green-400' },
   failed:    { label: 'Failed',    dotColor: '#ef4444', badgeBg: 'bg-red-500/10',      badgeText: 'text-red-400' },
-  cancelled: { label: 'Cancelled', dotColor: '#71717a', badgeBg: 'bg-zinc-800',        badgeText: 'text-zinc-500' },
+  cancelled: { label: 'Cancelled', dotColor: '#71717a', badgeBg: 'bg-zinc-800',        badgeText: 'text-zinc-400' },
 };
 
 /**
@@ -200,7 +200,7 @@ function TaskRow({
             <StatusBadge status={task.status} />
 
             {task.metadata?.gitBranch && (
-              <span className="text-xs text-zinc-500 font-mono">
+              <span className="text-xs text-zinc-400 font-mono">
                 {task.metadata.gitBranch}
               </span>
             )}
@@ -442,7 +442,7 @@ export function CloudTasksPanel({ userId }: CloudTasksPanelProps) {
           ].map(({ label, value, color }) => (
             <div key={label} className="bg-zinc-900 rounded-lg p-3 text-center">
               <div className={`text-lg font-bold ${color}`}>{value}</div>
-              <div className="text-xs text-zinc-500">{label}</div>
+              <div className="text-xs text-zinc-400">{label}</div>
             </div>
           ))}
         </div>
@@ -452,7 +452,7 @@ export function CloudTasksPanel({ userId }: CloudTasksPanelProps) {
       {isLoading ? (
         <div className="flex items-center justify-center py-8">
           <div className="w-5 h-5 rounded-full border-2 border-orange-500 border-t-transparent animate-spin" />
-          <span className="ml-3 text-sm text-zinc-500">Loading tasks...</span>
+          <span className="ml-3 text-sm text-zinc-400">Loading tasks...</span>
         </div>
       ) : tasks.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -470,7 +470,7 @@ export function CloudTasksPanel({ userId }: CloudTasksPanelProps) {
               d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"
             />
           </svg>
-          <p className="text-sm text-zinc-500 mb-2">No cloud tasks yet</p>
+          <p className="text-sm text-zinc-400 mb-2">No cloud tasks yet</p>
           <p className="text-xs text-zinc-400 font-mono">
             styrby cloud submit &quot;Write tests for auth.ts&quot;
           </p>
@@ -495,7 +495,7 @@ export function CloudTasksPanel({ userId }: CloudTasksPanelProps) {
       {/* CLI hint */}
       <p className="text-xs text-zinc-400 text-center pt-1">
         Submit async tasks with{' '}
-        <code className="font-mono text-zinc-500">styrby cloud submit</code>
+        <code className="font-mono text-zinc-400">styrby cloud submit</code>
       </p>
     </div>
   );

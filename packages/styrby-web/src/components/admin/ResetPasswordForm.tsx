@@ -120,7 +120,7 @@ export function ResetPasswordForm({ targetUserId, targetEmail, action }: ResetPa
           {/* WHY JSX text: React escapes user-supplied email — no XSS risk. */}
           {targetEmail}
         </p>
-        <p className="mt-1 text-xs text-zinc-500">
+        <p className="mt-1 text-xs text-zinc-400">
           The link expires after 24 hours. The admin_audit_log row is written
           before the email is sent — see Sentry if delivery fails.
         </p>

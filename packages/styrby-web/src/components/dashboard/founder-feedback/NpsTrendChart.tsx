@@ -57,7 +57,7 @@ export function NpsTrendChart({ trend, height = 120 }: NpsTrendChartProps) {
 
   if (!trend.length) {
     return (
-      <div className="flex h-[120px] items-center justify-center rounded-lg bg-zinc-800/50 text-sm text-zinc-500">
+      <div className="flex h-[120px] items-center justify-center rounded-lg bg-zinc-800/50 text-sm text-zinc-400">
         No trend data yet
       </div>
     );

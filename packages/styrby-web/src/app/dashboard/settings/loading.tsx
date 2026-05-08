@@ -13,7 +13,7 @@ export default function SettingsLoading() {
           role="status"
           aria-label="Loading settings"
         />
-        <p className="text-sm text-zinc-500">Loading Settings...</p>
+        <p className="text-sm text-zinc-400">Loading Settings...</p>
       </div>
     </div>
   );

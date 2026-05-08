@@ -149,7 +149,7 @@ export function OnboardingBanner({ onboardingState }: OnboardingBannerProps) {
                 <Circle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
               )}
               {step.completed ? (
-                <span className="text-[11px] text-zinc-500 line-through">
+                <span className="text-[11px] text-zinc-400 line-through">
                   {step.label}
                 </span>
               ) : (

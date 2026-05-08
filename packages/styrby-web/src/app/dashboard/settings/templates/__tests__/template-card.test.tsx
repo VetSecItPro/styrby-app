@@ -150,7 +150,7 @@ describe('TemplateCard', () => {
 
       expect(screen.getByText(/2 variables/)).toBeInTheDocument();
       // The variables badge section contains both variable names
-      const variableBadge = container.querySelector('.text-xs.text-zinc-500 span');
+      const variableBadge = container.querySelector('.text-xs.text-zinc-400 span');
       expect(variableBadge?.textContent).toContain('{{language}}');
       expect(variableBadge?.textContent).toContain('{{project_name}}');
     });

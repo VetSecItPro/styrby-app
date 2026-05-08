@@ -46,7 +46,7 @@ export function SettingsAgents({ agentConfigs }: SettingsAgentsProps) {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-zinc-100 capitalize">{id}</p>
-                  <p className="text-sm text-zinc-500">
+                  <p className="text-sm text-zinc-400">
                     {config?.auto_approve_low_risk
                       ? 'Auto-approve low risk'
                       : 'Manual approval'}

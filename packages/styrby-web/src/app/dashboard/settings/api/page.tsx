@@ -134,11 +134,11 @@ export default async function ApiKeysPage() {
         <div className="flex items-center gap-3 mb-2">
           <Link
             href="/dashboard/settings"
-            className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="text-sm text-zinc-400 hover:text-zinc-300 transition-colors"
           >
             Settings
           </Link>
-          <span className="text-zinc-500">/</span>
+          <span className="text-zinc-400">/</span>
           <span className="text-sm text-zinc-300">API Keys</span>
         </div>
         <h1 className="text-2xl font-bold text-zinc-100 mb-8">API Keys</h1>

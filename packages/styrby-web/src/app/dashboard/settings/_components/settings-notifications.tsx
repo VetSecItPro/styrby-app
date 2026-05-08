@@ -183,7 +183,7 @@ export function SettingsNotifications({
         <div className="px-4 py-4 flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-zinc-100">Push Notifications</p>
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-zinc-400">
               Get notified when agents need attention
             </p>
           </div>
@@ -208,7 +208,7 @@ export function SettingsNotifications({
                 <p className="text-sm font-medium text-zinc-100">
                   Browser Push Subscription
                 </p>
-                <p className="text-sm text-zinc-500">
+                <p className="text-sm text-zinc-400">
                   {webPush.subscribed
                     ? 'This browser is receiving push notifications.'
                     : webPush.permission === 'denied'
@@ -248,7 +248,7 @@ export function SettingsNotifications({
 
         {!webPush.supported && (
           <div className="px-4 py-4">
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-zinc-400">
               Your browser does not support Web Push notifications. Try Chrome,
               Firefox, or Edge for push notification support.
             </p>
@@ -259,7 +259,7 @@ export function SettingsNotifications({
         <div className="px-4 py-4 flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-zinc-100">Email Notifications</p>
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-zinc-400">
               Weekly summary and important alerts
             </p>
           </div>
@@ -281,7 +281,7 @@ export function SettingsNotifications({
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-zinc-100">Quiet Hours</p>
-              <p className="text-sm text-zinc-500">
+              <p className="text-sm text-zinc-400">
                 {notificationPrefs?.quiet_hours_start && notificationPrefs?.quiet_hours_end
                   ? `${notificationPrefs.quiet_hours_start} - ${notificationPrefs.quiet_hours_end}`
                   : 'Not configured'}
@@ -298,7 +298,7 @@ export function SettingsNotifications({
           {editingQuietHours && (
             <div className="mt-3 flex items-center gap-3">
               <div className="flex items-center gap-2">
-                <label htmlFor="quiet-start" className="text-xs text-zinc-500">
+                <label htmlFor="quiet-start" className="text-xs text-zinc-400">
                   From
                 </label>
                 <input
@@ -310,7 +310,7 @@ export function SettingsNotifications({
                 />
               </div>
               <div className="flex items-center gap-2">
-                <label htmlFor="quiet-end" className="text-xs text-zinc-500">
+                <label htmlFor="quiet-end" className="text-xs text-zinc-400">
                   To
                 </label>
                 <input
@@ -346,10 +346,10 @@ export function SettingsNotifications({
                   </span>
                 )}
               </div>
-              <p className="text-sm text-zinc-500">Filter notifications by importance</p>
+              <p className="text-sm text-zinc-400">Filter notifications by importance</p>
             </div>
             {prioritySaving && (
-              <span className="text-xs text-zinc-500">Saving...</span>
+              <span className="text-xs text-zinc-400">Saving...</span>
             )}
           </div>
           <div className={`${!isPaidTier ? 'opacity-50 pointer-events-none' : ''}`}>
@@ -364,13 +364,13 @@ export function SettingsNotifications({
               aria-label="Notification sensitivity slider"
             />
             <div className="flex justify-between mt-2">
-              <span className="text-xs text-zinc-500">Urgent only</span>
-              <span className="text-xs text-zinc-500">All</span>
+              <span className="text-xs text-zinc-400">Urgent only</span>
+              <span className="text-xs text-zinc-400">All</span>
             </div>
             <div className="mt-4 p-3 rounded-lg bg-zinc-800/50 border border-zinc-700">
               <p className="text-sm font-medium text-zinc-100 mb-1">{priorityCopy.title}</p>
               <p className="text-xs text-zinc-400 mb-2">{priorityCopy.summary}</p>
-              <div className="space-y-1 text-xs text-zinc-500">
+              <div className="space-y-1 text-xs text-zinc-400">
                 <p className="font-medium text-zinc-400">Examples at this level:</p>
                 {priorityCopy.examples.map((line) => (
                   <p key={line}>{line}</p>

@@ -227,7 +227,7 @@ export function PoliciesForm({ initial, teamId, canEdit }: PoliciesFormProps) {
           <Shield size={16} className="text-green-400" aria-hidden />
           <h3 className="text-zinc-200 font-medium text-sm">Auto-approve rules</h3>
         </div>
-        <p className="text-zinc-500 text-xs mb-3">
+        <p className="text-zinc-400 text-xs mb-3">
           Tool names that are automatically allowed without requiring human review.
           Press Enter or comma to add a tool name.
         </p>
@@ -252,7 +252,7 @@ export function PoliciesForm({ initial, teamId, canEdit }: PoliciesFormProps) {
           <Shield size={16} className="text-red-400" aria-hidden />
           <h3 className="text-zinc-200 font-medium text-sm">Blocked tools</h3>
         </div>
-        <p className="text-zinc-500 text-xs mb-3">
+        <p className="text-zinc-400 text-xs mb-3">
           Tool names that are blocked outright. Takes precedence over auto-approve rules.
           Press Enter or comma to add.
         </p>
@@ -275,12 +275,12 @@ export function PoliciesForm({ initial, teamId, canEdit }: PoliciesFormProps) {
         <div className="flex items-center gap-2 mb-2">
           <h3 className="text-zinc-200 font-medium text-sm">Budget per seat (USD/month)</h3>
         </div>
-        <p className="text-zinc-500 text-xs mb-3">
+        <p className="text-zinc-400 text-xs mb-3">
           Monthly spend limit per member. Leave blank for no limit. Triggers an alert
           when any member exceeds this threshold.
         </p>
         <div className="relative max-w-40">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm pointer-events-none">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 text-sm pointer-events-none">
             $
           </span>
           <input
@@ -325,7 +325,7 @@ export function PoliciesForm({ initial, teamId, canEdit }: PoliciesFormProps) {
       )}
 
       {!canEdit && (
-        <p className="text-zinc-500 text-xs pt-2 border-t border-zinc-800">
+        <p className="text-zinc-400 text-xs pt-2 border-t border-zinc-800">
           Only team owners and admins can edit policies.
         </p>
       )}

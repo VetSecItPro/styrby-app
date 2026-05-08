@@ -88,7 +88,7 @@ function actionBadgeClass(action: string): string {
   if (action.startsWith('override')) return 'bg-orange-500/10 text-orange-400';
   if (action === 'reset_password') return 'bg-blue-500/10 text-blue-400';
   if (action.includes('consent')) return 'bg-purple-500/10 text-purple-400';
-  if (action.includes('expired')) return 'bg-zinc-700/50 text-zinc-500';
+  if (action.includes('expired')) return 'bg-zinc-700/50 text-zinc-400';
   return 'bg-zinc-700/50 text-zinc-400';
 }
 
@@ -136,7 +136,7 @@ export function AuditLogTable({ rows, nextCursor }: AuditLogTableProps) {
   if (rows.length === 0) {
     return (
       <div className="py-16 text-center" data-testid="audit-log-empty">
-        <p className="text-sm text-zinc-500">No admin audit log entries found.</p>
+        <p className="text-sm text-zinc-400">No admin audit log entries found.</p>
       </div>
     );
   }
@@ -168,7 +168,7 @@ export function AuditLogTable({ rows, nextCursor }: AuditLogTableProps) {
                 data-testid="audit-log-row"
               >
                 {/* ID column — monotonically increasing, useful for range queries */}
-                <td className="px-4 py-3 font-mono text-xs text-zinc-500">{row.id}</td>
+                <td className="px-4 py-3 font-mono text-xs text-zinc-400">{row.id}</td>
 
                 {/* Action badge */}
                 <td className="px-4 py-3">
@@ -226,7 +226,7 @@ export function AuditLogTable({ rows, nextCursor }: AuditLogTableProps) {
 
       {/* Pagination controls */}
       <div className="mt-4 flex items-center justify-between">
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-zinc-400">
           {rows.length} row{rows.length !== 1 ? 's' : ''} on this page
         </p>
 

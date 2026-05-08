@@ -123,7 +123,7 @@ export function SessionBookmarkButton({
           ${
             isBookmarked
               ? 'text-orange-400 hover:text-orange-300'
-              : 'text-zinc-500 hover:text-orange-400'
+              : 'text-zinc-400 hover:text-orange-400'
           }
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500
         `}

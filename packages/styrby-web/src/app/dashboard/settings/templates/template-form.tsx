@@ -360,7 +360,7 @@ export function TemplateForm({ isOpen, onClose, template, onSubmit }: TemplateFo
               >
                 Content <span className="text-red-400">*</span>
               </label>
-              <span className="text-xs text-zinc-500">
+              <span className="text-xs text-zinc-400">
                 Use {'{{variable_name}}'} for placeholders
               </span>
             </div>
@@ -407,7 +407,7 @@ export function TemplateForm({ isOpen, onClose, template, onSubmit }: TemplateFo
             </div>
 
             {formState.variables.length === 0 ? (
-              <p className="text-sm text-zinc-500 py-3 text-center border border-dashed border-zinc-700 rounded-lg">
+              <p className="text-sm text-zinc-400 py-3 text-center border border-dashed border-zinc-700 rounded-lg">
                 No variables defined. Add variables to make your template dynamic.
               </p>
             ) : (
@@ -469,7 +469,7 @@ export function TemplateForm({ isOpen, onClose, template, onSubmit }: TemplateFo
                       <button
                         type="button"
                         onClick={() => handleRemoveVariable(index)}
-                        className="mt-5 p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                        className="mt-5 p-1.5 text-zinc-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
                         aria-label={`Remove variable ${index + 1}`}
                       >
                         <TrashIcon className="h-4 w-4" />
@@ -485,7 +485,7 @@ export function TemplateForm({ isOpen, onClose, template, onSubmit }: TemplateFo
           <div className="flex items-center justify-between py-3 border-t border-zinc-800">
             <div>
               <p className="text-sm font-medium text-zinc-100">Set as Default</p>
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-zinc-400">
                 Automatically apply this template to new sessions
               </p>
             </div>

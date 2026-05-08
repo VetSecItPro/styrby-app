@@ -167,7 +167,7 @@ export function OverrideTierForm({ targetUserId, currentTier = 'free', action }:
       {/* Expires at (optional) */}
       <div className="flex flex-col gap-1">
         <label htmlFor="expiresAt" className="text-sm font-medium text-zinc-300">
-          Expires at <span className="text-zinc-500 font-normal">(optional — leave blank for permanent)</span>
+          Expires at <span className="text-zinc-400 font-normal">(optional — leave blank for permanent)</span>
         </label>
         <input
           id="expiresAt"

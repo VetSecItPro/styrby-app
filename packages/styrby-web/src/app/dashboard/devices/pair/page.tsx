@@ -195,12 +195,12 @@ export default async function PairDevicePage() {
                           <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
                         )}
                       </div>
-                      <div className="text-sm text-zinc-500">
+                      <div className="text-sm text-zinc-400">
                         {machine.hostname && (
                           <span className="mr-2">{machine.hostname}</span>
                         )}
                         {machine.cli_version && (
-                          <span className="text-zinc-500">
+                          <span className="text-zinc-400">
                             v{machine.cli_version}
                           </span>
                         )}
@@ -209,7 +209,7 @@ export default async function PairDevicePage() {
                   </div>
 
                   {/* Last seen */}
-                  <div className="text-sm text-zinc-500">
+                  <div className="text-sm text-zinc-400">
                     {machine.is_online ? (
                       <span className="text-green-500">Online</span>
                     ) : (
@@ -234,7 +234,7 @@ export default async function PairDevicePage() {
 
         {/* No devices message */}
         {(!machines || machines.length === 0) && (
-          <div className="mt-12 text-center text-zinc-500">
+          <div className="mt-12 text-center text-zinc-400">
             <p>No devices paired yet. Scan the QR code above to get started.</p>
           </div>
         )}

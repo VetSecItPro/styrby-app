@@ -186,7 +186,7 @@ export function ChurnSaveOfferCard({
         )}
 
         {/* Expiry countdown */}
-        <p className="mt-3 text-center text-xs text-zinc-500">
+        <p className="mt-3 text-center text-xs text-zinc-400">
           Expires {formatDate(expiresAt)}
         </p>
       </div>
@@ -217,7 +217,7 @@ export function ChurnSaveOfferCard({
         {isPending ? 'Accepting...' : 'Accept offer'}
       </button>
 
-      <p className="text-center text-xs text-zinc-500">
+      <p className="text-center text-xs text-zinc-400">
         By accepting, you agree to the discounted subscription terms.
         You can cancel anytime after the promotional period.
       </p>

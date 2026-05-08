@@ -169,7 +169,7 @@ export function InviteMemberModal({ isOpen, teamId, onClose, onSuccess }: Invite
           <button
             onClick={handleCancel}
             aria-label="Close modal"
-            className="absolute top-4 right-4 text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-300 transition-colors"
           >
             <X className="w-5 h-5" aria-hidden="true" />
           </button>

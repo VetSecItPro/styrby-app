@@ -90,7 +90,7 @@ export function SettingsDataPrivacy() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-zinc-100">Export Your Data</p>
-              <p className="text-sm text-zinc-500">
+              <p className="text-sm text-zinc-400">
                 Download all your data in JSON format (GDPR Art. 15)
               </p>
             </div>
@@ -125,12 +125,12 @@ export function SettingsDataPrivacy() {
             <Shield className="h-4 w-4 text-blue-400" aria-hidden />
             <div>
               <p className="text-sm font-medium text-zinc-100">Privacy Control Center</p>
-              <p className="text-sm text-zinc-500">
+              <p className="text-sm text-zinc-400">
                 Retention policy, data map, encryption details, account deletion
               </p>
             </div>
           </div>
-          <ChevronRight className="h-4 w-4 text-zinc-500 group-hover:text-zinc-300 transition-colors" aria-hidden />
+          <ChevronRight className="h-4 w-4 text-zinc-400 group-hover:text-zinc-300 transition-colors" aria-hidden />
         </Link>
 
       </div>

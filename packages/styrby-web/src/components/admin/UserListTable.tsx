@@ -167,7 +167,7 @@ export function UserListTable({ rows, query, page }: UserListTableProps) {
   if (rows.length === 0) {
     return (
       <div className="py-16 text-center" data-testid="user-list-empty">
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-zinc-400">
           {query
             // WHY truncate: an adversary (or accidental paste) could supply a very
             // long query string. Reflecting it verbatim risks layout break and a
@@ -212,7 +212,7 @@ export function UserListTable({ rows, query, page }: UserListTableProps) {
                 <td className="px-4 py-3">
                   <TierBadge tier={user.tier} overrideSource={user.override_source} />
                 </td>
-                <td className="px-4 py-3 text-xs text-zinc-500" title={user.created_at}>
+                <td className="px-4 py-3 text-xs text-zinc-400" title={user.created_at}>
                   {getRelativeTime(user.created_at)}
                 </td>
                 <td className="px-4 py-3 text-right">
@@ -233,7 +233,7 @@ export function UserListTable({ rows, query, page }: UserListTableProps) {
 
       {/* Pagination controls */}
       <div className="mt-4 flex items-center justify-between">
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-zinc-400">
           {rows.length} result{rows.length !== 1 ? 's' : ''} on this page
         </p>
 

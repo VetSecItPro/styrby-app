@@ -14,7 +14,7 @@ import Link from 'next/link';
 function CodeBlock({ language, code }: { language: string; code: string }) {
   return (
     <div className="relative rounded-lg bg-zinc-800 border border-zinc-700 overflow-hidden">
-      <div className="absolute top-0 right-0 px-2 py-1 text-xs text-zinc-500">
+      <div className="absolute top-0 right-0 px-2 py-1 text-xs text-zinc-400">
         {language}
       </div>
       <pre className="p-4 overflow-x-auto text-sm text-zinc-300">
@@ -90,7 +90,7 @@ function Endpoint({
                   <code className="text-xs bg-zinc-800 px-1.5 py-0.5 rounded text-orange-400">
                     {param.name}
                   </code>
-                  <span className="text-xs text-zinc-500">{param.type}</span>
+                  <span className="text-xs text-zinc-400">{param.type}</span>
                   {param.required && (
                     <span className="text-xs text-red-400">required</span>
                   )}
@@ -162,18 +162,18 @@ export default function ApiDocsPage() {
         <div className="flex items-center gap-3 mb-2">
           <Link
             href="/settings"
-            className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="text-sm text-zinc-400 hover:text-zinc-300 transition-colors"
           >
             Settings
           </Link>
-          <span className="text-zinc-500">/</span>
+          <span className="text-zinc-400">/</span>
           <Link
             href="/settings/api"
-            className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="text-sm text-zinc-400 hover:text-zinc-300 transition-colors"
           >
             API Keys
           </Link>
-          <span className="text-zinc-500">/</span>
+          <span className="text-zinc-400">/</span>
           <span className="text-sm text-zinc-300">Documentation</span>
         </div>
         <h1 className="text-2xl font-bold text-zinc-100 mb-2">API Documentation</h1>

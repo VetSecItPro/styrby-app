@@ -284,7 +284,7 @@ export function SessionCheckpoints({
             }}
             placeholder="Checkpoint name (e.g. before-refactor)"
             maxLength={80}
-            className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 border border-zinc-700 focus:border-zinc-500 focus:outline-none"
+            className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-400 border border-zinc-700 focus:border-zinc-500 focus:outline-none"
             aria-label="Checkpoint name"
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleSave();
@@ -297,7 +297,7 @@ export function SessionCheckpoints({
             value={newDescription}
             onChange={(e) => setNewDescription(e.target.value)}
             placeholder="Optional description"
-            className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 border border-zinc-700 focus:border-zinc-500 focus:outline-none"
+            className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-400 border border-zinc-700 focus:border-zinc-500 focus:outline-none"
             aria-label="Checkpoint description"
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleSave();
@@ -336,7 +336,7 @@ export function SessionCheckpoints({
 
       {/* Loading state */}
       {isLoading && (
-        <p className="text-xs text-zinc-500 py-2">Loading checkpoints…</p>
+        <p className="text-xs text-zinc-400 py-2">Loading checkpoints…</p>
       )}
 
       {/* Error state */}
@@ -347,7 +347,7 @@ export function SessionCheckpoints({
       {/* Empty state */}
       {!isLoading && !error && checkpoints.length === 0 && (
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 text-center">
-          <p className="text-xs text-zinc-500">No checkpoints yet.</p>
+          <p className="text-xs text-zinc-400">No checkpoints yet.</p>
           <p className="text-xs text-zinc-400 mt-1">
             Save a checkpoint to mark a position in this session.
           </p>
@@ -373,7 +373,7 @@ export function SessionCheckpoints({
                   </p>
                   {cp.description && (
                     <p
-                      className="text-xs text-zinc-500 mt-0.5 line-clamp-2"
+                      className="text-xs text-zinc-400 mt-0.5 line-clamp-2"
                       title={cp.description}
                     >
                       {cp.description}

@@ -135,7 +135,7 @@ export default async function RequestAccessSuccessPage({
             The user will be notified and must approve before you can view session metadata.
           </p>
           {grantIdStr && (
-            <p className="mt-1 font-mono text-xs text-zinc-500">
+            <p className="mt-1 font-mono text-xs text-zinc-400">
               Grant ID: {grantIdStr}
             </p>
           )}

@@ -238,7 +238,7 @@ function OfferDetails({ offer }: { offer: OfferRow }) {
 
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
-      <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+      <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-zinc-400">
         Offer details
       </h2>
 
@@ -249,14 +249,14 @@ function OfferDetails({ offer }: { offer: OfferRow }) {
             <Tag className="h-6 w-6 text-indigo-400" aria-hidden="true" />
           </div>
           <div>
-            <dt className="text-xs text-zinc-500">Discount</dt>
+            <dt className="text-xs text-zinc-400">Discount</dt>
             <dd className="text-2xl font-bold text-zinc-100">{offer.discount_pct}% off</dd>
           </div>
         </div>
 
         {/* Duration */}
         <div>
-          <dt className="text-xs text-zinc-500">Duration</dt>
+          <dt className="text-xs text-zinc-400">Duration</dt>
           <dd className="mt-0.5 text-sm text-zinc-200">
             {formatDuration(offer.discount_duration_months)}
           </dd>
@@ -264,13 +264,13 @@ function OfferDetails({ offer }: { offer: OfferRow }) {
 
         {/* Reason — why this offer was sent */}
         <div>
-          <dt className="text-xs text-zinc-500">Why we&apos;re offering this</dt>
+          <dt className="text-xs text-zinc-400">Why we&apos;re offering this</dt>
           <dd className="mt-0.5 text-sm leading-relaxed text-zinc-300">{reason}</dd>
         </div>
 
         {/* Expiry */}
         <div>
-          <dt className="text-xs text-zinc-500">Offer expires</dt>
+          <dt className="text-xs text-zinc-400">Offer expires</dt>
           <dd className="mt-0.5 text-sm text-zinc-300">{formatDate(offer.expires_at)}</dd>
         </div>
       </dl>
@@ -355,7 +355,7 @@ export default async function ChurnSaveOfferPage({ params }: PageProps) {
     <div className="mx-auto max-w-lg px-4 py-10 sm:px-6">
       {/* Page header */}
       <div className="mb-6">
-        <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-zinc-400">
           Styrby
         </p>
         <h1 className="text-xl font-bold text-zinc-100">Special Offer</h1>
@@ -394,11 +394,11 @@ export default async function ChurnSaveOfferPage({ params }: PageProps) {
       )}
 
       {/* Footer */}
-      <p className="mt-8 text-center text-xs text-zinc-500">
+      <p className="mt-8 text-center text-xs text-zinc-400">
         Offer ID {offerId} &middot; Questions?{' '}
         <a
           href="/dashboard/support"
-          className="text-zinc-500 underline-offset-2 hover:text-zinc-400 hover:underline"
+          className="text-zinc-400 underline-offset-2 hover:text-zinc-400 hover:underline"
         >
           Contact support
         </a>

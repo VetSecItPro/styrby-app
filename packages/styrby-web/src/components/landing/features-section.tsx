@@ -210,7 +210,7 @@ export function FeaturesSection() {
               <div className="mt-auto pt-6">
                 <div className="rounded-xl border border-white/[0.06] bg-black/40 p-4">
                   <div className="mb-3 flex items-center justify-between">
-                    <span className="font-mono text-xs text-zinc-500">live agents</span>
+                    <span className="font-mono text-xs text-zinc-400">live agents</span>
                     <span className="flex items-center gap-1.5">
                       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
                       <span className="font-mono text-xs text-emerald-400">3 active</span>
@@ -233,7 +233,7 @@ export function FeaturesSection() {
                         <span className="w-24 shrink-0 font-mono text-xs text-zinc-400">
                           {row.name}
                         </span>
-                        <span className="truncate font-mono text-xs text-zinc-500">
+                        <span className="truncate font-mono text-xs text-zinc-400">
                           {row.task}
                         </span>
                       </div>
