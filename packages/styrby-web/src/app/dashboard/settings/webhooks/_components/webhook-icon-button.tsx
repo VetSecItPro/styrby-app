@@ -51,7 +51,7 @@ export function WebhookIconButton({
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`p-1.5 rounded-lg text-zinc-500 transition-colors disabled:opacity-50 ${hoverClasses}`}
+      className={`p-1.5 rounded-lg text-zinc-400 transition-colors disabled:opacity-50 ${hoverClasses}`}
       aria-label={ariaLabel}
       title={title}
     >

@@ -191,7 +191,7 @@ export function TicketDetailClient({ ticket, replies, userId }: TicketDetailClie
           {ticket.description}
         </p>
 
-        <p className="mt-4 text-xs text-zinc-500">
+        <p className="mt-4 text-xs text-zinc-400">
           Submitted {getRelativeTime(ticket.created_at)}
         </p>
       </div>
@@ -220,7 +220,7 @@ export function TicketDetailClient({ ticket, replies, userId }: TicketDetailClie
                   <p className="whitespace-pre-wrap text-sm text-zinc-200">
                     {reply.message}
                   </p>
-                  <p className="mt-2 text-xs text-zinc-500">
+                  <p className="mt-2 text-xs text-zinc-400">
                     {getRelativeTime(reply.created_at)}
                   </p>
                 </div>
@@ -263,7 +263,7 @@ export function TicketDetailClient({ ticket, replies, userId }: TicketDetailClie
         </div>
       ) : (
         <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 text-center">
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-zinc-400">
             This ticket is closed. If you need further help, please open a new ticket.
           </p>
         </div>

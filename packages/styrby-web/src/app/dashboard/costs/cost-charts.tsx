@@ -67,7 +67,7 @@ export function CostCharts({ data }: CostChartsProps) {
       <div className="rounded-xl bg-zinc-900 border border-zinc-800 px-4 py-16 text-center">
         <div className="mx-auto h-12 w-12 rounded-full bg-zinc-800 flex items-center justify-center mb-4">
           <svg
-            className="h-6 w-6 text-zinc-500"
+            className="h-6 w-6 text-zinc-400"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -81,7 +81,7 @@ export function CostCharts({ data }: CostChartsProps) {
           </svg>
         </div>
         <h3 className="text-lg font-medium text-zinc-100">No cost data yet</h3>
-        <p className="mt-2 text-zinc-500">
+        <p className="mt-2 text-zinc-400">
           Start using your AI agents to see cost analytics here.
         </p>
       </div>

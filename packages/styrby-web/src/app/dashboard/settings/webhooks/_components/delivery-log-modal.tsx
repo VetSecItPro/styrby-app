@@ -80,11 +80,11 @@ export function DeliveryLogModal({ webhook, onClose }: DeliveryLogModalProps) {
         <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold text-zinc-100">Delivery Log</h2>
-            <p className="text-sm text-zinc-500">{webhook.name}</p>
+            <p className="text-sm text-zinc-400">{webhook.name}</p>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
             aria-label="Close delivery log"
           >
             <svg
@@ -119,8 +119,8 @@ export function DeliveryLogModal({ webhook, onClose }: DeliveryLogModalProps) {
 
           {!loading && !error && deliveries.length === 0 && (
             <div className="text-center py-8">
-              <p className="text-zinc-500">No deliveries yet</p>
-              <p className="text-sm text-zinc-500 mt-1">
+              <p className="text-zinc-400">No deliveries yet</p>
+              <p className="text-sm text-zinc-400 mt-1">
                 Deliveries will appear here once events are triggered
               </p>
             </div>
@@ -154,11 +154,11 @@ function DeliveryRow({ delivery }: { delivery: WebhookDelivery }) {
           </span>
           <span className="text-sm text-zinc-300">{delivery.event}</span>
         </div>
-        <span className="text-xs text-zinc-500">
+        <span className="text-xs text-zinc-400">
           {new Date(delivery.created_at).toLocaleString()}
         </span>
       </div>
-      <div className="text-xs text-zinc-500 flex items-center gap-3">
+      <div className="text-xs text-zinc-400 flex items-center gap-3">
         {delivery.response_status && <span>HTTP {delivery.response_status}</span>}
         {delivery.duration_ms !== null && <span>{delivery.duration_ms}ms</span>}
         <span>Attempts: {delivery.attempts}</span>

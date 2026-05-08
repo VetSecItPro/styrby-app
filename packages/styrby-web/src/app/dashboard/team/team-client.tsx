@@ -294,7 +294,7 @@ export function TeamClient({
 
             <div>
               <label htmlFor="teamDescription" className="block text-sm font-medium text-zinc-300 mb-2">
-                Description <span className="text-zinc-500">(optional)</span>
+                Description <span className="text-zinc-400">(optional)</span>
               </label>
               <textarea
                 id="teamDescription"
@@ -347,7 +347,7 @@ export function TeamClient({
               {team.description && (
                 <p className="text-zinc-400 mt-1">{team.description}</p>
               )}
-              <div className="flex items-center gap-4 mt-2 text-sm text-zinc-500">
+              <div className="flex items-center gap-4 mt-2 text-sm text-zinc-400">
                 <span>{members.length} member{members.length !== 1 ? 's' : ''}</span>
                 <span>Created {formatDate(team.created_at)}</span>
               </div>
@@ -427,7 +427,7 @@ export function TeamClient({
                         {member.display_name || member.email}
                       </span>
                       {isCurrentUser && (
-                        <span className="text-xs text-zinc-500">(you)</span>
+                        <span className="text-xs text-zinc-400">(you)</span>
                       )}
                     </div>
                     <span className="text-sm text-zinc-400">{member.email}</span>
@@ -515,7 +515,7 @@ export function TeamClient({
                   </div>
                   <div>
                     <span className="font-medium text-zinc-100">{invite.email}</span>
-                    <div className="text-sm text-zinc-500">
+                    <div className="text-sm text-zinc-400">
                       Expires {formatDate(invite.expires_at)}
                     </div>
                   </div>

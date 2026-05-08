@@ -196,7 +196,7 @@ export default async function MembersPage({ params }: MembersPageProps) {
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 text-zinc-500 text-sm mb-1">
+          <div className="flex items-center gap-2 text-zinc-400 text-sm mb-1">
             <Link
               href={`/dashboard/team/${teamId}/invitations`}
               className="hover:text-zinc-300 transition-colors"

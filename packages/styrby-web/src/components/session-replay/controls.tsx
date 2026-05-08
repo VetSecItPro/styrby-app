@@ -361,7 +361,7 @@ export function ReplayControls({
         {/* Right: Speed control and message counter */}
         <div className="flex items-center gap-4 min-w-[120px] justify-end">
           {/* Message counter */}
-          <span className="text-sm text-zinc-500">
+          <span className="text-sm text-zinc-400">
             {currentMessageIndex >= 0 ? currentMessageIndex + 1 : 0} /{' '}
             {totalMessages}
           </span>

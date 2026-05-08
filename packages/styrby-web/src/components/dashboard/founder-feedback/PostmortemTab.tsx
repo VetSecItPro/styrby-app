@@ -171,13 +171,13 @@ export function PostmortemTab({ initialItems, initialTotal }: PostmortemTabProps
         </select>
 
         {loading && (
-          <span className="flex items-center text-xs text-zinc-500">
+          <span className="flex items-center text-xs text-zinc-400">
             <span className="mr-1 inline-block h-2 w-2 animate-pulse rounded-full bg-indigo-400" />
             Loading...
           </span>
         )}
 
-        <span className="ml-auto text-xs text-zinc-500">
+        <span className="ml-auto text-xs text-zinc-400">
           {items.length} of {total}
         </span>
       </div>
@@ -185,7 +185,7 @@ export function PostmortemTab({ initialItems, initialTotal }: PostmortemTabProps
       {/* List */}
       {items.length === 0 ? (
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center">
-          <p className="text-sm text-zinc-500">No post-mortem data yet.</p>
+          <p className="text-sm text-zinc-400">No post-mortem data yet.</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -233,9 +233,9 @@ function PostmortemCard({ item }: { item: PostmortemItem }) {
         >
           {isUseful ? 'Useful' : 'Not useful'}
         </span>
-        <span className="text-xs text-zinc-500">{agentLabel}</span>
+        <span className="text-xs text-zinc-400">{agentLabel}</span>
         {dur != null && (
-          <span className="text-xs text-zinc-500">{dur} min</span>
+          <span className="text-xs text-zinc-400">{dur} min</span>
         )}
         <span className="ml-auto text-xs text-zinc-400">{date}</span>
       </div>

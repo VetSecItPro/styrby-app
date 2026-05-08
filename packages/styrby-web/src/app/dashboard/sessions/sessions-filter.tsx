@@ -497,7 +497,7 @@ export function SessionsFilter({
               />
               {/* Search icon */}
               <svg
-                className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500"
+                className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -514,7 +514,7 @@ export function SessionsFilter({
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-300"
                   aria-label="Clear search"
                 >
                   <svg
@@ -752,13 +752,13 @@ export function SessionsFilter({
 
                         {/* Summary */}
                         {session.summary && (
-                          <p className="text-sm text-zinc-500 mt-1 line-clamp-2">
+                          <p className="text-sm text-zinc-400 mt-1 line-clamp-2">
                             {session.summary}
                           </p>
                         )}
                       </div>
 
-                      <div className="flex flex-col items-end gap-1 text-sm text-zinc-500 ml-4">
+                      <div className="flex flex-col items-end gap-1 text-sm text-zinc-400 ml-4">
                         {/* Bookmark star — click to toggle without navigating to detail */}
                         <SessionBookmarkButton
                           sessionId={session.id}
@@ -810,11 +810,11 @@ export function SessionsFilter({
                   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                 />
               </svg>
-              <span className="ml-2 text-sm text-zinc-500">Loading more sessions...</span>
+              <span className="ml-2 text-sm text-zinc-400">Loading more sessions...</span>
             </div>
           )}
           {!hasMore && allSessions.length > 0 && (
-            <p className="text-center text-sm text-zinc-500 py-4">
+            <p className="text-center text-sm text-zinc-400 py-4">
               All sessions loaded
             </p>
           )}
@@ -824,7 +824,7 @@ export function SessionsFilter({
         <div className="rounded-xl bg-zinc-900 border border-zinc-800 px-4 py-16 text-center">
           <div className="mx-auto h-12 w-12 rounded-full bg-zinc-800 flex items-center justify-center mb-4">
             <svg
-              className="h-6 w-6 text-zinc-500"
+              className="h-6 w-6 text-zinc-400"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -840,7 +840,7 @@ export function SessionsFilter({
           <h3 className="text-lg font-medium text-zinc-100">
             No matching sessions
           </h3>
-          <p className="mt-2 text-zinc-500">
+          <p className="mt-2 text-zinc-400">
             No sessions match your current search or filter criteria.
           </p>
           <button
@@ -855,7 +855,7 @@ export function SessionsFilter({
         <div className="rounded-xl bg-zinc-900 border border-zinc-800 px-4 py-16 text-center">
           <div className="mx-auto h-12 w-12 rounded-full bg-zinc-800 flex items-center justify-center mb-4">
             <svg
-              className="h-6 w-6 text-zinc-500"
+              className="h-6 w-6 text-zinc-400"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -871,13 +871,13 @@ export function SessionsFilter({
           <h3 className="text-lg font-medium text-zinc-100">
             {scope === 'team' ? 'No team sessions yet' : 'No sessions yet'}
           </h3>
-          <p className="mt-2 text-zinc-500">
+          <p className="mt-2 text-zinc-400">
             {scope === 'team'
               ? 'Team sessions will appear here when team members start using Styrby.'
               : 'Start a session with your AI coding agent to see it here.'}
           </p>
           {scope === 'mine' && (
-            <p className="mt-1 text-sm text-zinc-500">
+            <p className="mt-1 text-sm text-zinc-400">
               Run <code className="text-orange-500">styrby chat</code> to get
               started.
             </p>

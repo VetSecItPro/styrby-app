@@ -121,7 +121,7 @@ export default async function ToggleConsentPage({ params }: ToggleConsentPagePro
       </Link>
 
       <h1 className="mb-2 text-xl font-bold text-zinc-100">Toggle consent</h1>
-      <p className="mb-6 text-sm text-zinc-500">
+      <p className="mb-6 text-sm text-zinc-400">
         For:{' '}
         <span className="font-mono text-zinc-300">{profile.email ?? userId}</span>
       </p>

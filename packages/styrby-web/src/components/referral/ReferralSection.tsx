@@ -147,14 +147,14 @@ export function ReferralSection({ referralCode, displayName }: ReferralSectionPr
 
           {/* Code display */}
           <div className="mt-4 flex items-center gap-2 border-t border-zinc-800 pt-4">
-            <span className="text-xs text-zinc-500">Your code:</span>
+            <span className="text-xs text-zinc-400">Your code:</span>
             <span className="font-mono text-xs font-semibold text-purple-400">
               {referralCode}
             </span>
           </div>
         </>
       ) : (
-        <p className="text-sm italic text-zinc-500">
+        <p className="text-sm italic text-zinc-400">
           Your invite link is being generated...
         </p>
       )}

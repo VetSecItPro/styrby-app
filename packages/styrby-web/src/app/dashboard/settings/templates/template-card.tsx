@@ -188,7 +188,7 @@ export function TemplateCard({ template, onEdit, onDelete, onSetDefault }: Templ
             )}
           </div>
           {template.description && (
-            <p className="text-sm text-zinc-500 mt-1 line-clamp-2">{template.description}</p>
+            <p className="text-sm text-zinc-400 mt-1 line-clamp-2">{template.description}</p>
           )}
         </div>
       </div>
@@ -202,7 +202,7 @@ export function TemplateCard({ template, onEdit, onDelete, onSetDefault }: Templ
 
       {/* Variables badge */}
       {variableCount > 0 && (
-        <div className="flex items-center gap-1.5 text-xs text-zinc-500 mb-4">
+        <div className="flex items-center gap-1.5 text-xs text-zinc-400 mb-4">
           <VariableIcon className="h-3.5 w-3.5" />
           <span>
             {variableCount} variable{variableCount !== 1 ? 's' : ''}:{' '}

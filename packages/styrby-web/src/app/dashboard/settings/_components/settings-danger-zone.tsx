@@ -25,7 +25,7 @@ export function SettingsDangerZone() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-zinc-100">Sign Out</p>
-                <p className="text-sm text-zinc-500">
+                <p className="text-sm text-zinc-400">
                   Sign out of your account on this device
                 </p>
               </div>
@@ -42,7 +42,7 @@ export function SettingsDangerZone() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-zinc-100">Delete Account</p>
-                <p className="text-sm text-zinc-500">
+                <p className="text-sm text-zinc-400">
                   Permanently delete your account and all data
                 </p>
               </div>

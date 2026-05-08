@@ -51,7 +51,7 @@ export function SettingsSubscription({ subscription }: SettingsSubscriptionProps
               </span>
             </div>
             {subscription?.current_period_end && (
-              <p className="text-sm text-zinc-500 mt-1">
+              <p className="text-sm text-zinc-400 mt-1">
                 {subscription.cancel_at_period_end ? 'Cancels' : 'Renews'} on{' '}
                 {new Date(subscription.current_period_end).toLocaleDateString()}
               </p>
@@ -77,7 +77,7 @@ export function SettingsSubscription({ subscription }: SettingsSubscriptionProps
 
         {subscription && subscription.tier !== 'free' && monthlySpend !== null && (
           <div className="mt-4 pt-4 border-t border-zinc-800">
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-zinc-400">
               This month&apos;s usage: ${monthlySpend.toFixed(2)}
             </p>
             <div className="mt-2 h-2 rounded-full bg-zinc-800 overflow-hidden">

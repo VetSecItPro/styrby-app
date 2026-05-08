@@ -10,7 +10,7 @@ import type { ReactNode } from 'react';
 function ChevronRight() {
   return (
     <svg
-      className="h-5 w-5 text-zinc-500"
+      className="h-5 w-5 text-zinc-400"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
@@ -73,7 +73,7 @@ export function SettingsLinkRow({
             {badge}
           </div>
           {description && (
-            <p className="text-sm text-zinc-500">{description}</p>
+            <p className="text-sm text-zinc-400">{description}</p>
           )}
         </div>
       </div>

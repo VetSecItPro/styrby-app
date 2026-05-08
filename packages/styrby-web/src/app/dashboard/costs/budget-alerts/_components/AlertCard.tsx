@@ -100,7 +100,7 @@ export function AlertCard({
         <div className="flex items-baseline justify-between mb-1">
           <span className="text-sm text-zinc-300">
             ${alert.current_spend_usd.toFixed(2)}{' '}
-            <span className="text-zinc-500">
+            <span className="text-zinc-400">
               / ${Number(alert.threshold_usd).toFixed(2)}
             </span>
           </span>
@@ -148,7 +148,7 @@ export function AlertCard({
         <div className="flex items-center gap-1">
           <button
             onClick={() => onEdit(alert)}
-            className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
             aria-label={`Edit ${alert.name} alert`}
           >
             <svg
@@ -168,7 +168,7 @@ export function AlertCard({
           </button>
           <button
             onClick={() => onDelete(alert.id)}
-            className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
             disabled={isDeleting}
             aria-label={`Delete ${alert.name} alert`}
           >
@@ -192,7 +192,7 @@ export function AlertCard({
 
       {/* Last triggered */}
       {alert.last_triggered_at && (
-        <p className="text-xs text-zinc-500 mt-2">
+        <p className="text-xs text-zinc-400 mt-2">
           Last triggered:{' '}
           {new Date(alert.last_triggered_at).toLocaleDateString('en-US', {
             month: 'short',

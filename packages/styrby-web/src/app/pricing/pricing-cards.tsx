@@ -22,7 +22,7 @@ export function PricingCards({ currentTier }: PricingCardsProps) {
       <div className="flex items-center justify-center gap-4 mb-10">
         <span
           className={`text-sm font-medium ${
-            billingCycle === 'monthly' ? 'text-zinc-100' : 'text-zinc-500'
+            billingCycle === 'monthly' ? 'text-zinc-100' : 'text-zinc-400'
           }`}
         >
           Monthly
@@ -41,7 +41,7 @@ export function PricingCards({ currentTier }: PricingCardsProps) {
         </button>
         <span
           className={`text-sm font-medium ${
-            billingCycle === 'annual' ? 'text-zinc-100' : 'text-zinc-500'
+            billingCycle === 'annual' ? 'text-zinc-100' : 'text-zinc-400'
           }`}
         >
           Annual
@@ -88,9 +88,9 @@ export function PricingCards({ currentTier }: PricingCardsProps) {
                 <span className="text-4xl font-bold text-zinc-100">
                   ${price}
                 </span>
-                <span className="text-zinc-500">{period}</span>
+                <span className="text-zinc-400">{period}</span>
                 {billingCycle === 'annual' && tierId !== 'free' && (
-                  <div className="text-sm text-zinc-500 mt-1">
+                  <div className="text-sm text-zinc-400 mt-1">
                     ${(tier.price.annual / 12).toFixed(2)}/month
                   </div>
                 )}

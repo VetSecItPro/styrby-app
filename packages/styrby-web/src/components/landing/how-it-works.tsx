@@ -39,7 +39,7 @@ function TerminalMockup() {
         <span className="h-3 w-3 rounded-full bg-red-500/70" />
         <span className="h-3 w-3 rounded-full bg-yellow-500/70" />
         <span className="h-3 w-3 rounded-full bg-emerald-500/70" />
-        <span className="ml-2 font-mono text-xs text-zinc-500">terminal</span>
+        <span className="ml-2 font-mono text-xs text-zinc-400">terminal</span>
       </div>
       {/* Body */}
       <div className="px-5 py-4">
@@ -47,7 +47,7 @@ function TerminalMockup() {
           <span className="font-mono text-xs text-emerald-400">$</span>
           <span className="font-mono text-xs text-zinc-200">npm install -g @styrby/cli</span>
         </div>
-        <div className="mt-2 font-mono text-xs text-zinc-500">
+        <div className="mt-2 font-mono text-xs text-zinc-400">
           added 1 package in 2.3s
         </div>
         <div className="mt-1 font-mono text-xs text-amber-400">
@@ -73,7 +73,7 @@ function PairingMockup() {
     <div className="flex w-full max-w-sm items-center justify-center gap-8">
       {/* QR code frame */}
       <div className="rounded-xl border border-white/[0.08] bg-zinc-950 p-4 shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
-        <div className="mb-2 font-mono text-[10px] text-zinc-500">Scan to pair</div>
+        <div className="mb-2 font-mono text-[10px] text-zinc-400">Scan to pair</div>
         {/* QR grid - 5×5 block pattern suggesting a QR code */}
         <div className="grid grid-cols-7 gap-0.5">
           {[
@@ -91,7 +91,7 @@ function PairingMockup() {
             />
           ))}
         </div>
-        <div className="mt-2 font-mono text-[10px] text-zinc-500">expires in 2:00</div>
+        <div className="mt-2 font-mono text-[10px] text-zinc-400">expires in 2:00</div>
       </div>
 
       {/* Phone outline */}
@@ -143,7 +143,7 @@ function DashboardMockup() {
               />
               <div>
                 <div className="font-mono text-xs text-zinc-300">{agent.name}</div>
-                <div className="font-mono text-[10px] text-zinc-500">{agent.model}</div>
+                <div className="font-mono text-[10px] text-zinc-400">{agent.model}</div>
               </div>
             </div>
             <span className="font-mono text-xs text-amber-400">{agent.cost}</span>
@@ -152,7 +152,7 @@ function DashboardMockup() {
       </div>
       {/* Footer summary */}
       <div className="flex items-center justify-between border-t border-white/[0.06] px-5 py-3">
-        <span className="font-mono text-xs text-zinc-500">today</span>
+        <span className="font-mono text-xs text-zinc-400">today</span>
         <span className="font-mono text-xs text-amber-400">$0.67 total</span>
       </div>
     </div>

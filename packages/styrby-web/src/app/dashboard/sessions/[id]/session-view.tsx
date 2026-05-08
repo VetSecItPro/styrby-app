@@ -205,7 +205,7 @@ export function SessionView({
                 ? 'bg-orange-500/20 text-orange-400'
                 : canAccessReplay
                   ? 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-                  : 'text-zinc-500 cursor-not-allowed'
+                  : 'text-zinc-400 cursor-not-allowed'
             )}
             aria-pressed={viewMode === 'replay'}
             aria-disabled={!canAccessReplay}
@@ -217,7 +217,7 @@ export function SessionView({
             )}
             Replay
             {!canAccessReplay && (
-              <span className="ml-1 text-xs text-zinc-500">Pro</span>
+              <span className="ml-1 text-xs text-zinc-400">Pro</span>
             )}
           </button>
           </div>
@@ -276,7 +276,7 @@ export function SessionView({
               </div>
 
               {/* Session end info */}
-              <div className="px-6 py-3 border-t border-zinc-800/50 text-center text-sm text-zinc-500">
+              <div className="px-6 py-3 border-t border-zinc-800/50 text-center text-sm text-zinc-400">
                 Session ended{' '}
                 {session.ended_at
                   ? new Date(session.ended_at).toLocaleString()

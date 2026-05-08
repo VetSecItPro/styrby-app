@@ -188,7 +188,7 @@ export function ChatInput({ sessionId }: ChatInputProps) {
       </div>
 
       {/* Keyboard shortcut hint */}
-      <p className="mt-2 text-xs text-zinc-500">
+      <p className="mt-2 text-xs text-zinc-400">
         Press <kbd className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">Enter</kbd> to send,{' '}
         <kbd className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">Shift + Enter</kbd> for new line
       </p>

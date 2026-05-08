@@ -41,7 +41,7 @@ export function WebhookHeader({
       <div className="flex items-center gap-4">
         <p className="text-sm text-zinc-400">
           {webhookCount} / {webhookLimit} webhooks used
-          <span className="text-zinc-500 ml-2">({tier} plan)</span>
+          <span className="text-zinc-400 ml-2">({tier} plan)</span>
         </p>
         <Link
           href="/dashboard/settings/webhooks/docs"

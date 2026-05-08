@@ -57,7 +57,7 @@ export function DigestPanel({ digest, userTier }: DigestPanelProps) {
       >
         <div>
           <p className="text-sm font-medium text-zinc-300">AI session digest</p>
-          <p className="text-xs text-zinc-500 mt-1">
+          <p className="text-xs text-zinc-400 mt-1">
             Get a weekly AI summary of your sessions on Pro, or daily on Growth.
           </p>
         </div>
@@ -80,7 +80,7 @@ export function DigestPanel({ digest, userTier }: DigestPanelProps) {
         className="mb-8 rounded-xl border border-zinc-800 bg-zinc-900 p-6"
       >
         <p className="text-sm font-medium text-zinc-300">Your AI session digest</p>
-        <p className="text-xs text-zinc-500 mt-2">
+        <p className="text-xs text-zinc-400 mt-2">
           Your first digest will appear here {upcomingLabel}.
         </p>
       </section>
@@ -100,16 +100,16 @@ export function DigestPanel({ digest, userTier }: DigestPanelProps) {
           <span className="inline-flex items-center rounded-full bg-orange-500/10 px-2 py-0.5 text-xs font-medium text-orange-400 mr-2">
             {periodLabel}
           </span>
-          <span className="text-xs text-zinc-500">{sessionLabel}</span>
+          <span className="text-xs text-zinc-400">{sessionLabel}</span>
         </div>
-        <span className="text-xs text-zinc-500">
+        <span className="text-xs text-zinc-400">
           {formatRelative(digest.generated_at)}
         </span>
       </div>
       {digest.content ? (
         <p className="text-sm leading-relaxed text-zinc-200">{digest.content}</p>
       ) : (
-        <p className="text-sm text-zinc-500 italic">
+        <p className="text-sm text-zinc-400 italic">
           Digest is being generated. Check back shortly.
         </p>
       )}

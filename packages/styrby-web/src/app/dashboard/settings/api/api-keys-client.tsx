@@ -247,7 +247,7 @@ export function ApiKeysClient({
         <div className="flex items-center gap-4">
           <p className="text-sm text-zinc-400">
             {keyCount} / {keyLimit} API keys used
-            <span className="text-zinc-500 ml-2">({tier} plan)</span>
+            <span className="text-zinc-400 ml-2">({tier} plan)</span>
           </p>
           <Link
             href="/dashboard/settings/api/docs"
@@ -288,7 +288,7 @@ export function ApiKeysClient({
               Upgrade to Power
             </Link>
           ) : (
-            <span className="text-sm text-zinc-500">Key limit reached</span>
+            <span className="text-sm text-zinc-400">Key limit reached</span>
           )}
         </div>
       </div>
@@ -331,7 +331,7 @@ export function ApiKeysClient({
         <div className="rounded-xl bg-zinc-900 border border-zinc-800 px-4 py-16 text-center">
           <div className="mx-auto h-16 w-16 rounded-full bg-zinc-800 flex items-center justify-center mb-4">
             <svg
-              className="h-8 w-8 text-zinc-500"
+              className="h-8 w-8 text-zinc-400"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -346,7 +346,7 @@ export function ApiKeysClient({
             </svg>
           </div>
           <h3 className="text-lg font-medium text-zinc-100 mb-2">No API Keys</h3>
-          <p className="text-zinc-500 mb-6 max-w-sm mx-auto">
+          <p className="text-zinc-400 mb-6 max-w-sm mx-auto">
             Create an API key to start accessing the Styrby API programmatically.
           </p>
           <button
@@ -384,7 +384,7 @@ export function ApiKeysClient({
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-zinc-500 mt-1 font-mono">
+                    <p className="text-xs text-zinc-400 mt-1 font-mono">
                       {key.key_prefix}{'*'.repeat(24)}
                     </p>
                   </div>
@@ -412,7 +412,7 @@ export function ApiKeysClient({
                 </div>
 
                 {/* Stats row */}
-                <div className="flex items-center gap-6 text-xs text-zinc-500">
+                <div className="flex items-center gap-6 text-xs text-zinc-400">
                   <span>
                     Created:{' '}
                     {new Date(key.created_at).toLocaleDateString('en-US', {
@@ -455,7 +455,7 @@ export function ApiKeysClient({
       {/* Revoked Keys */}
       {isPowerTier && revokedKeys.length > 0 && (
         <div className="space-y-4">
-          <h2 className="text-sm font-medium text-zinc-500">Revoked Keys</h2>
+          <h2 className="text-sm font-medium text-zinc-400">Revoked Keys</h2>
           {revokedKeys.map((key) => (
             <div
               key={key.id}
@@ -465,11 +465,11 @@ export function ApiKeysClient({
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-sm font-semibold text-zinc-400">{key.name}</h3>
-                    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-800 text-zinc-500">
+                    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-800 text-zinc-400">
                       Revoked
                     </span>
                   </div>
-                  <p className="text-xs text-zinc-500 mt-1">
+                  <p className="text-xs text-zinc-400 mt-1">
                     Revoked on{' '}
                     {new Date(key.revoked_at!).toLocaleDateString('en-US', {
                       month: 'short',
@@ -617,7 +617,7 @@ export function ApiKeysClient({
                         </option>
                       ))}
                     </select>
-                    <p className="mt-1 text-xs text-zinc-500">
+                    <p className="mt-1 text-xs text-zinc-400">
                       For security, we recommend setting an expiration date
                     </p>
                   </div>

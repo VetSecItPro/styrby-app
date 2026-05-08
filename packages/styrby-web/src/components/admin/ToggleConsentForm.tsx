@@ -92,7 +92,7 @@ export function ToggleConsentForm({
       ? 'text-green-400'
       : currentState === 'revoked'
         ? 'text-red-400'
-        : 'text-zinc-500';
+        : 'text-zinc-400';
 
   return (
     <form
@@ -109,7 +109,7 @@ export function ToggleConsentForm({
         className="rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-3"
         data-testid="current-state-box"
       >
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Current state</p>
+        <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">Current state</p>
         <p className={`mt-1 text-sm font-semibold ${currentStateColor}`} data-testid="current-state-value">
           {currentState === 'granted'
             ? 'Granted'
@@ -177,7 +177,7 @@ export function ToggleConsentForm({
             aria-invalid={state && !state.ok && state.field === 'grant' ? true : undefined}
           />
           <span className="text-sm text-zinc-100">Grant</span>
-          <span className="ml-auto text-xs text-zinc-500">Sets granted_at, clears revoked_at</span>
+          <span className="ml-auto text-xs text-zinc-400">Sets granted_at, clears revoked_at</span>
         </label>
 
         <label
@@ -197,7 +197,7 @@ export function ToggleConsentForm({
             aria-invalid={state && !state.ok && state.field === 'grant' ? true : undefined}
           />
           <span className="text-sm text-zinc-100">Revoke</span>
-          <span className="ml-auto text-xs text-zinc-500">Sets revoked_at, preserves granted_at</span>
+          <span className="ml-auto text-xs text-zinc-400">Sets revoked_at, preserves granted_at</span>
         </label>
 
         {state && !state.ok && state.field === 'grant' && (

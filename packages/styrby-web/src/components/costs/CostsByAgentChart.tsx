@@ -117,7 +117,7 @@ export function CostsByAgentChart({
     return (
       <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
         <h3 className="text-lg font-semibold text-zinc-100 mb-4">{title}</h3>
-        <div className="py-8 text-center text-zinc-500">No agent data available</div>
+        <div className="py-8 text-center text-zinc-400">No agent data available</div>
       </div>
     );
   }
@@ -167,7 +167,7 @@ export function CostsByAgentChart({
                   <span className="text-sm font-semibold text-zinc-100">
                     {formatCost(agent.cost)}
                   </span>
-                  <span className="text-xs text-zinc-500">
+                  <span className="text-xs text-zinc-400">
                     ({agent.percentage.toFixed(1)}%)
                   </span>
                 </div>
@@ -193,7 +193,7 @@ export function CostsByAgentChart({
               )}
 
               {/* Token and request counts */}
-              <p className="text-xs text-zinc-500 mt-1">
+              <p className="text-xs text-zinc-400 mt-1">
                 {formatTokens(totalTokens)} tokens | {agent.requestCount.toLocaleString()}{' '}
                 requests
               </p>

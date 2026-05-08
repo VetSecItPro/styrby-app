@@ -112,7 +112,7 @@ export async function SubscriptionCard({ userId }: { userId: string }) {
         )}
 
         {isManualOverride && overrideExpired && (
-          <span className="ml-auto inline-flex items-center rounded-full bg-zinc-700/50 px-2 py-0.5 text-xs font-medium text-zinc-500" data-testid="manual-override-expired-badge">
+          <span className="ml-auto inline-flex items-center rounded-full bg-zinc-700/50 px-2 py-0.5 text-xs font-medium text-zinc-400" data-testid="manual-override-expired-badge">
             Override expired
           </span>
         )}
@@ -120,7 +120,7 @@ export async function SubscriptionCard({ userId }: { userId: string }) {
 
       {sub ? (
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
-          <dt className="text-zinc-500">Tier</dt>
+          <dt className="text-zinc-400">Tier</dt>
           <dd>
             <span
               className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${tierBadgeClass}`}
@@ -130,14 +130,14 @@ export async function SubscriptionCard({ userId }: { userId: string }) {
             </span>
           </dd>
 
-          <dt className="text-zinc-500">Override source</dt>
+          <dt className="text-zinc-400">Override source</dt>
           <dd className="font-mono text-xs text-zinc-300" data-testid="override-source">
             {sub.override_source ?? '—'}
           </dd>
 
           {isManualOverride && (
             <>
-              <dt className="text-zinc-500">Override expires</dt>
+              <dt className="text-zinc-400">Override expires</dt>
               <dd
                 className="text-zinc-300"
                 data-testid="override-expires-at"
@@ -148,7 +148,7 @@ export async function SubscriptionCard({ userId }: { userId: string }) {
 
               {sub.override_reason && (
                 <>
-                  <dt className="text-zinc-500">Override reason</dt>
+                  <dt className="text-zinc-400">Override reason</dt>
                   <dd
                     className="text-zinc-300"
                     data-testid="override-reason"
@@ -163,23 +163,23 @@ export async function SubscriptionCard({ userId }: { userId: string }) {
             </>
           )}
 
-          <dt className="text-zinc-500">Billing cycle</dt>
+          <dt className="text-zinc-400">Billing cycle</dt>
           <dd className="text-zinc-300" data-testid="billing-cycle">
             {sub.billing_cycle ?? '—'}
           </dd>
 
-          <dt className="text-zinc-500">Period end</dt>
+          <dt className="text-zinc-400">Period end</dt>
           <dd className="text-zinc-300" title={sub.current_period_end ?? ''}>
             {fmtDate(sub.current_period_end)}
           </dd>
 
-          <dt className="text-zinc-500">Updated</dt>
-          <dd className="text-zinc-500 text-xs" title={sub.updated_at ?? ''}>
+          <dt className="text-zinc-400">Updated</dt>
+          <dd className="text-zinc-400 text-xs" title={sub.updated_at ?? ''}>
             {fmtDate(sub.updated_at)}
           </dd>
         </dl>
       ) : (
-        <p className="text-sm text-zinc-500" data-testid="no-subscription">
+        <p className="text-sm text-zinc-400" data-testid="no-subscription">
           No subscription record found.
         </p>
       )}

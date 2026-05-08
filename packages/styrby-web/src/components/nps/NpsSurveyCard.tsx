@@ -151,7 +151,7 @@ export function NpsSurveyCard({ window, promptId }: NpsSurveyCardProps) {
           </div>
 
           {/* Scale labels */}
-          <div className="flex justify-between px-1 text-xs text-zinc-500">
+          <div className="flex justify-between px-1 text-xs text-zinc-400">
             <span>Not likely</span>
             <span>Very likely</span>
           </div>
@@ -171,7 +171,7 @@ export function NpsSurveyCard({ window, promptId }: NpsSurveyCardProps) {
           <h2 className="mb-2 text-center text-lg font-bold text-zinc-100">
             {scoreLabel(selectedScore)}
           </h2>
-          <p className="mb-5 text-center text-sm text-zinc-500">Optional</p>
+          <p className="mb-5 text-center text-sm text-zinc-400">Optional</p>
 
           <textarea
             value={followup}

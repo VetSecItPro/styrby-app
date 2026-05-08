@@ -58,7 +58,7 @@ export function SettingsSupport() {
           <div className="px-4 py-4 flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-zinc-100">Need Help?</p>
-              <p className="text-sm text-zinc-500">
+              <p className="text-sm text-zinc-400">
                 Submit a bug report, feature request, or question
               </p>
             </div>
@@ -77,7 +77,7 @@ export function SettingsSupport() {
           <div className="px-4 py-4 flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-zinc-100">Send Feedback</p>
-              <p className="text-sm text-zinc-500">
+              <p className="text-sm text-zinc-400">
                 Share ideas, report bugs, or tell us what you think
               </p>
             </div>

@@ -60,7 +60,7 @@ function actionBadgeClass(action: string): string {
   if (action.startsWith('override')) return 'bg-orange-500/10 text-orange-400';
   if (action === 'reset_password') return 'bg-blue-500/10 text-blue-400';
   if (action.includes('consent')) return 'bg-purple-500/10 text-purple-400';
-  if (action.includes('expired')) return 'bg-zinc-700/50 text-zinc-500';
+  if (action.includes('expired')) return 'bg-zinc-700/50 text-zinc-400';
   return 'bg-zinc-700/50 text-zinc-400';
 }
 
@@ -167,7 +167,7 @@ export async function RecentAuditCard({ userId }: { userId: string }) {
                   {row.actor_email}
                 </td>
                 <td
-                  className="max-w-[180px] truncate py-2 text-zinc-500"
+                  className="max-w-[180px] truncate py-2 text-zinc-400"
                   title={row.reason}
                   data-testid="audit-reason"
                 >
@@ -181,7 +181,7 @@ export async function RecentAuditCard({ userId }: { userId: string }) {
           </tbody>
         </table>
       ) : (
-        <p className="text-sm text-zinc-500" data-testid="no-audit-rows">
+        <p className="text-sm text-zinc-400" data-testid="no-audit-rows">
           No admin actions recorded for this user.
         </p>
       )}

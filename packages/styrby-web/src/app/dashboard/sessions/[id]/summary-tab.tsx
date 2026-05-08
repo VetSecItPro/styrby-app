@@ -232,7 +232,7 @@ export function SummaryTab({
             Upgrade to Pro
           </Link>
 
-          <p className="text-xs text-zinc-500 mt-3">
+          <p className="text-xs text-zinc-400 mt-3">
             Available on Pro and Growth plans
           </p>
         </div>
@@ -339,7 +339,7 @@ export function SummaryTab({
           <div className="text-left">
             <h3 className="text-sm font-semibold text-zinc-100">AI Summary</h3>
             {summaryGeneratedAt && (
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-zinc-400">
                 Generated{' '}
                 {new Date(summaryGeneratedAt).toLocaleDateString('en-US', {
                   month: 'short',
@@ -372,7 +372,7 @@ export function SummaryTab({
                 AI summaries can hallucinate or miss nuance from a long
                 session. Plain-language disclaimer keeps the user calibrated
                 without scaring them away from the feature. */}
-            <p className="mt-3 text-xs text-zinc-500 italic">
+            <p className="mt-3 text-xs text-zinc-400 italic">
               AI-generated. May not reflect every detail of the session.
               Open the full transcript above to verify.
             </p>

@@ -101,7 +101,7 @@ export default function SubprocessorsPage() {
         {/* Page header */}
         <div className="mb-10">
           <h1 className="text-3xl font-bold text-zinc-100">Subprocessors</h1>
-          <p className="mt-2 text-sm text-zinc-500">
+          <p className="mt-2 text-sm text-zinc-400">
             Last updated: {SUBPROCESSORS_LAST_UPDATED}
           </p>
           <p className="mt-4 text-zinc-300 max-w-3xl">
@@ -222,7 +222,7 @@ export default function SubprocessorsPage() {
         </div>
 
         {/* Footer note */}
-        <div className="mt-8 border-t border-zinc-800 pt-6 text-sm text-zinc-500">
+        <div className="mt-8 border-t border-zinc-800 pt-6 text-sm text-zinc-400">
           <p>
             This list is kept current. For questions about sub-processor changes, data
             processing activities, or to request notification of future updates, email{' '}

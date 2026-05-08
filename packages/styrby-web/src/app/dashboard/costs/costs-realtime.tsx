@@ -131,7 +131,7 @@ export function CostsRealtime({
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         {/* Monthly total - with real-time ticker */}
         <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
-          <p className="text-sm text-zinc-500 mb-1">Monthly Total</p>
+          <p className="text-sm text-zinc-400 mb-1">Monthly Total</p>
           <CostTicker
             userId={userId}
             initialTotal={currentMonthlyTotal}
@@ -158,12 +158,12 @@ export function CostsRealtime({
                         : 'bg-blue-500'
                   }`}
                 />
-                <p className="text-sm text-zinc-500 capitalize">{agent}</p>
+                <p className="text-sm text-zinc-400 capitalize">{agent}</p>
               </div>
               <p className="text-2xl font-bold text-zinc-100 mt-1">
                 ${data.cost.toFixed(2)}
               </p>
-              <p className="text-xs text-zinc-500 mt-1">
+              <p className="text-xs text-zinc-400 mt-1">
                 {((data.inputTokens + data.outputTokens) / 1000).toFixed(1)}K tokens
               </p>
             </div>

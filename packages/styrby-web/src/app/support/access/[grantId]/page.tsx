@@ -125,7 +125,7 @@ function GrantDetails({ grant }: { grant: GrantRow }) {
     <div className="space-y-4">
       {/* ── Reason card ─────────────────────────────────────────────────────── */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
-        <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-zinc-400">
           Request details
         </h2>
 
@@ -133,14 +133,14 @@ function GrantDetails({ grant }: { grant: GrantRow }) {
           {/* Ticket subject — gives context to which ticket triggered this */}
           {grant.ticket_subject && (
             <div>
-              <dt className="text-xs text-zinc-500">Support ticket</dt>
+              <dt className="text-xs text-zinc-400">Support ticket</dt>
               <dd className="mt-0.5 text-sm text-zinc-200">{grant.ticket_subject}</dd>
             </div>
           )}
 
           {/* Session — show only last 8 chars so user can map it to their sessions */}
           <div>
-            <dt className="text-xs text-zinc-500">Session</dt>
+            <dt className="text-xs text-zinc-400">Session</dt>
             <dd className="mt-0.5 font-mono text-sm text-zinc-300">
               {shortSessionId(grant.session_id)}
             </dd>
@@ -148,19 +148,19 @@ function GrantDetails({ grant }: { grant: GrantRow }) {
 
           {/* Reason — admin-provided justification (required, non-empty) */}
           <div>
-            <dt className="text-xs text-zinc-500">Reason given</dt>
+            <dt className="text-xs text-zinc-400">Reason given</dt>
             <dd className="mt-0.5 text-sm leading-relaxed text-zinc-200">{grant.reason}</dd>
           </div>
 
           {/* Expiry — when the grant stops being usable even if approved */}
           <div>
-            <dt className="text-xs text-zinc-500">Access expires</dt>
+            <dt className="text-xs text-zinc-400">Access expires</dt>
             <dd className="mt-0.5 text-sm text-zinc-300">{formatDate(grant.expires_at)}</dd>
           </div>
 
           {/* Scope — what metadata fields the admin can see */}
           <div>
-            <dt className="text-xs text-zinc-500">Data visible to support</dt>
+            <dt className="text-xs text-zinc-400">Data visible to support</dt>
             <dd className="mt-0.5">
               <ul className="flex flex-wrap gap-1.5" aria-label="Accessible data fields">
                 {grant.scope.fields.map((field) => (
@@ -177,7 +177,7 @@ function GrantDetails({ grant }: { grant: GrantRow }) {
 
           {/* Requested at — when the admin made the request */}
           <div>
-            <dt className="text-xs text-zinc-500">Requested</dt>
+            <dt className="text-xs text-zinc-400">Requested</dt>
             <dd className="mt-0.5 text-sm text-zinc-300">{formatDate(grant.requested_at)}</dd>
           </div>
         </dl>
@@ -189,7 +189,7 @@ function GrantDetails({ grant }: { grant: GrantRow }) {
         scope of processing. This inline notice is lighter-weight than a modal
         and keeps the context visible during decision-making.
       */}
-      <p className="text-xs leading-relaxed text-zinc-500">
+      <p className="text-xs leading-relaxed text-zinc-400">
         A Styrby support staff member is requesting read-only access to session
         metadata (action names, tool names, timestamps, and token counts).
         Message content is never shared — your session data remains end-to-end
@@ -250,7 +250,7 @@ function RevokedPanel({ revokedAt }: { revokedAt: string }) {
       <ShieldOff className="mt-0.5 h-5 w-5 shrink-0 text-zinc-400" aria-hidden="true" />
       <div>
         <p className="text-sm font-medium text-zinc-300">Access revoked</p>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-sm text-zinc-400">
           You revoked this access on {formatDate(revokedAt)}.
           Support can no longer view the session.
         </p>
@@ -270,7 +270,7 @@ function ConsumedPanel({ lastAccessedAt }: { lastAccessedAt: string | null }) {
       <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-zinc-400" aria-hidden="true" />
       <div>
         <p className="text-sm font-medium text-zinc-300">Access cap reached</p>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-sm text-zinc-400">
           The maximum number of views was used
           {lastAccessedAt ? ` at ${formatDate(lastAccessedAt)}` : ''}.
           No further access is possible.
@@ -291,7 +291,7 @@ function ExpiredPanel({ expiresAt }: { expiresAt: string }) {
       <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-zinc-400" aria-hidden="true" />
       <div>
         <p className="text-sm font-medium text-zinc-300">Access expired</p>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-sm text-zinc-400">
           This access grant expired on {formatDate(expiresAt)} without being used.
         </p>
       </div>
@@ -386,7 +386,7 @@ export default async function GrantApprovalPage({ params }: PageProps) {
     <div className="mx-auto max-w-lg px-4 py-10 sm:px-6">
       {/* Page header */}
       <div className="mb-6">
-        <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-zinc-400">
           Styrby
         </p>
         <h1 className="text-xl font-bold text-zinc-100">Support Access Request</h1>
@@ -424,11 +424,11 @@ export default async function GrantApprovalPage({ params }: PageProps) {
       )}
 
       {/* Footer */}
-      <p className="mt-8 text-center text-xs text-zinc-500">
+      <p className="mt-8 text-center text-xs text-zinc-400">
         Grant ID {grantId} &middot; Questions?{' '}
         <a
           href="/dashboard/support"
-          className="text-zinc-500 underline-offset-2 hover:text-zinc-400 hover:underline"
+          className="text-zinc-400 underline-offset-2 hover:text-zinc-400 hover:underline"
         >
           Open a support ticket
         </a>

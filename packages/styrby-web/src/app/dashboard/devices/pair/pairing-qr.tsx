@@ -304,7 +304,7 @@ export function PairingQR({ userId }: PairingQRProps) {
       {status === 'expired' && (
         <div className="flex flex-col items-center gap-4 text-center">
           <div className="flex h-20 w-20 items-center justify-center rounded-full bg-zinc-800">
-            <ClockIcon className="h-10 w-10 text-zinc-500" />
+            <ClockIcon className="h-10 w-10 text-zinc-400" />
           </div>
           <div>
             <h3 className="text-xl font-semibold text-zinc-100">

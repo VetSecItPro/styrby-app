@@ -13,7 +13,7 @@ export default function SessionsLoading() {
           role="status"
           aria-label="Loading sessions"
         />
-        <p className="text-sm text-zinc-500">Loading Sessions...</p>
+        <p className="text-sm text-zinc-400">Loading Sessions...</p>
       </div>
     </div>
   );

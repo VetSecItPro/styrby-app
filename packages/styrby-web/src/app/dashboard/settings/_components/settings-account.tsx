@@ -115,7 +115,7 @@ export function SettingsAccount({ user, profile }: SettingsAccountProps) {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-zinc-100">Email</p>
-              <p className="text-sm text-zinc-500">{user.email}</p>
+              <p className="text-sm text-zinc-400">{user.email}</p>
             </div>
             <button
               onClick={() => setShowEmailDialog(!showEmailDialog)}
@@ -194,7 +194,7 @@ export function SettingsAccount({ user, profile }: SettingsAccountProps) {
                   }}
                 />
               ) : (
-                <p className="text-sm text-zinc-500">
+                <p className="text-sm text-zinc-400">
                   {profile?.display_name || 'Not set'}
                 </p>
               )}
@@ -247,7 +247,7 @@ export function SettingsAccount({ user, profile }: SettingsAccountProps) {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-zinc-100">Password</p>
-              <p className="text-sm text-zinc-500">
+              <p className="text-sm text-zinc-400">
                 {user.provider === 'github'
                   ? 'Signed in with GitHub'
                   : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'}

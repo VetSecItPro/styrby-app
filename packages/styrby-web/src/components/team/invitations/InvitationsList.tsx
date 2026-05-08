@@ -215,7 +215,7 @@ export function InvitationsList({ invitations }: InvitationsListProps) {
                   {/* Email */}
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <Mail className="w-4 h-4 text-zinc-500 flex-shrink-0" aria-hidden="true" />
+                      <Mail className="w-4 h-4 text-zinc-400 flex-shrink-0" aria-hidden="true" />
                       <span className="text-zinc-200 truncate max-w-[200px]">{inv.email}</span>
                     </div>
                   </td>

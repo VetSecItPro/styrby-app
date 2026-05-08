@@ -193,7 +193,7 @@ export function Hero() {
           ].map(({ icon: Icon, text }) => (
             <div
               key={text}
-              className="flex items-center gap-2 text-[13px] text-zinc-500"
+              className="flex items-center gap-2 text-[13px] text-zinc-400"
             >
               {/* WHY aria-hidden: the adjacent <span> already conveys the
                   meaning verbatim ("E2E encrypted on your machine" etc.).

@@ -131,7 +131,7 @@ export async function SessionsCard({ userId }: { userId: string }) {
       <div className="mb-4 flex items-center gap-2">
         <Terminal className="h-4 w-4 text-zinc-400" aria-hidden="true" />
         <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">Sessions</h2>
-        <span className="ml-auto text-xs text-zinc-500">
+        <span className="ml-auto text-xs text-zinc-400">
           <span className="font-semibold text-zinc-100" data-testid="session-count-30d">
             {sessionCount30d}
           </span>{' '}
@@ -153,13 +153,13 @@ export async function SessionsCard({ userId }: { userId: string }) {
           <tbody className="divide-y divide-zinc-800/60">
             {recentSessions.map((s) => (
               <tr key={s.id} data-testid="session-row">
-                <td className="py-2 font-mono text-zinc-500" title={s.id}>
+                <td className="py-2 font-mono text-zinc-400" title={s.id}>
                   {/* WHY truncate: UUIDs are 36 chars — showing all in a dense table
                       breaks layout. Last 8 chars identify the row adequately for ops. */}
                   {s.id.slice(-8)}
                 </td>
                 <td className="py-2 text-zinc-300">{s.agent_type ?? '—'}</td>
-                <td className="py-2 text-zinc-500" title={s.started_at ?? ''}>
+                <td className="py-2 text-zinc-400" title={s.started_at ?? ''}>
                   {fmtDateTime(s.started_at)}
                 </td>
                 <td className="py-2 text-right font-mono text-zinc-300">
@@ -178,7 +178,7 @@ export async function SessionsCard({ userId }: { userId: string }) {
           </tbody>
         </table>
       ) : (
-        <p className="text-sm text-zinc-500" data-testid="no-sessions">
+        <p className="text-sm text-zinc-400" data-testid="no-sessions">
           No sessions found.
         </p>
       )}

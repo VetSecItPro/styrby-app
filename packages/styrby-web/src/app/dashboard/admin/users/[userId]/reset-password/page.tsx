@@ -114,7 +114,7 @@ export default async function ResetPasswordPage({ params }: ResetPasswordPagePro
       </Link>
 
       <h1 className="mb-2 text-xl font-bold text-zinc-100">Reset password</h1>
-      <p className="mb-6 text-sm text-zinc-500">
+      <p className="mb-6 text-sm text-zinc-400">
         Sends a one-time password-reset magic link to the user.
       </p>
 

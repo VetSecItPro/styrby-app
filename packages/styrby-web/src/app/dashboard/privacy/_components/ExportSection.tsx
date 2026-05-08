@@ -118,7 +118,7 @@ export function ExportSection({ lastExportedAt }: ExportSectionProps) {
       <div className="px-6 py-4 border-b border-zinc-800 flex items-center gap-3">
         <Download className="h-4 w-4 text-green-400" aria-hidden />
         <h2 className="text-base font-semibold text-zinc-100">Export Your Data</h2>
-        <span className="ml-auto text-xs text-zinc-500">GDPR Art. 15 / Art. 20</span>
+        <span className="ml-auto text-xs text-zinc-400">GDPR Art. 15 / Art. 20</span>
       </div>
 
       <div className="px-6 py-4">
@@ -127,13 +127,13 @@ export function ExportSection({ lastExportedAt }: ExportSectionProps) {
           billing history, and audit logs. This is your right under GDPR Article 15
           (Subject Access Request) and Article 20 (Data Portability).
         </p>
-        <p className="text-xs text-zinc-500 mb-4">
+        <p className="text-xs text-zinc-400 mb-4">
           The export contains all your data in JSON format. Message content is included
           in encrypted form - only your device can decrypt it.
         </p>
 
         {lastExportedAt && (
-          <p className="text-xs text-zinc-500 mb-3">
+          <p className="text-xs text-zinc-400 mb-3">
             Last exported: {formatDate(lastExportedAt)}
           </p>
         )}

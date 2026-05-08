@@ -129,7 +129,7 @@ export function BudgetAlertsSummary({
               </div>
               <div>
                 <p className="text-sm font-medium text-zinc-100">Budget Alerts</p>
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-zinc-400">
                   Upgrade to Pro to set spending thresholds and get notified
                 </p>
               </div>
@@ -155,7 +155,7 @@ export function BudgetAlertsSummary({
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-lg bg-zinc-800 flex items-center justify-center flex-shrink-0">
                 <svg
-                  className="h-5 w-5 text-zinc-500"
+                  className="h-5 w-5 text-zinc-400"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -171,7 +171,7 @@ export function BudgetAlertsSummary({
               </div>
               <div>
                 <p className="text-sm font-medium text-zinc-100">No budget alerts set</p>
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-zinc-400">
                   Create alerts to get notified when spending reaches your thresholds
                 </p>
               </div>
@@ -246,13 +246,13 @@ export function BudgetAlertsSummary({
               <div className="flex items-baseline gap-2 mt-0.5">
                 <span className="text-sm text-zinc-300">
                   ${mostCriticalAlert.current_spend_usd.toFixed(2)}
-                  <span className="text-zinc-500">
+                  <span className="text-zinc-400">
                     {' '}/ ${mostCriticalAlert.threshold_usd.toFixed(2)}
                   </span>
                 </span>
                 <span
                   className={`text-xs font-medium ${
-                    isOverBudget ? 'text-red-400' : 'text-zinc-500'
+                    isOverBudget ? 'text-red-400' : 'text-zinc-400'
                   }`}
                 >
                   ({mostCriticalAlert.percentage_used.toFixed(0)}%)
@@ -281,7 +281,7 @@ export function BudgetAlertsSummary({
 
         {/* Alert count indicator */}
         {alertCount > 1 && (
-          <p className="text-xs text-zinc-500 mt-2">
+          <p className="text-xs text-zinc-400 mt-2">
             Showing most critical of {alertCount} active alert{alertCount !== 1 ? 's' : ''}
           </p>
         )}

@@ -147,7 +147,7 @@ export function IssueCreditForm({ targetUserId, action }: IssueCreditFormProps) 
       <div className="flex flex-col gap-1">
         <label htmlFor="amount_dollars" className="text-sm font-medium text-zinc-300">
           Credit amount <span className="text-red-400">*</span>
-          <span className="ml-2 text-zinc-500 font-normal text-xs">$1.00 – $1,000.00</span>
+          <span className="ml-2 text-zinc-400 font-normal text-xs">$1.00 – $1,000.00</span>
         </label>
         <div className="relative">
           <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-zinc-400 text-sm">
@@ -224,7 +224,7 @@ export function IssueCreditForm({ targetUserId, action }: IssueCreditFormProps) 
       <div className="flex flex-col gap-1">
         <label htmlFor="expires_at" className="text-sm font-medium text-zinc-300">
           Expires at{' '}
-          <span className="text-zinc-500 font-normal">(optional — leave blank for no expiry)</span>
+          <span className="text-zinc-400 font-normal">(optional — leave blank for no expiry)</span>
         </label>
         <input
           id="expires_at"

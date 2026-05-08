@@ -27,7 +27,7 @@ export function EmptyState({ alertLimit, onCreate }: EmptyStateProps) {
     <div className="rounded-xl bg-zinc-900 border border-zinc-800 px-4 py-16 text-center">
       <div className="mx-auto h-16 w-16 rounded-full bg-zinc-800 flex items-center justify-center mb-4">
         <svg
-          className="h-8 w-8 text-zinc-500"
+          className="h-8 w-8 text-zinc-400"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -44,7 +44,7 @@ export function EmptyState({ alertLimit, onCreate }: EmptyStateProps) {
       <h3 className="text-lg font-medium text-zinc-100 mb-2">No budget alerts</h3>
       {alertLimit > 0 ? (
         <>
-          <p className="text-zinc-500 mb-6 max-w-sm mx-auto">
+          <p className="text-zinc-400 mb-6 max-w-sm mx-auto">
             Set up budget alerts to get notified when your AI spending reaches
             your thresholds.
           </p>
@@ -58,7 +58,7 @@ export function EmptyState({ alertLimit, onCreate }: EmptyStateProps) {
         </>
       ) : (
         <>
-          <p className="text-zinc-500 mb-6 max-w-sm mx-auto">
+          <p className="text-zinc-400 mb-6 max-w-sm mx-auto">
             Budget alerts help you control AI spending. Upgrade to Pro to
             create up to 3 budget alerts.
           </p>

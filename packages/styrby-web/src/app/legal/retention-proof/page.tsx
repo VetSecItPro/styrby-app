@@ -272,7 +272,7 @@ export default async function RetentionProofPage() {
           <h1 className="text-3xl font-bold text-zinc-100">
             Data Retention - Target Policy and Live Proof
           </h1>
-          <p className="mt-2 text-sm text-zinc-500">
+          <p className="mt-2 text-sm text-zinc-400">
             Policy last audited: {POLICY_LAST_AUDITED}
           </p>
           <p className="mt-4 text-zinc-300 max-w-3xl">
@@ -359,7 +359,7 @@ export default async function RetentionProofPage() {
                     <td className="px-4 py-4 text-sm text-zinc-400 align-top max-w-xs">
                       {row.mechanism}
                     </td>
-                    <td className="px-4 py-4 text-sm text-zinc-500 align-top max-w-xs">
+                    <td className="px-4 py-4 text-sm text-zinc-400 align-top max-w-xs">
                       {row.gdprBasis}
                     </td>
                     <td className="px-4 py-4 align-top whitespace-nowrap">
@@ -411,7 +411,7 @@ export default async function RetentionProofPage() {
                 <p className="mt-1 text-3xl font-bold text-orange-400" data-testid="sessions-purged-count">
                   {liveCounts.sessions_purged_30d.toLocaleString()}
                 </p>
-                <p className="mt-2 text-xs text-zinc-500">
+                <p className="mt-2 text-xs text-zinc-400">
                   Source: sessions WHERE deleted_at IS NOT NULL AND deleted_at &gt; now() - 30 days
                 </p>
                 <p className="mt-1 text-xs text-emerald-500">
@@ -430,7 +430,7 @@ export default async function RetentionProofPage() {
                   })}{' '}
                   CT
                 </p>
-                <p className="mt-2 text-xs text-zinc-500">
+                <p className="mt-2 text-xs text-zinc-400">
                   Cached for up to 1 hour. Nightly cron runs at 03:00 CT.
                 </p>
               </div>
@@ -439,7 +439,7 @@ export default async function RetentionProofPage() {
         </section>
 
         {/* Footer */}
-        <div className="border-t border-zinc-800 pt-6 text-sm text-zinc-500">
+        <div className="border-t border-zinc-800 pt-6 text-sm text-zinc-400">
           <p className="mb-3 text-zinc-400">
             Target rules without automated enforcement will be backed by scheduled jobs in a future
             release. See{' '}

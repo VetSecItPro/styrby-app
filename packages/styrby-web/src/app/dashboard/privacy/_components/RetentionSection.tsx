@@ -108,7 +108,7 @@ export function RetentionSection({ initialRetentionDays }: RetentionSectionProps
       <div className="px-6 py-4 border-b border-zinc-800 flex items-center gap-3">
         <Shield className="h-4 w-4 text-blue-400" aria-hidden />
         <h2 className="text-base font-semibold text-zinc-100">Session Retention</h2>
-        <span className="ml-auto text-xs text-zinc-500">GDPR Art. 5(1)(e)</span>
+        <span className="ml-auto text-xs text-zinc-400">GDPR Art. 5(1)(e)</span>
       </div>
 
       <div className="px-6 py-4">
@@ -143,7 +143,7 @@ export function RetentionSection({ initialRetentionDays }: RetentionSectionProps
                   <p className={`text-sm font-medium ${isSelected ? 'text-blue-300' : 'text-zinc-200'}`}>
                     {option.label}
                   </p>
-                  <p className="text-xs text-zinc-500 mt-0.5">{option.description}</p>
+                  <p className="text-xs text-zinc-400 mt-0.5">{option.description}</p>
                 </div>
               </button>
             );

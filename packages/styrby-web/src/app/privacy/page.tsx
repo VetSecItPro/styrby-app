@@ -52,7 +52,7 @@ export default function PrivacyPolicyPage() {
         <article className="prose prose-lg prose-invert prose-zinc max-w-none prose-headings:text-zinc-100 prose-p:text-zinc-300 prose-li:text-zinc-300 prose-a:text-orange-500 prose-a:no-underline hover:prose-a:underline prose-strong:text-zinc-100">
           <h1>Privacy Policy</h1>
 
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-zinc-400">
             Effective date: March 22, 2026. Last updated: March 22, 2026.
           </p>
 
@@ -534,7 +534,7 @@ export default function PrivacyPolicyPage() {
         </article>
 
         {/* Footer links */}
-        <div className="mt-12 pt-8 border-t border-zinc-800 flex items-center justify-between text-sm text-zinc-500">
+        <div className="mt-12 pt-8 border-t border-zinc-800 flex items-center justify-between text-sm text-zinc-400">
           <p>&copy; {new Date().getFullYear()} Steel Motion LLC. All rights reserved.</p>
           <div className="flex gap-6">
             <Link

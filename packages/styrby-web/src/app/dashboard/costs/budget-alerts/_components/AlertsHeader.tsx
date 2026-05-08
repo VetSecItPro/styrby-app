@@ -43,7 +43,7 @@ export function AlertsHeader({
       <div>
         <p className="text-sm text-zinc-400">
           {alertCount} / {alertLimit} alerts used
-          <span className="text-zinc-500 ml-2">({tier} plan)</span>
+          <span className="text-zinc-400 ml-2">({tier} plan)</span>
         </p>
       </div>
       <div className="flex items-center gap-3">

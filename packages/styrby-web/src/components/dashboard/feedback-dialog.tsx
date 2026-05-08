@@ -212,7 +212,7 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
           </h3>
           <button
             onClick={handleClose}
-            className="text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="text-zinc-400 hover:text-zinc-300 transition-colors"
             aria-label="Close feedback dialog"
           >
             <svg
@@ -255,7 +255,7 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
             </option>
           ))}
         </select>
-        <p className="text-xs text-zinc-500 mb-4">
+        <p className="text-xs text-zinc-400 mb-4">
           {FEEDBACK_CATEGORIES.find((c) => c.value === category)?.description}
         </p>
 
@@ -280,7 +280,7 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
           disabled={isSubmitting}
           className="w-full rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 resize-none mb-1"
         />
-        <p className="text-xs text-zinc-500 text-right mb-4">
+        <p className="text-xs text-zinc-400 text-right mb-4">
           {message.length}/{MAX_MESSAGE_LENGTH}
         </p>
 
@@ -290,7 +290,7 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
           className="block text-sm font-medium text-zinc-300 mb-2"
         >
           Email for follow-up{' '}
-          <span className="text-zinc-500 font-normal">(optional)</span>
+          <span className="text-zinc-400 font-normal">(optional)</span>
         </label>
         {/* WHY no aria-label: The <label htmlFor="feedback-email"> above
             already provides the accessible name. Redundant aria-label removed. */}

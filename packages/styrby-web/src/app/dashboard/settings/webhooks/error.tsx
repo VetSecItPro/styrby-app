@@ -68,7 +68,7 @@ export default function WebhooksError({ error, reset }: ErrorProps) {
         {/* Error details in development */}
         {process.env.NODE_ENV === 'development' && error.message && (
           <div className="mt-8 p-4 rounded-lg bg-zinc-900 border border-zinc-800 text-left">
-            <p className="text-xs text-zinc-500 mb-2">Error details (development only):</p>
+            <p className="text-xs text-zinc-400 mb-2">Error details (development only):</p>
             <pre className="text-xs text-red-400 whitespace-pre-wrap break-words">
               {error.message}
             </pre>

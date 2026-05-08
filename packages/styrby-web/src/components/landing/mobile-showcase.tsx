@@ -27,8 +27,8 @@ function PermissionApprovalMockup() {
       <div className="min-h-[420px] bg-zinc-950 px-4 pb-6 pt-10">
         {/* Status bar */}
         <div className="mb-5 flex items-center justify-between px-1">
-          <span className="font-mono text-[9px] text-zinc-500">9:41</span>
-          <span className="font-mono text-[9px] text-zinc-500">styrby</span>
+          <span className="font-mono text-[9px] text-zinc-400">9:41</span>
+          <span className="font-mono text-[9px] text-zinc-400">styrby</span>
         </div>
 
         {/* Permission card */}
@@ -50,7 +50,7 @@ function PermissionApprovalMockup() {
           <span className="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-0.5 font-mono text-[9px] text-red-400">
             HIGH RISK
           </span>
-          <span className="font-mono text-[9px] text-zinc-500">auth file modification</span>
+          <span className="font-mono text-[9px] text-zinc-400">auth file modification</span>
         </div>
 
         {/* Diff preview */}
@@ -99,8 +99,8 @@ function VoiceCommandMockup() {
       <div className="min-h-[420px] bg-zinc-950 px-4 pb-6 pt-10">
         {/* Status bar */}
         <div className="mb-5 flex items-center justify-between px-1">
-          <span className="font-mono text-[9px] text-zinc-500">9:41</span>
-          <span className="font-mono text-[9px] text-zinc-500">voice</span>
+          <span className="font-mono text-[9px] text-zinc-400">9:41</span>
+          <span className="font-mono text-[9px] text-zinc-400">voice</span>
         </div>
 
         {/* Mic circle */}
@@ -132,7 +132,7 @@ function VoiceCommandMockup() {
         {/* Transcript */}
         <div className="mt-4 space-y-2">
           <div className="rounded-lg border border-white/[0.05] bg-white/[0.03] px-3 py-2">
-            <p className="font-mono text-[9px] text-zinc-500">You said</p>
+            <p className="font-mono text-[9px] text-zinc-400">You said</p>
             <p className="mt-0.5 font-mono text-[10px] text-zinc-300">
               &ldquo;Stop the codex session&rdquo;
             </p>
@@ -163,8 +163,8 @@ function CodeReviewMockup() {
       <div className="min-h-[420px] bg-zinc-950 px-4 pb-6 pt-10">
         {/* Status bar */}
         <div className="mb-5 flex items-center justify-between px-1">
-          <span className="font-mono text-[9px] text-zinc-500">9:41</span>
-          <span className="font-mono text-[9px] text-zinc-500">diff</span>
+          <span className="font-mono text-[9px] text-zinc-400">9:41</span>
+          <span className="font-mono text-[9px] text-zinc-400">diff</span>
         </div>
 
         {/* File header */}
@@ -179,9 +179,9 @@ function CodeReviewMockup() {
         {/* Diff lines */}
         <div className="overflow-hidden rounded-lg border border-white/[0.06] bg-black/50">
           <div className="px-3 py-2 space-y-0.5">
-            <div className="font-mono text-[8px] text-zinc-500">@@ -24,7 +24,16 @@</div>
-            <div className="font-mono text-[9px] text-zinc-500"> export async function</div>
-            <div className="font-mono text-[9px] text-zinc-500">   getUser(id: string)</div>
+            <div className="font-mono text-[8px] text-zinc-400">@@ -24,7 +24,16 @@</div>
+            <div className="font-mono text-[9px] text-zinc-400"> export async function</div>
+            <div className="font-mono text-[9px] text-zinc-400">   getUser(id: string)</div>
             <div className="font-mono text-[9px] text-red-400/80">- &#47;&#47; TODO: add caching</div>
             <div className="font-mono text-[9px] text-emerald-400/80">+ const cached = await</div>
             <div className="font-mono text-[9px] text-emerald-400/80">+   redis.get(id)</div>
@@ -192,9 +192,9 @@ function CodeReviewMockup() {
 
         {/* Stats row */}
         <div className="mt-3 flex items-center gap-3">
-          <span className="font-mono text-[9px] text-zinc-500">4 files changed</span>
+          <span className="font-mono text-[9px] text-zinc-400">4 files changed</span>
           <span className="h-3 w-px bg-zinc-700" />
-          <span className="font-mono text-[9px] text-zinc-500">claude-code</span>
+          <span className="font-mono text-[9px] text-zinc-400">claude-code</span>
         </div>
 
         {/* Actions */}

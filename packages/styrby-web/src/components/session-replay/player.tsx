@@ -377,7 +377,7 @@ export function ReplayPlayer({
             </svg>
           </div>
           <span className="text-sm font-medium text-zinc-300">Session Replay</span>
-          <span className="text-xs text-zinc-500">
+          <span className="text-xs text-zinc-400">
             {messages.length} messages
           </span>
         </div>
@@ -414,7 +414,7 @@ export function ReplayPlayer({
         aria-label="Session replay messages"
       >
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-zinc-500">
+          <div className="flex flex-col items-center justify-center h-full text-zinc-400">
             <svg
               className="h-12 w-12 mb-4"
               fill="none"

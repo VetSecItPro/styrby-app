@@ -333,7 +333,7 @@ export function SharedSessionViewer({ shareId }: SharedSessionViewerProps) {
             <span className="text-sm font-semibold text-zinc-400">
               Styrby Session Replay
             </span>
-            <span className="text-xs text-zinc-500">
+            <span className="text-xs text-zinc-400">
               Shared {new Date(share.createdAt).toLocaleDateString()}
               {share.expiresAt && ` · Expires ${new Date(share.expiresAt).toLocaleDateString()}`}
             </span>
@@ -391,7 +391,7 @@ export function SharedSessionViewer({ shareId }: SharedSessionViewerProps) {
         {/* Message thread */}
         <div className="space-y-4" role="log" aria-label="Session messages">
           {messages.length === 0 && (
-            <p className="text-center text-zinc-500 py-12">No messages in this session.</p>
+            <p className="text-center text-zinc-400 py-12">No messages in this session.</p>
           )}
 
           {messages.map((message) => {
@@ -437,7 +437,7 @@ export function SharedSessionViewer({ shareId }: SharedSessionViewerProps) {
                   {/* Content */}
                   <div className="whitespace-pre-wrap break-words">
                     {isEncryptedUnreadable ? (
-                      <span className="inline-flex items-center gap-1.5 text-zinc-500 italic text-sm">
+                      <span className="inline-flex items-center gap-1.5 text-zinc-400 italic text-sm">
                         <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                         </svg>
@@ -472,7 +472,7 @@ export function SharedSessionViewer({ shareId }: SharedSessionViewerProps) {
         </div>
 
         {/* Footer branding */}
-        <div className="mt-12 text-center text-xs text-zinc-500">
+        <div className="mt-12 text-center text-xs text-zinc-400">
           Shared via{' '}
           <a href="https://styrby.com" className="hover:text-zinc-400 transition-colors">
             Styrby

@@ -75,18 +75,18 @@ export default async function WebhookDocsPage() {
         <div className="flex items-center gap-3 mb-2">
           <Link
             href="/settings"
-            className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="text-sm text-zinc-400 hover:text-zinc-300 transition-colors"
           >
             Settings
           </Link>
-          <span className="text-zinc-500">/</span>
+          <span className="text-zinc-400">/</span>
           <Link
             href="/settings/webhooks"
-            className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="text-sm text-zinc-400 hover:text-zinc-300 transition-colors"
           >
             Webhooks
           </Link>
-          <span className="text-zinc-500">/</span>
+          <span className="text-zinc-400">/</span>
           <span className="text-sm text-zinc-300">Documentation</span>
         </div>
 

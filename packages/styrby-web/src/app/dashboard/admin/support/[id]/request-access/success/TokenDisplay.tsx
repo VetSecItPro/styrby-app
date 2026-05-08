@@ -150,7 +150,7 @@ export function TokenDisplay({ rawToken, ticketId: _ticketId, grantId }: TokenDi
             <Copy className="h-3 w-3" />
             Copy link
           </button>
-          <p className="mt-1 text-xs text-zinc-500">
+          <p className="mt-1 text-xs text-zinc-400">
             Share this link with the user via the ticket reply form. The user must be
             signed in to approve - no token is embedded in the URL.
           </p>

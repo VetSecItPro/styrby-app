@@ -191,7 +191,7 @@ export default async function RequestAccessPage({ params }: RequestAccessPagePro
                 ? 'text-green-400'
                 : isPending
                 ? 'text-amber-400'
-                : 'text-zinc-500';
+                : 'text-zinc-400';
 
               return (
                 <div
@@ -200,7 +200,7 @@ export default async function RequestAccessPage({ params }: RequestAccessPagePro
                   data-testid={`existing-grant-${grant.id}`}
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-xs font-mono text-zinc-500">
+                    <p className="truncate text-xs font-mono text-zinc-400">
                       Session: {grant.session_id.slice(0, 8)}...
                     </p>
                     <p className="mt-0.5 truncate text-xs text-zinc-400">
@@ -211,7 +211,7 @@ export default async function RequestAccessPage({ params }: RequestAccessPagePro
                     <span className={`text-xs font-medium ${statusColor}`}>
                       {grant.status}
                     </span>
-                    <p className="text-xs text-zinc-500">
+                    <p className="text-xs text-zinc-400">
                       Expires {new Date(grant.expires_at).toLocaleDateString()}
                     </p>
                   </div>

@@ -119,7 +119,7 @@ export default async function PoliciesPage({ params }: PoliciesPageProps) {
     <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
       {/* Page header */}
       <div>
-        <div className="flex items-center gap-2 text-zinc-500 text-sm mb-1">
+        <div className="flex items-center gap-2 text-zinc-400 text-sm mb-1">
           <Link
             href={`/dashboard/team/${teamId}/members`}
             className="hover:text-zinc-300 transition-colors"

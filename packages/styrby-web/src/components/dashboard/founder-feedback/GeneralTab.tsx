@@ -66,14 +66,14 @@ export function GeneralTab({ initialItems, initialTotal }: GeneralTabProps) {
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center">
         <MessageSquare className="mx-auto mb-2 h-8 w-8 text-zinc-400" />
-        <p className="text-sm text-zinc-500">No general feedback yet.</p>
+        <p className="text-sm text-zinc-400">No general feedback yet.</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-zinc-400">
         Showing {items.length} of {total} submissions (latest first)
       </p>
       {items.map((item) => (
@@ -100,7 +100,7 @@ function FeedbackCard({ item }: { item: GeneralFeedbackItem }) {
 
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-      <div className="mb-2 flex items-center gap-2 text-xs text-zinc-500">
+      <div className="mb-2 flex items-center gap-2 text-xs text-zinc-400">
         <span>User {userRef}</span>
         <span>-</span>
         <span className="capitalize">{platform}</span>

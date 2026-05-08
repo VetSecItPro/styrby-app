@@ -20,7 +20,7 @@ export function SettingsAppearance() {
         <div className="px-4 py-4 flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Theme</p>
-            <p className="text-sm text-zinc-500 dark:text-zinc-500">
+            <p className="text-sm text-zinc-400 dark:text-zinc-400">
               Choose your preferred color scheme
             </p>
           </div>

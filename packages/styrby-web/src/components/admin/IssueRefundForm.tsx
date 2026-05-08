@@ -173,7 +173,7 @@ export function IssueRefundForm({
       <div className="flex flex-col gap-1">
         <label htmlFor="amount_dollars" className="text-sm font-medium text-zinc-300">
           Amount <span className="text-red-400">*</span>
-          <span className="ml-2 text-zinc-500 font-normal text-xs">Max $5,000.00</span>
+          <span className="ml-2 text-zinc-400 font-normal text-xs">Max $5,000.00</span>
         </label>
         <div className="relative">
           <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-zinc-400 text-sm">$</span>
@@ -197,7 +197,7 @@ export function IssueRefundForm({
             }
           />
         </div>
-        <p id="amount-hint" className="text-xs text-zinc-500">
+        <p id="amount-hint" className="text-xs text-zinc-400">
           Max $5,000 per refund (500,000 cents enforced server-side)
         </p>
         {state && !state.ok && state.field === 'amount_dollars' && (

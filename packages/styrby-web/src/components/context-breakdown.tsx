@@ -104,7 +104,7 @@ function FileContextRow({ entry, rank }: { entry: FileContextEntry; rank: number
       </td>
 
       {/* Last accessed */}
-      <td className="px-4 py-2.5 text-right text-xs text-zinc-500 whitespace-nowrap">
+      <td className="px-4 py-2.5 text-right text-xs text-zinc-400 whitespace-nowrap">
         {new Date(entry.lastAccessed).toLocaleTimeString('en-US', {
           hour: 'numeric',
           minute: '2-digit',
@@ -124,7 +124,7 @@ function EmptyBreakdown() {
       {/* Icon */}
       <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800">
         <svg
-          className="h-5 w-5 text-zinc-500"
+          className="h-5 w-5 text-zinc-400"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -194,7 +194,7 @@ export function ContextBreakdown({ breakdown, className }: ContextBreakdownProps
         </div>
 
         {breakdown && (
-          <div className="flex items-center gap-3 text-xs text-zinc-500">
+          <div className="flex items-center gap-3 text-xs text-zinc-400">
             <span>
               <span className="font-semibold tabular-nums text-zinc-300">
                 {breakdown.totalTokens.toLocaleString()}
@@ -222,16 +222,16 @@ export function ContextBreakdown({ breakdown, className }: ContextBreakdownProps
           <table className="w-full text-left" aria-label="Files in context window">
             <thead>
               <tr className="border-b border-zinc-800/60">
-                <th className="px-4 py-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                <th className="px-4 py-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
                   File
                 </th>
-                <th className="px-4 py-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                <th className="px-4 py-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
                   Usage
                 </th>
-                <th className="px-4 py-2 text-right text-xs font-medium uppercase tracking-wide text-zinc-500">
+                <th className="px-4 py-2 text-right text-xs font-medium uppercase tracking-wide text-zinc-400">
                   Tokens
                 </th>
-                <th className="px-4 py-2 text-right text-xs font-medium uppercase tracking-wide text-zinc-500">
+                <th className="px-4 py-2 text-right text-xs font-medium uppercase tracking-wide text-zinc-400">
                   Last Read
                 </th>
               </tr>

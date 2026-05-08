@@ -132,21 +132,21 @@ async function SubscriptionSection({ userId }: { userId: string }) {
       </div>
       {sub ? (
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
-          <dt className="text-zinc-500">Tier</dt>
+          <dt className="text-zinc-400">Tier</dt>
           <dd className="font-medium text-zinc-100" data-testid="subscription-tier">
             {sub.tier ?? '—'}
           </dd>
-          <dt className="text-zinc-500">Billing cycle</dt>
+          <dt className="text-zinc-400">Billing cycle</dt>
           <dd className="text-zinc-300">{sub.is_annual ? 'Annual' : 'Monthly'}</dd>
-          <dt className="text-zinc-500">Period end</dt>
+          <dt className="text-zinc-400">Period end</dt>
           <dd className="text-zinc-300">{fmtDate(sub.current_period_end)}</dd>
-          <dt className="text-zinc-500">Override source</dt>
+          <dt className="text-zinc-400">Override source</dt>
           <dd className="font-mono text-xs text-zinc-300">{sub.override_source ?? '—'}</dd>
-          <dt className="text-zinc-500">Updated</dt>
-          <dd className="text-xs text-zinc-500">{fmtDateTime(sub.updated_at)}</dd>
+          <dt className="text-zinc-400">Updated</dt>
+          <dd className="text-xs text-zinc-400">{fmtDateTime(sub.updated_at)}</dd>
         </dl>
       ) : (
-        <p className="text-sm text-zinc-500" data-testid="no-subscription">
+        <p className="text-sm text-zinc-400" data-testid="no-subscription">
           No subscription record found.
         </p>
       )}
@@ -202,7 +202,7 @@ async function RefundsSection({ userId }: { userId: string }) {
         <div className="overflow-x-auto">
           <table className="w-full text-sm" data-testid="refunds-table">
             <thead>
-              <tr className="border-b border-zinc-800 text-left text-xs text-zinc-500">
+              <tr className="border-b border-zinc-800 text-left text-xs text-zinc-400">
                 <th className="pb-2 pr-4 font-medium">Amount</th>
                 <th className="pb-2 pr-4 font-medium">Reason</th>
                 <th className="pb-2 pr-4 font-medium">Date</th>
@@ -225,7 +225,7 @@ async function RefundsSection({ userId }: { userId: string }) {
                   <td className="py-2 pr-4 text-zinc-400 text-xs">
                     {fmtDateTime(r.processed_at)}
                   </td>
-                  <td className="py-2 font-mono text-xs text-zinc-500 truncate max-w-[100px]">
+                  <td className="py-2 font-mono text-xs text-zinc-400 truncate max-w-[100px]">
                     {r.refund_id}
                   </td>
                 </tr>
@@ -234,7 +234,7 @@ async function RefundsSection({ userId }: { userId: string }) {
           </table>
         </div>
       ) : (
-        <p className="text-sm text-zinc-500" data-testid="no-refunds">
+        <p className="text-sm text-zinc-400" data-testid="no-refunds">
           No refunds on record.
         </p>
       )}
@@ -303,7 +303,7 @@ async function CreditsSection({ userId }: { userId: string }) {
         <div className="overflow-x-auto">
           <table className="w-full text-sm" data-testid="credits-table">
             <thead>
-              <tr className="border-b border-zinc-800 text-left text-xs text-zinc-500">
+              <tr className="border-b border-zinc-800 text-left text-xs text-zinc-400">
                 <th className="pb-2 pr-4 font-medium">Amount</th>
                 <th className="pb-2 pr-4 font-medium">State</th>
                 <th className="pb-2 pr-4 font-medium">Reason</th>
@@ -319,7 +319,7 @@ async function CreditsSection({ userId }: { userId: string }) {
                   ? 'Applied'
                   : 'Active';
                 const stateClass = c.revoked_at
-                  ? 'text-zinc-500'
+                  ? 'text-zinc-400'
                   : c.applied_at
                   ? 'text-blue-400'
                   : 'text-green-400';
@@ -352,7 +352,7 @@ async function CreditsSection({ userId }: { userId: string }) {
           </table>
         </div>
       ) : (
-        <p className="text-sm text-zinc-500" data-testid="no-credits">
+        <p className="text-sm text-zinc-400" data-testid="no-credits">
           No credits on record.
         </p>
       )}
@@ -430,7 +430,7 @@ async function ChurnSaveOffersSection({ userId }: { userId: string }) {
         <div className="overflow-x-auto">
           <table className="w-full text-sm" data-testid="churn-offers-table">
             <thead>
-              <tr className="border-b border-zinc-800 text-left text-xs text-zinc-500">
+              <tr className="border-b border-zinc-800 text-left text-xs text-zinc-400">
                 <th className="pb-2 pr-4 font-medium">Kind</th>
                 <th className="pb-2 pr-4 font-medium">State</th>
                 <th className="pb-2 pr-4 font-medium">Sent</th>
@@ -448,11 +448,11 @@ async function ChurnSaveOffersSection({ userId }: { userId: string }) {
                   ? 'Expired'
                   : 'Active';
                 const stateClass = o.revoked_at
-                  ? 'text-zinc-500'
+                  ? 'text-zinc-400'
                   : o.accepted_at
                   ? 'text-green-400'
                   : expired
-                  ? 'text-zinc-500'
+                  ? 'text-zinc-400'
                   : 'text-amber-400';
 
                 return (
@@ -478,7 +478,7 @@ async function ChurnSaveOffersSection({ userId }: { userId: string }) {
           </table>
         </div>
       ) : (
-        <p className="text-sm text-zinc-500" data-testid="no-churn-offers">
+        <p className="text-sm text-zinc-400" data-testid="no-churn-offers">
           No churn-save offers on record.
         </p>
       )}

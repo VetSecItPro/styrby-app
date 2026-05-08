@@ -156,7 +156,7 @@ export function AlertModal({
                     >
                       {info.label}
                     </p>
-                    <p className="text-xs text-zinc-500 mt-0.5">{info.description}</p>
+                    <p className="text-xs text-zinc-400 mt-0.5">{info.description}</p>
                   </button>
                 );
               })}
@@ -171,12 +171,12 @@ export function AlertModal({
                 className="block text-sm font-medium text-zinc-300 mb-1.5"
               >
                 {ALERT_TYPE_INFO.cost_usd.thresholdLabel}
-                <span className="text-xs text-zinc-500 font-normal ml-2">
+                <span className="text-xs text-zinc-400 font-normal ml-2">
                   {ALERT_TYPE_INFO.cost_usd.thresholdHint}
                 </span>
               </label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-500">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400">
                   $
                 </span>
                 <input
@@ -204,7 +204,7 @@ export function AlertModal({
                 className="block text-sm font-medium text-zinc-300 mb-1.5"
               >
                 {ALERT_TYPE_INFO.subscription_quota.thresholdLabel}
-                <span className="text-xs text-zinc-500 font-normal ml-2">
+                <span className="text-xs text-zinc-400 font-normal ml-2">
                   {ALERT_TYPE_INFO.subscription_quota.thresholdHint}
                 </span>
               </label>
@@ -230,7 +230,7 @@ export function AlertModal({
                   placeholder="80"
                   className="w-full rounded-lg border border-zinc-700 bg-zinc-800 pr-7 pl-3 py-2 text-sm text-zinc-100 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
                 />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-zinc-500">
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400">
                   %
                 </span>
               </div>
@@ -244,7 +244,7 @@ export function AlertModal({
                 className="block text-sm font-medium text-zinc-300 mb-1.5"
               >
                 {ALERT_TYPE_INFO.credits.thresholdLabel}
-                <span className="text-xs text-zinc-500 font-normal ml-2">
+                <span className="text-xs text-zinc-400 font-normal ml-2">
                   {ALERT_TYPE_INFO.credits.thresholdHint}
                 </span>
               </label>
@@ -289,7 +289,7 @@ export function AlertModal({
           <fieldset className="border-0 p-0 m-0">
             <legend className="block text-sm font-medium text-zinc-300 mb-1.5">
               Agent Filter
-              <span className="text-zinc-500 font-normal ml-1">(optional)</span>
+              <span className="text-zinc-400 font-normal ml-1">(optional)</span>
             </legend>
             <div className="grid grid-cols-4 gap-2">
               <OptionPill
@@ -337,7 +337,7 @@ export function AlertModal({
                     <div className="flex items-center gap-3">
                       <svg
                         className={`h-5 w-5 flex-shrink-0 ${
-                          isSelected ? 'text-orange-400' : 'text-zinc-500'
+                          isSelected ? 'text-orange-400' : 'text-zinc-400'
                         }`}
                         fill="none"
                         viewBox="0 0 24 24"
@@ -359,7 +359,7 @@ export function AlertModal({
                         >
                           {info.label}
                         </p>
-                        <p className="text-xs text-zinc-500">
+                        <p className="text-xs text-zinc-400">
                           {info.description}
                         </p>
                       </div>

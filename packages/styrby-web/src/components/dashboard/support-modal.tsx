@@ -242,7 +242,7 @@ export function SupportModal({ open, onOpenChange }: SupportModalProps) {
                 maxLength={200}
                 className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               />
-              <p className="mt-1 text-xs text-zinc-500">
+              <p className="mt-1 text-xs text-zinc-400">
                 {subject.length}/200 characters
               </p>
             </div>
@@ -264,7 +264,7 @@ export function SupportModal({ open, onOpenChange }: SupportModalProps) {
                 maxLength={5000}
                 className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               />
-              <p className="mt-1 text-xs text-zinc-500">
+              <p className="mt-1 text-xs text-zinc-400">
                 {description.length}/5,000 characters
               </p>
             </div>
@@ -307,10 +307,10 @@ export function SupportModal({ open, onOpenChange }: SupportModalProps) {
                 accept="image/*"
                 multiple
                 disabled
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-500 file:mr-3 file:rounded file:border-0 file:bg-zinc-700 file:px-3 file:py-1 file:text-sm file:text-zinc-300 disabled:opacity-50"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-400 file:mr-3 file:rounded file:border-0 file:bg-zinc-700 file:px-3 file:py-1 file:text-sm file:text-zinc-300 disabled:opacity-50"
               />
               {/* File upload will be implemented once Supabase Storage integration ships. */}
-              <p className="mt-1 text-xs text-zinc-500">
+              <p className="mt-1 text-xs text-zinc-400">
                 File upload coming soon. Max 3 images, 5MB each.
               </p>
             </div>

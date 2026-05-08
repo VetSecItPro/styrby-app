@@ -180,15 +180,15 @@ export default function AdminSupportPage() {
       {/* Loading state */}
       {loading && tickets.length === 0 && (
         <div className="py-16 text-center">
-          <RefreshCw className="mx-auto h-8 w-8 animate-spin text-zinc-500" />
-          <p className="mt-4 text-sm text-zinc-500">Loading tickets...</p>
+          <RefreshCw className="mx-auto h-8 w-8 animate-spin text-zinc-400" />
+          <p className="mt-4 text-sm text-zinc-400">Loading tickets...</p>
         </div>
       )}
 
       {/* Empty state */}
       {!loading && tickets.length === 0 && !error && (
         <div className="py-16 text-center">
-          <p className="text-sm text-zinc-500">No tickets found.</p>
+          <p className="text-sm text-zinc-400">No tickets found.</p>
         </div>
       )}
 
@@ -216,7 +216,7 @@ export default function AdminSupportPage() {
                       <td className="px-4 py-3">
                         <Link
                           href={`/dashboard/admin/support/${ticket.id}`}
-                          className="font-mono text-xs text-zinc-500 hover:text-amber-400"
+                          className="font-mono text-xs text-zinc-400 hover:text-amber-400"
                         >
                           {shortId(ticket.id)}
                         </Link>
@@ -246,7 +246,7 @@ export default function AdminSupportPage() {
                           {statusBadge.label}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-xs text-zinc-500">
+                      <td className="px-4 py-3 text-xs text-zinc-400">
                         {getRelativeTime(ticket.created_at)}
                       </td>
                     </tr>
@@ -278,14 +278,14 @@ export default function AdminSupportPage() {
                     >
                       {statusBadge.label}
                     </span>
-                    <span className="text-xs text-zinc-500">
+                    <span className="text-xs text-zinc-400">
                       {getRelativeTime(ticket.created_at)}
                     </span>
                   </div>
                   <p className="truncate text-sm font-medium text-zinc-100">
                     {ticket.subject}
                   </p>
-                  <p className="mt-1 text-xs text-zinc-500">
+                  <p className="mt-1 text-xs text-zinc-400">
                     {ticket.profiles?.display_name || ticket.user_email}
                   </p>
                 </Link>

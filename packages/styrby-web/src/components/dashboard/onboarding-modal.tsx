@@ -120,7 +120,7 @@ export function OnboardingModal({ onboardingState, onDismiss }: OnboardingModalP
                     {step.label}
                   </Link>
                 )}
-                <p className="text-xs text-zinc-500 mt-0.5">{step.description}</p>
+                <p className="text-xs text-zinc-400 mt-0.5">{step.description}</p>
               </div>
             </div>
           ))}
