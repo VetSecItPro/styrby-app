@@ -78,6 +78,26 @@ interface StoredKeyPair {
 let cachedKeyPair: NaClKeyPair | null = null;
 
 /**
+ * In-flight singleflight promise for getOrCreateKeyPair().
+ *
+ * WHY: getOrCreateKeyPair() is called from multiple hot paths (encryptMessage,
+ * decryptMessage, registerPublicKey) that can fire concurrently — a fresh
+ * launch where the user taps Send while the relay is reconnecting and
+ * decrypting a buffered message hits all three at once. If the in-memory
+ * cache is empty AND SecureStore is empty (first launch / post-logout / stale
+ * data), each concurrent caller would fall through to regenerateKeyPair() in
+ * parallel. The last writer to SecureStore wins; earlier writers' keypairs
+ * become orphaned despite already being used to encrypt outgoing messages,
+ * so any reply to those messages decrypts to garbage on the device.
+ *
+ * The singleflight pattern: the first caller starts the work and stores the
+ * pending promise here; concurrent callers await this same promise instead
+ * of starting their own. Cleared in finally so a failed first attempt
+ * doesn't permanently poison subsequent calls.
+ */
+let inFlight: Promise<NaClKeyPair> | null = null;
+
+/**
  * Cached recipient public keys indexed by machine ID.
  * WHY Map: We look up keys by machine_id on every encrypt/decrypt call.
  * A Map gives O(1) lookup vs repeated Supabase queries.
@@ -123,37 +143,54 @@ export async function getOrCreateKeyPair(): Promise<NaClKeyPair> {
     return cachedKeyPair;
   }
 
-  // Check SecureStore for a persisted keypair
-  const stored = await SecureStore.getItemAsync(KEYPAIR_STORAGE_KEY);
-
-  if (stored) {
-    try {
-      const parsed: StoredKeyPair = JSON.parse(stored);
-      const keypair: NaClKeyPair = {
-        publicKey: await decodeBase64(parsed.publicKey),
-        secretKey: await decodeBase64(parsed.secretKey),
-      };
-
-      // Validate key lengths before caching
-      if (keypair.publicKey.length !== 32 || keypair.secretKey.length !== 32) {
-        logger.error('Stored keypair has invalid key lengths, regenerating');
-        return await regenerateKeyPair();
-      }
-
-      cachedKeyPair = keypair;
-      logger.log('Loaded existing keypair from SecureStore');
-      return keypair;
-    } catch (parseError) {
-      // WHY: If the stored data is corrupted, generate a fresh keypair
-      // rather than failing. The old public key in machine_keys will be
-      // overwritten during the next pairing or registerPublicKey call.
-      logger.error('Failed to parse stored keypair, regenerating:', parseError);
-      return await regenerateKeyPair();
-    }
+  // Singleflight: if another caller is already loading/generating, await
+  // their result instead of racing to SecureStore + regenerateKeyPair.
+  if (inFlight) {
+    return inFlight;
   }
 
-  // No stored keypair -- generate a new one
-  return await regenerateKeyPair();
+  inFlight = (async (): Promise<NaClKeyPair> => {
+    try {
+      // Check SecureStore for a persisted keypair
+      const stored = await SecureStore.getItemAsync(KEYPAIR_STORAGE_KEY);
+
+      if (stored) {
+        try {
+          const parsed: StoredKeyPair = JSON.parse(stored);
+          const keypair: NaClKeyPair = {
+            publicKey: await decodeBase64(parsed.publicKey),
+            secretKey: await decodeBase64(parsed.secretKey),
+          };
+
+          // Validate key lengths before caching
+          if (keypair.publicKey.length !== 32 || keypair.secretKey.length !== 32) {
+            logger.error('Stored keypair has invalid key lengths, regenerating');
+            return await regenerateKeyPair();
+          }
+
+          cachedKeyPair = keypair;
+          logger.log('Loaded existing keypair from SecureStore');
+          return keypair;
+        } catch (parseError) {
+          // WHY: If the stored data is corrupted, generate a fresh keypair
+          // rather than failing. The old public key in machine_keys will be
+          // overwritten during the next pairing or registerPublicKey call.
+          logger.error('Failed to parse stored keypair, regenerating:', parseError);
+          return await regenerateKeyPair();
+        }
+      }
+
+      // No stored keypair -- generate a new one
+      return await regenerateKeyPair();
+    } finally {
+      // Clear the in-flight slot so a subsequent call re-checks cache /
+      // SecureStore freshly. On failure this lets callers retry; on success
+      // cachedKeyPair is set so the next call short-circuits at the top.
+      inFlight = null;
+    }
+  })();
+
+  return inFlight;
 }
 
 /**
@@ -403,6 +440,10 @@ export async function registerPublicKey(userId: string): Promise<void> {
  */
 export function clearEncryptionCache(): void {
   cachedKeyPair = null;
+  // Defensive: drop any in-flight singleflight promise so a post-logout
+  // call to getOrCreateKeyPair() does NOT receive a keypair that was being
+  // generated for the previous session.
+  inFlight = null;
   recipientKeyCache.clear();
   logger.log('Cleared encryption cache');
 }

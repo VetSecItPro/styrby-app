@@ -178,6 +178,62 @@ describe('Encryption Service', () => {
       expect(keypair.publicKey.length).toBe(32);
       expect(keypair.secretKey.length).toBe(32);
     });
+
+    it('singleflight: concurrent callers share one SecureStore read + one keypair generation', async () => {
+      // Simulate cold start (empty cache, empty SecureStore) with a non-trivial
+      // SecureStore latency so three callers overlap in the in-flight window.
+      let resolveStored: (v: string | null) => void = () => {};
+      (SecureStore.getItemAsync as jest.Mock).mockImplementationOnce(
+        () => new Promise((resolve) => {
+          resolveStored = resolve;
+        })
+      );
+
+      // Fire three concurrent callers BEFORE the SecureStore read resolves.
+      const p1 = getOrCreateKeyPair();
+      const p2 = getOrCreateKeyPair();
+      const p3 = getOrCreateKeyPair();
+
+      // Now release the SecureStore read with no stored value, forcing
+      // the singleflight to call regenerateKeyPair() exactly once.
+      resolveStored(null);
+
+      const [k1, k2, k3] = await Promise.all([p1, p2, p3]);
+
+      // All three callers received the SAME keypair object reference.
+      expect(k1).toBe(k2);
+      expect(k2).toBe(k3);
+
+      // SecureStore was read exactly once across all three callers
+      // (the second + third callers awaited the in-flight promise).
+      expect(SecureStore.getItemAsync).toHaveBeenCalledTimes(1);
+
+      // generateKeyPair() was invoked exactly once — the race scenario
+      // (3 parallel regenerations with last-writer-wins) is closed.
+      expect(generateKeyPair).toHaveBeenCalledTimes(1);
+
+      // SecureStore.setItemAsync was written exactly once.
+      expect(SecureStore.setItemAsync).toHaveBeenCalledTimes(1);
+    });
+
+    it('singleflight: clears in-flight slot on failure so retries can succeed', async () => {
+      // First call fails on SecureStore read.
+      (SecureStore.getItemAsync as jest.Mock).mockRejectedValueOnce(
+        new Error('SecureStore unavailable')
+      );
+
+      await expect(getOrCreateKeyPair()).rejects.toThrow('SecureStore unavailable');
+
+      // Second call: SecureStore now works (no stored value -> regenerate).
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
+
+      const keypair = await getOrCreateKeyPair();
+
+      // The retry succeeded — the failed first attempt did not poison
+      // subsequent calls by leaving a rejected promise in the in-flight slot.
+      expect(keypair).toBeDefined();
+      expect(keypair.publicKey.length).toBe(32);
+    });
   });
 
   // ==========================================================================
