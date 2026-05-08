@@ -59,7 +59,7 @@ export function CTABanner() {
           </Button>
         </div>
 
-        <p className="mt-4 text-sm text-muted-foreground/60">
+        <p className="mt-4 text-sm text-muted-foreground">
           Cancel anytime. 7-day refund.
         </p>
       </div>

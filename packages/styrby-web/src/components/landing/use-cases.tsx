@@ -72,7 +72,7 @@ export function UseCases() {
                 <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-amber-500/10 transition-colors group-hover:bg-amber-500/20">
                   <useCase.icon className="h-6 w-6 text-amber-500" />
                 </div>
-                <span className="font-mono text-xs text-muted-foreground/40">0{index + 1}</span>
+                <span aria-hidden="true" className="font-mono text-xs text-muted-foreground/40">0{index + 1}</span>
               </div>
 
               {/* Content */}

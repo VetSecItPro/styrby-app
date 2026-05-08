@@ -237,7 +237,7 @@ export function ROICalculator() {
             format={(v) => `${v}%`}
             onChange={update('productivityGainPct')}
           />
-          <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
+          <p className="text-[10px] text-muted-foreground leading-relaxed">
             Productivity gain range 5-40% reflects published research (GitHub Copilot,
             McKinsey 2023, Stripe). We cap at 40% to stay honest - claims above 50% are
             not supported by independent studies for typical engineering work.
@@ -256,7 +256,7 @@ export function ROICalculator() {
           aria-atomic="true"
           className="flex flex-col items-center justify-center rounded-xl border border-zinc-800/60 bg-zinc-900/40 p-8 text-center"
         >
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground/60">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
             Estimated Annual Value
           </p>
           <p className="mt-3 text-5xl font-bold tracking-tight text-foreground">
@@ -268,18 +268,18 @@ export function ROICalculator() {
 
           <div className="mt-4 grid grid-cols-2 gap-4 w-full text-center">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Styrby Growth cost
               </p>
               <p className="mt-1 text-lg font-bold text-foreground">
                 {formatDollars(annualStyrbyEstimate)}/yr
               </p>
-              <p className="text-[10px] text-muted-foreground/50">
+              <p className="text-[10px] text-muted-foreground">
                 ({Math.max(GROWTH_BASE_SEATS, Math.min(GROWTH_MAX_SEATS, inputs.developers))} seats; $99 base + $19/seat after 3)
               </p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Return on investment
               </p>
               <p className={cn(
@@ -288,13 +288,13 @@ export function ROICalculator() {
               )}>
                 {roi >= 100 ? `${Math.round(roi)}x` : `${roi.toFixed(1)}x`}
               </p>
-              <p className="text-[10px] text-muted-foreground/50">
+              <p className="text-[10px] text-muted-foreground">
                 value vs Styrby cost
               </p>
             </div>
           </div>
 
-          <p className="mt-5 text-[10px] text-muted-foreground/50 leading-relaxed">
+          <p className="mt-5 text-[10px] text-muted-foreground leading-relaxed">
             This estimate is illustrative. Actual productivity gains depend on team
             workflows, agent type, and task mix. YMMV.
           </p>

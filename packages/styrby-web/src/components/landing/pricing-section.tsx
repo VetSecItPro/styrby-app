@@ -149,7 +149,7 @@ export function PricingSection() {
         </div>
 
         {/* Trust footnote + deep link */}
-        <p className="mt-8 text-center text-xs text-muted-foreground/60">
+        <p className="mt-8 text-center text-xs text-muted-foreground">
           Switch between Pro and Growth in one click. Cancel anytime.{" "}
           <Link
             href="/pricing"

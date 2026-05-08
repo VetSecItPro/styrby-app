@@ -135,7 +135,7 @@ export function SocialProof() {
       </div>
 
       <div className="mx-auto max-w-7xl px-6 py-10">
-        <p className="mb-6 text-center text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground/60">
+        <p className="mb-6 text-center text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
           {/* WHY this eyebrow over "Trusted by N developers": real customer
               counts are still being instrumented (see notes.md placeholder #1).
               Until that number is verifiable, the agent compatibility framing
