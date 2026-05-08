@@ -88,7 +88,8 @@ export function PricingSection() {
 
         {/* Section header */}
         <div className="mx-auto max-w-2xl text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/70">
+          {/* Decorative eyebrow; the h2 below is the accessible section heading. */}
+          <p aria-hidden="true" className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/70">
             Pricing
           </p>
           <h2 className="mt-3 text-balance text-3xl font-bold tracking-tight text-foreground md:text-4xl">
@@ -234,7 +235,7 @@ function PricingCard({
             ${plan.annual}/year (save ${plan.savings})
           </p>
         ) : plan.perSeatNote ? (
-          <p className="text-xs text-muted-foreground/50">{plan.perSeatNote}</p>
+          <p className="text-xs text-muted-foreground">{plan.perSeatNote}</p>
         ) : null}
       </div>
 

@@ -140,7 +140,7 @@ export function FAQSection() {
             </div>
 
             {/* Mobile fallback: show all Q&A below the list on small screens */}
-            <p className="mt-4 text-xs text-muted-foreground/50 lg:hidden">
+            <p className="mt-4 text-xs text-muted-foreground lg:hidden">
               Tap a question above to read the answer here.
             </p>
           </div>
