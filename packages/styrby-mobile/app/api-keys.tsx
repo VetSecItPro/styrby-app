@@ -32,18 +32,12 @@ import {
   RefreshControl,
   KeyboardAvoidingView,
   Platform,
-  Linking,
   Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { z } from 'zod';
-import {
-  getUpgradeMessage,
-  getUpgradeButtonLabel,
-  getIosManageNote,
-  POLAR_CUSTOMER_PORTAL_URL,
-} from '../src/lib/platform-billing';
+import { PowerTierGate } from '../src/components/tier/PowerTierGate';
 import {
   useApiKeys,
   type ApiKey,
@@ -543,61 +537,6 @@ function SecretRevealModal({ secret, keyName, onClose }: SecretModalProps) {
 }
 
 // ============================================================================
-// Power Tier Gate
-// ============================================================================
-
-/**
- * Full-screen upgrade prompt shown to non-Power-tier users.
- *
- * WHY platform-conditional rendering:
- * Apple App Store §3.1.3(a) classifies Styrby as a Reader App and prohibits
- * showing upgrade buttons, pricing, or links to external payment flows on iOS.
- * Android shows the full upgrade CTA with a direct link to the Polar portal.
- *
- * @returns React element
- */
-function PowerTierGate() {
-  const upgradeButtonLabel = getUpgradeButtonLabel('power');
-  const iosManageNote = getIosManageNote();
-
-  return (
-    <View className="flex-1 bg-background items-center justify-center px-8">
-      <View className="w-20 h-20 rounded-3xl bg-orange-500/15 items-center justify-center mb-6">
-        <Ionicons name="code-slash" size={40} color="#f97316" />
-      </View>
-      <Text className="text-white text-2xl font-bold text-center mb-2">
-        Power Plan Required
-      </Text>
-      <Text className="text-zinc-400 text-center mb-6">
-        {getUpgradeMessage('API Keys', 'power')}
-        {'\n\n'}Build integrations and automate your Styrby workflow with direct
-        API access.
-      </Text>
-
-      {/* WHY: Only render upgrade button on Android. Apple Reader App rules
-          (§3.1.3(a)) prohibit purchase CTAs or external payment links on iOS. */}
-      {upgradeButtonLabel !== null ? (
-        <Pressable
-          className="bg-brand px-8 py-4 rounded-2xl active:opacity-80"
-          onPress={() =>
-            Linking.openURL(POLAR_CUSTOMER_PORTAL_URL).catch(() => null)
-          }
-          accessibilityRole="button"
-          accessibilityLabel={upgradeButtonLabel}
-        >
-          <Text className="text-white font-bold text-base">{upgradeButtonLabel}</Text>
-        </Pressable>
-      ) : (
-        // iOS: informational note only — no button, no price, no external link
-        iosManageNote !== null && (
-          <Text className="text-zinc-500 text-sm text-center">{iosManageNote}</Text>
-        )
-      )}
-    </View>
-  );
-}
-
-// ============================================================================
 // Screen
 // ============================================================================
 
@@ -721,7 +660,13 @@ export default function ApiKeysScreen() {
   // --------------------------------------------------------------------------
 
   if (!isPowerTier) {
-    return <PowerTierGate />;
+    return (
+      <PowerTierGate
+        feature="API Keys"
+        description="Build integrations and automate your Styrby workflow with direct API access."
+        icon="code-slash"
+      />
+    );
   }
 
   // --------------------------------------------------------------------------
