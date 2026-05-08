@@ -31,6 +31,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, Stack } from 'expo-router';
 import { supabase } from '../src/lib/supabase';
 import { CloudTasks } from '../src/components/CloudTasks';
+import { CloudTaskSubmitSheet } from '../src/components/cloud-tasks/CloudTaskSubmitSheet';
 import { PowerTierGate } from '../src/components/tier/PowerTierGate';
 import { useSubscriptionTier } from '../src/hooks/useSubscriptionTier';
 import { cancelCloudTask } from '../src/services/cloud-tasks';
@@ -50,6 +51,7 @@ import { cancelCloudTask } from '../src/services/cloud-tasks';
 export default function CloudTasksScreen() {
   const [userId, setUserId] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [isSubmitSheetOpen, setIsSubmitSheetOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,12 +128,52 @@ export default function CloudTasksScreen() {
     );
   }
 
-  // Power tier: render the task list
+  // Power tier: render the task list + submit FAB
   return (
     <>
       <Stack.Screen options={{ title: 'Cloud Tasks' }} />
       <View className="flex-1 bg-background">
         <CloudTasks userId={userId} onCancelTask={handleCancel} />
+
+        {/* Floating "+" button to open the submit sheet. Positioned bottom-right
+            following standard mobile FAB convention. Realtime delivers the new
+            task to the list automatically once submitCloudTask returns, so we
+            don't need to optimistically inject the row here — but onSubmitted
+            is wired in case we want to in the future (Realtime can lag). */}
+        <Pressable
+          onPress={() => setIsSubmitSheetOpen(true)}
+          style={{
+            position: 'absolute',
+            right: 20,
+            bottom: 24,
+            width: 56,
+            height: 56,
+            borderRadius: 28,
+            backgroundColor: '#f97316',
+            alignItems: 'center',
+            justifyContent: 'center',
+            shadowColor: '#000',
+            shadowOpacity: 0.3,
+            shadowRadius: 8,
+            shadowOffset: { width: 0, height: 4 },
+            elevation: 6,
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Submit a new cloud task"
+        >
+          <Ionicons name="add" size={28} color="white" />
+        </Pressable>
+
+        <CloudTaskSubmitSheet
+          visible={isSubmitSheetOpen}
+          onDismiss={() => setIsSubmitSheetOpen(false)}
+          onSubmitted={() => {
+            // Realtime will deliver the new row to <CloudTasks/> automatically;
+            // this hook exists so future iterations could optimistically inject
+            // it sooner if needed. Currently a no-op besides closing the sheet
+            // (handled by the dismiss path inside the sheet).
+          }}
+        />
       </View>
     </>
   );
