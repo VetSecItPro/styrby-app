@@ -133,7 +133,7 @@ export function ProTierCard({ annual }: ProTierCardProps) {
         </Button>
       </div>
 
-      <p className="mt-3 text-center text-[11px] text-muted-foreground/50">
+      <p className="mt-3 text-center text-[11px] text-muted-foreground">
         Cancel anytime. Upgrade to Growth in one click when your team grows.
       </p>
     </div>
