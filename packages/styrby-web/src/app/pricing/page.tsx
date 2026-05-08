@@ -132,6 +132,10 @@ export default function PricingPage() {
       {/* Pricing cards — 2-column grid (stacks on mobile) */}
       <section className="py-12">
         <div className="mx-auto max-w-4xl px-6">
+          {/* sr-only h2 satisfies WCAG heading-order between the page h1 and the
+              h3 inside each tier card; visually the section uses the cards as
+              its content, so no on-screen heading is shown. */}
+          <h2 className="sr-only">Available plans</h2>
           <div className="grid gap-6 md:grid-cols-2 md:items-stretch">
             <ProTierCard annual={annual} />
             <GrowthTierCard
@@ -143,7 +147,7 @@ export default function PricingPage() {
               }}
             />
           </div>
-          <p className="mt-8 text-center text-xs text-muted-foreground/60">
+          <p className="mt-8 text-center text-xs text-muted-foreground">
             Upgrade or downgrade in one click. Cancel anytime — no questions asked.
           </p>
         </div>

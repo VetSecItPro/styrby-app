@@ -33,7 +33,7 @@ function ComparisonCategory({
       <tr>
         <td
           colSpan={3}
-          className="pt-8 pb-3 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-500/60"
+          className="pt-8 pb-3 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-400"
         >
           {category.name}
         </td>
