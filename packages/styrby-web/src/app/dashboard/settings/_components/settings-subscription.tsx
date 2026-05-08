@@ -44,7 +44,7 @@ export function SettingsSubscription({ subscription }: SettingsSubscriptionProps
                     ? 'bg-green-500/10 text-green-400'
                     : subscription?.status === 'trialing'
                       ? 'bg-blue-500/10 text-blue-400'
-                      : 'bg-zinc-700 text-zinc-400'
+                      : 'bg-zinc-700 text-zinc-300'
                 }`}
               >
                 {subscription?.status || 'Free'}

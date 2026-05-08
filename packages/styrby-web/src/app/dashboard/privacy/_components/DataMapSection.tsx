@@ -221,7 +221,7 @@ function DataMapRow({ entry }: { entry: DataMapEntry }) {
           className={`flex-shrink-0 flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${
             entry.encrypted
               ? 'bg-green-500/10 text-green-400'
-              : 'bg-zinc-700 text-zinc-400'
+              : 'bg-zinc-700 text-zinc-300'
           }`}
           aria-label={entry.encrypted ? 'Content encrypted' : 'Plaintext'}
         >

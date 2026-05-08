@@ -86,8 +86,8 @@ function statusBadgeClass(status: InvitationRow['status']): string {
     case 'pending': return 'bg-yellow-500/10 text-yellow-400';
     case 'accepted': return 'bg-green-500/10 text-green-400';
     case 'revoked': return 'bg-red-500/10 text-red-400';
-    case 'expired': return 'bg-zinc-700 text-zinc-400';
-    default: return 'bg-zinc-700 text-zinc-400';
+    case 'expired': return 'bg-zinc-700 text-zinc-300';
+    default: return 'bg-zinc-700 text-zinc-300';
   }
 }
 

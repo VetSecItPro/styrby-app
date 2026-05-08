@@ -150,7 +150,7 @@ function StatusBadge({ status }: { status: CloudTaskStatus }) {
  * @returns React element
  */
 function AgentBadge({ agentType }: { agentType: AgentType }) {
-  const classes = AGENT_COLORS[agentType] ?? 'bg-zinc-700 text-zinc-400';
+  const classes = AGENT_COLORS[agentType] ?? 'bg-zinc-700 text-zinc-300';
   return (
     <span
       className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-semibold ${classes}`}
