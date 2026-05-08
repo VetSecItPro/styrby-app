@@ -14,11 +14,14 @@ import { PermissionCard } from './permission-card';
 import { cn } from '@/lib/utils';
 import { tryDecryptMessage, registerWebDevice, type DecryptResult } from '@/lib/encryption';
 
-// WHY: Hoisted to module level to avoid re-allocating the RegExp object on every
-// render call. Note: no `g` flag here - we use matchAll() instead, which
-// creates a fresh stateful iterator per call (the `g` flag on a shared regex
-// causes lastIndex bugs across concurrent calls).
-const CODE_BLOCK_REGEX = /```(\w+)?\n([\s\S]*?)```/;
+// WHY: Hoisted to module level (pre-computed with `g` flag) to avoid re-allocating
+// the RegExp on every render. matchAll() returns a fresh iterator each call, so
+// sharing this `g`-flagged regex across concurrent calls is safe — the
+// `lastIndex` bug only affects callers that use `.exec()` or `.test()` on a
+// shared global regex, neither of which we do here. Saves one `new RegExp(...)`
+// allocation per render frame in the chat thread, which re-renders on every
+// new message in the session.
+const CODE_BLOCK_REGEX_GLOBAL = /```(\w+)?\n([\s\S]*?)```/g;
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -266,13 +269,14 @@ function renderContent(
   copiedId: string | null,
   onCopy: (code: string, codeId: string) => void
 ): React.ReactNode {
-  // WHY: Use matchAll with a new RegExp (with `g` flag) derived from the module-level
-  // pattern. matchAll requires the global flag and returns a fresh iterator, avoiding
-  // lastIndex state bugs that occur when reusing a `g`-flagged regex across calls.
+  // WHY: matchAll on the pre-computed CODE_BLOCK_REGEX_GLOBAL.
+  // matchAll requires the `g` flag and returns a fresh iterator each call, so
+  // sharing the same regex instance across calls is safe (no `lastIndex` bleed).
+  // Pre-computing eliminates per-render allocation; see module-top constant.
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
 
-  for (const match of content.matchAll(new RegExp(CODE_BLOCK_REGEX.source, 'g'))) {
+  for (const match of content.matchAll(CODE_BLOCK_REGEX_GLOBAL)) {
     if (match.index! > lastIndex) {
       parts.push(
         <span key={`text-${lastIndex}`}>
