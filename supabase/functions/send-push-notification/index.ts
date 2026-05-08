@@ -27,87 +27,19 @@ import {
   isExpoPushToken,
   type ExpoPushSendResult,
 } from '../_shared/expo-push.ts';
+import {
+  buildNotificationPayload,
+  isTypeAllowed,
+  BASE_PRIORITY_BY_EVENT,
+  VALID_EVENT_TYPES,
+  type NotificationEventType,
+  type NotificationEventData,
+  type NotificationPayload,
+} from '../_shared/notification-templates.ts';
 
 // ============================================================================
 // Types
 // ============================================================================
-
-/**
- * Notification event types that this function handles.
- * Each type maps to a specific notification template with pre-defined
- * title, body, and routing behavior in the mobile app.
- */
-type NotificationEventType =
-  | 'permission_request'
-  | 'session_started'
-  | 'session_completed'
-  | 'session_error'
-  | 'budget_warning'
-  | 'budget_exceeded'
-  // Phase 2.4 — team approval request notification
-  // Sent to all eligible approvers when the CLI submits a review-class command.
-  // The mobile app surfaces "Approve / Deny / View diff" action buttons.
-  | 'approval_request'
-  // #97 PR-3 — cloud task lifecycle notifications
-  // Fired by the notify_push_for_cloud_task trigger (migration 092) on
-  // terminal status transitions of public.cloud_tasks. cancelled tasks
-  // intentionally skip the push (user-initiated, no need to re-notify).
-  | 'cloud_task_completed'
-  | 'cloud_task_failed';
-
-/**
- * Data payload included with the notification event.
- * Not all fields are required for every event type.
- */
-interface NotificationEventData {
-  /** Session UUID for navigation to specific session */
-  sessionId?: string;
-
-  /** Which AI agent triggered the event (e.g., "Claude", "Codex") */
-  agentType?: string;
-
-  // Phase 2.4 — approval_request specific fields
-  /** Approval row UUID (for deep-link to approval detail screen) */
-  approvalId?: string;
-  /** User ID of the team member who submitted the approval request */
-  requesterUserId?: string;
-  /** Action buttons to surface in the notification (mobile): approve, deny, view_diff */
-  actions?: string[];
-
-  /** Custom notification title override */
-  title?: string;
-
-  /** Custom notification body override */
-  body?: string;
-
-  /** Cost in USD for session completion events */
-  costUsd?: number;
-
-  /** Budget threshold in USD for budget events */
-  budgetThreshold?: number;
-
-  /** Type of permission being requested (e.g., "write files") */
-  permissionType?: string;
-
-  /** Risk level for permission requests (low, medium, high) */
-  riskLevel?: 'low' | 'medium' | 'high';
-
-  /** Tool name for permission requests (e.g., "bash", "write") */
-  toolName?: string;
-
-  /** Session duration in milliseconds (for session completion events) */
-  sessionDurationMs?: number;
-
-  // #97 PR-3 — cloud task fields
-  /** UUID of the cloud_tasks row (for deep-link to task detail). */
-  taskId?: string;
-  /**
-   * First ~80 chars of the task prompt — used in the notification body so
-   * the user knows which task finished without opening the app. The trigger
-   * (migration 092) already truncates to 80 chars on the server side.
-   */
-  prompt?: string;
-}
 
 /**
  * The incoming request payload from internal services.
@@ -123,32 +55,10 @@ interface NotificationRequest {
   data: NotificationEventData;
 }
 
-/**
- * Notification template built from the event type and data.
- * Used to construct the Expo push message.
- */
-interface NotificationPayload {
-  /** Notification title displayed in the notification shade */
-  title: string;
-
-  /** Notification body text */
-  body: string;
-
-  /** Data payload delivered to the app for navigation routing */
-  data: Record<string, unknown>;
-
-  /** Sound to play ("default" or null for silent) */
-  sound: 'default' | null;
-
-  /** Delivery priority ("high" for time-sensitive like permissions) */
-  priority: 'default' | 'high';
-
-  /**
-   * Android notification channel ID.
-   * "permissions" channel has more aggressive vibration pattern.
-   */
-  channelId?: string;
-}
+// NOTE: NotificationEventType, NotificationEventData, NotificationPayload,
+// VALID_EVENT_TYPES, BASE_PRIORITY_BY_EVENT, isTypeAllowed, and
+// buildNotificationPayload are imported from `../_shared/notification-templates.ts`
+// so they can be unit-tested from Vitest without standing up a Deno test runner.
 
 /**
  * Row shape from the notification_preferences table.
@@ -210,45 +120,6 @@ interface NotificationResponse {
  * coding session generates 10-30 notifications; 100 provides generous headroom.
  */
 const RATE_LIMIT_PER_HOUR = 100;
-
-/**
- * Valid notification event types for payload validation.
- * Used to reject requests with unknown event types before processing.
- */
-const VALID_EVENT_TYPES: NotificationEventType[] = [
-  'permission_request',
-  'session_started',
-  'session_completed',
-  'session_error',
-  'budget_warning',
-  'budget_exceeded',
-  'approval_request',         // Phase 2.4
-  'cloud_task_completed',     // #97 PR-3
-  'cloud_task_failed',        // #97 PR-3
-];
-
-/**
- * Base priority scores by event type.
- * Scale: 1 (most urgent) to 5 (informational only).
- */
-const BASE_PRIORITY_BY_EVENT: Record<NotificationEventType, number> = {
-  permission_request: 2,
-  session_started: 5,
-  session_completed: 4,
-  session_error: 2,
-  budget_warning: 2,
-  budget_exceeded: 1,
-  // WHY priority 1 for approval_request: team members are blocked at the CLI
-  // waiting for this notification to be acted on. Maximum urgency is appropriate.
-  approval_request: 1,
-  // WHY priority 4 for cloud_task_completed: a cloud task finishing is
-  // structurally the same as a session completing — informational, not
-  // urgent. Same priority as session_completed.
-  cloud_task_completed: 4,
-  // WHY priority 2 for cloud_task_failed: agent error is actionable; the
-  // user may need to retry or investigate. Same priority as session_error.
-  cloud_task_failed: 2,
-};
 
 /**
  * Risk level adjustments for permission requests.
@@ -538,58 +409,11 @@ async function checkNotificationPreferences(
   };
 }
 
-/**
- * Checks whether a specific notification type is enabled in user preferences.
- *
- * Maps each event type to its corresponding preference column.
- * Types not explicitly mapped (like session_started) are always allowed
- * because they don't have a dedicated preference toggle.
- *
- * @param prefs - The user's notification preferences
- * @param eventType - The notification event type to check
- * @returns True if the user has enabled notifications for this type
- */
-function isTypeAllowed(
-  prefs: NotificationPreferences,
-  eventType: NotificationEventType
-): boolean {
-  switch (eventType) {
-    case 'permission_request':
-      return prefs.push_permission_requests;
-    case 'session_error':
-      return prefs.push_session_errors;
-    case 'session_completed':
-      return prefs.push_session_complete;
-    case 'budget_warning':
-    case 'budget_exceeded':
-      return prefs.push_budget_alerts;
-    case 'session_started':
-      // WHY no preference column: session_started is a low-frequency,
-      // informational notification. It was intentionally omitted from
-      // per-type preferences to keep the settings UI simple. If users
-      // don't want it, they can disable push entirely.
-      return true;
-    case 'approval_request':
-      // WHY always true: approval_request notifications cannot be opted out
-      // of at the type level. An approver who disabled push cannot fulfil
-      // their governance role. If they want no push, they must disable their
-      // approver assignment — that's an admin-level change, not a preference
-      // toggle. (SOC2 CC6.3 — governance controls must not be user-bypassable.)
-      return true;
-    case 'cloud_task_completed':
-      // WHY reuse push_session_complete: structurally the same kind of event
-      // (an agent finished a job). Reusing the existing toggle avoids a
-      // schema migration and keeps the settings UI from growing yet another
-      // checkbox. Default = false (per migration 001), matching session_completed.
-      return prefs.push_session_complete;
-    case 'cloud_task_failed':
-      // WHY reuse push_session_errors: cloud-task failure is structurally the
-      // same as session error (agent ran into a problem). Default = true.
-      return prefs.push_session_errors;
-    default:
-      return true;
-  }
-}
+// isTypeAllowed lives in ../_shared/notification-templates.ts (imported above).
+// The shared module's NotificationPreferences declares the subset of columns
+// it reads from; the wider local NotificationPreferences interface is
+// structurally compatible (excess properties allowed when narrowing by
+// assignment).
 
 /**
  * Determines whether the current time falls within the user's quiet hours.
@@ -658,212 +482,9 @@ function timeToMinutes(time: string): number {
   return hours * 60 + minutes;
 }
 
-// ============================================================================
-// Notification Payload Builder
-// ============================================================================
-
-/**
- * Builds the notification payload (title, body, data, priority) based on
- * the event type and associated data.
- *
- * Each event type has a pre-defined template that creates user-friendly
- * notification text and includes routing data so the mobile app can navigate
- * to the relevant screen when the notification is tapped.
- *
- * @param type - The notification event type
- * @param data - Event-specific data for template interpolation
- * @returns The constructed notification payload
- */
-function buildNotificationPayload(
-  type: NotificationEventType,
-  data: NotificationEventData
-): NotificationPayload {
-  switch (type) {
-    case 'permission_request':
-      return {
-        title: data.title || 'Permission Required',
-        body:
-          data.body ||
-          `${data.agentType || 'Agent'} wants to ${data.permissionType || 'perform an action'}`,
-        data: {
-          screen: 'chat',
-          sessionId: data.sessionId,
-          type: 'permission_request',
-        },
-        sound: 'default',
-        priority: 'high',
-        // WHY "permissions" channel: The mobile app registers this Android
-        // channel with a more aggressive vibration pattern and red LED color
-        // to distinguish urgent permission requests from informational
-        // notifications. See notifications.ts line 79.
-        channelId: 'permissions',
-      };
-
-    case 'session_started':
-      return {
-        title: data.title || `${data.agentType || 'Agent'} Session Started`,
-        body: data.body || 'New coding session active',
-        data: {
-          screen: 'dashboard',
-          sessionId: data.sessionId,
-          type: 'session_started',
-        },
-        sound: 'default',
-        priority: 'default',
-      };
-
-    case 'session_completed':
-      return {
-        title: data.title || 'Session Complete',
-        body:
-          data.body ||
-          (data.costUsd !== undefined
-            ? `Cost: $${data.costUsd.toFixed(4)}`
-            : 'Session finished'),
-        data: {
-          screen: 'sessions',
-          sessionId: data.sessionId,
-          type: 'session_completed',
-        },
-        sound: 'default',
-        priority: 'default',
-      };
-
-    case 'session_error':
-      return {
-        title: data.title || 'Session Error',
-        body:
-          data.body ||
-          `${data.agentType || 'Agent'} encountered an error`,
-        data: {
-          screen: 'chat',
-          sessionId: data.sessionId,
-          type: 'session_error',
-        },
-        sound: 'default',
-        priority: 'high',
-      };
-
-    case 'cloud_task_completed':
-      // WHY: tap takes user to the cloud-tasks screen (where the task list
-      // and detail sheet live); the taskId is forwarded so the screen can
-      // optionally auto-open the matching task on launch.
-      return {
-        title: data.title || 'Cloud Task Complete',
-        body:
-          data.body ||
-          (data.prompt && data.prompt.length > 0
-            ? `${data.agentType || 'Agent'}: ${data.prompt}`
-            : data.costUsd !== undefined
-              ? `Task finished — cost $${data.costUsd.toFixed(4)}`
-              : 'Cloud task finished'),
-        data: {
-          screen: 'cloud-tasks',
-          taskId: data.taskId,
-          type: 'cloud_task_completed',
-        },
-        sound: 'default',
-        priority: 'default',
-      };
-
-    case 'cloud_task_failed':
-      // WHY priority 'high' on the Expo channel: matches session_error so
-      // the OS surfaces it more prominently — a failed cloud task is
-      // actionable (user may need to retry from the dispatcher).
-      return {
-        title: data.title || 'Cloud Task Failed',
-        body:
-          data.body ||
-          (data.prompt && data.prompt.length > 0
-            ? `${data.agentType || 'Agent'} failed on: ${data.prompt}`
-            : `${data.agentType || 'Agent'} encountered an error`),
-        data: {
-          screen: 'cloud-tasks',
-          taskId: data.taskId,
-          type: 'cloud_task_failed',
-        },
-        sound: 'default',
-        priority: 'high',
-      };
-
-    case 'budget_warning': {
-      // Calculate percentage if both current cost and threshold are available
-      const percentage =
-        data.costUsd !== undefined && data.budgetThreshold
-          ? Math.round((data.costUsd / data.budgetThreshold) * 100)
-          : null;
-
-      return {
-        title: data.title || 'Budget Warning',
-        body:
-          data.body ||
-          (percentage !== null
-            ? `Spending at ${percentage}% of $${data.budgetThreshold?.toFixed(2)}`
-            : `Approaching budget threshold of $${data.budgetThreshold?.toFixed(2) || '?'}`),
-        data: {
-          screen: 'costs',
-          type: 'budget_warning',
-          budgetThreshold: data.budgetThreshold,
-        },
-        sound: 'default',
-        priority: 'high',
-      };
-    }
-
-    case 'budget_exceeded':
-      return {
-        title: data.title || 'Budget Exceeded',
-        body:
-          data.body ||
-          `Spending exceeded $${data.budgetThreshold?.toFixed(2) || '?'}`,
-        data: {
-          screen: 'costs',
-          type: 'budget_exceeded',
-          budgetThreshold: data.budgetThreshold,
-        },
-        sound: 'default',
-        priority: 'high',
-      };
-
-    // Phase 2.4 — approval_request notification
-    // Sent to eligible approvers when the CLI pauses on a review-class command.
-    // WHY "Approve / Deny / View diff" in the body: these are the three actions
-    // the mobile app surfaces in the notification tray (via actions[] in data).
-    // Spelling them out in the body text makes the notification scannable even
-    // on watches / notification previews where action buttons don't appear.
-    case 'approval_request':
-      return {
-        title: data.title || `Approval Required: ${data.toolName || 'Tool call'}`,
-        body:
-          data.body ||
-          `A team member is waiting. Tap to Approve, Deny, or View diff.`,
-        data: {
-          screen: 'approvals',
-          approvalId: data.approvalId,
-          requesterUserId: data.requesterUserId,
-          toolName: data.toolName,
-          riskLevel: data.riskLevel,
-          // Action buttons rendered by the mobile notification handler
-          actions: data.actions ?? ['approve', 'deny', 'view_diff'],
-          type: 'approval_request',
-        },
-        sound: 'default',
-        priority: 'high',
-        // WHY "permissions" channel: reuse the existing high-urgency Android
-        // notification channel (aggressive vibration, red LED) — approval
-        // requests are at least as urgent as permission_request notifications.
-        channelId: 'permissions',
-      };
-
-    default: {
-      // WHY exhaustive check: TypeScript's never type ensures we handle every
-      // NotificationEventType. If a new type is added to the union without
-      // adding a case here, the build will fail at compile time.
-      const _exhaustiveCheck: never = type;
-      throw new Error(`Unhandled notification type: ${_exhaustiveCheck}`);
-    }
-  }
-}
+// buildNotificationPayload lives in ../_shared/notification-templates.ts
+// (imported above). All title/body/screen-routing logic for every event type
+// is in one place so it can be unit-tested from Vitest.
 
 // ============================================================================
 // Device Token Lookup
