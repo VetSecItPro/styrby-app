@@ -71,7 +71,7 @@ jobs:
     steps:
       # SHA: actions/checkout v4.2.2 (2026-04-20)
       - name: Checkout repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       # WHY: CodeQL requires pnpm to correctly install dependencies so its
       # autobuild step can resolve imports and build a complete semantic graph.
@@ -79,11 +79,11 @@ jobs:
       # (e.g., CLI → shared types → web API routes).
       # SHA: pnpm/action-setup v4.1.0 (2026-04-20)
       - name: Set up pnpm
-        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        uses: pnpm/action-setup@cb9c4fdd700176d874d52d64ce3b7418842cf6d3 # v6
 
       # SHA: actions/setup-node v4.4.0 (2026-04-20)
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: '22'
           cache: pnpm
@@ -98,7 +98,7 @@ jobs:
       # WHY init before autobuild: initialises the CodeQL database directory
       # and hooks into the build process to capture compilation events.
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@fca7ace96b7d713c7035871441bd52efbe39e27e # v3
+        uses: github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4
         with:
           languages: ${{ matrix.language }}
           # WHY security-and-quality: broader than the default 'security-extended'
@@ -112,7 +112,7 @@ jobs:
       # declarations) that TypeScript files import across packages.
       # SHA: github/codeql-action/autobuild v3.28.16 (2026-04-20)
       - name: Autobuild
-        uses: github/codeql-action/autobuild@fca7ace96b7d713c7035871441bd52efbe39e27e # v3
+        uses: github/codeql-action/autobuild@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4
         env:
           # Placeholder env vars so build steps that read env don't crash.
           # Values mirror the CI workflow pattern.
@@ -129,7 +129,7 @@ jobs:
 
       # SHA: github/codeql-action/analyze v3.28.16 (2026-04-20)
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@fca7ace96b7d713c7035871441bd52efbe39e27e # v3
+        uses: github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4
         with:
           # WHY: The category differentiates results per language in the
           # GitHub Security tab when multiple languages are scanned in the

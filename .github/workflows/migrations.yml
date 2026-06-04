@@ -63,12 +63,12 @@ jobs:
       - name: Check out repo
         # WHY pinned to SHA: tag-mutation supply-chain hardening per
         # ~/.claude/standards/CI_VERCEL_COST_OPTIMIZATION.md / SECURITY hardening
-        # plan. v4 = 34e114876b0b11c390a56381ad16ebd13914f8d5
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        # plan. v6 = de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Install Supabase CLI
-        # WHY pinned to SHA: same supply-chain hardening rule. v1.6.0
-        uses: supabase/setup-cli@b60b5899c73b63a2d2d651b1e90db8d4c9392f51 # v1.6.0
+        # WHY pinned to SHA: same supply-chain hardening rule. v2.1.1
+        uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf # v2.1.1
         with:
           version: latest
 
