@@ -73,7 +73,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import * as Sentry from '@sentry/nextjs';
 import { createAdminClient } from '@/lib/supabase/server';
-import { rateLimit, rateLimitResponse } from '@/lib/rateLimit';
+import { rateLimit } from '@/lib/rateLimit';
 import { hashApiKey } from '@/lib/api-keys';
 import { generateApiKey } from '@styrby/shared';
 // WHY import from lib/auth/api-config (not send/route): Next.js 16 forbids non-HTTP-method

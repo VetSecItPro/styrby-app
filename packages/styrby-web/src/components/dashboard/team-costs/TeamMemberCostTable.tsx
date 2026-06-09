@@ -201,7 +201,6 @@ export function TeamMemberCostTable({
           <tbody className="divide-y divide-border/20">
             {sorted.map((member) => {
               const pct = teamTotal > 0 ? (member.totalCostUsd / teamTotal) * 100 : 0;
-              const totalTokens = member.totalInputTokens + member.totalOutputTokens;
 
               return (
                 <tr key={member.userId} className="hover:bg-secondary/10 transition-colors">

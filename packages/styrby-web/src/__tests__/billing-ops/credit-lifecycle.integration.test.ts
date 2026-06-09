@@ -256,7 +256,7 @@ describe('Credit lifecycle — issue + revoke + RLS', () => {
     mockRpc.mockResolvedValueOnce({ data: { audit_id: 150 }, error: null });
 
     const supabase = await createClient();
-    const { data, error } = await supabase.rpc('admin_revoke_credit', {
+    const { error } = await supabase.rpc('admin_revoke_credit', {
       p_credit_id: CREDIT_ID_1,
       p_reason:    'admin correction — credit issued in error',
     });

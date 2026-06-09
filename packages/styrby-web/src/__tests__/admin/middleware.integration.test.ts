@@ -376,7 +376,7 @@ describe('admin middleware integration', () => {
       // WHY: startsWith('/dashboard/admin') would match /dashboardfake if the
       // boundary check is wrong. Verify the gate is exact-boundary only.
       const req = makeRequest('/dashboardfake', false);
-      const response = await middleware(req);
+      await middleware(req);
 
       // Middleware should NOT gate this path as an admin path.
       // No env configured, so if the guard fired we'd get 404.

@@ -109,7 +109,6 @@ import { DELETE } from '../route';
 // ============================================================================
 
 const VALID_GROUP_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-const VALID_BASE_URL = `http://localhost:3000/api/v1/sessions/groups/${VALID_GROUP_ID}`;
 
 /**
  * Creates a NextRequest for DELETE /api/v1/sessions/groups/[id].

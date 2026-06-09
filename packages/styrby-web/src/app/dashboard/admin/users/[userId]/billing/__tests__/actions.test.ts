@@ -160,7 +160,7 @@ vi.mock('@/lib/billing/polar-refund', () => {
 });
 
 // Import mocked modules so tests can assert on them.
-import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/supabase/server';
 import { RefundError } from '@/lib/billing/polar-refund';
 import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 import type { Mock } from 'vitest';

@@ -22,7 +22,7 @@ function makeSupabase(rows: FakeRow[] | null) {
   const gte = vi.fn().mockResolvedValue({ data: rows, error: null });
   const select = vi.fn().mockReturnValue({ gte });
   const from = vi.fn().mockReturnValue({ select });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   return { client: { from } as any, gte, select, from };
 }
 

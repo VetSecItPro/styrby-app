@@ -50,7 +50,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import * as Sentry from '@sentry/nextjs';
 import { createAdminClient } from '@/lib/supabase/server';
-import { rateLimit, rateLimitResponse } from '@/lib/rateLimit';
+import { rateLimit } from '@/lib/rateLimit';
 import { OTP_SEND_RATE_LIMIT, hashEmail, MAX_EMAIL_LENGTH } from '@/lib/auth/api-config';
 
 // ============================================================================

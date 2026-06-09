@@ -41,7 +41,7 @@ import { notFound } from 'next/navigation';
 import { headers } from 'next/headers';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
-import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
+import { rateLimit } from '@/lib/rateLimit';
 
 // ============================================================================
 // Constants

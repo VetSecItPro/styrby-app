@@ -312,7 +312,6 @@ async function CreditsSection({ userId }: { userId: string }) {
             </thead>
             <tbody>
               {credits.map((c) => {
-                const isActive = c.applied_at === null && c.revoked_at === null;
                 const stateLabel = c.revoked_at
                   ? 'Revoked'
                   : c.applied_at

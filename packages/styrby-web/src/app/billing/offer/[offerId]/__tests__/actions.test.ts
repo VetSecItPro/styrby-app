@@ -58,7 +58,7 @@ const mockSentryCaptureException = vi.fn();
 
 vi.mock('@sentry/nextjs', () => ({
   captureException: (...args: unknown[]) => mockSentryCaptureException(...args),
-  captureMessage: (...args: unknown[]) => void 0,
+  captureMessage: (..._args: unknown[]) => void 0,
 }));
 
 // ─── Supabase mock ────────────────────────────────────────────────────────────

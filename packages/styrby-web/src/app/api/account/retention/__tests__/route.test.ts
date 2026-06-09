@@ -12,7 +12,6 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NextRequest } from 'next/server';
 
 // ============================================================================
 // Mocks
@@ -20,9 +19,6 @@ import { NextRequest } from 'next/server';
 
 const mockGetUser = vi.fn();
 const mockFrom = vi.fn();
-const mockAuditInsert = vi.fn();
-const mockProfileUpdate = vi.fn();
-const mockProfileSelect = vi.fn();
 
 /**
  * Build a minimal Supabase chain mock.
@@ -71,23 +67,6 @@ function setupProfileSelect(retentionDays: number | null) {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
     single: vi.fn().mockResolvedValue({ data: { retention_days: retentionDays }, error: null }),
-  };
-  return chain;
-}
-
-function setupProfileUpdate(success = true) {
-  const chain = {
-    update: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockResolvedValue({
-      error: success ? null : { message: 'DB error' },
-    }),
-  };
-  return chain;
-}
-
-function setupAuditInsert() {
-  const chain = {
-    insert: vi.fn().mockResolvedValue({ error: null }),
   };
   return chain;
 }
@@ -185,7 +164,6 @@ describe('PUT /api/account/retention', () => {
     setupAuthUser();
 
     const auditInsertSpy = vi.fn().mockResolvedValue({ error: null });
-    const profileUpdateSpy = vi.fn().mockReturnThis();
     const profileEqSpy = vi.fn().mockResolvedValue({ error: null });
 
     const callOrder: string[] = [];

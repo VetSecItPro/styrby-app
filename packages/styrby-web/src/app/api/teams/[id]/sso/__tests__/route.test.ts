@@ -23,13 +23,6 @@ import { NextRequest } from 'next/server';
 // ============================================================================
 
 const mockGetUser = vi.fn();
-const mockInsert = vi.fn();
-const mockUpdate = vi.fn();
-const mockSelect = vi.fn();
-const mockSingle = vi.fn();
-const mockEq = vi.fn();
-const mockIn = vi.fn();
-const mockContains = vi.fn();
 const mockRpc = vi.fn();
 
 /**

@@ -212,9 +212,6 @@ describe('checkIdempotency', () => {
     expect(result1).toEqual({ replayed: false });
     expect(result2).toEqual({ replayed: false });
 
-    // Verify the eq() call received different user IDs on each invocation
-    // (the second .eq() call on the chain is the user_id filter)
-    const allEqCalls = mockFrom.mock.results.flatMap(() => []);
     // The key assertion is that both calls reached the DB independently
     expect(mockFrom).toHaveBeenCalledTimes(2);
   });

@@ -111,7 +111,6 @@ interface OpenRouterAuthKeyResponse {
 import {
   computeCycleMetrics,
   formatCentralTimestamp,
-  type CycleMetrics,
 } from './cycle-metrics';
 
 export async function GET(request: NextRequest) {

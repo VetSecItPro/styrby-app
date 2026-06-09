@@ -49,7 +49,7 @@ function getResendClient(): Resend | null {
   if (!resendClient) {
     if (!process.env.RESEND_API_KEY) {
       if (!warnedMissingKey) {
-        // eslint-disable-next-line no-console
+         
         console.warn(
           '[email/lifecycle] RESEND_API_KEY is not set - lifecycle emails are disabled.'
         );
@@ -209,7 +209,7 @@ async function safeSend(params: {
       text: params.text,
     });
     if (error) {
-      // eslint-disable-next-line no-console
+       
       console.error('[email/lifecycle] send failed', {
         kind: params.kind,
         to: params.to,
@@ -218,7 +218,7 @@ async function safeSend(params: {
       });
     }
   } catch (err) {
-    // eslint-disable-next-line no-console
+     
     console.error('[email/lifecycle] send threw', {
       kind: params.kind,
       to: params.to,

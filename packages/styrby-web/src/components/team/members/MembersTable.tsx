@@ -28,7 +28,6 @@ import {
 import {
   canRevokeMember,
   parseDbRole,
-  TEAM_ADMIN_AUDIT_ACTIONS,
 } from '@styrby/shared';
 import type { TeamMemberAdminRow } from '@styrby/shared';
 
