@@ -357,6 +357,43 @@ jobs:
       - name: Run web unit tests
         run: pnpm --filter styrby-web run test
 
+  test-mobile:
+    name: Mobile Unit Tests
+    runs-on: ubuntu-latest
+    needs: [changes, build-shared]
+    # WHY this job exists: the mobile Jest suite (96 suites / ~1680 tests) had no
+    # CI gate before — only `build-mobile` (lint + expo export) and `perf-budgets`
+    # (cold-start-proxy only) touched the mobile package. That gap let the SDK 54
+    # upgrade silently break 3 passkey/auth suites (expo-passkey/native mock
+    # specifier mismatch) without CI catching it. This job runs the full suite.
+    # Skip on PRs that don't touch mobile or shared (e.g., web-only or cli-only).
+    if: needs.changes.outputs.mobile == 'true' || needs.changes.outputs.shared == 'true'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: pnpm/action-setup@cb9c4fdd700176d874d52d64ce3b7418842cf6d3 # v6
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # WHY download shared build: the mobile jest.config maps most styrby-shared
+      # specifiers to source, but any unmapped @styrby/shared subpath resolves to
+      # the package's dist/. Download it so resolution never falls through to a
+      # missing build dir. Mirrors the perf-budgets job's mobile-mapper download.
+      - name: Download shared build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: shared-build
+          path: packages/styrby-shared/dist/
+
+      - name: Run mobile unit tests
+        run: pnpm --filter styrby-mobile run test
+
   # ─── Security scanning ───
   security:
     name: Security Audit
@@ -901,7 +938,7 @@ jobs:
   summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [changes, quality, test-shared, test-cli, test-web, security, build-shared, build-cli, build-web, build-mobile, e2e, bundle-size, perf-budgets]
+    needs: [changes, quality, test-shared, test-cli, test-web, test-mobile, security, build-shared, build-cli, build-web, build-mobile, e2e, bundle-size, perf-budgets]
     if: always()
     steps:
       - name: Evaluate results
@@ -929,6 +966,7 @@ jobs:
           check_job "Shared Tests" "${{ needs.test-shared.result }}"
           check_job "CLI Tests" "${{ needs.test-cli.result }}"
           check_job "Web Tests" "${{ needs.test-web.result }}"
+          check_job "Mobile Tests" "${{ needs.test-mobile.result }}"
           # Security job now hard-fails on high CVEs (continue-on-error removed 2026-03-27).
           check_job "Security" "${{ needs.security.result }}"
           check_job "Build Shared" "${{ needs.build-shared.result }}"

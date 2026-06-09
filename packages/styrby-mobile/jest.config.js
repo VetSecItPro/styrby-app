@@ -72,6 +72,13 @@ module.exports = {
     // optional.) Surfaced during the SDK 52→54 upgrade when
     // `expo/virtual/env.js` (a new internal SDK 54 module) failed to
     // transpile and broke ~20 test suites.
+    //
+    // NOTE on expo-passkey: it is deliberately NOT in this allow-list. It is an
+    // Expo *native* module (`requireNativeModule`) that cannot load in this
+    // pure-node test environment regardless of transpilation. The suites that
+    // touch it mock the `expo-passkey/native` subpath the source actually
+    // imports (see app/__tests__/login-passkey, app/settings/__tests__/passkeys,
+    // app/__tests__/auth-screens) rather than transforming it.
     'node_modules/(?!(\\.pnpm/.*/node_modules/)?((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|react-navigation|@react-navigation/.*|native-base|react-native-svg|styrby-shared|@styrby/shared|@supabase)/)',
   ],
   setupFiles: ['./jest.setup.js'],
