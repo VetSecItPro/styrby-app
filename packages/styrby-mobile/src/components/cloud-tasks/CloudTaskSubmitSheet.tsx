@@ -171,9 +171,26 @@ export function CloudTaskSubmitSheet({
     setSessionsError(null);
 
     void (async () => {
+      // WHY explicit user scope: on a team, sessions RLS permits reading
+      // teammates' rows. The recent-sessions picker is a PERSONAL convenience
+      // list, so without .eq('user_id', ...) it leaked other members' session
+      // titles / project_path / git_branch. Scope to the authed user explicitly
+      // (defence in depth — do not rely on RLS alone for this UI affordance).
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (cancelled) return;
+      if (!user) {
+        setSessions([]);
+        setSessionsLoading(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('sessions')
         .select('id, title, project_path, git_branch, agent_type, started_at')
+        .eq('user_id', user.id)
         .order('started_at', { ascending: false })
         .limit(10);
 

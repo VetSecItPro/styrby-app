@@ -668,6 +668,14 @@ export function useCosts(): UseCostsReturn {
    * is filtered by the user's auth to respect RLS.
    */
   useEffect(() => {
+    // WHY this flag: setupRealtime awaits getUser() before it can create the
+    // channel and store it in realtimeChannelRef. If the component unmounts
+    // during that await, the cleanup below runs while the ref is still null and
+    // cannot remove the channel — so the channel created AFTER the await would
+    // leak its WebSocket subscription forever. We track cancellation in the
+    // effect closure and tear down (or never create) the channel post-await.
+    let cancelled = false;
+
     /**
      * Set up the Realtime subscription after initial data load completes.
      */
@@ -677,6 +685,9 @@ export function useCosts(): UseCostsReturn {
       } = await supabase.auth.getUser();
 
       if (!user) return;
+
+      // Unmounted while awaiting getUser(): do not subscribe.
+      if (cancelled) return;
 
       const channel = supabase
         .channel('cost-records-realtime')
@@ -727,6 +738,15 @@ export function useCosts(): UseCostsReturn {
           setIsRealtimeConnected(status === 'SUBSCRIBED');
         });
 
+      // Defensive double-check: if the effect was cleaned up between the
+      // post-await guard and here (e.g. a synchronous-looking but reentrant
+      // unmount), remove the channel immediately rather than storing a ref the
+      // cleanup already ran past.
+      if (cancelled) {
+        supabase.removeChannel(channel);
+        return;
+      }
+
       realtimeChannelRef.current = channel;
     };
 
@@ -734,6 +754,7 @@ export function useCosts(): UseCostsReturn {
 
     // Cleanup on unmount
     return () => {
+      cancelled = true;
       if (realtimeChannelRef.current) {
         supabase.removeChannel(realtimeChannelRef.current);
         realtimeChannelRef.current = null;

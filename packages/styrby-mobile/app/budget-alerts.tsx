@@ -92,6 +92,32 @@ function AlertCard({ alert, onToggle, onDelete }: AlertCardProps) {
   };
 
   /**
+   * Format a budget amount according to the alert's type.
+   *
+   * WHY: currentSpend / threshold carry DIFFERENT units per alertType:
+   *   - subscription_quota → a fraction in [0,1] (render as a percentage)
+   *   - credits            → an integer credit count (render as "N credits")
+   *   - cost_usd           → a USD dollar amount (render via formatCost)
+   * Formatting a quota fraction or credit count as USD produced nonsense like
+   * "$0.15" for 15% quota used. This branches on alertType so each unit is
+   * rendered in its own scale.
+   *
+   * @param value - The amount in the alert's native unit.
+   * @returns A human-readable string in the correct unit.
+   */
+  const formatAmount = (value: number): string => {
+    switch (alert.alertType) {
+      case 'subscription_quota':
+        return `${(value * 100).toFixed(0)}%`;
+      case 'credits':
+        return `${Math.round(value)} credits`;
+      case 'cost_usd':
+      default:
+        return formatCost(value);
+    }
+  };
+
+  /**
    * Confirm before deleting an alert.
    */
   const handleDeletePress = () => {
@@ -110,7 +136,7 @@ function AlertCard({ alert, onToggle, onDelete }: AlertCardProps) {
       className="bg-zinc-900 rounded-2xl p-4 mb-3"
       style={{ opacity: alert.enabled ? 1 : 0.6 }}
       accessibilityRole="summary"
-      accessibilityLabel={`Budget alert: ${alert.name}, ${formatCost(alert.currentSpend)} of ${formatCost(alert.threshold)} ${getPeriodLabel(alert.period)}, ${alert.percentUsed.toFixed(0)}% used`}
+      accessibilityLabel={`Budget alert: ${alert.name}, ${formatAmount(alert.currentSpend)} of ${formatAmount(alert.threshold)} ${getPeriodLabel(alert.period)}, ${alert.percentUsed.toFixed(0)}% used`}
     >
       {/* Header: Name + Toggle + Delete */}
       <View className="flex-row items-center justify-between mb-3">
@@ -173,10 +199,10 @@ function AlertCard({ alert, onToggle, onDelete }: AlertCardProps) {
       <View className="flex-row items-center justify-between">
         <Text className="text-zinc-400 text-sm">
           <Text style={{ color: progressColor, fontWeight: '600' }}>
-            {formatCost(alert.currentSpend)}
+            {formatAmount(alert.currentSpend)}
           </Text>
           {' / '}
-          {formatCost(alert.threshold)} {getPeriodLabel(alert.period)}
+          {formatAmount(alert.threshold)} {getPeriodLabel(alert.period)}
         </Text>
         <Text
           className="text-sm font-semibold"
@@ -191,7 +217,7 @@ function AlertCard({ alert, onToggle, onDelete }: AlertCardProps) {
         <View className="flex-row items-center mt-2 bg-red-500/10 rounded-lg px-3 py-2">
           <Ionicons name="warning" size={14} color="#ef4444" />
           <Text className="text-red-400 text-xs ml-1.5 font-medium">
-            Budget exceeded by {formatCost(alert.currentSpend - alert.threshold)}
+            Budget exceeded by {formatAmount(alert.currentSpend - alert.threshold)}
           </Text>
         </View>
       )}

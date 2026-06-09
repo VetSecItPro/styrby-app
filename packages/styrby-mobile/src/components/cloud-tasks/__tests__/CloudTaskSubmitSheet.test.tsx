@@ -56,14 +56,24 @@ const mockSessionFetch: SessionFetchResult = { data: [], error: null };
 
 jest.mock('@/lib/supabase', () => ({
   supabase: {
+    // The recent-sessions query is now user-scoped: it resolves the authed user
+    // and adds .eq('user_id', ...) so teammates' sessions don't leak (bug #10).
+    auth: {
+      getUser: jest.fn(async () => ({
+        data: { user: { id: 'user-uuid-test' } },
+        error: null,
+      })),
+    },
     from: jest.fn(() => {
       const chain: {
         select: jest.Mock;
+        eq: jest.Mock;
         order: jest.Mock;
         limit: jest.Mock;
         then: (resolve: (v: unknown) => void) => Promise<unknown>;
       } = {
         select: jest.fn(() => chain),
+        eq: jest.fn(() => chain),
         order: jest.fn(() => chain),
         limit: jest.fn(() => chain),
         then: (resolve: (v: unknown) => void) =>

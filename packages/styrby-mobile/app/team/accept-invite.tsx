@@ -221,13 +221,22 @@ export default function AcceptInviteScreen() {
   // --------------------------------------------------------------------------
 
   /**
-   * Accepts the invitation by:
-   * 1. Updating team_invitations.status → 'accepted'
-   * 2. Upserting a team_members row with the current user
+   * Accepts the invitation atomically via the accept_team_invitation RPC.
    *
-   * WHY upsert: The user may already have a membership row from a previous
-   * invitation. Upsert avoids a unique constraint error while keeping the
-   * role current.
+   * WHY a single RPC (WAVE-E-002 fix, mirrors the web path at
+   * packages/styrby-web/src/app/api/invitations/accept/route.ts):
+   *   The previous implementation issued TWO independent PostgREST writes —
+   *   UPDATE team_invitations SET status='accepted', then a separate
+   *   team_members upsert. If the second write failed (or two requests raced),
+   *   the invitation was stranded 'accepted' with NO membership row, silently
+   *   inflating the seat count and locking the user out of the team. The RPC
+   *   wraps both writes in one Postgres transaction (row-locked FOR UPDATE), so
+   *   a partial failure rolls back BOTH. It also handles role mapping
+   *   (viewer → member) and copies invited_by, which the old upsert dropped
+   *   (bug #17). The function raises typed exceptions we map to screen states:
+   *     - P0002 invitation_not_found       → invalid
+   *     - P0001 invitation_already_resolved → invalid
+   *     - P0003 invitation_expired          → invalid (expired reason)
    *
    * @param invitation - The validated invitation to accept
    */
@@ -242,32 +251,43 @@ export default function AcceptInviteScreen() {
         return;
       }
 
-      // Update invitation status first
-      const { error: updateError } = await supabase
-        .from('team_invitations')
-        .update({ status: 'accepted' })
-        .eq('id', invitation.id);
+      // Single atomic accept: inserts the team_members row (with role mapping +
+      // invited_by) and flips the invitation to 'accepted' in one transaction.
+      const { error: rpcError } = await supabase.rpc('accept_team_invitation', {
+        p_invitation_id: invitation.id,
+        p_user_id: user.id,
+      });
 
-      if (updateError) {
-        throw new Error(updateError.message);
-      }
+      if (rpcError) {
+        // Map the function's typed PostgreSQL exceptions to user-facing states.
+        // PostgREST surfaces the RAISE EXCEPTION code on `.code` and the text on
+        // `.message`; match on both for resilience across postgrest-js versions.
+        const code = (rpcError as { code?: string }).code ?? '';
+        const msg = (rpcError as { message?: string }).message ?? '';
 
-      // Add user to team members
-      // WHY upsert with onConflict: prevents a duplicate row error if the
-      // user was previously removed and re-invited.
-      const { error: memberError } = await supabase
-        .from('team_members')
-        .upsert(
-          {
-            team_id: invitation.team_id,
-            user_id: user.id,
-            role: invitation.role,
-          },
-          { onConflict: 'team_id,user_id' }
-        );
+        if (code === 'P0003' || /invitation_expired/.test(msg)) {
+          setState({
+            status: 'invalid',
+            reason: 'This invitation has expired. Please ask the team admin to send a new invitation.',
+          });
+          return;
+        }
+        if (code === 'P0001' || /invitation_already_resolved/.test(msg)) {
+          setState({
+            status: 'invalid',
+            reason: 'This invitation has already been accepted or revoked.',
+          });
+          return;
+        }
+        if (code === 'P0002' || /invitation_not_found/.test(msg)) {
+          setState({
+            status: 'invalid',
+            reason: 'This invitation link is invalid or has been revoked.',
+          });
+          return;
+        }
 
-      if (memberError) {
-        throw new Error(memberError.message);
+        throw new Error(msg || 'Failed to accept invitation.');
       }
 
       setState({ status: 'accepted' });

@@ -46,6 +46,19 @@ module.exports = {
     // babel-jest can transform it in CJS mode. The package.json exports field
     // points at dist/logging/index.js (ESM) which Jest cannot consume directly.
     '^@styrby/shared/logging$': '<rootDir>/../styrby-shared/src/logging/index.ts',
+    // WHY: Map @styrby/shared/billing subpath to source so babel-jest can
+    // transform it in CJS mode. The package.json exports field points at
+    // dist/billing/index.js (ESM) which Jest cannot consume directly. Consumed
+    // by useSubscriptionTier / useBudgetAlerts (normalizeTier tier-gate fixes).
+    '^@styrby/shared/billing$': '<rootDir>/../styrby-shared/src/billing/index.ts',
+    // WHY strip the .js extension on RELATIVE imports: the shared source is
+    // authored ESM-style ('./tier-logic.js') but the files on disk are .ts.
+    // When we map a subpath barrel (billing/index.ts) to source, Jest resolves
+    // that barrel's own './tier-logic.js' literally and fails. Rewriting any
+    // relative '*.js' import back to extensionless lets Jest's default resolver
+    // find the .ts/.tsx source. Scoped to ./ and ../ so it never touches
+    // package or absolute-path mappings above.
+    '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   transform: {
     // Use babel-jest with Expo's Babel config for TypeScript support

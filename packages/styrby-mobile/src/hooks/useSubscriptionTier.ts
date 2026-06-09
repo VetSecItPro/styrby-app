@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { normalizeTier } from '@styrby/shared/billing';
 import { supabase } from '../lib/supabase';
 
 /**
@@ -94,9 +95,12 @@ export function useSubscriptionTier(userId: string | null): {
     };
   }, [userId]);
 
-  // Paid = any non-free tier. Includes 'growth' (the current premium tier) —
-  // omitting it previously made Growth customers read as unpaid.
-  const isPaid = tier === 'pro' || tier === 'growth';
+  // Paid = any non-free tier. Normalize FIRST so a stray legacy 'power' value
+  // (which folds to 'growth') is recognized as paid rather than falling through
+  // a hardcoded pro/growth check. normalizeTier also fail-closes unknown values
+  // to 'free', so behavior for pro/growth/free is unchanged.
+  const normalized = normalizeTier(tier);
+  const isPaid = normalized !== 'free';
 
   return { tier, isLoading, error, isPaid };
 }
