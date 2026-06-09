@@ -19,6 +19,7 @@ import {
   getIosManageNote,
   POLAR_CUSTOMER_PORTAL_URL,
 } from '../lib/platform-billing';
+import { isPremiumTier } from 'styrby-shared';
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -36,7 +37,7 @@ export interface SessionSummaryProps {
   sessionStatus: string;
 
   /** The user's subscription tier */
-  userTier: 'free' | 'pro' | 'power';
+  userTier: 'free' | 'pro' | 'power' | 'growth';
 }
 
 /* ──────────────────────────── Helper ──────────────────────────── */
@@ -83,8 +84,10 @@ export function SessionSummary({
   const isSessionCompleted = ['stopped', 'expired', 'error'].includes(sessionStatus);
   const isSessionActive = ['starting', 'running', 'idle', 'paused'].includes(sessionStatus);
 
-  // Check if user has access to summaries
-  const hasSummaryAccess = userTier === 'pro' || userTier === 'power';
+  // Session summaries are available to all paid tiers: pro (individual) plus
+  // the premium tiers (growth/power). Previously omitted 'growth', blocking
+  // paying Growth customers.
+  const hasSummaryAccess = userTier === 'pro' || isPremiumTier(userTier);
 
   // ──────────────────────────────────────────
   // Render: Free tier upgrade prompt

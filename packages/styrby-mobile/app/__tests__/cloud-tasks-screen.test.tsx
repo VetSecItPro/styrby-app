@@ -56,7 +56,13 @@ jest.mock('@expo/vector-icons', () => ({
   Ionicons: 'Ionicons',
 }));
 
-jest.mock('styrby-shared', () => ({}));
+// Provide the real isPremiumTier contract so the tier gate behaves correctly.
+// (growth + power are premium; free + pro are not.) An empty stub previously
+// left isPremiumTier undefined, throwing on render.
+jest.mock('styrby-shared', () => ({
+  isPremiumTier: (tier: string | null | undefined) =>
+    tier === 'growth' || tier === 'power',
+}));
 
 // platform-billing: returns deterministic upgrade copy for assertions.
 jest.mock('@/lib/platform-billing', () => ({
@@ -149,7 +155,7 @@ describe('CloudTasksScreen', () => {
     expect(hasText(tree, 'Power Plan Required')).toBe(true);
   });
 
-  it('renders the CloudTasks component for a power user', async () => {
+  it('renders the CloudTasks component for a power user (legacy premium)', async () => {
     mockTierValue.tier = 'power';
     const tree = await renderAsync(<CloudTasksScreen />);
     expect(tree).toBeTruthy();
@@ -159,6 +165,22 @@ describe('CloudTasksScreen', () => {
     expect(serialized).toContain('CloudTasks');
     // Power user should NOT see the gate
     expect(hasText(tree, 'Power Plan Required')).toBe(false);
+  });
+
+  it('renders the CloudTasks component for a growth user (current premium)', async () => {
+    // Regression: the gate used `tier !== 'power'`, which wrongly blocked
+    // paying Growth customers. Now gated via isPremiumTier(growth) === true.
+    mockTierValue.tier = 'growth';
+    const tree = await renderAsync(<CloudTasksScreen />);
+    expect(tree).toBeTruthy();
+    expect(JSON.stringify(tree)).toContain('CloudTasks');
+    expect(hasText(tree, 'Power Plan Required')).toBe(false);
+  });
+
+  it('renders the upgrade gate for a free user', async () => {
+    mockTierValue.tier = 'free';
+    const tree = await renderAsync(<CloudTasksScreen />);
+    expect(hasText(tree, 'Power Plan Required')).toBe(true);
   });
 
   it('renders the sign-in prompt when no authenticated user', async () => {

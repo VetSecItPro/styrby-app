@@ -65,7 +65,7 @@ interface SessionReplayProps {
   /** All messages in the session, sorted by createdAt */
   messages: ReplayMessageData[];
   /** User's subscription tier */
-  userTier: 'free' | 'pro' | 'power';
+  userTier: 'free' | 'pro' | 'power' | 'growth';
   /** Callback when replay completes */
   onComplete?: () => void;
   /** Callback when user exits replay */

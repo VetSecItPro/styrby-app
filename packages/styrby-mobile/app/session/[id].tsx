@@ -141,7 +141,7 @@ type ViewMode = 'details' | 'replay';
 export default function SessionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [session, setSession] = useState<SessionData | null>(null);
-  const [userTier, setUserTier] = useState<'free' | 'pro' | 'power'>('free');
+  const [userTier, setUserTier] = useState<'free' | 'pro' | 'power' | 'growth'>('free');
 
   /**
    * Bookmark hook — provides the user's bookmarked session IDs and toggle fn.
@@ -233,7 +233,7 @@ export default function SessionDetailScreen() {
           .eq('user_id', user.id)
           .single();
 
-        setUserTier((subscription?.tier as 'free' | 'pro' | 'power') || 'free');
+        setUserTier((subscription?.tier as 'free' | 'pro' | 'power' | 'growth') || 'free');
 
         // Fetch billing model metadata for this session's cost records.
         // WHY: The sessions table stores total_cost_usd but not billing_model

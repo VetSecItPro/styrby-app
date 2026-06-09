@@ -37,6 +37,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../src/lib/supabase';
 import { useCurrentUser } from '../../src/hooks/useCurrentUser';
 import { useSubscriptionTier } from '../../src/hooks/useSubscriptionTier';
+import { isPremiumTier } from 'styrby-shared';
 import { SectionHeader, SettingRow } from '../../src/components/ui';
 import {
   type OtelUserConfig,
@@ -62,7 +63,9 @@ import {
 export default function MetricsScreen() {
   const { user } = useCurrentUser();
   const { tier } = useSubscriptionTier(user?.id ?? null);
-  const isPowerTier = tier === 'power';
+  // Premium = growth (current) or power (legacy). OTEL export is a premium
+  // feature; the old `tier === 'power'` check wrongly excluded Growth customers.
+  const isPremium = isPremiumTier(tier);
 
   /**
    * Current OTEL configuration loaded from profiles.otel_config JSONB column.
@@ -287,7 +290,7 @@ export default function MetricsScreen() {
         keyboardShouldPersistTaps="handled"
       >
         {/* Power tier gate banner */}
-        {!isPowerTier && (
+        {!isPremium && (
           <>
             <SectionHeader title="Requirements" />
             <View className="mx-4 my-2 px-3 py-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
@@ -308,7 +311,7 @@ export default function MetricsScreen() {
             iconColor="#8b5cf6"
             title="Enable OTEL Export"
             subtitle={
-              !isPowerTier
+              !isPremium
                 ? 'Power plan required'
                 : otelConfig.enabled
                   ? 'Exporting to ' + (otelConfig.endpoint
@@ -318,11 +321,11 @@ export default function MetricsScreen() {
             }
             trailing={
               <Switch
-                value={otelConfig.enabled && isPowerTier}
+                value={otelConfig.enabled && isPremium}
                 onValueChange={(v) => void handleEnabledToggle(v)}
-                disabled={!isPowerTier}
+                disabled={!isPremium}
                 trackColor={{ false: '#3f3f46', true: '#8b5cf650' }}
-                thumbColor={otelConfig.enabled && isPowerTier ? '#8b5cf6' : '#71717a'}
+                thumbColor={otelConfig.enabled && isPremium ? '#8b5cf6' : '#71717a'}
                 accessibilityRole="switch"
                 accessibilityLabel="Toggle OTEL metrics export"
               />
@@ -331,7 +334,7 @@ export default function MetricsScreen() {
         </View>
 
         {/* Configuration form — only shown for Power users */}
-        {isPowerTier && (
+        {isPremium && (
           <>
             <SectionHeader title="Provider Preset" />
             <View className="bg-background-secondary px-4 py-3">
