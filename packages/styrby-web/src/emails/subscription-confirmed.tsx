@@ -15,7 +15,7 @@ import {
 
 interface SubscriptionConfirmedEmailProps {
   displayName?: string;
-  tier: 'pro' | 'power';
+  tier: 'pro' | 'growth';
   amount: string;
   billingCycle: 'monthly' | 'annual';
   nextBillingDate: string;
@@ -29,9 +29,9 @@ const tierFeatures = {
     'Budget alerts',
     'Email support',
   ],
-  power: [
+  growth: [
     'Everything in Pro',
-    'Team collaboration (coming soon)',
+    'Team collaboration',
     'API access',
     'Custom integrations',
     'Email support',
@@ -47,7 +47,7 @@ export default function SubscriptionConfirmedEmail({
   nextBillingDate,
 }: SubscriptionConfirmedEmailProps) {
   const name = displayName || 'there';
-  const tierName = tier === 'pro' ? 'Pro' : 'Power';
+  const tierName = tier === 'pro' ? 'Pro' : 'Growth';
   const features = tierFeatures[tier];
 
   return (

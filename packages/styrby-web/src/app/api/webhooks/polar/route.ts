@@ -245,7 +245,7 @@ function sha256Hex(input: string): string {
  * @param productId - The Polar product ID from the webhook payload
  * @returns The tier name, or null if the product ID is unrecognized
  */
-function getTierFromProductId(productId: string): 'pro' | 'power' | 'growth' | null {
+function getTierFromProductId(productId: string): 'pro' | 'growth' | null {
   // Pro tier (monthly or annual)
   if (
     productId === process.env.POLAR_PRO_MONTHLY_PRODUCT_ID ||
@@ -253,14 +253,9 @@ function getTierFromProductId(productId: string): 'pro' | 'power' | 'growth' | n
   ) {
     return 'pro';
   }
-  // Power tier (monthly or annual) — legacy pre-cutover tier, still resolved
-  // for in-flight subscriptions whose product ID predates the Pro/Growth model.
-  if (
-    productId === process.env.POLAR_POWER_MONTHLY_PRODUCT_ID ||
-    productId === process.env.POLAR_POWER_ANNUAL_PRODUCT_ID
-  ) {
-    return 'power';
-  }
+  // NOTE: the legacy 'power' product branch was removed when the tier was
+  // retired (migration 095). No POLAR_POWER_* products exist; this resolver
+  // only ever returns 'pro' or 'growth' now.
   // Growth tier — base subscription OR seat addon. Both map to 'growth'
   // because the seat addon's only purpose is augmenting a Growth main sub.
   // WHY this branch was missing: pre-tier-reconciliation, the individual path
@@ -283,13 +278,9 @@ function getTierFromProductId(productId: string): 'pro' | 'power' | 'growth' | n
  * Determines billing cycle from product ID.
  */
 function getBillingCycleFromProductId(productId: string): 'monthly' | 'annual' {
-  // Annual product IDs across all known tiers (Pro, legacy Power, Growth main, Growth seat).
-  // WHY Growth + seat included: post-cutover Growth subscriptions and seat addons
-  // wrote `is_annual=false` for annual signups because this helper only knew
-  // the legacy Pro/Power IDs. Surfaced by sandbox e2e domain I (I2).
+  // Annual product IDs across all current tiers (Pro, Growth main, Growth seat).
   if (
     productId === process.env.POLAR_PRO_ANNUAL_PRODUCT_ID ||
-    productId === process.env.POLAR_POWER_ANNUAL_PRODUCT_ID ||
     productId === process.env.POLAR_GROWTH_ANNUAL_PRODUCT_ID ||
     productId === process.env.POLAR_GROWTH_SEAT_ANNUAL_PRODUCT_ID
   ) {

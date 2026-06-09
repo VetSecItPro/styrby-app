@@ -15,7 +15,7 @@ import {
 
 interface SubscriptionCanceledEmailProps {
   displayName?: string;
-  tier: 'pro' | 'power';
+  tier: 'pro' | 'growth';
   accessUntil: string;
 }
 

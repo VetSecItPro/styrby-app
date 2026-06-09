@@ -10,7 +10,7 @@
  * - getUpgradeButtonLabel() returns null on iOS, label string on Android
  * - getIosManageNote() returns note on iOS, null on Android
  * - Default tier argument behaviour ('pro' is default)
- * - 'power' tier produces correct pricing strings
+ * - 'growth' tier produces correct pricing strings
  *
  * WHY Platform.OS is set in jest.setup.js:
  * react-native is mocked globally with Platform.OS = 'ios'. To test Android
@@ -89,8 +89,8 @@ describe('Platform Billing Utilities', () => {
         expect(msg).not.toContain('$');
       });
 
-      it('returns informational text without price for power tier', () => {
-        const msg = getUpgradeMessage('Session Replay', 'power');
+      it('returns informational text without price for growth tier', () => {
+        const msg = getUpgradeMessage('Session Replay', 'growth');
         expect(msg).toBe('Session Replay requires a Growth subscription');
         expect(msg).not.toContain('$');
       });
@@ -115,8 +115,8 @@ describe('Platform Billing Utilities', () => {
         expect(msg).toContain('$39/mo');
       });
 
-      it('returns upgrade CTA with price for power tier', () => {
-        const msg = getUpgradeMessage('Session Replay', 'power');
+      it('returns upgrade CTA with price for growth tier', () => {
+        const msg = getUpgradeMessage('Session Replay', 'growth');
         expect(msg).toBe('Session Replay requires Growth — Upgrade for $99/mo');
         expect(msg).toContain('$99/mo');
       });
@@ -127,7 +127,7 @@ describe('Platform Billing Utilities', () => {
       });
 
       it('includes the feature name in the Android CTA', () => {
-        const msg = getUpgradeMessage('API Keys', 'power');
+        const msg = getUpgradeMessage('API Keys', 'growth');
         expect(msg).toContain('API Keys');
       });
     });
@@ -145,8 +145,8 @@ describe('Platform Billing Utilities', () => {
         expect(getUpgradeButtonLabel('pro')).toBeNull();
       });
 
-      it('returns null for power tier (no button on iOS)', () => {
-        expect(getUpgradeButtonLabel('power')).toBeNull();
+      it('returns null for growth tier (no button on iOS)', () => {
+        expect(getUpgradeButtonLabel('growth')).toBeNull();
       });
 
       it('returns null with default tier argument', () => {
@@ -161,8 +161,8 @@ describe('Platform Billing Utilities', () => {
         expect(getUpgradeButtonLabel('pro')).toBe('Upgrade to Pro');
       });
 
-      it('returns "Upgrade to Growth" label for power tier', () => {
-        expect(getUpgradeButtonLabel('power')).toBe('Upgrade to Growth');
+      it('returns "Upgrade to Growth" label for growth tier', () => {
+        expect(getUpgradeButtonLabel('growth')).toBe('Upgrade to Growth');
       });
 
       it('defaults to pro label when no tier is provided', () => {

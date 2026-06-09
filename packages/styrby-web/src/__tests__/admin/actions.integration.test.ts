@@ -178,7 +178,7 @@ describe('overrideTierAction — integration (form → Zod → RPC)', () => {
         VALID_UUID,
         makeFormData({
           targetUserId: VALID_UUID,
-          newTier: 'power',
+          newTier: 'growth',
           reason: 'annual deal signed',
         })
       )
@@ -188,7 +188,7 @@ describe('overrideTierAction — integration (form → Zod → RPC)', () => {
     expect(mockRpc).toHaveBeenCalledOnce();
     expect(mockRpc).toHaveBeenCalledWith('admin_override_tier', {
       p_target_user_id: VALID_UUID,
-      p_new_tier:       'power',
+      p_new_tier: 'growth',
       p_expires_at:     null,
       p_reason:         'annual deal signed',
       p_ip:             '10.10.0.1', // first entry in MOCK_XFF

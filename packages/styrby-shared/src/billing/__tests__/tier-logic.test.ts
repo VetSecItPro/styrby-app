@@ -21,8 +21,8 @@ describe('isTierFeatureEnabled', () => {
     expect(isTierFeatureEnabled('pro', 'budgetAlerts')).toBe(true);
   });
 
-  it('returns true for power tier on apiAccess', () => {
-    expect(isTierFeatureEnabled('power', 'apiAccess')).toBe(true);
+  it('returns true for growth tier on apiAccess', () => {
+    expect(isTierFeatureEnabled('growth', 'apiAccess')).toBe(true);
   });
 
   it('returns false for free tier on apiAccess (key absent)', () => {
@@ -39,7 +39,7 @@ describe('isTierFeatureEnabled', () => {
 
   it('treats numeric > 0 as enabled (maxAgents)', () => {
     expect(isTierFeatureEnabled('free', 'maxAgents')).toBe(true);
-    expect(isTierFeatureEnabled('power', 'maxAgents')).toBe(true);
+    expect(isTierFeatureEnabled('growth', 'maxAgents')).toBe(true);
   });
 
   it('falls back to free tier on unknown tier id (fail-closed)', () => {
@@ -48,16 +48,15 @@ describe('isTierFeatureEnabled', () => {
 });
 
 describe('getFeatureLimitFor', () => {
-  it('returns the numeric maxAgents for each tier (Phase 5: free=3, pro=11, power-alias=11)', () => {
+  it('returns the numeric maxAgents for each tier (free=3, pro=11, growth=11)', () => {
     expect(getFeatureLimitFor('free', 'maxAgents')).toBe(3);
     expect(getFeatureLimitFor('pro', 'maxAgents')).toBe(11);
-    // 'power' is a legacy DB enum value preserved as a defensive alias.
-    expect(getFeatureLimitFor('power', 'maxAgents')).toBe(11);
+    expect(getFeatureLimitFor('growth', 'maxAgents')).toBe(11);
   });
 
-  it('returns Infinity for unlimited maxSessionsPerDay (pro/power)', () => {
+  it('returns Infinity for unlimited maxSessionsPerDay (pro/growth)', () => {
     expect(getFeatureLimitFor('pro', 'maxSessionsPerDay')).toBe(Infinity);
-    expect(getFeatureLimitFor('power', 'maxSessionsPerDay')).toBe(Infinity);
+    expect(getFeatureLimitFor('growth', 'maxSessionsPerDay')).toBe(Infinity);
   });
 
   it('returns 0 for non-numeric features', () => {
@@ -74,8 +73,14 @@ describe('getFeatureLimitFor', () => {
 describe('normalizeTier', () => {
   it('passes through known tier ids', () => {
     expect(normalizeTier('pro')).toBe('pro');
-    expect(normalizeTier('power')).toBe('power');
     expect(normalizeTier('team')).toBe('team');
+  });
+
+  it('bridges retired power -> growth (migration 095)', () => {
+    // 'power' was retired (zero customers; comp account migrated to growth).
+    // normalizeTier is the single legacy bridge that folds a stray raw 'power'
+    // into the tier it became, so historical reads never break.
+    expect(normalizeTier('power')).toBe('growth');
   });
 
   it('passes through growth (regression: was silently coerced to free)', () => {
@@ -95,19 +100,22 @@ describe('normalizeTier', () => {
 });
 
 describe('isPremiumTier', () => {
-  it('is true for the premium tiers (growth + legacy power)', () => {
+  it('is true for growth (the single premium tier)', () => {
     expect(isPremiumTier('growth')).toBe(true);
-    expect(isPremiumTier('power')).toBe(true);
   });
 
   it('is false for free and paid-individual pro', () => {
     // 'pro' is paid but NOT premium — premium features (Cloud Tasks, smart
-    // filter, OTEL export) require growth/power.
+    // filter, OTEL export) require growth.
     expect(isPremiumTier('pro')).toBe(false);
     expect(isPremiumTier('free')).toBe(false);
   });
 
-  it('is false (fail-closed) for never-shipped / unknown / nullish tiers', () => {
+  it('is false for retired power + never-shipped + unknown + nullish (fail-closed)', () => {
+    // 'power' was retired (migration 095) and is NOT premium. Any raw 'power'
+    // string should be run through normalizeTier (-> 'growth') before gating;
+    // a direct isPremiumTier('power') is correctly false.
+    expect(isPremiumTier('power')).toBe(false);
     expect(isPremiumTier('team')).toBe(false);
     expect(isPremiumTier('business')).toBe(false);
     expect(isPremiumTier('enterprise')).toBe(false);

@@ -15,7 +15,7 @@ import {
 
 interface PaymentFailedEmailProps {
   displayName?: string;
-  tier: 'pro' | 'power';
+  tier: 'pro' | 'growth';
   amount: string;
   lastFourDigits?: string;
   retryDate: string;

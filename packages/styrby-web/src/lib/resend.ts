@@ -163,7 +163,7 @@ export async function sendSubscriptionConfirmedEmail({
 }: {
   email: string;
   displayName?: string;
-  tier: 'pro' | 'power';
+  tier: 'pro' | 'growth';
   amount: string;
   billingCycle: 'monthly' | 'annual';
   nextBillingDate: string;
@@ -193,7 +193,7 @@ export async function sendSubscriptionCanceledEmail({
 }: {
   email: string;
   displayName?: string;
-  tier: 'pro' | 'power';
+  tier: 'pro' | 'growth';
   accessUntil: string;
 }) {
   return sendEmail({
@@ -220,7 +220,7 @@ export async function sendPaymentFailedEmail({
 }: {
   email: string;
   displayName?: string;
-  tier: 'pro' | 'power';
+  tier: 'pro' | 'growth';
   amount: string;
   lastFourDigits?: string;
   retryDate: string;

@@ -47,7 +47,7 @@ export const DB_APPROVAL_STATUSES = ['pending', 'approved', 'rejected', 'expired
 
 /**
  * Tier identifiers that qualify as "team" tiers in the billing model.
- * Used internally by `isTeamTier()` in tiers/utils.ts.
+ * (The former tiers/utils.ts consumer was deleted with the retired power tier.)
  */
 export const TEAM_TIER_IDS = ['team', 'business', 'enterprise'] as const;
 

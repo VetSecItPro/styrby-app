@@ -64,7 +64,7 @@ export function canShowUpgradePrompt(): boolean {
  * - Android: Full CTA message including plan name and price.
  *
  * @param feature - Human-readable feature name (e.g. "Session Replay")
- * @param tier - Required subscription tier ('pro' | 'power')
+ * @param tier - Required subscription tier ('pro' | 'growth')
  * @returns Platform-appropriate upgrade message string
  *
  * @example
@@ -74,13 +74,11 @@ export function canShowUpgradePrompt(): boolean {
  */
 export function getUpgradeMessage(
   feature: string,
-  tier: 'pro' | 'power' = 'pro'
+  tier: 'pro' | 'growth' = 'pro'
 ): string {
-  // WHY display labels diverge from `tier` value: Phase 6 collapsed the
-  // public ladder to Pro + Growth (`.audit/styrby-fulltest.md` Decision #9).
-  // The legacy `'power'` value is preserved on the server for back-compat
-  // and rendered as "Growth" at the UI boundary.
-  const tierLabel = tier === 'power' ? 'Growth' : 'Pro';
+  // Two-tier public ladder: Pro + Growth. `tier` here is the REQUIRED tier for
+  // the gated feature ('growth' for premium features, 'pro' otherwise).
+  const tierLabel = tier === 'growth' ? 'Growth' : 'Pro';
 
   if (Platform.OS === 'ios') {
     // WHY: Apple prohibits displaying pricing or upgrade CTAs in Reader Apps.
@@ -90,7 +88,7 @@ export function getUpgradeMessage(
 
   // WHY $99 / $39: post-Phase-5 canonical prices for Growth and Pro.
   // See `.audit/styrby-fulltest.md` Decisions #2 and #3.
-  const price = tier === 'power' ? '$99/mo' : '$39/mo';
+  const price = tier === 'growth' ? '$99/mo' : '$39/mo';
   return `${feature} requires ${tierLabel} — Upgrade for ${price}`;
 }
 
@@ -100,7 +98,7 @@ export function getUpgradeMessage(
  * iOS returns null — no button should be shown.
  * Android returns a label string suitable for a Pressable.
  *
- * @param tier - Required subscription tier ('pro' | 'power')
+ * @param tier - Required subscription tier ('pro' | 'growth')
  * @returns Button label string on Android; null on iOS
  *
  * @example
@@ -110,15 +108,13 @@ export function getUpgradeMessage(
  * }
  */
 export function getUpgradeButtonLabel(
-  tier: 'pro' | 'power' = 'pro'
+  tier: 'pro' | 'growth' = 'pro'
 ): string | null {
   if (Platform.OS === 'ios') {
     // WHY: Apple Reader App rules — no purchase/upgrade buttons on iOS.
     return null;
   }
-  // WHY display label: post-Phase-6, `'power'` is preserved on the server
-  // as a legacy alias and rendered as "Growth" at the UI boundary.
-  return tier === 'power' ? 'Upgrade to Growth' : 'Upgrade to Pro';
+  return tier === 'growth' ? 'Upgrade to Growth' : 'Upgrade to Pro';
 }
 
 /**

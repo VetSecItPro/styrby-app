@@ -89,15 +89,8 @@ describe('useSubscriptionTier', () => {
     expect(chain.select).not.toHaveBeenCalledWith('plan');
   });
 
-  it('returns power tier when subscription row has tier=power', async () => {
-    mockSupabaseTier('power');
-
-    const { result } = renderHook(() => useSubscriptionTier('user-1'));
-    await act(async () => {});
-
-    expect(result.current.tier).toBe('power');
-    expect(result.current.isPaid).toBe(true);
-  });
+  // NOTE: the 'power' tier was retired (migration 095) — zero rows exist. Its
+  // test cases were removed; 'growth' (below) is the premium tier now.
 
   it('returns pro tier when subscription row has tier=pro', async () => {
     mockSupabaseTier('pro');
@@ -156,13 +149,13 @@ describe('useSubscriptionTier', () => {
     await act(async () => {});
     expect(mockFrom).toHaveBeenCalledTimes(1);
 
-    mockSupabaseTier('power');
+    mockSupabaseTier('growth');
 
     await act(async () => {
       rerender({ userId: 'user-2' });
     });
 
     expect(mockFrom).toHaveBeenCalledTimes(2);
-    expect(result.current.tier).toBe('power');
+    expect(result.current.tier).toBe('growth');
   });
 });

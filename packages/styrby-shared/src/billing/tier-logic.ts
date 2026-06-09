@@ -20,28 +20,31 @@ import { TIER_LIMITS } from '../constants.js';
 
 /**
  * The subscription tier identifiers. See the canonical tier model in
- * `docs/planning/styrby-tiers-canonical.md` (verified live 2026-06-08).
+ * `docs/planning/styrby-tiers-canonical.md`.
  *
  * ACTIVE (sold today): `'free'`, `'pro'`, `'growth'`.
- * LEGACY: `'power'` — the pre-cutover premium tier, replaced by `'growth'`;
- *   one grandfathered customer remains in production, so it must keep working,
- *   but never offer it to new users.
  * `'team'` is a never-shipped placeholder retained only because `TIER_LIMITS`
  *   and the DB enum still carry it; do not surface it.
+ *
+ * NOTE: `'power'` was RETIRED (migration 095, 2026-06-09) — zero customers; the
+ * lone comp account was migrated to `'growth'`. It is deliberately absent from
+ * this union. The only place that still acknowledges it is {@link normalizeTier},
+ * which maps a stray raw `'power'` string to `'growth'` as a one-way legacy
+ * bridge. Never add `'power'` to new code.
  */
-export type TierId = 'free' | 'pro' | 'power' | 'growth' | 'team';
+export type TierId = 'free' | 'pro' | 'growth' | 'team';
 
 /**
  * Returns true when the tier grants PREMIUM (top-tier) features — Cloud Tasks,
  * Notifications smart-filter, Metrics OTEL export, etc.
  *
- * Premium = `'growth'` (current premium tier) OR `'power'` (legacy premium,
- * grandfathered). `'pro'` is a paid INDIVIDUAL tier and is NOT premium;
- * `'free'` is not premium. This is the single entitlement gate every premium
- * feature should call — never compare against a bare tier string.
+ * Premium = `'growth'` (the single premium tier). `'pro'` is a paid INDIVIDUAL
+ * tier and is NOT premium; `'free'` is not premium. This is the single
+ * entitlement gate every premium feature should call — never compare against a
+ * bare tier string.
  *
  * @param tier - The user's resolved subscription tier.
- * @returns `true` when the tier is `'growth'` or `'power'`.
+ * @returns `true` when the tier is `'growth'`.
  *
  * @example
  * ```ts
@@ -49,7 +52,7 @@ export type TierId = 'free' | 'pro' | 'power' | 'growth' | 'team';
  * ```
  */
 export function isPremiumTier(tier: TierId | string | null | undefined): boolean {
-  return tier === 'growth' || tier === 'power';
+  return tier === 'growth';
 }
 
 /**
@@ -132,16 +135,24 @@ export function getFeatureLimitFor(tier: TierId, feature: TierFeature): number {
  * `'free'` for any unknown value. Used to sanitise database reads where
  * the column is a free-form `text` field.
  *
+ * This is the ONE legacy bridge for the retired `'power'` tier (migration 095):
+ * a stray raw `'power'` string (e.g. from a never-migrated historical row or an
+ * audit-log entry) maps to `'growth'` — the tier it became. No other code path
+ * acknowledges `'power'`.
+ *
  * @param raw - The raw tier string from the database / API response.
  * @returns A safe {@link TierId} value.
  */
 export function normalizeTier(raw: string | null | undefined): TierId {
   switch (raw) {
     case 'pro':
-    case 'power':
     case 'growth':
     case 'team':
       return raw;
+    case 'power':
+      // Legacy bridge: 'power' was retired (migration 095) and folds into the
+      // tier that replaced it. Zero rows in production, but defensive.
+      return 'growth';
     default:
       // WHY fail-closed to 'free': unknown / legacy-unused values
       // ('business', 'enterprise') and typos must never grant a paid tier.

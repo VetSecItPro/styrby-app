@@ -58,8 +58,7 @@ const TIER_DISPLAY_NAMES: Record<SubscriptionTier, string> = {
   free: 'Free',
   pro: 'Pro',
   growth: 'Growth',
-  // Legacy values mapped to the current display name at the boundary.
-  power: 'Growth',
+  // 'team' is a never-shipped enum value; display it as Growth defensively.
   team: 'Growth',
 };
 
