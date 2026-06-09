@@ -23,14 +23,14 @@
  *   Here we only verify it is called with correct arguments and its result
  *   surfaces in the response — we don't re-test the proration math.
  *   However, to keep the test self-contained, we use real calculateProrationCents
- *   from @styrby/shared/billing (it's pure and has no side effects) and
+ *   from the canonical billing module (it's pure and has no side effects) and
  *   just assert on the returned value.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextResponse } from 'next/server';
 import { PATCH, GET } from '../seats/route';
-import { calculateProrationCents } from '@styrby/shared/billing';
+import { calculateProrationCents } from '@/lib/billing/polar-products';
 
 // ============================================================================
 // Hoisted mocks
@@ -210,7 +210,7 @@ function makePolarSubscription(quantity: number) {
 /** Team billing row with active subscription */
 const TEAM_BILLING_ROW = {
   polar_subscription_id: 'polar_sub_abc',
-  billing_tier: 'team',
+  billing_tier: 'growth',
   billing_cycle: 'monthly',
   seat_cap: 3,
   active_seats: 3,
@@ -334,7 +334,8 @@ describe('PATCH /api/billing/seats', () => {
     const expected = calculateProrationCents({
       oldSeats: 3,
       newSeats: 5,
-      tier: 'team',
+      tierId: 'growth',
+      cycle: 'monthly',
       daysElapsed,
       daysInCycle,
     });
@@ -342,7 +343,7 @@ describe('PATCH /api/billing/seats', () => {
     // WHY ±1 tolerance: timing between test execution and the route's Date.now()
     // call can differ by milliseconds, shifting daysElapsed by 1 in edge cases.
     expect(Math.abs(json.proration_cents - expected)).toBeLessThanOrEqual(
-      calculateProrationCents({ oldSeats: 3, newSeats: 5, tier: 'team', daysElapsed: 1, daysInCycle }),
+      calculateProrationCents({ oldSeats: 3, newSeats: 5, tierId: 'growth', cycle: 'monthly', daysElapsed: 1, daysInCycle }),
     );
   });
 
@@ -756,7 +757,7 @@ describe('GET /api/billing/seats', () => {
     expect(json.new_seats).toBe(5);
     expect(Number.isInteger(json.proration_cents)).toBe(true);
     expect(json.proration_cents).toBeGreaterThanOrEqual(0);
-    expect(json.tier).toBe('team');
+    expect(json.tier).toBe('growth');
     expect(json.cycle).toBe('monthly');
   });
 

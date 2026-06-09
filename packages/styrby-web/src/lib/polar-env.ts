@@ -48,25 +48,21 @@ import { getEnv } from './env';
 // ============================================================================
 
 /**
- * Billable tier — any tier that maps to a Polar product ID.
+ * Billable tier — any tier that maps to a Polar catalog product ID.
  *
- * Includes both the legacy team-pricing tiers (`team`, `business`) and the
- * post-cutover canonical tiers (`pro`, `growth`). Enterprise is excluded
- * because enterprise deals use bespoke Polar orders, not catalog products.
+ * The live model is exactly two paid tiers: `pro` (individual, single seat)
+ * and `growth` (team, tiered seat pricing). Free is not a Polar product, and
+ * enterprise deals use bespoke Polar orders, not catalog products.
  *
- * WHY all four are kept: the resolver is bidirectional. Legacy product IDs
- * still exist in Vercel env scopes for backward compatibility during the
- * cutover. Removing them would break any in-flight subscription whose
- * Polar product is still under the legacy schema. Adding `pro` + `growth`
- * fixes the e2e finding where the team-path resolver returned null for
- * Growth product IDs, causing 422 + audit-log noise on every Growth
- * subscription event.
- *
- * Historical name retained ("TeamBillingTier") to avoid touching every
- * consumer in this PR; a future rename to `BillingTier` is tracked
- * separately in the legacy-shim cleanup task.
+ * HISTORY (2026-06-09): previously included the retired `team`/`business`
+ * tiers. Those never shipped (zero subs, zero Polar products per
+ * `docs/planning/styrby-tiers-canonical.md`), so their product-ID env vars
+ * (`POLAR_TEAM_*` / `POLAR_BUSINESS_*`) only ever resolved to null. Removed
+ * with the billing consolidation (backlog TIER-DRIFT-2). The name
+ * "TeamBillingTier" is retained for now to avoid a cross-file rename; a future
+ * rename to `BillingTier` is tracked separately.
  */
-export type TeamBillingTier = 'team' | 'business' | 'pro' | 'growth';
+export type TeamBillingTier = 'pro' | 'growth';
 
 /**
  * Billing cycle for per-seat subscriptions.
@@ -92,21 +88,16 @@ export type BillingCycle = 'monthly' | 'annual';
  * process.env values on Vercel are already trimmed. We use getEnv()
  * only in getPolarProductId() where we need the trimmed runtime value.
  */
-// WHY Team/Business optional (2026-05-05): the public pricing surface only
-// ships Pro + Growth. Team and Business product IDs are vestigial — required
-// by an earlier planned tier scheme that was never launched. Treating them
-// as required at cold-start blocks the entire webhook route from loading
-// when those env vars are absent (root cause of the Apr-28 → May-5 webhook
-// outage). The runtime resolver `resolvePolarProductId('team'|'business', ...)`
-// is the right place to fail loudly: it'll throw "Tier not available" only
-// when an actual team/business webhook event arrives, not on every cold-start.
+// WHY only the access token + webhook secret are validated at cold-start: the
+// Pro/Growth product IDs are read (and null-checked) at request time by
+// getPolarProductId/resolvePolarProductId, not required at boot. Requiring
+// product IDs at cold-start blocks the entire webhook route from loading when
+// they're absent (root cause of the Apr-28 → May-5 webhook outage). The
+// retired POLAR_TEAM_*/POLAR_BUSINESS_* vars were dropped here 2026-06-09
+// (billing consolidation) — they backed tiers that never shipped.
 const PolarEnvSchema = z.object({
   POLAR_ACCESS_TOKEN: z.string().min(1),
   POLAR_WEBHOOK_SECRET: z.string().min(1),
-  POLAR_TEAM_MONTHLY_PRODUCT_ID: z.string().optional(),
-  POLAR_TEAM_ANNUAL_PRODUCT_ID: z.string().optional(),
-  POLAR_BUSINESS_MONTHLY_PRODUCT_ID: z.string().optional(),
-  POLAR_BUSINESS_ANNUAL_PRODUCT_ID: z.string().optional(),
 });
 
 // ============================================================================
@@ -140,10 +131,6 @@ export function validatePolarEnv(): void {
   const snapshot = {
     POLAR_ACCESS_TOKEN: process.env.POLAR_ACCESS_TOKEN,
     POLAR_WEBHOOK_SECRET: process.env.POLAR_WEBHOOK_SECRET,
-    POLAR_TEAM_MONTHLY_PRODUCT_ID: process.env.POLAR_TEAM_MONTHLY_PRODUCT_ID,
-    POLAR_TEAM_ANNUAL_PRODUCT_ID: process.env.POLAR_TEAM_ANNUAL_PRODUCT_ID,
-    POLAR_BUSINESS_MONTHLY_PRODUCT_ID: process.env.POLAR_BUSINESS_MONTHLY_PRODUCT_ID,
-    POLAR_BUSINESS_ANNUAL_PRODUCT_ID: process.env.POLAR_BUSINESS_ANNUAL_PRODUCT_ID,
   };
 
   const result = PolarEnvSchema.safeParse(snapshot);
@@ -183,14 +170,6 @@ export function validatePolarEnv(): void {
  * correct parameterisation per environment.
  */
 const PRODUCT_ID_ENV_VAR_MAP: Record<TeamBillingTier, Record<BillingCycle, string>> = {
-  team: {
-    monthly: 'POLAR_TEAM_MONTHLY_PRODUCT_ID',
-    annual: 'POLAR_TEAM_ANNUAL_PRODUCT_ID',
-  },
-  business: {
-    monthly: 'POLAR_BUSINESS_MONTHLY_PRODUCT_ID',
-    annual: 'POLAR_BUSINESS_ANNUAL_PRODUCT_ID',
-  },
   pro: {
     monthly: 'POLAR_PRO_MONTHLY_PRODUCT_ID',
     annual: 'POLAR_PRO_ANNUAL_PRODUCT_ID',
@@ -213,14 +192,14 @@ const PRODUCT_ID_ENV_VAR_MAP: Record<TeamBillingTier, Record<BillingCycle, strin
  * ID env vars are non-empty. This function does not re-validate for performance
  * (it is called on every webhook event).
  *
- * @param tier - The billing tier: 'team' or 'business'.
+ * @param tier - The billing tier: 'pro' or 'growth'.
  * @param cycle - The billing cycle: 'monthly' or 'annual'.
  * @returns The Polar product ID string from the matching env var.
  *
  * @example
  * ```ts
- * const id = getPolarProductId('team', 'annual');
- * // Returns process.env.POLAR_TEAM_ANNUAL_PRODUCT_ID (trimmed)
+ * const id = getPolarProductId('growth', 'annual');
+ * // Returns process.env.POLAR_GROWTH_ANNUAL_PRODUCT_ID (trimmed)
  * ```
  */
 export function getPolarProductId(tier: TeamBillingTier, cycle: BillingCycle): string {
@@ -256,12 +235,10 @@ export function resolvePolarProductId(
 ): { tier: TeamBillingTier; cycle: BillingCycle } | null {
   if (!productId) return null;
 
-  // Iterate ALL tiers (both legacy team/business and canonical pro/growth)
-  // so that subscription events using new-tier product IDs resolve correctly
-  // in the team-path code at /api/webhooks/polar/route.ts. Without this,
-  // every Growth subscription event returned 422 with "unknown product_id"
-  // because the resolver only knew about the pre-cutover schema.
-  const tiers: TeamBillingTier[] = ['team', 'business', 'pro', 'growth'];
+  // Iterate the live tiers (pro + growth) — the only ones with Polar catalog
+  // products. The retired team/business tiers were removed 2026-06-09 (they
+  // had zero products, so they only ever produced empty lookups here).
+  const tiers: TeamBillingTier[] = ['pro', 'growth'];
   const cycles: BillingCycle[] = ['monthly', 'annual'];
 
   for (const tier of tiers) {

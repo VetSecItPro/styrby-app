@@ -18,10 +18,6 @@ import { validatePolarEnv, getPolarProductId, resolvePolarProductId } from '../p
 const FULL_ENV = {
   POLAR_ACCESS_TOKEN: 'pat_test_abc',
   POLAR_WEBHOOK_SECRET: 'whsec_test_xyz',
-  POLAR_TEAM_MONTHLY_PRODUCT_ID: 'prod_team_mo_123',
-  POLAR_TEAM_ANNUAL_PRODUCT_ID: 'prod_team_yr_456',
-  POLAR_BUSINESS_MONTHLY_PRODUCT_ID: 'prod_biz_mo_789',
-  POLAR_BUSINESS_ANNUAL_PRODUCT_ID: 'prod_biz_yr_012',
   POLAR_PRO_MONTHLY_PRODUCT_ID: 'prod_pro_mo_aaa',
   POLAR_PRO_ANNUAL_PRODUCT_ID: 'prod_pro_yr_bbb',
   POLAR_GROWTH_MONTHLY_PRODUCT_ID: 'prod_grw_mo_ccc',
@@ -43,40 +39,31 @@ beforeEach(() => {
 // ============================================================================
 
 describe('validatePolarEnv()', () => {
-  // CONTRACT (updated 2026-05-05 incident response):
+  // CONTRACT (updated 2026-06-09 billing consolidation):
   //
   //   REQUIRED at cold-start:
   //     - POLAR_ACCESS_TOKEN
   //     - POLAR_WEBHOOK_SECRET
   //
-  //   OPTIONAL (validation never throws on absence):
-  //     - POLAR_TEAM_MONTHLY_PRODUCT_ID
-  //     - POLAR_TEAM_ANNUAL_PRODUCT_ID
-  //     - POLAR_BUSINESS_MONTHLY_PRODUCT_ID
-  //     - POLAR_BUSINESS_ANNUAL_PRODUCT_ID
+  //   Product ID env vars (POLAR_PRO_* / POLAR_GROWTH_*) are NOT validated at
+  //   cold-start — they're read and null-checked at request time by
+  //   getPolarProductId/resolvePolarProductId. Requiring them at boot blocked
+  //   the entire webhook route from loading whenever they were absent — root
+  //   cause of the 7-day Polar webhook outage 2026-04-28 → 2026-05-05.
   //
-  // WHY the Team/Business IDs are optional now: those tiers were planned
-  // but never launched. Public pricing only ships Pro + Growth. Treating
-  // them as required at cold-start blocked the entire webhook route from
-  // loading whenever those env vars were absent — root cause of the
-  // 7-day Polar webhook outage 2026-04-28 → 2026-05-05.
-  //
-  // The runtime resolver `resolvePolarProductId('team'|'business', ...)`
-  // is the right place to fail loudly: it'll throw "Tier not available"
-  // only when an actual team/business webhook event arrives, not on
-  // every cold-start.
+  //   The retired POLAR_TEAM_*/POLAR_BUSINESS_* vars were removed from the
+  //   schema entirely (billing consolidation) — they backed tiers that never
+  //   shipped.
 
   it('passes without throwing when both required vars are set', () => {
     stubFullEnv();
     expect(() => validatePolarEnv()).not.toThrow();
   });
 
-  it('passes when only the 2 required vars are set (Team/Business IDs absent)', () => {
+  it('passes when only the 2 required vars are set (product IDs absent)', () => {
     stubFullEnv();
-    vi.stubEnv('POLAR_TEAM_MONTHLY_PRODUCT_ID', '');
-    vi.stubEnv('POLAR_TEAM_ANNUAL_PRODUCT_ID', '');
-    vi.stubEnv('POLAR_BUSINESS_MONTHLY_PRODUCT_ID', '');
-    vi.stubEnv('POLAR_BUSINESS_ANNUAL_PRODUCT_ID', '');
+    vi.stubEnv('POLAR_PRO_MONTHLY_PRODUCT_ID', '');
+    vi.stubEnv('POLAR_GROWTH_MONTHLY_PRODUCT_ID', '');
     expect(() => validatePolarEnv()).not.toThrow();
   });
 
@@ -92,27 +79,10 @@ describe('validatePolarEnv()', () => {
     expect(() => validatePolarEnv()).toThrow(/POLAR_WEBHOOK_SECRET/);
   });
 
-  it('does NOT throw when POLAR_TEAM_MONTHLY_PRODUCT_ID is missing (now optional — see schema comment)', () => {
+  it('does NOT throw when a Pro/Growth product ID is absent (read + null-checked at request time)', () => {
     stubFullEnv();
-    vi.stubEnv('POLAR_TEAM_MONTHLY_PRODUCT_ID', '');
-    expect(() => validatePolarEnv()).not.toThrow();
-  });
-
-  it('does NOT throw when POLAR_TEAM_ANNUAL_PRODUCT_ID is missing (now optional)', () => {
-    stubFullEnv();
-    vi.stubEnv('POLAR_TEAM_ANNUAL_PRODUCT_ID', '');
-    expect(() => validatePolarEnv()).not.toThrow();
-  });
-
-  it('does NOT throw when POLAR_BUSINESS_MONTHLY_PRODUCT_ID is missing (now optional)', () => {
-    stubFullEnv();
-    vi.stubEnv('POLAR_BUSINESS_MONTHLY_PRODUCT_ID', '');
-    expect(() => validatePolarEnv()).not.toThrow();
-  });
-
-  it('does NOT throw when POLAR_BUSINESS_ANNUAL_PRODUCT_ID is missing (now optional)', () => {
-    stubFullEnv();
-    vi.stubEnv('POLAR_BUSINESS_ANNUAL_PRODUCT_ID', '');
+    vi.stubEnv('POLAR_PRO_MONTHLY_PRODUCT_ID', '');
+    vi.stubEnv('POLAR_GROWTH_ANNUAL_PRODUCT_ID', '');
     expect(() => validatePolarEnv()).not.toThrow();
   });
 
@@ -332,36 +302,36 @@ describe('getPolarProductId()', () => {
     stubFullEnv();
   });
 
-  it('returns POLAR_TEAM_MONTHLY_PRODUCT_ID value for (team, monthly)', () => {
-    expect(getPolarProductId('team', 'monthly')).toBe('prod_team_mo_123');
+  it('returns POLAR_PRO_MONTHLY_PRODUCT_ID value for (pro, monthly)', () => {
+    expect(getPolarProductId('pro', 'monthly')).toBe('prod_pro_mo_aaa');
   });
 
-  it('returns POLAR_TEAM_ANNUAL_PRODUCT_ID value for (team, annual)', () => {
-    expect(getPolarProductId('team', 'annual')).toBe('prod_team_yr_456');
+  it('returns POLAR_PRO_ANNUAL_PRODUCT_ID value for (pro, annual)', () => {
+    expect(getPolarProductId('pro', 'annual')).toBe('prod_pro_yr_bbb');
   });
 
-  it('returns POLAR_BUSINESS_MONTHLY_PRODUCT_ID value for (business, monthly)', () => {
-    expect(getPolarProductId('business', 'monthly')).toBe('prod_biz_mo_789');
+  it('returns POLAR_GROWTH_MONTHLY_PRODUCT_ID value for (growth, monthly)', () => {
+    expect(getPolarProductId('growth', 'monthly')).toBe('prod_grw_mo_ccc');
   });
 
-  it('returns POLAR_BUSINESS_ANNUAL_PRODUCT_ID value for (business, annual)', () => {
-    expect(getPolarProductId('business', 'annual')).toBe('prod_biz_yr_012');
+  it('returns POLAR_GROWTH_ANNUAL_PRODUCT_ID value for (growth, annual)', () => {
+    expect(getPolarProductId('growth', 'annual')).toBe('prod_grw_yr_ddd');
   });
 
-  it('does NOT return team annual ID when requesting team monthly', () => {
-    expect(getPolarProductId('team', 'monthly')).not.toBe('prod_team_yr_456');
+  it('does NOT return growth annual ID when requesting growth monthly', () => {
+    expect(getPolarProductId('growth', 'monthly')).not.toBe('prod_grw_yr_ddd');
   });
 
-  it('does NOT return business monthly ID when requesting team monthly', () => {
-    expect(getPolarProductId('team', 'monthly')).not.toBe('prod_biz_mo_789');
+  it('does NOT return pro monthly ID when requesting growth monthly', () => {
+    expect(getPolarProductId('growth', 'monthly')).not.toBe('prod_pro_mo_aaa');
   });
 
   it('returns empty string when the env var is unset (after validatePolarEnv should have caught this)', () => {
-    vi.stubEnv('POLAR_TEAM_MONTHLY_PRODUCT_ID', '');
+    vi.stubEnv('POLAR_GROWTH_MONTHLY_PRODUCT_ID', '');
     // WHY empty string (not undefined): getEnv() returns undefined for empty,
     // and getPolarProductId returns `getEnv(...) ?? ''`. Tests that validatePolarEnv
     // catches this case before it reaches getPolarProductId in production.
-    expect(getPolarProductId('team', 'monthly')).toBe('');
+    expect(getPolarProductId('growth', 'monthly')).toBe('');
   });
 });
 
@@ -374,26 +344,6 @@ describe('resolvePolarProductId()', () => {
     stubFullEnv();
   });
 
-  it('resolves prod_team_mo_123 to { tier: team, cycle: monthly }', () => {
-    const result = resolvePolarProductId('prod_team_mo_123');
-    expect(result).toEqual({ tier: 'team', cycle: 'monthly' });
-  });
-
-  it('resolves prod_team_yr_456 to { tier: team, cycle: annual }', () => {
-    const result = resolvePolarProductId('prod_team_yr_456');
-    expect(result).toEqual({ tier: 'team', cycle: 'annual' });
-  });
-
-  it('resolves prod_biz_mo_789 to { tier: business, cycle: monthly }', () => {
-    const result = resolvePolarProductId('prod_biz_mo_789');
-    expect(result).toEqual({ tier: 'business', cycle: 'monthly' });
-  });
-
-  it('resolves prod_biz_yr_012 to { tier: business, cycle: annual }', () => {
-    const result = resolvePolarProductId('prod_biz_yr_012');
-    expect(result).toEqual({ tier: 'business', cycle: 'annual' });
-  });
-
   it('returns null for an unrecognized product ID', () => {
     expect(resolvePolarProductId('prod_some_unknown_id')).toBeNull();
   });
@@ -402,11 +352,10 @@ describe('resolvePolarProductId()', () => {
     expect(resolvePolarProductId('')).toBeNull();
   });
 
-  // ---------------- canonical (post-cutover) tier resolution ----------------
-  // These pin the fix for the e2e finding where Growth subscription events
-  // returned 422 "unknown product_id" because the resolver only knew the
-  // legacy team/business schema. See route.ts team-path resolver call at
-  // src/app/api/webhooks/polar/route.ts line ~569.
+  // ---------------- canonical tier resolution (the only live tiers) ---------
+  // Pins the fix for the e2e finding where Growth subscription events returned
+  // 422 "unknown product_id". The retired team/business product IDs no longer
+  // resolve (removed 2026-06-09 billing consolidation) — only pro/growth do.
 
   it('resolves prod_pro_mo_aaa to { tier: pro, cycle: monthly }', () => {
     const result = resolvePolarProductId('prod_pro_mo_aaa');

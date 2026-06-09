@@ -8,5 +8,8 @@
  */
 
 export * from './tier-logic.js';
-export * from './polar-products.js';
+// NOTE: the legacy `polar-products.js` (team/business/enterprise per-seat
+// pricing) was removed 2026-06-09 — billing math consolidated into the web
+// canonical module `@/lib/billing/polar-products` keyed to the live
+// 'pro' | 'growth' model. See backlog TIER-DRIFT-2 / BILLING-CONSOLIDATION.
 export * from './manual-override.js';

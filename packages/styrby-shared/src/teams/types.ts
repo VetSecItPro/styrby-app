@@ -64,8 +64,16 @@ export type PolicyType = (typeof POLICY_TYPES)[number];
 /** Lifecycle status for an approval request. */
 export type DbApprovalStatus = (typeof DB_APPROVAL_STATUSES)[number];
 
-/** Billing tier identifier for teams (superset of TierId's 'team'). */
-export type TeamBillingTier = 'team' | 'business' | 'enterprise';
+/**
+ * Billing tier identifier for a team workspace.
+ *
+ * A team exists only under the Growth tier (Pro is a single-seat individual
+ * plan with no team). Previously this was `'team' | 'business' | 'enterprise'`
+ * — tiers that never shipped and, notably, did NOT include the live `'growth'`
+ * value the webhook actually writes to `teams.billing_tier`. Corrected to the
+ * canonical model 2026-06-09 (backlog TIER-DRIFT-2 / BILLING-CONSOLIDATION).
+ */
+export type TeamBillingTier = 'growth';
 
 // ============================================================================
 // Team
@@ -112,7 +120,7 @@ export interface Team {
 
   /**
    * Number of active paid seats on the current billing cycle.
-   * Minimum is 3 for 'team', 10 for 'business'. See CLAUDE.md pricing.
+   * Growth includes 3 seats; additional seats up to 25 at $19/seat. See CLAUDE.md pricing.
    */
   seatCount: number;
 

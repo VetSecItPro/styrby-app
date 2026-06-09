@@ -60,12 +60,18 @@ import { z } from 'zod';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { createServerClient } from '@supabase/ssr';
 import { Polar } from '@polar-sh/sdk';
+// WHY the canonical module (not @styrby/shared/billing): the shared
+// validateSeatCount/calculateProrationCents were keyed to the retired
+// team/business/enterprise model and had NO 'growth' definition — so a Growth
+// team's billing_tier='growth' dereferenced an undefined tier def and 500'd.
+// The canonical module is keyed to the live 'pro' | 'growth' model and its
+// calculateProrationCents is cycle-aware (correct annual seat proration).
 import {
-  validateSeatCount,
+  validateSeatCountResult,
   calculateProrationCents,
-  type BillableTier,
-} from '@styrby/shared/billing';
-import type { TeamBillingTier, BillingCycle } from '@/lib/polar-env';
+  type PublicTierId,
+} from '@/lib/billing/polar-products';
+import type { BillingCycle } from '@/lib/polar-env';
 import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
 
 // ============================================================================
@@ -133,7 +139,7 @@ const SeatsGetQuerySchema = z.object({
  */
 interface TeamBillingRow {
   polar_subscription_id: string | null;
-  billing_tier: TeamBillingTier | null;
+  billing_tier: PublicTierId | null;
   billing_cycle: BillingCycle | null;
   seat_cap: number | null;
   active_seats: number | null;
@@ -501,7 +507,7 @@ export async function GET(request: Request): Promise<Response> {
   const cycle = team.billing_cycle!;
 
   // Validate new seat count
-  const seatValidation = validateSeatCount(tier as BillableTier, new_seat_count);
+  const seatValidation = validateSeatCountResult(tier, new_seat_count);
   if (!seatValidation.ok) {
     return NextResponse.json(
       { error: 'INVALID_SEATS', message: seatValidation.reason, minSeats: seatValidation.minSeats },
@@ -530,7 +536,8 @@ export async function GET(request: Request): Promise<Response> {
       ? calculateProrationCents({
           oldSeats,
           newSeats: new_seat_count,
-          tier: tier as BillableTier,
+          tierId: tier,
+          cycle,
           daysElapsed,
           daysInCycle,
         })
@@ -638,7 +645,7 @@ export async function PATCH(request: Request): Promise<Response> {
   // WHY: NEVER trust the body — validateSeatCount checks tier minimums and
   // integer/non-negative constraints. A client bypassing the consent screen
   // could send seats=0 or seats=1 (below team minimum of 3).
-  const seatValidation = validateSeatCount(tier as BillableTier, new_seat_count);
+  const seatValidation = validateSeatCountResult(tier, new_seat_count);
   if (!seatValidation.ok) {
     return NextResponse.json(
       {
@@ -785,7 +792,8 @@ export async function PATCH(request: Request): Promise<Response> {
       ? calculateProrationCents({
           oldSeats,
           newSeats: new_seat_count,
-          tier: tier as BillableTier,
+          tierId: tier,
+          cycle,
           daysElapsed,
           daysInCycle,
         })
