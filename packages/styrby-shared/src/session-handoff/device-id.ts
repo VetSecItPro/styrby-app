@@ -24,33 +24,38 @@
 export function generateDeviceId(): string {
   const nowMs = Date.now();
 
-  // 48-bit timestamp (ms since epoch) as big-endian hex
-  const timeLo = (nowMs & 0xffffffff) >>> 0;
-  const timeHi = Math.floor(nowMs / 0x100000000) & 0xffff;
+  // RFC 9562 §5.7 field layout (big-endian, most-significant timestamp bits
+  // FIRST so that lexicographic string order matches chronological order):
+  //
+  //   unix_ts_ms : 48-bit big-endian millisecond timestamp
+  //     ├─ top 32 bits  → first group  (8 hex)  "time_high"
+  //     └─ low 16 bits  → second group (4 hex)  "time_low"
+  //   ver (4) + rand_a (12) → third group  (4 hex)
+  //   var (2) + rand_b high (14) → fourth group (4 hex)
+  //   rand_b low (48) → fifth group (12 hex)
+  //
+  // WHY DIVISION not bit-shift: JavaScript bitwise operators (>>, &) coerce
+  // their operands to 32-bit signed integers. A 48-bit ms timestamp (>2^32)
+  // would be truncated by `>>`/`&`, scrambling the high bits and breaking
+  // chronological ordering. Math.floor(nowMs / 0x10000) computes the true top
+  // 32 bits across the full 53-bit safe-integer range.
+  const timeHigh = (Math.floor(nowMs / 0x10000) >>> 0).toString(16).padStart(8, '0');
+  const timeLow = (nowMs & 0xffff).toString(16).padStart(4, '0');
 
-  // 12-bit random (rand_a, lower 12 bits of the version nibble word)
+  // 12-bit random (rand_a) packed with the version nibble (0111 = 7).
   const randA = crypto.getRandomValues(new Uint16Array(1))[0] & 0x0fff;
+  const verRandA = (0x7000 | randA).toString(16).padStart(4, '0');
 
-  // 62-bit random split across two 32-bit words (rand_b)
+  // 62-bit random (rand_b) split across two 32-bit words.
   const [randB1, randB2] = Array.from(crypto.getRandomValues(new Uint32Array(2)));
 
-  // Assemble per RFC 9562 §5.7
-  // time_high (16 bits) | time_mid (16 bits) | time_low (32 bits)
-  const p1 = timeHi.toString(16).padStart(4, '0');
-  const p2 = ((nowMs >> 16) & 0xffff).toString(16).padStart(4, '0');
-  const p3 = timeLo.toString(16).padStart(8, '0');
+  // Variant bits: force top two bits to 10 (RFC 9562 variant), 14 random bits follow.
+  const variantRand = (0x8000 | ((randB1 >>> 16) & 0x3fff)).toString(16).padStart(4, '0');
 
-  // Version nibble: 0111 = 7
-  const p4 = (0x7000 | randA).toString(16).padStart(4, '0');
+  // Final 48 random bits: low 16 of randB1 + all 32 of randB2.
+  const tail = (randB1 & 0xffff).toString(16).padStart(4, '0') + randB2.toString(16).padStart(8, '0');
 
-  // Variant nibble: 10xx = 8-b (force two high bits to 10)
-  const variantBits = (randB1 >>> 16) & 0x3fff;
-  const p5 = (0x8000 | variantBits).toString(16).padStart(4, '0');
-
-  const p6 = (randB1 & 0xffff).toString(16).padStart(4, '0');
-  const p7 = randB2.toString(16).padStart(8, '0');
-
-  return `${p3}-${p2}-${p4}-${p5}-${p6}${p7}`;
+  return `${timeHigh}-${timeLow}-${verRandA}-${variantRand}-${tail}`;
 }
 
 /**

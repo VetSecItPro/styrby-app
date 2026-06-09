@@ -167,6 +167,13 @@ export function useNotifications(): UseNotificationsResult {
   const notificationListener = useRef<Notifications.Subscription | undefined>(undefined);
   const responseListener = useRef<Notifications.Subscription | undefined>(undefined);
 
+  // WHY: On a cold start triggered by a notification tap, BOTH
+  // getLastNotificationResponseAsync() and the response listener deliver the
+  // SAME launching response, so handleNotificationResponse would fire twice
+  // (double navigation, double badge clear). Track already-handled response
+  // identifiers and ignore repeats — mirrors the useInviteLinkHandler dedupe.
+  const handledResponseIds = useRef<Set<string>>(new Set());
+
   /**
    * Navigates to a screen based on the explicit `screen` field in the
    * notification data payload.
@@ -255,6 +262,14 @@ export function useNotifications(): UseNotificationsResult {
    */
   const handleNotificationResponse = useCallback(
     (response: Notifications.NotificationResponse) => {
+      // Dedupe: the cold-start launching response can arrive twice (last-response
+      // API + listener). Ignore an identifier we've already routed.
+      const responseId = response.notification.request.identifier;
+      if (responseId) {
+        if (handledResponseIds.current.has(responseId)) return;
+        handledResponseIds.current.add(responseId);
+      }
+
       const rawData = response.notification.request.content.data;
 
       // Clear badge when user interacts with any notification

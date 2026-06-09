@@ -539,7 +539,8 @@ describe('buildFileRefs', () => {
     ];
     const refs = buildFileRefs(msgs, FIXED_NOW);
     expect(refs).toHaveLength(1);
-    expect(refs[0]!.path).toBe('/Users/alice/src/auth.ts');
+    // Path is scrubbed to basename-only before storage (cross-agent leak fix).
+    expect(refs[0]!.path).toBe('[PATH]/auth.ts');
   });
 
   it('deduplicates identical paths across multiple tool calls', () => {
@@ -559,7 +560,7 @@ describe('buildFileRefs', () => {
     ];
     const refs = buildFileRefs(msgs, FIXED_NOW);
     // new.ts is mentioned twice → higher frequency → higher relevance
-    expect(refs[0]!.path).toBe('/Users/alice/new.ts');
+    expect(refs[0]!.path).toBe('[PATH]/new.ts');
   });
 
   it('ignores tool calls for non-allowlisted tools', () => {
@@ -582,7 +583,7 @@ describe('buildFileRefs', () => {
       },
     ];
     const refs = buildFileRefs(msgs, FIXED_NOW);
-    expect(refs.some((r) => r.path === '/Users/alice/json-arg.ts')).toBe(true);
+    expect(refs.some((r) => r.path === '[PATH]/json-arg.ts')).toBe(true);
   });
 
   it('skips tool calls with invalid JSON string arguments', () => {
@@ -715,6 +716,24 @@ describe('summarize', () => {
     ];
     const out = summarize({ messages }, FIXED_NOW);
     expect(out.fileRefs.length).toBeGreaterThan(0);
+  });
+
+  it('never leaks the absolute directory tree in fileRefs or summaryMarkdown', () => {
+    // Regression: fileRefs previously emitted FULL absolute paths cross-agent,
+    // leaking the user's directory layout. Paths must be basename-only.
+    const messages = [
+      toolMsg('Read', 'read_file', { path: '/Users/alice/projects/secret-app/src/auth.ts' }),
+    ];
+    const out = summarize({ messages }, FIXED_NOW);
+    // No stored ref retains the parent directories.
+    for (const ref of out.fileRefs) {
+      expect(ref.path).not.toContain('/Users/alice');
+      expect(ref.path).not.toContain('secret-app');
+      expect(ref.path).toBe('[PATH]/auth.ts');
+    }
+    // The rendered summary must not echo the directory tree either.
+    expect(out.summaryMarkdown).not.toContain('/Users/alice');
+    expect(out.summaryMarkdown).not.toContain('secret-app');
   });
 });
 

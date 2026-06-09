@@ -244,6 +244,29 @@ export function extractPathsFromToolCall(
   return [...new Set(paths)];
 }
 
+/**
+ * Scrubs an absolute filesystem path down to its basename-only masked form.
+ *
+ * WHY: ContextFileRef.path is propagated cross-agent (possibly different
+ * owners). Emitting the full absolute path leaks the user's directory tree.
+ * The module's documented contract (FULL_SCRUB_MASK / file_paths rule, and the
+ * ContextFileRef type doc) is basename-only: `/Users/alice/src/auth.ts` →
+ * `[PATH]/auth.ts`. We reuse the SAME scrub engine the rest of the module uses
+ * (scrubMessage with file_paths) so the masking is identical everywhere and
+ * there is a single source of truth for the ABSOLUTE_PATH_PATTERN.
+ *
+ * @param path - The raw (possibly absolute) file path extracted from a tool call.
+ * @returns The basename-only masked path (e.g. `[PATH]/auth.ts`). Non-absolute
+ *          inputs pass through unchanged.
+ */
+function scrubFileRefPath(path: string): string {
+  const scrubbed = scrubMessage(
+    { role: 'tool', content: path },
+    { secrets: false, file_paths: true, commands: false }
+  );
+  return scrubbed.content;
+}
+
 // ============================================================================
 // Relevance scoring
 // ============================================================================
@@ -538,7 +561,10 @@ export function buildFileRefs(
   const maxMentions = Math.max(...[...pathData.values()].map((d) => d.mentionCount));
 
   const refs: ContextFileRef[] = [...pathData.entries()].map(([path, data]) => ({
-    path,
+    // Scrub to basename-only BEFORE storing so the leaked directory tree never
+    // reaches the DB, the summary markdown (line ~469), or the injection prompt
+    // (line ~686). This enforces the ContextFileRef.path contract at the source.
+    path: scrubFileRefPath(path),
     lastTouchedAt: data.lastTouchedAt,
     relevance: computeRelevance(data.lastTouchedAt, data.mentionCount, maxMentions, now),
   }));

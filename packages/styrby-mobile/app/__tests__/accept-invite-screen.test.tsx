@@ -141,6 +141,9 @@ jest.mock('@/lib/supabase', () => ({
       })),
     },
     from: jest.fn(() => mockSupabaseChain()),
+    // Accept now goes through the atomic accept_team_invitation RPC (WAVE-E-002
+    // fix). Default to success; tests override per-case via rpc.mockResolvedValueOnce.
+    rpc: jest.fn(async () => ({ data: null, error: null })),
     channel: jest.fn(() => ({
       on: jest.fn().mockReturnThis(),
       subscribe: jest.fn(),
@@ -170,6 +173,7 @@ function getMockSupabase() {
   return require('@/lib/supabase').supabase as {
     auth: { getUser: jest.Mock };
     from: jest.Mock;
+    rpc: jest.Mock;
   };
 }
 
@@ -494,16 +498,14 @@ describe('AcceptInviteScreen', () => {
   /**
    * After tapping Accept the component calls:
    * 1. auth.getUser()
-   * 2. supabase.from('team_invitations').update(...)
-   * 3. supabase.from('team_members').upsert(...)
+   * 2. supabase.rpc('accept_team_invitation', ...) — atomic accept (WAVE-E-002)
    *
-   * All succeed → state transitions to 'accepted' and shows the success screen.
+   * The RPC succeeds → state transitions to 'accepted' and shows the success screen.
    */
   it('shows accepted confirmation after successfully accepting the invitation', async () => {
     Object.assign(mockLocalSearchParams, { token: VALID_INVITATION.token });
     setupFromSuccess(VALID_INVITATION); // validateToken
-    setupFromEmpty();                   // update team_invitations → accepted
-    setupFromEmpty();                   // upsert team_members
+    // rpc defaults to success ({ data: null, error: null }) — no override needed.
 
     const instance = await mountAndSettle();
 
@@ -521,6 +523,60 @@ describe('AcceptInviteScreen', () => {
     expect(hasText(tree, 'Welcome to the Team!')).toBe(true);
     expect(hasText(tree, 'successfully joined')).toBe(true);
     expect(hasText(tree, 'View Team')).toBe(true);
+  });
+
+  /**
+   * Regression (WAVE-E-002 + bug #17): accept must go through the single atomic
+   * accept_team_invitation RPC — NOT two separate PostgREST writes. The RPC
+   * receives the invitation id + user id and handles role mapping + invited_by
+   * server-side. A two-write flow could strand the invitation 'accepted' with
+   * no membership row on a partial failure / seat race.
+   */
+  it('calls the atomic accept_team_invitation RPC with invitation + user id', async () => {
+    Object.assign(mockLocalSearchParams, { token: VALID_INVITATION.token });
+    setupFromSuccess(VALID_INVITATION); // validateToken
+
+    const instance = await mountAndSettle();
+    const acceptButton = instance.root.findAll(
+      (node) => node.props.accessibilityLabel === 'Accept team invitation',
+    )[0];
+
+    await act(async () => {
+      acceptButton?.props.onPress?.();
+    });
+
+    expect(getMockSupabase().rpc).toHaveBeenCalledWith('accept_team_invitation', {
+      p_invitation_id: VALID_INVITATION.id,
+      p_user_id: 'user-uuid-test',
+    });
+    // The mobile path must NOT issue a direct team_members write during accept.
+    const fromCalls = getMockSupabase().from.mock.calls.map((c) => c[0]);
+    expect(fromCalls).not.toContain('team_members');
+  });
+
+  /**
+   * Regression: the RPC's typed P0001 (invitation_already_resolved) exception
+   * maps to the screen's 'invalid' state, not a generic error.
+   */
+  it('maps a P0001 already-resolved RPC error to the invalid state', async () => {
+    Object.assign(mockLocalSearchParams, { token: VALID_INVITATION.token });
+    setupFromSuccess(VALID_INVITATION); // validateToken
+    getMockSupabase().rpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: 'P0001', message: 'invitation_already_resolved' },
+    });
+
+    const instance = await mountAndSettle();
+    const acceptButton = instance.root.findAll(
+      (node) => node.props.accessibilityLabel === 'Accept team invitation',
+    )[0];
+
+    await act(async () => {
+      acceptButton?.props.onPress?.();
+    });
+
+    const tree = instance.toJSON();
+    expect(hasText(tree, 'already been accepted')).toBe(true);
   });
 
   // --------------------------------------------------------------------------
@@ -580,13 +636,16 @@ describe('AcceptInviteScreen', () => {
   // --------------------------------------------------------------------------
 
   /**
-   * If the team_invitations update returns an error during accept, the
-   * component transitions to 'error' rather than 'accepted'.
+   * If the accept_team_invitation RPC returns a generic (untyped) error during
+   * accept, the component transitions to 'error' rather than 'accepted'.
    */
   it('shows error state when the accept mutation fails', async () => {
     Object.assign(mockLocalSearchParams, { token: VALID_INVITATION.token });
     setupFromSuccess(VALID_INVITATION);          // validateToken succeeds
-    setupFromError({ message: 'Permission denied' }); // update fails
+    getMockSupabase().rpc.mockResolvedValueOnce({
+      data: null,
+      error: { message: 'Permission denied' },
+    }); // RPC fails with a non-typed error
 
     const instance = await mountAndSettle();
 
@@ -704,8 +763,7 @@ describe('AcceptInviteScreen', () => {
   it('calls router.replace to team tab when View Team is pressed after accepting', async () => {
     Object.assign(mockLocalSearchParams, { token: VALID_INVITATION.token });
     setupFromSuccess(VALID_INVITATION); // validateToken
-    setupFromEmpty();                   // update team_invitations
-    setupFromEmpty();                   // upsert team_members
+    // rpc defaults to success — atomic accept.
 
     const instance = await mountAndSettle();
 

@@ -168,7 +168,10 @@ export async function sendSubscriptionConfirmedEmail({
   billingCycle: 'monthly' | 'annual';
   nextBillingDate: string;
 }) {
-  const tierName = tier === 'pro' ? 'Pro' : 'Power';
+  // Canonical tiers are Free/Pro/Growth (power retired). The param type is
+  // 'pro' | 'growth', so the non-pro branch is always Growth — labeling it
+  // 'Power' sent every Growth subscriber a "You're now on Styrby Power!" email.
+  const tierName = tier === 'pro' ? 'Pro' : 'Growth';
   return sendEmail({
     to: email,
     subject: `You're now on Styrby ${tierName}!`,

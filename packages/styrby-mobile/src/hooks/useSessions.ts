@@ -280,7 +280,11 @@ export function useSessions(): UseSessionsReturn {
         // state (stopped, error, expired).
         query = query.in('status', ['starting', 'running', 'idle', 'paused']);
       } else if (currentFilters.status === 'completed') {
-        query = query.in('status', ['stopped', 'expired']);
+        // WHY 'error' is included: 'error' is a TERMINAL session_status (see
+        // migration 001 enum + the 004_webhooks terminal-transition trigger).
+        // Excluding it from both the active AND completed filters made errored
+        // sessions vanish from the UI entirely. Terminal = stopped|error|expired.
+        query = query.in('status', ['stopped', 'error', 'expired']);
       }
 
       // ---- Agent filter ----

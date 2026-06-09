@@ -433,6 +433,31 @@ export function VoiceInput({ config, onTranscript, disabled = false }: VoiceInpu
     transcribeAudioRef.current = transcribeAudio;
   });
 
+  // WHY (unmount safety): if the user navigates away mid-recording, neither the
+  // auto-stop timer nor the AudioRecorder were ever torn down — the mic stayed
+  // engaged after the screen left. This unmount-only effect (empty deps, so the
+  // cleanup runs exactly once on teardown) clears the pending auto-stop timer
+  // and stops the recorder if one is still live. We read the refs at cleanup
+  // time so we always act on the latest instances.
+  useEffect(() => {
+    return () => {
+      if (autoStopTimerRef.current) {
+        clearTimeout(autoStopTimerRef.current);
+        autoStopTimerRef.current = null;
+      }
+      const recorder = recordingRef.current as { stop?: () => unknown } | null;
+      // Best-effort stop; ignore errors during teardown (instance may already
+      // be stopped/unloaded). Optional-chaining the method guards against
+      // expo-audio shape differences across versions.
+      try {
+        recorder?.stop?.();
+      } catch {
+        // Swallow: teardown must never throw.
+      }
+      recordingRef.current = null;
+    };
+  }, []);
+
   // --------------------------------------------------------------------------
   // Confirmation Modal Actions
   // --------------------------------------------------------------------------

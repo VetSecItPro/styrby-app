@@ -26,6 +26,7 @@ import {
   safeParseSingle,
 } from '../lib/schemas';
 import type { AgentType, SubscriptionTier } from 'styrby-shared';
+import { normalizeTier } from '@styrby/shared/billing';
 
 // ============================================================================
 // Types
@@ -494,7 +495,12 @@ export function useBudgetAlerts(): UseBudgetAlertsReturn {
   const [tier, setTier] = useState<SubscriptionTier>('free');
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const alertLimit = TIER_ALERT_LIMITS[tier];
+  // Normalize the raw tier BEFORE the limit lookup. A stray legacy 'power'
+  // value has no key in TIER_ALERT_LIMITS, which would yield `undefined` and
+  // make `alerts.length >= undefined` always false (unintended unlimited
+  // alerts). normalizeTier folds 'power' → 'growth' (cap 5) and fail-closes
+  // unknown values to 'free' (cap 0). Every TierId it returns is a valid key.
+  const alertLimit = TIER_ALERT_LIMITS[normalizeTier(tier)];
 
   /**
    * Fetch all budget alerts and compute their current spend.

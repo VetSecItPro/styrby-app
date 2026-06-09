@@ -218,10 +218,18 @@ export default function RootLayout() {
           onboarded = true;
           // Also update React state so subsequent renders skip the disk read.
           setHasOnboarded(true);
-        } else if (session) {
+        } else if (session && !inShared && !inInvite) {
           // Auto-mark: once a Supabase session exists, treat the user as
           // onboarded. Covers returning users whose old build did not write
           // ONBOARDING_KEY.
+          //
+          // WHY exclude inShared / inInvite: those are PUBLIC deep-link entry
+          // points. A brand-new user who arrives via /shared/[shareId] or
+          // /invite/[token] may already hold a session, but they have NOT seen
+          // onboarding. Auto-marking them here would silently flag them
+          // onboarded forever, so they'd skip onboarding on first real app
+          // entry. We only auto-mark inside the authenticated-app flow (i.e.
+          // when not sitting on an exempt public route).
           await SecureStore.setItemAsync(ONBOARDING_KEY, 'true');
           onboarded = true;
           setHasOnboarded(true);
