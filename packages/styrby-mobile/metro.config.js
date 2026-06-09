@@ -19,7 +19,11 @@ const config = getDefaultConfig(projectRoot);
 
 // WHY: Add the monorepo root to Metro's watch list so it can resolve packages
 // from the pnpm store (node_modules/.pnpm/node_modules) and workspace siblings.
-config.watchFolders = [workspaceRoot];
+// WHY append (not replace): preserve Expo's default watchFolders entries and
+// add the workspace root on top — replacing the array drops Expo's defaults
+// (flagged by `expo-doctor`'s Metro-config check). Appending is strictly
+// additive, so monorepo resolution is unchanged and the defaults are retained.
+config.watchFolders = [...(config.watchFolders ?? []), workspaceRoot];
 
 // WHY: Tell Metro's resolver where to look for modules. The order matters:
 // 1. Package's own node_modules (highest priority)
