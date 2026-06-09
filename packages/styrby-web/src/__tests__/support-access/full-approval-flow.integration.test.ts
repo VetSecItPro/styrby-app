@@ -106,7 +106,7 @@ vi.mock('next/headers', () => ({
 const mockSentryCapture = vi.fn();
 vi.mock('@sentry/nextjs', () => ({
   captureException: (...args: unknown[]) => mockSentryCapture(...args),
-  captureMessage:   (...args: unknown[]) => void 0,
+  captureMessage:   (..._args: unknown[]) => void 0,
 }));
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
@@ -594,7 +594,7 @@ describe('Audit side effects — RPC is the sole audit channel', () => {
     const mockUpdate = vi.fn();
     const ticketChain = makeTicketFromChain();
     // Augment the chain with insert/update spies to detect any rogue DML.
-    mockFrom.mockImplementation((table: string) => ({
+    mockFrom.mockImplementation((_table: string) => ({
       ...ticketChain,
       insert: mockInsert,
       update: mockUpdate,

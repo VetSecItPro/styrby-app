@@ -104,7 +104,7 @@ vi.mock('@/lib/supabase/server', () => ({
 // ============================================================================
 
 import { POST } from '../route';
-import { OAUTH_START_RATE_LIMIT, OAUTH_ALLOWED_REDIRECT_ORIGINS, MAX_REDIRECT_URL_LENGTH, isAllowedRedirectOrigin, extractStateFromAuthUrl } from '@/lib/auth/api-config';
+import { OAUTH_START_RATE_LIMIT, MAX_REDIRECT_URL_LENGTH, isAllowedRedirectOrigin, extractStateFromAuthUrl } from '@/lib/auth/api-config';
 import * as Sentry from '@sentry/nextjs';
 import { rateLimit } from '@/lib/rateLimit';
 

@@ -109,7 +109,7 @@ describe('POST /api/sessions/[id]/replay', () => {
         getUser: vi.fn(async () => ({ data: { user: null }, error: new Error('not auth') })),
       },
       from: vi.fn(),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     } as any);
 
     const res = await makeRequest('session-123', validBody);

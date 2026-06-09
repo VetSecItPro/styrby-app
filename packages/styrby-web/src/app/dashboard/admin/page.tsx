@@ -44,32 +44,6 @@ import { createAdminClient } from '@/lib/supabase/server';
 import { UserSearchForm } from '@/components/admin/UserSearchForm';
 import { UserListTable, type AdminUserRow } from '@/components/admin/UserListTable';
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/**
- * @deprecated H27: escapeIlike is no longer used now that the admin user search
- * goes through the search_users_by_email_for_admin RPC (migration 062), which
- * handles ILIKE escaping internally. Kept here temporarily in case other callers
- * exist; will be removed in the next cleancode pass.
- *
- * Escapes ILIKE metacharacters so a search string is treated as a literal.
- *
- * WHY: Without escaping, a query like "%" matches all rows (full-table scan),
- * which is both a cost-risk (unbounded result) and a data enumeration vector.
- * Even though the admin is a trusted actor, defense-in-depth matters here.
- * Supabase PostgREST passes the escape character to Postgres ILIKE correctly
- * when the `\` escape prefix is used. See quality review T4 #1.
- *
- * Characters escaped: `%` (any-string wildcard), `_` (single-char wildcard),
- * and `\` (the escape character itself).
- *
- * @param s - Raw search string from user input
- * @returns String safe to embed inside `%...%` ILIKE pattern
- */
-function escapeIlike(s: string): string {
-  return s.replace(/[%_\\]/g, '\\$&');
-}
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface AdminPageProps {

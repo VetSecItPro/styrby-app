@@ -43,7 +43,7 @@ const mockSingle = vi.fn();
 
 vi.mock('@/lib/supabase/server', () => ({
   createAdminClient: vi.fn(() => ({
-    from: vi.fn((table: string) => {
+    from: vi.fn((_table: string) => {
       return {
         upsert: mockUpsert,
         update: mockUpdate,

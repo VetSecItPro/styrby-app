@@ -24,7 +24,7 @@
  * @param currentTier - Current tier shown as the default select value.
  */
 
-import { useActionState, useRef, useCallback } from 'react';
+import { useActionState, useCallback } from 'react';
 import type { AdminActionResult } from '@/app/dashboard/admin/users/[userId]/actions';
 
 // ─── Datetime helpers ─────────────────────────────────────────────────────────

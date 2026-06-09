@@ -82,7 +82,7 @@ describe('DELETE /api/sessions/[id]/replay/[tokenId]', () => {
         getUser: vi.fn(async () => ({ data: { user: null }, error: new Error('no auth') })),
       },
       from: vi.fn(),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     } as any);
 
     const res = await makeDeleteRequest('session-1', 'token-1');

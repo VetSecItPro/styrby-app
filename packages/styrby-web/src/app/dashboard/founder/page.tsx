@@ -68,7 +68,6 @@ export default async function FounderPage() {
   // consumed by external tooling (e.g. a scheduled Slack digest). We call it
   // from the page server component rather than duplicating the logic here.
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  let metrics: Awaited<typeof import('@/app/api/admin/founder-metrics/route').GET> extends Promise<Response> ? Record<string, unknown> : never;
 
   type FounderMetrics = {
     mrrUsd: number;

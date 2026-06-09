@@ -209,7 +209,7 @@ describe('/legal/retention-proof page', () => {
     it('Sessions row has enforced status', async () => {
       mockApiSuccess({ sessions_purged_30d: 0, as_of: new Date().toISOString() });
       const Page = RetentionProofPage as () => Promise<React.ReactElement>;
-      const { container } = render(await Page());
+      render(await Page());
 
       // Find the Sessions row and check its badge
       const table = screen.getByRole('table', { name: 'Styrby data retention policy' });
@@ -222,7 +222,7 @@ describe('/legal/retention-proof page', () => {
     it('Audit log entries row has target status', async () => {
       mockApiSuccess({ sessions_purged_30d: 0, as_of: new Date().toISOString() });
       const Page = RetentionProofPage as () => Promise<React.ReactElement>;
-      const { container } = render(await Page());
+      render(await Page());
 
       const table = screen.getByRole('table', { name: 'Styrby data retention policy' });
       const rows = table.querySelectorAll('tbody tr');
@@ -234,7 +234,7 @@ describe('/legal/retention-proof page', () => {
     it('Cost records row has target status', async () => {
       mockApiSuccess({ sessions_purged_30d: 0, as_of: new Date().toISOString() });
       const Page = RetentionProofPage as () => Promise<React.ReactElement>;
-      const { container } = render(await Page());
+      render(await Page());
 
       const table = screen.getByRole('table', { name: 'Styrby data retention policy' });
       const rows = table.querySelectorAll('tbody tr');

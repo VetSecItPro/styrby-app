@@ -38,6 +38,7 @@
  */
 
 import { notFound } from 'next/navigation';
+import Link from 'next/link';
 import { CheckCircle, Clock, ShieldOff, XCircle, AlertTriangle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { approveAction, revokeAction } from './actions';
@@ -426,12 +427,12 @@ export default async function GrantApprovalPage({ params }: PageProps) {
       {/* Footer */}
       <p className="mt-8 text-center text-xs text-zinc-400">
         Grant ID {grantId} &middot; Questions?{' '}
-        <a
+        <Link
           href="/dashboard/support"
           className="text-zinc-400 underline-offset-2 hover:text-zinc-400 hover:underline"
         >
           Open a support ticket
-        </a>
+        </Link>
       </p>
     </div>
   );

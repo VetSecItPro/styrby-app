@@ -61,18 +61,6 @@ type HistogramDay = {
   date: string;
 } & Record<ErrorClass, number>;
 
-/**
- * Raw row from the Supabase audit_log aggregation query.
- */
-interface AuditLogRow {
-  /** ISO date string (YYYY-MM-DD) from DATE_TRUNC('day', created_at) */
-  record_date: string;
-  /** error_class value (one of ERROR_CLASSES) */
-  error_class: string;
-  /** Count of rows for this (date, error_class) combination */
-  count: number;
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

@@ -71,7 +71,6 @@ import { createAdminClient } from '@/lib/supabase/server';
 import { rateLimit, rateLimitResponse } from '@/lib/rateLimit';
 import {
   OAUTH_START_RATE_LIMIT,
-  OAUTH_ALLOWED_REDIRECT_ORIGINS,
   MAX_REDIRECT_URL_LENGTH,
   isAllowedRedirectOrigin,
   extractStateFromAuthUrl,

@@ -63,7 +63,7 @@ vi.mock('next/headers', () => ({
 const mockSentryCapture = vi.fn();
 vi.mock('@sentry/nextjs', () => ({
   captureException: (...args: unknown[]) => mockSentryCapture(...args),
-  captureMessage:   (...args: unknown[]) => void 0,
+  captureMessage:   (..._args: unknown[]) => void 0,
 }));
 
 const mockRpc  = vi.fn();

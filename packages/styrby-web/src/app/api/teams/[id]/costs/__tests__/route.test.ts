@@ -87,21 +87,6 @@ function setupAuthUser() {
   });
 }
 
-/**
- * Creates a chainable from() mock that resolves with the given result.
- *
- * WHY this helper: The route calls supabase.from('team_members').select().eq().eq().maybeSingle()
- * which requires a chainable mock that returns the result only on maybeSingle().
- */
-function makeFromChain(result: { data?: unknown; error?: unknown }) {
-  const chain: Record<string, unknown> = {};
-  for (const method of ['select', 'eq', 'gte', 'lte', 'order', 'limit', 'not', 'maybeSingle']) {
-    chain[method] = vi.fn().mockReturnValue(chain);
-  }
-  (chain['maybeSingle'] as ReturnType<typeof vi.fn>).mockResolvedValue(result);
-  return vi.fn().mockReturnValue(chain);
-}
-
 // ============================================================================
 // Tests
 // ============================================================================

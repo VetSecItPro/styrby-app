@@ -295,7 +295,7 @@ export async function overrideTierAction(
     }
   }
 
-  const { data: auditId, error } = await supabase.rpc('admin_override_tier', {
+  const { error } = await supabase.rpc('admin_override_tier', {
     p_target_user_id: parsed.data.targetUserId,
     p_new_tier: parsed.data.newTier,
     p_expires_at: parsed.data.expiresAt ?? null,

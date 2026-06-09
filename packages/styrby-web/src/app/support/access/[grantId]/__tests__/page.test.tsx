@@ -342,7 +342,7 @@ describe('GrantApprovalPage', () => {
     // WHY: token_hash is the SHA-256 of the raw access token. It must never
     // be sent to the client — including in the rendered HTML. Verifying it is
     // excluded from the select query is the correct enforcement point.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const selectArg: string = (mockSelect.mock.calls as any)[0]?.[0] ?? '';
     expect(selectArg).not.toContain('token_hash');
     // granted_by (admin UUID) is also excluded per spec §4.3.

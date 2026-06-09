@@ -102,33 +102,6 @@ function signPayload(payload: string): string {
 }
 
 /**
- * Creates a mock Polar webhook Request with a valid HMAC signature.
- *
- * @param body - Event payload object.
- * @param overrideSignature - If provided, use this signature instead of a valid one.
- */
-function createWebhookRequest(
-  body: Record<string, unknown>,
-  overrideSignature?: string,
-): Request {
-  const payload   = JSON.stringify(body);
-  const signature = overrideSignature ?? signPayload(payload);
-
-  const headersMock = new Headers();
-  headersMock.set('polar-signature', signature);
-  headersMock.set('x-forwarded-for', '1.2.3.4');
-
-  return new Request('http://localhost:3000/api/webhooks/polar', {
-    method: 'POST',
-    headers: {
-      'Content-Type':    'application/json',
-      'x-forwarded-for': '1.2.3.4',
-    },
-    body: payload,
-  });
-}
-
-/**
  * Standard subscription.created/updated event payload.
  *
  * @param overrides - Fields to merge into the data object.

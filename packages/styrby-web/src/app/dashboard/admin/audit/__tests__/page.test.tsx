@@ -213,7 +213,7 @@ describe('AuditLogTable', () => {
     render(<AuditLogTable rows={makeAuditRows(50)} nextCursor={500} />);
     const nextLink = screen.getByTestId('audit-next-page-link');
     expect(nextLink).toBeDefined();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const href = (nextLink as any).href as string;
     expect(href).toContain('cursor=500');
   });

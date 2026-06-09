@@ -129,7 +129,7 @@ describe('UserListTable', () => {
 
     const link = screen.getByRole('link', { name: /view dossier for user0@example.com/i });
     expect(link).toBeDefined();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     expect((link as any).href).toContain(`/dashboard/admin/users/user-id-0`);
   });
 
@@ -140,9 +140,9 @@ describe('UserListTable', () => {
     expect(nextLink).toBeDefined();
     // WHY: Next page URL must carry the query param forward so the new page
     // returns results for the same search.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     expect((nextLink as any).href).toContain('q=foo');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     expect((nextLink as any).href).toContain('page=2');
   });
 
@@ -158,7 +158,7 @@ describe('UserListTable', () => {
     const prevLink = screen.getByTestId('prev-page-link');
     expect(prevLink).toBeDefined();
     // Previous should go to page 1 (no page param needed)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const href = (prevLink as any).href as string;
     expect(href).toContain('q=foo');
     expect(href).not.toContain('page=2');

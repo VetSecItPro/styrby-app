@@ -14,8 +14,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useWebPush } from '../use-web-push';
 
-type WritableNav = Navigator & { serviceWorker?: unknown };
-
 describe('useWebPush', () => {
   const originalPushManager = (globalThis as unknown as { PushManager?: unknown })
     .PushManager;
@@ -33,7 +31,7 @@ describe('useWebPush', () => {
       originalPushManager;
     (globalThis as unknown as { Notification?: unknown }).Notification =
       originalNotification;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     delete (navigator as any).serviceWorker;
   });
 
@@ -57,7 +55,7 @@ describe('useWebPush', () => {
       getSubscription: vi.fn().mockResolvedValue(null),
       subscribe: vi.fn().mockResolvedValue(fakeSubscription),
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     (navigator as any).serviceWorker = {
       ready: Promise.resolve({ pushManager }),
     };
@@ -101,7 +99,7 @@ describe('useWebPush', () => {
       getSubscription: vi.fn().mockResolvedValue(existing),
       subscribe: vi.fn(),
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     (navigator as any).serviceWorker = {
       ready: Promise.resolve({ pushManager }),
     };
@@ -132,7 +130,7 @@ describe('useWebPush', () => {
 
   it('subscribe surfaces a missing-VAPID-key as an error without calling fetch', async () => {
     (globalThis as unknown as { PushManager: unknown }).PushManager = class {};
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     (navigator as any).serviceWorker = {
       ready: Promise.resolve({
         pushManager: { getSubscription: vi.fn().mockResolvedValue(null) },

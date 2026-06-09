@@ -145,7 +145,7 @@ vi.mock('@/lib/supabase/server', () => ({
 // Import mocked modules so tests can assert on them.
 // WHY import after vi.mock: Vitest hoists vi.mock calls to the top, so these
 // imports get the mocked versions regardless of declaration order in the file.
-import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/supabase/server';
 import { assertAdminMfa, AdminMfaRequiredError } from '@/lib/admin/mfa-gate';
 import type { Mock } from 'vitest';
 

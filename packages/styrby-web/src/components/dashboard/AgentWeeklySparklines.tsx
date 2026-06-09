@@ -100,7 +100,7 @@ export function AgentWeeklySparklines({ rows }: AgentWeeklySparklinesProps) {
                   const barH = Math.max(Math.round(frac * BAR_HEIGHT_PX), 2);
                   return (
                     <div
-                      // eslint-disable-next-line react/no-array-index-key -- i is stable for a fixed 7-element array
+                       
                       key={i}
                       title={`$${cost.toFixed(4)}`}
                       style={{

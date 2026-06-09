@@ -49,7 +49,7 @@ import {
 } from '@/middleware/api-auth';
 import { createAdminClient, createClient } from '@/lib/supabase/server';
 import { resolveEffectiveTier } from '@/lib/tier-enforcement';
-import { rateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/rateLimit';
+import { rateLimit, rateLimitResponse } from '@/lib/rateLimit';
 
 // ---------------------------------------------------------------------------
 // Constants

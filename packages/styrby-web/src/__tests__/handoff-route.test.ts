@@ -149,7 +149,7 @@ function buildChain(
    * `maybeSingle` and `single` which return the real resolvers.
    */
   function makeChain(): Record<string, unknown> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const proxy: any = new Proxy(
       {},
       {
@@ -185,7 +185,7 @@ vi.mock('@/lib/supabase/server', () => ({
 
 describe('GET /api/sessions/[id]/handoff', () => {
   // Dynamically import the route handler AFTER mocks are set up.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   let GET: (...args: any[]) => Promise<NextResponse>;
 
   beforeEach(async () => {

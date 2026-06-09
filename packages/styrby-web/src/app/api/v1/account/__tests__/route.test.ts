@@ -546,7 +546,7 @@ describe('GET /api/v1/account', () => {
     // TypeScript's structural check on withApiAuthAndRateLimit's overloaded
     // signature is too narrow to accept { keyExpiresAt: null }. The cast is safe
     // here because the handler receives the context directly at runtime.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     (withApiAuthAndRateLimit as any).mockImplementationOnce(
       (handler: (req: NextRequest, ctx: Record<string, unknown>) => Promise<NextResponse>) => {
         return async (request: NextRequest) =>

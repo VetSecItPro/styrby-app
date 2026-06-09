@@ -37,6 +37,7 @@
  */
 
 import { notFound } from 'next/navigation';
+import Link from 'next/link';
 import { Tag, CheckCircle, ShieldOff, Clock, AlertTriangle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { acceptOfferAction } from './actions';
@@ -396,12 +397,12 @@ export default async function ChurnSaveOfferPage({ params }: PageProps) {
       {/* Footer */}
       <p className="mt-8 text-center text-xs text-zinc-400">
         Offer ID {offerId} &middot; Questions?{' '}
-        <a
+        <Link
           href="/dashboard/support"
           className="text-zinc-400 underline-offset-2 hover:text-zinc-400 hover:underline"
         >
           Contact support
-        </a>
+        </Link>
       </p>
     </div>
   );

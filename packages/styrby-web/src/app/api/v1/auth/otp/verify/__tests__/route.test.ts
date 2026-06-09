@@ -177,7 +177,6 @@ import { OTP_VERIFY_RATE_LIMIT, KEY_TTL_DAYS } from '@/lib/auth/api-config';
 const handlePost = POST;
 import * as Sentry from '@sentry/nextjs';
 import { rateLimit } from '@/lib/rateLimit';
-import { generateApiKey } from '@styrby/shared';
 import { hashApiKey } from '@/lib/api-keys';
 
 // ============================================================================

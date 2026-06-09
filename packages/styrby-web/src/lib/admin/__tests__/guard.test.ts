@@ -82,7 +82,7 @@ describe('requireSiteAdmin', () => {
     });
 
     const result = await requireSiteAdmin(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       supabase as any,
       makeRequest()
     );
@@ -97,7 +97,7 @@ describe('requireSiteAdmin', () => {
     });
 
     await requireSiteAdmin(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       supabase as any,
       makeRequest()
     );
@@ -116,7 +116,7 @@ describe('requireSiteAdmin', () => {
     });
 
     const result = await requireSiteAdmin(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       supabase as any,
       makeRequest()
     );
@@ -133,7 +133,7 @@ describe('requireSiteAdmin', () => {
     });
 
     const result = await requireSiteAdmin(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       supabase as any,
       makeRequest()
     );
@@ -149,7 +149,7 @@ describe('requireSiteAdmin', () => {
     });
 
     const result = await requireSiteAdmin(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       supabase as any,
       makeRequest()
     );
@@ -165,7 +165,7 @@ describe('requireSiteAdmin', () => {
     });
 
     await requireSiteAdmin(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       supabase as any,
       makeRequest()
     );
@@ -184,7 +184,7 @@ describe('requireSiteAdmin', () => {
     });
 
     const result = await requireSiteAdmin(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       supabase as any,
       makeRequest()
     );
@@ -212,7 +212,7 @@ describe('requireSiteAdmin', () => {
     };
 
     const result = await requireSiteAdmin(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       throwingSupabase as any,
       makeRequest()
     );
@@ -227,7 +227,7 @@ describe('requireSiteAdmin', () => {
     const supabase = makeMockSupabase({ user: null });
 
     const result = await requireSiteAdmin(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       supabase as any,
       makeRequest()
     );
@@ -244,7 +244,7 @@ describe('requireSiteAdmin', () => {
     });
 
     const result = await requireSiteAdmin(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       supabase as any,
       makeRequest()
     );
@@ -260,7 +260,7 @@ describe('requireSiteAdmin', () => {
     });
 
     const result = await requireSiteAdmin(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       supabase as any,
       makeRequest()
     );
@@ -277,7 +277,7 @@ describe('requireSiteAdmin', () => {
     const supabase = makeMockSupabase({ user: null });
 
     const result = await requireSiteAdmin(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       supabase as any,
       makeRequest()
     );
@@ -302,7 +302,7 @@ describe('requireSiteAdmin', () => {
     });
 
     const result = await requireSiteAdmin(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       supabase as any,
       makeRequest('/dashboardfake') // guard is path-agnostic; middleware filters before calling it
     );
@@ -322,7 +322,7 @@ describe('requireSiteAdmin', () => {
     };
 
     const result = await requireSiteAdmin(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       throwingAuthSupabase as any,
       makeRequest()
     );

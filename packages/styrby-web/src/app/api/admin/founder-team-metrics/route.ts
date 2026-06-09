@@ -59,12 +59,6 @@ interface TeamDbRow {
   created_at: string;
 }
 
-/** team_members aggregation row. */
-interface MemberCountRow {
-  team_id: string;
-  count: number;
-}
-
 /** Subscription row for owner tier. */
 interface SubscriptionRow {
   user_id: string;

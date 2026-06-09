@@ -49,8 +49,7 @@ export function useWebPush(deps?: {
   getVapidKey?: () => string | undefined;
 }): UseWebPushResult {
   const fetchImpl = deps?.fetchImpl ?? (typeof fetch !== 'undefined' ? fetch : undefined);
-  const getVapidKey =
-    deps?.getVapidKey ?? (() => process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY);
+  const depsGetVapidKey = deps?.getVapidKey;
 
   const [supported, setSupported] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission>('default');
@@ -100,6 +99,11 @@ export function useWebPush(deps?: {
         return;
       }
       const registration = await navigator.serviceWorker.ready;
+      // WHY: Resolve the VAPID key inside the callback (not at hook-body scope)
+      // so a new `?? () => ...` fallback closure isn't created every render,
+      // which would change this useCallback's identity on every render.
+      const getVapidKey =
+        depsGetVapidKey ?? (() => process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY);
       const vapidPublicKey = getVapidKey();
       if (!vapidPublicKey) {
         setError('Push notification configuration is missing. Please contact support.');
@@ -131,7 +135,7 @@ export function useWebPush(deps?: {
     } finally {
       setLoading(false);
     }
-  }, [fetchImpl, getVapidKey]);
+  }, [fetchImpl, depsGetVapidKey]);
 
   const unsubscribe = useCallback(async () => {
     setLoading(true);
