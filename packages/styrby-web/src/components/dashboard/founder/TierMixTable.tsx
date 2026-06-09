@@ -58,7 +58,7 @@ export function TierMixTable({ tierMix, agentUsage }: TierMixTableProps) {
   const totalTiers = tierMix.reduce((sum, t) => sum + t.count, 0);
   const totalSessions = agentUsage.reduce((sum, a) => sum + a.sessionCount, 0);
 
-  const tierOrder = ['free', 'pro', 'power', 'team', 'business', 'enterprise'];
+  const tierOrder = ['free', 'pro', 'growth', 'team', 'business', 'enterprise'];
   const sortedTiers = [...tierMix].sort(
     (a, b) => tierOrder.indexOf(a.tier) - tierOrder.indexOf(b.tier)
   );

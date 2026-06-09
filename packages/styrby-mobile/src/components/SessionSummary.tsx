@@ -37,7 +37,7 @@ export interface SessionSummaryProps {
   sessionStatus: string;
 
   /** The user's subscription tier */
-  userTier: 'free' | 'pro' | 'power' | 'growth';
+  userTier: 'free' | 'pro' | 'growth';
 }
 
 /* ──────────────────────────── Helper ──────────────────────────── */

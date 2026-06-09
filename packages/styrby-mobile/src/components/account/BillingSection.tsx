@@ -17,7 +17,7 @@ import {
  * Props consumed by {@link BillingSection}.
  */
 export interface BillingSectionProps {
-  /** Subscription tier label ('free' | 'power' | …); rendered title-cased */
+  /** Subscription tier label ('free' | 'pro' | 'growth' | …); rendered title-cased */
   tier: string;
   isLoadingTier: boolean;
   monthlySpend: number;

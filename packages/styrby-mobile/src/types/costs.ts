@@ -95,7 +95,7 @@ export interface TeamCostSectionProps {
  * Props for the ExportButton in the costs header.
  */
 export interface ExportButtonProps {
-  /** User's subscription tier — only 'power' enables export */
+  /** User's subscription tier — only 'growth' (premium) enables export */
   tier: SubscriptionTier;
   /** Whether an export is currently in flight */
   isExporting: boolean;

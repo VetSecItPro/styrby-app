@@ -72,11 +72,12 @@ export interface OverrideTierFormProps {
 
 // ─── Tier options ─────────────────────────────────────────────────────────────
 
-/** All valid tier values — mirrors the Zod schema in actions.ts. */
+/** All valid tier values — mirrors the Zod schema in actions.ts.
+ *  'power' was retired (migration 095) and is intentionally NOT offered. */
 const TIER_OPTIONS: { value: string; label: string }[] = [
   { value: 'free', label: 'Free' },
   { value: 'pro', label: 'Pro' },
-  { value: 'power', label: 'Power' },
+  { value: 'growth', label: 'Growth' },
   { value: 'team', label: 'Team' },
   { value: 'business', label: 'Business' },
   { value: 'enterprise', label: 'Enterprise' },

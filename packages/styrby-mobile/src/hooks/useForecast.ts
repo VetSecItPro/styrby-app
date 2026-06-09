@@ -35,7 +35,7 @@ import type { CostForecast } from 'styrby-shared';
  * Extends {@link CostForecast} with server-side tier context.
  */
 export type ForecastPayload = CostForecast & {
-  /** User's current billing tier (e.g. 'free', 'pro', 'power'). */
+  /** User's current billing tier (e.g. 'free', 'pro', 'growth'). */
   tier: string;
   /** Monthly quota ceiling in integer cents, or null for uncapped tiers. */
   quotaCents: number | null;

@@ -56,7 +56,7 @@ export type AdminActionResult =
  */
 const OverrideTierSchema = z.object({
   targetUserId: z.string().uuid({ message: 'Invalid user ID' }),
-  newTier: z.enum(['free', 'pro', 'power', 'team', 'business', 'enterprise'], {
+  newTier: z.enum(['free', 'pro', 'growth', 'team', 'business', 'enterprise'], {
     errorMap: () => ({ message: 'newTier must be a valid tier' }),
   }),
   expiresAt: z.string().datetime({ offset: true }).nullable().optional(),

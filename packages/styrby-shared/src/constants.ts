@@ -188,14 +188,9 @@ export const TIER_LIMITS = {
   // a literal `as const` object — TypeScript autocomplete and the `keyof`
   // inference both depend on the keys being statically present. A getter
   // would erase the literal types and break the cross-package contract.
-  power: {
-    maxAgents: 11,
-    maxSessionsPerDay: Infinity,
-    costDashboard: 'full',
-    budgetAlerts: true,
-    apiAccess: true,
-    teamFeatures: false,
-  },
+  // NOTE: 'power' was removed here when the tier was retired (migration 095).
+  // A stray 'power' read normalizes to 'growth' via normalizeTier before any
+  // TIER_LIMITS lookup, so no entry is needed.
   team: {
     maxAgents: 11,
     maxSessionsPerDay: Infinity,

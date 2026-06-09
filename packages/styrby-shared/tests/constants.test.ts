@@ -173,7 +173,8 @@ describe('HEARTBEAT_CONFIG', () => {
 
 describe('TIER_LIMITS — Phase 5 reconciliation (free + pro + growth)', () => {
   const CANONICAL_TIERS = ['free', 'pro', 'growth'] as const;
-  const LEGACY_TIERS = ['power', 'team', 'business', 'enterprise'] as const;
+  // 'power' removed — retired in migration 095 (no TIER_LIMITS entry anymore).
+  const LEGACY_TIERS = ['team', 'business', 'enterprise'] as const;
   const ALL_TIERS = [...CANONICAL_TIERS, ...LEGACY_TIERS] as const;
 
   it('contains all canonical post-rename tiers (free, pro, growth)', () => {
@@ -263,10 +264,9 @@ describe('TIER_LIMITS — Phase 5 reconciliation (free + pro + growth)', () => {
   });
 
   describe('Legacy aliases — Decision #7', () => {
-    it('legacy "power" alias inherits canonical caps (Infinity sessions)', () => {
-      expect(TIER_LIMITS.power.maxSessionsPerDay).toBe(Infinity);
-      expect(TIER_LIMITS.power.maxAgents).toBe(11);
-    });
+    // The 'power' TIER_LIMITS alias was removed when the tier was retired
+    // (migration 095). A stray raw 'power' normalizes to 'growth' before any
+    // lookup, so no defensive entry is needed.
 
     it('legacy "team" alias inherits team-feature caps', () => {
       expect((TIER_LIMITS.team as { teamFeatures?: boolean }).teamFeatures).toBe(true);

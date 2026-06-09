@@ -30,10 +30,10 @@
  * users should see a locked state or an upgrade prompt.
  *
  * Example (in the dashboard or tasks screen):
- *   {userTier === 'power' ? (
+ *   {userTier === 'growth' ? (
  *     <CloudTasks userId={userId} />
  *   ) : (
- *     <UpgradePrompt feature="Cloud monitoring" requiredTier="power" />
+ *     <UpgradePrompt feature="Cloud monitoring" requiredTier="growth" />
  *   )}
  *
  * Code review from mobile is dispatched via cloud tasks with task_type='code_review'.

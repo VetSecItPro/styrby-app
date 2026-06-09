@@ -168,7 +168,7 @@ describe('resend email client', () => {
 
       await sendSubscriptionCanceledEmail({
         email: 'user@example.com',
-        tier: 'power',
+        tier: 'growth',
         accessUntil: '2026-03-15',
       });
 

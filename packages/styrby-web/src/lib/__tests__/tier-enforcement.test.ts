@@ -697,12 +697,10 @@ describe('TIER_LIMITS constants — shape validation', () => {
   });
 
   describe('legacy aliases preserved as defensive entries', () => {
-    it('legacy "power" entry exists with growth-equivalent caps for back-compat', () => {
-      // Decision #7: legacy enum values stay defined so historical DB rows
-      // never crash the `TIER_LIMITS[tier]` lookup.
-      expect(TIER_LIMITS.power.maxAgents).toBe(11);
-      expect(TIER_LIMITS.power.maxSessionsPerDay).toBe(Infinity);
-    });
+    // NOTE: the 'power' TIER_LIMITS entry was removed when the tier was retired
+    // (migration 095). A stray raw 'power' read normalizes to 'growth' (via
+    // normalizeEffectiveTier / normalizeTier) before any TIER_LIMITS lookup, so
+    // no defensive 'power' entry is needed.
 
     it('legacy "team" / "business" / "enterprise" entries exist with team caps', () => {
       expect(TIER_LIMITS.team.maxAgents).toBe(11);

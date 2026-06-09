@@ -317,7 +317,7 @@ describe('overrideTierAction', () => {
         VALID_UUID,
         makeFormData({
           targetUserId: VALID_UUID,
-          newTier: 'power',
+          newTier: 'growth',
           expiresAt: '2027-01-01T00:00:00.000Z',
           reason: 'sales deal',
         })
@@ -326,7 +326,7 @@ describe('overrideTierAction', () => {
 
     expect(mockRpc).toHaveBeenCalledWith('admin_override_tier', {
       p_target_user_id: VALID_UUID,
-      p_new_tier: 'power',
+      p_new_tier: 'growth',
       p_expires_at: '2027-01-01T00:00:00.000Z',
       p_reason: 'sales deal',
       // WHY check first IP only: extractIP() takes the first entry in x-forwarded-for.
@@ -413,7 +413,7 @@ describe('overrideTierAction', () => {
     await expect(
       overrideTierAction(
         VALID_UUID,
-        makeFormData({ targetUserId: VALID_UUID, newTier: 'power', reason: 'P0 guard test' })
+        makeFormData({ targetUserId: VALID_UUID, newTier: 'growth', reason: 'P0 guard test' })
       )
     ).rejects.toThrow(/NEXT_REDIRECT/);
 

@@ -47,12 +47,13 @@ export interface SessionCost {
 
 /**
  * User subscription tier. Canonical model: `docs/planning/styrby-tiers-canonical.md`.
- * Active (sold): 'free' | 'pro' | 'growth'. Legacy: 'power' (1 grandfathered
- * customer). 'team' is a never-shipped placeholder retained for the DB enum.
+ * Active (sold): 'free' | 'pro' | 'growth'. 'team' is a never-shipped placeholder
+ * retained for the DB enum. 'power' was RETIRED (migration 095) and is absent
+ * here — `normalizeTier` is the only bridge that maps a stray 'power' to 'growth'.
  * Prefer the {@link TierId} union + {@link isPremiumTier} helper from
  * `billing/tier-logic` for gating decisions.
  */
-export type SubscriptionTier = 'free' | 'pro' | 'power' | 'growth' | 'team';
+export type SubscriptionTier = 'free' | 'pro' | 'growth' | 'team';
 
 // ============================================================================
 // Phase 7.14 — Contribution/Activity Graph

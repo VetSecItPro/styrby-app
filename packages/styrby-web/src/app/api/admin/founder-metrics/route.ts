@@ -137,21 +137,18 @@ export interface FounderMetrics {
 // ============================================================================
 
 /**
- * Static fallback MRR-per-row for LEGACY tiers only (Phase 5 collapsed
- * Pro+Power+Team+Business+Enterprise into Pro+Growth). The DB
- * `subscription_tier` enum still permits the legacy values for historical
- * subscriptions that haven't been migrated; we keep them here as
+ * Static fallback MRR-per-row for never-shipped legacy enum values. The DB
+ * `subscription_tier` enum still permits these for historical rows; we keep
  * best-effort estimates so historical MRR is not silently zero.
  *
- * Pro and Growth are NOT in this table — they're computed from the
- * canonical pricing helpers below to guarantee MRR matches what Polar
- * actually charges.
+ * 'power' was REMOVED here when it was retired (migration 095) — it has zero
+ * rows and is no longer a tier. Pro and Growth are NOT in this table — they're
+ * computed from the canonical pricing helpers below to match what Polar charges.
  */
 const LEGACY_TIER_MRR_USD: Record<string, number> = {
   free: 0,
-  power: 49, // legacy $49/mo individual plan
-  team: 19, // legacy per-seat (one row per seat = $19/row contribution)
-  business: 39, // legacy per-seat
+  team: 19, // never-shipped per-seat (one row per seat = $19/row contribution)
+  business: 39, // never-shipped per-seat
   enterprise: 0, // custom pricing — never in self-serve MRR
 };
 
@@ -262,7 +259,14 @@ export async function GET(request: NextRequest) {
       adminDb
         .from('subscriptions')
         .select('tier, status, created_at, user_id, seats, is_annual')
-        .eq('status', 'active'),
+        .eq('status', 'active')
+        // WHY exclude `%no_mrr%`: internal comp accounts (e.g. the founder's
+        // admin grant, polar_subscription_id 'internal_admin_no_mrr') carry a
+        // real tier for entitlement but contribute ZERO revenue. Counting them
+        // inflates MRR/ARR and the tier mix with phantom customers. The
+        // '_no_mrr' suffix is the explicit "not real revenue" marker — filter
+        // on it so any future comp account is excluded automatically.
+        .not('polar_subscription_id', 'ilike', '%no_mrr%'),
 
       // Canceled subscriptions — for churn rate (last 90 days)
       adminDb

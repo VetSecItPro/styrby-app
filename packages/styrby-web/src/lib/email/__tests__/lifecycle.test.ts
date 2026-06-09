@@ -163,15 +163,15 @@ describe('lifecycle emails', () => {
       await sendSubscriptionUpgradedEmail({
         email: 'alice@example.com',
         oldTier: 'pro',
-        newTier: 'power',
+        newTier: 'growth',
         billingInterval: 'annual',
       });
       const args = lastCall();
-      expect(args.subject).toBe('Your Styrby plan was upgraded to Power');
+      expect(args.subject).toBe('Your Styrby plan was upgraded to Growth');
       expect(args.html).toContain('Pro');
-      expect(args.html).toContain('Power');
+      expect(args.html).toContain('Growth');
       expect(args.html).toContain('annual');
-      expect(args.text).toContain('moved from Pro to Power');
+      expect(args.text).toContain('moved from Pro to Growth');
     });
   });
 
@@ -180,13 +180,13 @@ describe('lifecycle emails', () => {
       const { sendSubscriptionDowngradedEmail } = await load();
       await sendSubscriptionDowngradedEmail({
         email: 'alice@example.com',
-        oldTier: 'power',
+        oldTier: 'growth',
         newTier: 'pro',
         billingInterval: 'monthly',
       });
       const args = lastCall();
       expect(args.subject).toBe('Your Styrby plan was changed to Pro');
-      expect(args.html).toContain('Power');
+      expect(args.html).toContain('Growth');
       expect(args.html).toContain('Pro');
       expect(args.text).toContain('Some features may no longer be available');
     });
@@ -216,13 +216,13 @@ describe('lifecycle emails', () => {
       const { sendRevokedEmail } = await load();
       await sendRevokedEmail({
         email: 'alice@example.com',
-        tier: 'power',
+        tier: 'growth',
       });
       const args = lastCall();
       expect(args.subject).toBe('Your Styrby subscription has ended');
-      expect(args.html).toContain('Power');
+      expect(args.html).toContain('Growth');
       expect(args.html).toContain('free tier');
-      expect(args.text).toContain('Power');
+      expect(args.text).toContain('Growth');
       expect(args.text).toContain('free tier');
     });
   });

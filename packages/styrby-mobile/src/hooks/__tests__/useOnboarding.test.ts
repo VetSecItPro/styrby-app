@@ -157,13 +157,13 @@ describe('useOnboarding', () => {
 
   it('shows 5 steps for power tier', async () => {
     setupDefaults({
-      subscriptions: { data: { tier: 'power' }, error: null },
+      subscriptions: { data: { tier: 'growth' }, error: null },
     });
 
     const { result } = renderHook(() => useOnboarding());
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect(result.current.tier).toBe('power');
+    expect(result.current.tier).toBe('growth');
     expect(result.current.totalCount).toBe(5);
   });
 

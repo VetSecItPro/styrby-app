@@ -226,8 +226,6 @@ describe('POST /api/webhooks/polar', () => {
     vi.stubEnv('POLAR_WEBHOOK_SECRET', WEBHOOK_SECRET);
     vi.stubEnv('POLAR_PRO_MONTHLY_PRODUCT_ID', 'prod_pro_monthly');
     vi.stubEnv('POLAR_PRO_ANNUAL_PRODUCT_ID', 'prod_pro_annual');
-    vi.stubEnv('POLAR_POWER_MONTHLY_PRODUCT_ID', 'prod_power_monthly');
-    vi.stubEnv('POLAR_POWER_ANNUAL_PRODUCT_ID', 'prod_power_annual');
     // Growth tier + seat addon products (Bugs #4 + #7 / Phase H2 cascade tests).
     // WHY all four: getPlanFromProductId resolves both monthly and annual
     // variants; isTeamSeatProduct pattern-matches the seat-addon env vars.
@@ -566,7 +564,7 @@ describe('POST /api/webhooks/polar', () => {
       });
 
       const event = createSubscriptionEvent('subscription.updated', {
-        product_id: 'prod_power_monthly',
+        product_id: 'prod_growth_monthly',
       });
       const response = await sendSignedEvent(event);
 
@@ -617,22 +615,22 @@ describe('POST /api/webhooks/polar', () => {
       expect(mockUpsert).not.toHaveBeenCalled();
     });
 
-    it('prevents downgrade from power to pro (FIX-007)', async () => {
+    it('prevents downgrade from growth to pro (FIX-007)', async () => {
       // WHY: Promise.all fires profile + customer lookups concurrently (2 mocks),
       // then tier check runs (1 mock). We return combined data objects so the
       // result works regardless of which query consumes which mock.
       // Mock 1 & 2: both return data valid for either profile or customer lookup
       mockSingle.mockResolvedValueOnce({
-        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'power', status: 'active' },
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'growth', status: 'active' },
         error: null,
       });
       mockSingle.mockResolvedValueOnce({
-        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'power', status: 'active' },
+        data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'growth', status: 'active' },
         error: null,
       });
       // Mock 3: existing subscription tier check
       mockSingle.mockResolvedValueOnce({
-        data: { tier: 'power', status: 'active' },
+        data: { tier: 'growth', status: 'active' },
         error: null,
       });
 
@@ -646,7 +644,7 @@ describe('POST /api/webhooks/polar', () => {
       expect(mockUpsert).not.toHaveBeenCalled();
     });
 
-    it('allows upgrade from pro to power', async () => {
+    it('allows upgrade from pro to growth', async () => {
       // Mock 1 & 2: parallel profile + customer lookups (order non-deterministic)
       mockSingle.mockResolvedValueOnce({
         data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'pro', status: 'active' },
@@ -663,7 +661,7 @@ describe('POST /api/webhooks/polar', () => {
       });
 
       const event = createSubscriptionEvent('subscription.updated', {
-        product_id: 'prod_power_monthly',
+        product_id: 'prod_growth_monthly',
       });
       const response = await sendSignedEvent(event);
 
@@ -711,7 +709,7 @@ describe('POST /api/webhooks/polar', () => {
 
     it('allows free→growth upgrade event (rank up, Bug #9)', async () => {
       // WHY: free=0, growth=2 → 2 < 0 is false, guard passes, upsert runs.
-      // Stand-in: 'prod_power_monthly' resolves to tier='power' which shares
+      // Stand-in: 'prod_growth_monthly' resolves to tier='growth' which shares
       // rank 2 with growth (defensive aliasing per the new tierRank table).
       mockSingle.mockResolvedValueOnce({
         data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'free', status: 'active' },
@@ -727,7 +725,7 @@ describe('POST /api/webhooks/polar', () => {
       });
 
       const event = createSubscriptionEvent('subscription.updated', {
-        product_id: 'prod_power_monthly',
+        product_id: 'prod_growth_monthly',
       });
       const response = await sendSignedEvent(event);
 
@@ -735,8 +733,8 @@ describe('POST /api/webhooks/polar', () => {
       expect(mockUpsert).toHaveBeenCalled();
     });
 
-    it('allows renewal at same growth/power rank (Bug #9)', async () => {
-      // WHY: existing tier=growth, incoming tier=power, both rank 2, strict `<`
+    it('allows renewal at same growth rank (Bug #9)', async () => {
+      // WHY: existing tier=growth, incoming tier=growth, both rank 2, strict `<`
       // false → upsert proceeds. This is the renewal / Polar-late-event case
       // that must NOT be rejected (rejection would block legitimate renewals).
       mockSingle.mockResolvedValueOnce({
@@ -753,7 +751,7 @@ describe('POST /api/webhooks/polar', () => {
       });
 
       const event = createSubscriptionEvent('subscription.updated', {
-        product_id: 'prod_power_monthly',
+        product_id: 'prod_growth_monthly',
       });
       const response = await sendSignedEvent(event);
 
@@ -762,7 +760,7 @@ describe('POST /api/webhooks/polar', () => {
     });
 
     it('allows pro→growth-rank upgrade (Bug #9)', async () => {
-      // WHY: pro=1, power(=growth-rank)=2 → 2 < 1 false → upsert proceeds.
+      // WHY: pro=1, growth=2 → 2 < 1 false → upsert proceeds.
       mockSingle.mockResolvedValueOnce({
         data: { id: 'user-uuid-123', user_id: 'user-uuid-123', tier: 'pro', status: 'active' },
         error: null,
@@ -777,7 +775,7 @@ describe('POST /api/webhooks/polar', () => {
       });
 
       const event = createSubscriptionEvent('subscription.updated', {
-        product_id: 'prod_power_monthly',
+        product_id: 'prod_growth_monthly',
       });
       const response = await sendSignedEvent(event);
 
@@ -1697,7 +1695,7 @@ describe('POST /api/webhooks/polar', () => {
 
       const consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
 
-      const response = await sendSignedSubscriptionUpdated('prod_power_monthly');
+      const response = await sendSignedSubscriptionUpdated('prod_growth_monthly');
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -2576,7 +2574,7 @@ describe('POST /api/webhooks/polar', () => {
         data: {
           id: 'sub_legit_xyz',
           customer_id: 'cust_test_456',
-          product_id: 'prod_power_monthly',
+          product_id: 'prod_growth_monthly',
           user_id: 'user-uuid-123',
           status: 'active',
           metadata: { userId: 'user-uuid-123' },

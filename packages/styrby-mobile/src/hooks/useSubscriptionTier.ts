@@ -18,11 +18,11 @@ import { supabase } from '../lib/supabase';
 /**
  * Subscription tier values as stored in the `subscriptions.tier` column.
  * Canonical model: docs/planning/styrby-tiers-canonical.md. Active tiers are
- * 'free' | 'pro' | 'growth'; 'power' is the legacy premium tier (grandfathered).
+ * 'free' | 'pro' | 'growth';
  * WHY the `| string` tail: Supabase returns raw strings and we want graceful
  * handling of unknown / never-shipped enum values ('team', etc.) without throwing.
  */
-export type SubscriptionTier = 'free' | 'pro' | 'power' | 'growth' | string;
+export type SubscriptionTier = 'free' | 'pro' | 'growth' | string;
 
 /**
  * Hook: fetches the user's current subscription tier.
@@ -96,7 +96,7 @@ export function useSubscriptionTier(userId: string | null): {
 
   // Paid = any non-free tier. Includes 'growth' (the current premium tier) —
   // omitting it previously made Growth customers read as unpaid.
-  const isPaid = tier === 'pro' || tier === 'power' || tier === 'growth';
+  const isPaid = tier === 'pro' || tier === 'growth';
 
   return { tier, isLoading, error, isPaid };
 }

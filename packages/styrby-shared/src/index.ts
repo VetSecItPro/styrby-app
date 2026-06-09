@@ -64,10 +64,10 @@ export * from './cost/index.js';
 // `ApprovalStatus` (richer engine-flavored variants); the DB variants are
 // prefixed `Db*` at the source to keep both accessible without collision.
 export * from './teams/index.js';
-// Tier-check utilities covering all six billing tiers including the team family.
-// Both web and mobile consume these so a gating decision can never disagree
-// across surfaces (SOC2 CC6.1).
-export * from './tiers/index.js';
+// NOTE: the './tiers/index.js' barrel (FullTierId / normalizeTierFull / etc.)
+// was deleted when the 'power' tier was retired (migration 095) — it was a
+// dead, power-based parallel tier model with zero consumers. Gating uses
+// billing/tier-logic (TierId + isPremiumTier) instead.
 // Phase 2.1 — team governance runtime helpers (role matrix, approval chain
 // evaluator) + the engine-flavored TeamPolicy/ApprovalStatus used by the
 // policy engine in CLI, web admin, and mobile push-approval.

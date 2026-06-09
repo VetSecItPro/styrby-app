@@ -31,10 +31,10 @@
  * — it must be explicitly blocked based on tier.
  *
  * Example (in the chat screen):
- *   {userTier === 'power' ? (
+ *   {userTier === 'growth' ? (
  *     <VoiceInput config={voiceConfig} onTranscript={handleTranscript} />
  *   ) : (
- *     <UpgradePrompt feature="Voice commands" requiredTier="power" />
+ *     <UpgradePrompt feature="Voice commands" requiredTier="growth" />
  *   )}
  *
  * @module components/VoiceInput

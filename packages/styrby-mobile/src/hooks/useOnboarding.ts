@@ -9,7 +9,7 @@
  * Tier-based step progression:
  * - Free: "Pair your first device" (machines table)
  * - Pro: + "Set a budget alert" (budget_alerts) + "Configure notifications" (notification_preferences or device_tokens)
- * - Power: + "Create a team" (teams via team_members) + "Generate an API key" (api_keys)
+ * - Growth: + "Create a team" (teams via team_members) + "Generate an API key" (api_keys)
  *
  * Uses the same patterns as useSessions and useBudgetAlerts for Supabase queries,
  * loading states, and error handling.
@@ -106,30 +106,29 @@ const ALL_STEPS: Omit<ChecklistStep, 'completed'>[] = [
     label: 'Create a team',
     route: '/(tabs)/team',
     icon: 'people',
-    requiredTier: 'power',
+    requiredTier: 'growth',
   },
   {
     id: 'generate_api_key',
     label: 'Generate an API key',
     route: '/(tabs)/settings',
     icon: 'key',
-    requiredTier: 'power',
+    requiredTier: 'growth',
   },
 ];
 
 /**
  * Maps each tier to the set of tiers whose steps should be visible.
  *
- * WHY: A power user should see free and pro steps too. This mapping
+ * WHY: A growth user should see free and pro steps too. This mapping
  * avoids complex conditional logic in the step-filtering code.
  */
 const TIER_INCLUDES: Record<SubscriptionTier, SubscriptionTier[]> = {
   free: ['free'],
   pro: ['free', 'pro'],
-  // growth is the current premium tier — sees all paid steps (incl. legacy power).
-  growth: ['free', 'pro', 'power', 'growth'],
-  power: ['free', 'pro', 'power'],
-  team: ['free', 'pro', 'power', 'team'],
+  // growth is the premium tier — sees all paid steps.
+  growth: ['free', 'pro', 'growth'],
+  team: ['free', 'pro', 'growth', 'team'],
 };
 
 // ============================================================================

@@ -83,7 +83,7 @@ function getRelativeTime(dateStr: string): string {
 /**
  * Renders a tier badge with appropriate color coding.
  *
- * @param tier - The subscription tier string (e.g. 'free', 'power', 'team')
+ * @param tier - The subscription tier string (e.g. 'free', 'pro', 'growth')
  * @param overrideSource - If 'manual', appends a "manual" badge for ops awareness
  */
 function TierBadge({

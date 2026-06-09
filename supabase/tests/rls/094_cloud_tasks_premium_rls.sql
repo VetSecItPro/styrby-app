@@ -89,25 +89,33 @@ $$;
 ROLLBACK; BEGIN;
 
 -- ---------------------------------------------------------------------------
--- Test 2: active power (legacy premium) subscriber CAN insert
+-- Test 2: 'power' is RETIRED — an (impossible) active power subscriber is blocked
+-- ---------------------------------------------------------------------------
+-- Migration 095 retired the 'power' tier (zero customers; the lone comp account
+-- was migrated to growth). Premium is now 'growth' only. The enum value still
+-- exists (Postgres can't drop it), so we assert that even a synthetic power row
+-- is denied — proving no path treats 'power' as premium any more.
 -- ---------------------------------------------------------------------------
 DO $$
-DECLARE v_u UUID := gen_random_uuid(); v_count INT;
+DECLARE v_u UUID := gen_random_uuid(); v_denied BOOLEAN := FALSE;
 BEGIN
   PERFORM _rls_test_reset_role();
   PERFORM _seed_user(v_u, 'power94@test.local', 'power', 'active');
 
   PERFORM _rls_test_impersonate(v_u);
-  INSERT INTO cloud_tasks (user_id, agent_type, prompt)
-    VALUES (v_u, 'codex', 'run the test suite');
+  BEGIN
+    INSERT INTO cloud_tasks (user_id, agent_type, prompt)
+      VALUES (v_u, 'codex', 'retired power tier should be blocked');
+  EXCEPTION WHEN insufficient_privilege OR check_violation OR others THEN
+    v_denied := TRUE;
+  END;
 
-  SELECT count(*) INTO v_count FROM cloud_tasks WHERE user_id = v_u;
-  IF v_count <> 1 THEN
-    RAISE EXCEPTION 'TEST 2 FAILED: active power user could not insert (count=%)', v_count;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'TEST 2 FAILED: retired power tier was treated as premium';
   END IF;
 
   PERFORM _rls_test_reset_role();
-  RAISE NOTICE 'TEST 2 PASS: active power (legacy premium) subscriber can insert';
+  RAISE NOTICE 'TEST 2 PASS: retired power tier is blocked (premium = growth only)';
 END;
 $$;
 

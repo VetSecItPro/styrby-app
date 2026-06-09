@@ -56,7 +56,7 @@ export interface PowerTierGateProps {
  * @returns React element
  */
 export function PowerTierGate({ feature, description, icon = 'key' }: PowerTierGateProps) {
-  const upgradeButtonLabel = getUpgradeButtonLabel('power');
+  const upgradeButtonLabel = getUpgradeButtonLabel('growth');
   const iosManageNote = getIosManageNote();
 
   return (
@@ -68,7 +68,7 @@ export function PowerTierGate({ feature, description, icon = 'key' }: PowerTierG
         Power Plan Required
       </Text>
       <Text className="text-zinc-400 text-center mb-6">
-        {getUpgradeMessage(feature, 'power')}
+        {getUpgradeMessage(feature, 'growth')}
         {'\n\n'}{description}
       </Text>
 

@@ -76,7 +76,7 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://styrbyapp.com';
  * Tier identifiers used across Styrby subscriptions.
  * Mirrors the values stored in `subscriptions.tier` (see migration 001).
  */
-export type SubscriptionTier = 'free' | 'pro' | 'power' | 'team' | 'business' | 'enterprise';
+export type SubscriptionTier = 'free' | 'pro' | 'growth' | 'team' | 'business' | 'enterprise';
 
 /** Billing cadence for a paid subscription. */
 export type BillingInterval = 'monthly' | 'annual';
@@ -382,7 +382,7 @@ export async function sendSubscriptionConfirmationEmail(params: {
  * await sendSubscriptionUpgradedEmail({
  *   email: 'alice@example.com',
  *   oldTier: 'pro',
- *   newTier: 'power',
+ *   newTier: 'growth',
  *   billingInterval: 'annual',
  * });
  */
@@ -427,7 +427,7 @@ export async function sendSubscriptionUpgradedEmail(params: {
  * @example
  * await sendSubscriptionDowngradedEmail({
  *   email: 'alice@example.com',
- *   oldTier: 'power',
+ *   oldTier: 'growth',
  *   newTier: 'pro',
  *   billingInterval: 'monthly',
  * });

@@ -286,7 +286,7 @@ const POWER_FEATURES = [
  * @returns Upgrade card with feature list and platform-appropriate action
  */
 function UpgradePrompt({ tier }: { tier: SubscriptionTier }) {
-  const upgradeButtonLabel = getUpgradeButtonLabel('power');
+  const upgradeButtonLabel = getUpgradeButtonLabel('growth');
   const iosManageNote = getIosManageNote();
   const showUpgrade = canShowUpgradePrompt();
 
@@ -308,7 +308,7 @@ function UpgradePrompt({ tier }: { tier: SubscriptionTier }) {
           Power Plan Required
         </Text>
         <Text className="text-zinc-400 text-center text-base mb-6">
-          {getUpgradeMessage('Team collaboration', 'power')}
+          {getUpgradeMessage('Team collaboration', 'growth')}
         </Text>
 
         {/* Feature List */}
