@@ -217,6 +217,8 @@ export interface UseBudgetAlertsReturn {
 const TIER_ALERT_LIMITS: Record<SubscriptionTier, number> = {
   free: 0,
   pro: 3,
+  growth: 5,
+  // Legacy premium aliases — same limit as growth.
   power: 5,
   team: 5,
 };

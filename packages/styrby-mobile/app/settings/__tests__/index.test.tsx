@@ -48,6 +48,14 @@ function hasText(
 // Global Mocks
 // ============================================================================
 
+// -- styrby-shared: provide the tier entitlement helper the hub imports.
+// (Every mobile test mocks styrby-shared; the real ESM barrel can't load under
+// jest's CJS resolver.) growth + power are premium.
+jest.mock('styrby-shared', () => ({
+  isPremiumTier: (tier: string | null | undefined) =>
+    tier === 'growth' || tier === 'power',
+}));
+
 // -- expo-router --
 const mockRouterPush = jest.fn();
 jest.mock('expo-router', () => ({

@@ -126,6 +126,8 @@ const ALL_STEPS: Omit<ChecklistStep, 'completed'>[] = [
 const TIER_INCLUDES: Record<SubscriptionTier, SubscriptionTier[]> = {
   free: ['free'],
   pro: ['free', 'pro'],
+  // growth is the current premium tier — sees all paid steps (incl. legacy power).
+  growth: ['free', 'pro', 'power', 'growth'],
   power: ['free', 'pro', 'power'],
   team: ['free', 'pro', 'power', 'team'],
 };

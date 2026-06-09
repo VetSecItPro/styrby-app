@@ -16,11 +16,13 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
 /**
- * Subscription tier values as stored in `subscriptions.plan`.
- * WHY string alias rather than enum: Supabase returns raw strings and we
- * want graceful handling of unknown / future tiers without throwing.
+ * Subscription tier values as stored in the `subscriptions.tier` column.
+ * Canonical model: docs/planning/styrby-tiers-canonical.md. Active tiers are
+ * 'free' | 'pro' | 'growth'; 'power' is the legacy premium tier (grandfathered).
+ * WHY the `| string` tail: Supabase returns raw strings and we want graceful
+ * handling of unknown / never-shipped enum values ('team', etc.) without throwing.
  */
-export type SubscriptionTier = 'free' | 'pro' | 'power' | string;
+export type SubscriptionTier = 'free' | 'pro' | 'power' | 'growth' | string;
 
 /**
  * Hook: fetches the user's current subscription tier.
@@ -29,7 +31,7 @@ export type SubscriptionTier = 'free' | 'pro' | 'power' | string;
  * existing settings-screen behavior.
  *
  * @param userId - Authenticated Supabase user id (pass null while unknown)
- * @returns `{ tier, isLoading, error, isPaid }` — `isPaid` is true for pro+power
+ * @returns `{ tier, isLoading, error, isPaid }` — `isPaid` is true for pro/power/growth
  *
  * @example
  * const { user } = useCurrentUser();
@@ -56,9 +58,15 @@ export function useSubscriptionTier(userId: string | null): {
     setIsLoading(true);
     (async () => {
       try {
+        // WHY 'tier' (not 'plan'): the column is `subscriptions.tier`
+        // (subscription_tier enum). There is NO `plan` column — selecting it
+        // returned a PostgREST 42703 error that the catch below swallowed to
+        // 'free', so EVERY mobile user (including paying Pro/Growth customers)
+        // was treated as free and locked out of paid features. See
+        // docs/planning/styrby-tiers-canonical.md.
         const { data, error: subError } = await supabase
           .from('subscriptions')
-          .select('plan')
+          .select('tier')
           .eq('user_id', userId)
           .maybeSingle();
 
@@ -70,7 +78,7 @@ export function useSubscriptionTier(userId: string | null): {
           setError(subError instanceof Error ? subError : new Error(String(subError)));
           setTier('free');
         } else {
-          setTier((data?.plan as SubscriptionTier | undefined) ?? 'free');
+          setTier((data?.tier as SubscriptionTier | undefined) ?? 'free');
         }
       } catch (err) {
         if (!isMounted) return;
@@ -86,7 +94,9 @@ export function useSubscriptionTier(userId: string | null): {
     };
   }, [userId]);
 
-  const isPaid = tier === 'pro' || tier === 'power';
+  // Paid = any non-free tier. Includes 'growth' (the current premium tier) —
+  // omitting it previously made Growth customers read as unpaid.
+  const isPaid = tier === 'pro' || tier === 'power' || tier === 'growth';
 
   return { tier, isLoading, error, isPaid };
 }

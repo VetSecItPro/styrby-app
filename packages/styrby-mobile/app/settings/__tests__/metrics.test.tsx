@@ -53,6 +53,14 @@ function hasText(
 // Global Mocks
 // ============================================================================
 
+// -- styrby-shared: provide the tier entitlement helper the screen imports.
+// (Every mobile test mocks styrby-shared; the real ESM barrel can't load under
+// jest's CJS resolver.) growth + power are premium.
+jest.mock('styrby-shared', () => ({
+  isPremiumTier: (tier: string | null | undefined) =>
+    tier === 'growth' || tier === 'power',
+}));
+
 // -- @expo/vector-icons --
 jest.mock('@expo/vector-icons', () => ({
   Ionicons: 'Ionicons',

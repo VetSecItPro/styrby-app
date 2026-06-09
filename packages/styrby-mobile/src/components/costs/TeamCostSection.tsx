@@ -12,6 +12,7 @@ import { View, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { MemberCostRow } from '../../hooks/useTeamCosts';
 import type { TeamCostSectionProps } from '../../types/costs';
+import { isPremiumTier } from 'styrby-shared';
 
 /**
  * Three skeleton rows shown while team cost data is loading.
@@ -117,7 +118,9 @@ export function TeamCostSection({
 }: TeamCostSectionProps) {
   if (isLoading) return <LoadingSkeleton />;
 
-  if (userTier !== 'power') {
+  // Team Costs is a premium (growth/power) feature. The bare `!== 'power'`
+  // check wrongly gated out paying Growth customers.
+  if (!isPremiumTier(userTier)) {
     return (
       <GateMessage
         iconBgClass="bg-orange-500/15"

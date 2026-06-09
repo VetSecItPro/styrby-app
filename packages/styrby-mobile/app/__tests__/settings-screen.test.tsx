@@ -201,6 +201,9 @@ jest.mock('styrby-shared', () => ({
   formatTime: jest.fn((t: string | null, fallback: string) => fallback ?? t),
   getThresholdDescription: jest.fn(() => 'Medium priority'),
   getEstimatedNotificationPercentage: jest.fn(() => 50),
+  // Tier entitlement helper used by the Metrics Export row gate.
+  isPremiumTier: (tier: string | null | undefined) =>
+    tier === 'growth' || tier === 'power',
 }));
 
 // ============================================================================

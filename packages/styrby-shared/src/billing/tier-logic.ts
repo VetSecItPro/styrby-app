@@ -19,12 +19,38 @@
 import { TIER_LIMITS } from '../constants.js';
 
 /**
- * The four tier identifiers that exist anywhere in the system.
+ * The subscription tier identifiers. See the canonical tier model in
+ * `docs/planning/styrby-tiers-canonical.md` (verified live 2026-06-08).
  *
- * `'team'` is reserved for the Teams plan that is not yet GA; helpers below
- * recognise it but mobile/web should not surface it until billing ships it.
+ * ACTIVE (sold today): `'free'`, `'pro'`, `'growth'`.
+ * LEGACY: `'power'` — the pre-cutover premium tier, replaced by `'growth'`;
+ *   one grandfathered customer remains in production, so it must keep working,
+ *   but never offer it to new users.
+ * `'team'` is a never-shipped placeholder retained only because `TIER_LIMITS`
+ *   and the DB enum still carry it; do not surface it.
  */
-export type TierId = 'free' | 'pro' | 'power' | 'team';
+export type TierId = 'free' | 'pro' | 'power' | 'growth' | 'team';
+
+/**
+ * Returns true when the tier grants PREMIUM (top-tier) features — Cloud Tasks,
+ * Notifications smart-filter, Metrics OTEL export, etc.
+ *
+ * Premium = `'growth'` (current premium tier) OR `'power'` (legacy premium,
+ * grandfathered). `'pro'` is a paid INDIVIDUAL tier and is NOT premium;
+ * `'free'` is not premium. This is the single entitlement gate every premium
+ * feature should call — never compare against a bare tier string.
+ *
+ * @param tier - The user's resolved subscription tier.
+ * @returns `true` when the tier is `'growth'` or `'power'`.
+ *
+ * @example
+ * ```ts
+ * if (!isPremiumTier(tier)) return <UpgradePrompt feature="Cloud Tasks" />;
+ * ```
+ */
+export function isPremiumTier(tier: TierId | string | null | undefined): boolean {
+  return tier === 'growth' || tier === 'power';
+}
 
 /**
  * The set of features that are gated by tier. Each entry maps to a property
@@ -113,9 +139,12 @@ export function normalizeTier(raw: string | null | undefined): TierId {
   switch (raw) {
     case 'pro':
     case 'power':
+    case 'growth':
     case 'team':
       return raw;
     default:
+      // WHY fail-closed to 'free': unknown / legacy-unused values
+      // ('business', 'enterprise') and typos must never grant a paid tier.
       return 'free';
   }
 }

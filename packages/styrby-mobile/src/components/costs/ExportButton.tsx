@@ -9,6 +9,7 @@
 import { Pressable, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { ExportButtonProps } from '../../types/costs';
+import { isPremiumTier } from 'styrby-shared';
 
 /**
  * Renders the export button. The orchestrator owns the format-picker logic
@@ -18,19 +19,20 @@ import type { ExportButtonProps } from '../../types/costs';
  * @returns Rendered pressable button
  */
 export function ExportButton({ tier, isExporting, onPress }: ExportButtonProps) {
-  const isPower = tier === 'power';
+  // Cost export is a premium (growth/power) feature — not just legacy 'power'.
+  const isPremium = isPremiumTier(tier);
   return (
     <Pressable
-      onPress={isPower ? onPress : undefined}
-      disabled={isExporting || !isPower}
+      onPress={isPremium ? onPress : undefined}
+      disabled={isExporting || !isPremium}
       className={`flex-row items-center px-3 py-1.5 rounded-lg border gap-1.5 active:opacity-80 ${
-        isPower
+        isPremium
           ? 'border-zinc-700 bg-zinc-800'
           : 'border-zinc-800/50 opacity-40'
       }`}
       accessibilityRole="button"
       accessibilityLabel={
-        !isPower
+        !isPremium
           ? 'Export costs, requires Power plan'
           : isExporting
             ? 'Exporting...'
@@ -45,7 +47,7 @@ export function ExportButton({ tier, isExporting, onPress }: ExportButtonProps) 
       <Text className="text-zinc-400 text-xs font-medium">
         {isExporting ? 'Exporting…' : 'Export'}
       </Text>
-      {!isPower && <Ionicons name="lock-closed" size={10} color="#52525b" />}
+      {!isPremium && <Ionicons name="lock-closed" size={10} color="#52525b" />}
     </Pressable>
   );
 }

@@ -31,12 +31,17 @@ import { useSubscriptionTier } from '../useSubscriptionTier';
 // Helpers
 // ============================================================================
 
-function mockSupabaseTier(plan: string | null, error: unknown = null) {
+// WHY the row shape is `{ tier }` (not `{ plan }`): the production column is
+// `subscriptions.tier`. The earlier mock returned `{ plan }`, mirroring the
+// hook's buggy `.select('plan')` — so the test agreed with the bug and passed
+// while every real user was silently coerced to 'free'. This mock now reflects
+// the real column, and the dedicated test below asserts `.select('tier')`.
+function mockSupabaseTier(tier: string | null, error: unknown = null) {
   const chain = {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
     maybeSingle: jest.fn().mockResolvedValue({
-      data: plan !== null ? { plan } : null,
+      data: tier !== null ? { tier } : null,
       error,
     }),
   };
@@ -72,7 +77,19 @@ describe('useSubscriptionTier', () => {
     expect(result.current.isPaid).toBe(false);
   });
 
-  it('returns power tier when subscription row has plan=power', async () => {
+  it('queries the `tier` column (regression: was the non-existent `plan`)', async () => {
+    const chain = mockSupabaseTier('growth');
+
+    renderHook(() => useSubscriptionTier('user-1'));
+    await act(async () => {});
+
+    expect(mockFrom).toHaveBeenCalledWith('subscriptions');
+    expect(chain.select).toHaveBeenCalledWith('tier');
+    // Guard against regressing to the broken column name.
+    expect(chain.select).not.toHaveBeenCalledWith('plan');
+  });
+
+  it('returns power tier when subscription row has tier=power', async () => {
     mockSupabaseTier('power');
 
     const { result } = renderHook(() => useSubscriptionTier('user-1'));
@@ -82,13 +99,25 @@ describe('useSubscriptionTier', () => {
     expect(result.current.isPaid).toBe(true);
   });
 
-  it('returns pro tier when subscription row has plan=pro', async () => {
+  it('returns pro tier when subscription row has tier=pro', async () => {
     mockSupabaseTier('pro');
 
     const { result } = renderHook(() => useSubscriptionTier('user-1'));
     await act(async () => {});
 
     expect(result.current.tier).toBe('pro');
+    expect(result.current.isPaid).toBe(true);
+  });
+
+  it('returns growth tier and isPaid=true (regression: Growth read as free)', async () => {
+    // 'growth' is the current premium tier (4 live subs). Before the column fix
+    // this resolved to 'free', blocking paying Growth customers everywhere.
+    mockSupabaseTier('growth');
+
+    const { result } = renderHook(() => useSubscriptionTier('user-1'));
+    await act(async () => {});
+
+    expect(result.current.tier).toBe('growth');
     expect(result.current.isPaid).toBe(true);
   });
 

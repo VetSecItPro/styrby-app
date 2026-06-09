@@ -31,6 +31,7 @@ import * as SecureStore from 'expo-secure-store';
 import { supabase } from '../../src/lib/supabase';
 import { useCurrentUser } from '../../src/hooks/useCurrentUser';
 import { useSubscriptionTier } from '../../src/hooks/useSubscriptionTier';
+import { isPremiumTier } from 'styrby-shared';
 import { SectionHeader, SettingRow } from '../../src/components/ui';
 import { THEME_PREFERENCE_KEY } from '../../src/contexts/ThemeContext';
 
@@ -226,7 +227,7 @@ export default function SettingsHubScreen() {
           icon="pulse"
           iconColor="#8b5cf6"
           title="Metrics Export"
-          subtitle={tier === 'power' ? 'OTEL export' : 'Power plan required'}
+          subtitle={isPremiumTier(tier) ? 'OTEL export' : 'Growth plan required'}
           onPress={() => router.push('/settings/metrics')}
         />
         <SettingRow

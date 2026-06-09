@@ -1,0 +1,30 @@
+-- Migration 093: Record 'growth' in the subscription_tier enum.
+--
+-- SCHEMA-DRIFT CLOSED:
+--   `subscription_tier` (migration 001 line 59, extended by 055) is the
+--   enum ['free','pro','power','team','business','enterprise']. The Growth
+--   tier shipped in Phase 5 and the Polar webhook (getTierFromProductId)
+--   writes 'growth' to subscriptions.tier — yet no tracked migration ever
+--   added 'growth' to the enum. Production already contains the value (it was
+--   added directly via the Management API: live introspection on 2026-06-08
+--   shows the enum as ['free','pro','power','team','business','enterprise',
+--   'growth'], with 4 live subscriptions on tier='growth'). This migration
+--   records that change in the schema files so they match production reality.
+--
+-- WHY this matters: without the value in the migration history, a fresh
+--   environment (local reset, new preview branch, DR rebuild) would recreate
+--   the enum WITHOUT 'growth', and the first Growth checkout webhook would
+--   raise SQLSTATE 22P02 ("invalid input value for enum subscription_tier").
+--
+-- CANONICAL MODEL: docs/planning/styrby-tiers-canonical.md
+--   Active tiers: free | pro | growth. Legacy: power (1 grandfathered
+--   customer). team/business/enterprise: never shipped (enum-only).
+--
+-- CONSTRAINT: Postgres cannot reference a newly-added enum value in the same
+--   transaction (SQLSTATE 55P04). This migration only ADDs the value; any code
+--   needing to CAST to it must do so in a later migration. (Idempotent — no-op
+--   in production where the value already exists.)
+--
+-- Governing: SOC2 CC7.2 (data integrity — schema-of-record matches runtime).
+
+ALTER TYPE public.subscription_tier ADD VALUE IF NOT EXISTS 'growth';

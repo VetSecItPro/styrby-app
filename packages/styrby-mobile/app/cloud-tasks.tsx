@@ -35,6 +35,7 @@ import { CloudTaskSubmitSheet } from '../src/components/cloud-tasks/CloudTaskSub
 import { PowerTierGate } from '../src/components/tier/PowerTierGate';
 import { useSubscriptionTier } from '../src/hooks/useSubscriptionTier';
 import { cancelCloudTask } from '../src/services/cloud-tasks';
+import { isPremiumTier } from 'styrby-shared';
 
 /**
  * Renders the Cloud Tasks screen.
@@ -114,8 +115,12 @@ export default function CloudTasksScreen() {
     );
   }
 
-  // Tier gate: free + pro users get the upgrade prompt
-  if (tier !== 'power') {
+  // Tier gate: Cloud Tasks is a PREMIUM feature. Only growth (current premium)
+  // and power (legacy premium, grandfathered) are entitled; free + pro see the
+  // upgrade prompt. WHY isPremiumTier (not `tier !== 'power'`): the bare 'power'
+  // check wrongly blocked paying Growth customers — see the canonical tier model
+  // in docs/planning/styrby-tiers-canonical.md.
+  if (!isPremiumTier(tier)) {
     return (
       <>
         <Stack.Screen options={{ title: 'Cloud Tasks' }} />

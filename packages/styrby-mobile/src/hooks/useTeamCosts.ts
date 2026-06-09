@@ -16,6 +16,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { isPremiumTier } from 'styrby-shared';
 
 // ============================================================================
 // Types
@@ -124,7 +125,9 @@ export function useTeamCosts(rangeStartDate: string): UseTeamCostsReturn {
       .eq('user_id', user.id)
       .single();
 
-    if (subscription?.tier !== 'power') {
+    // Team cost rollup is a premium (growth/power) feature. The old
+    // `!== 'power'` check made paying Growth customers ineligible.
+    if (!isPremiumTier(subscription?.tier)) {
       setIsEligible(false);
       return null;
     }

@@ -45,8 +45,14 @@ export interface SessionCost {
   model: string;
 }
 
-/** User subscription tier */
-export type SubscriptionTier = 'free' | 'pro' | 'power' | 'team';
+/**
+ * User subscription tier. Canonical model: `docs/planning/styrby-tiers-canonical.md`.
+ * Active (sold): 'free' | 'pro' | 'growth'. Legacy: 'power' (1 grandfathered
+ * customer). 'team' is a never-shipped placeholder retained for the DB enum.
+ * Prefer the {@link TierId} union + {@link isPremiumTier} helper from
+ * `billing/tier-logic` for gating decisions.
+ */
+export type SubscriptionTier = 'free' | 'pro' | 'power' | 'growth' | 'team';
 
 // ============================================================================
 // Phase 7.14 — Contribution/Activity Graph

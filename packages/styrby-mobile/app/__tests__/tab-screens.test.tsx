@@ -108,6 +108,9 @@ jest.mock('styrby-shared', () => ({
   ],
   PROVIDER_DISPLAY_NAMES: { anthropic: 'Anthropic', openai: 'OpenAI', google: 'Google' },
   STATIC_PRICING_LAST_VERIFIED: '2026-03-15',
+  // Tier entitlement helper used by costs.tsx gates (ExportButton, TeamCostSection).
+  isPremiumTier: (tier: string | null | undefined) =>
+    tier === 'growth' || tier === 'power',
 }));
 
 // -- Supabase client --
