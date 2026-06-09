@@ -21,7 +21,7 @@
   "devDependencies": {
     "@size-limit/file": "^11.1.6",
     "size-limit": "^11.1.6",
-    "turbo": "2.9.6"
+    "turbo": "2.9.14"
   },
   "engines": {
     "node": ">=20.0.0"
