@@ -1,13 +1,14 @@
 /**
- * Integration Tests: Team Subscription Webhook Handler (Phase 2.6, Unit B)
+ * Integration Tests: Team (Growth) Subscription Webhook Handler
  *
- * Tests the POST /api/webhooks/polar endpoint for team-tier subscription
- * events — events where `subscription.metadata.team_id` is present.
+ * Tests the POST /api/webhooks/polar endpoint for team-based subscription
+ * events — events where `subscription.metadata.team_id` is present. Growth is
+ * the only team-based tier (the retired team/business/enterprise tiers were
+ * removed 2026-06-09 — backlog TIER-DRIFT-2 / BILLING-CONSOLIDATION).
  *
- * WHY these tests matter: The team webhook handler is the only entry point for
- * team billing state changes. Bugs here can silently grant unlimited access,
- * fail to enter grace periods, or cause duplicate seat-cap updates on Polar
- * retries. Every code path must be exercised before this ships.
+ * WHY these tests matter: this handler is the only entry point for team billing
+ * state changes. Bugs here can silently grant unlimited access, fail to enter
+ * grace periods, or cause duplicate seat-cap updates on Polar retries.
  *
  * Test coverage:
  * - Signature verification (missing, invalid, valid)
@@ -17,7 +18,8 @@
  * - subscription.past_due: billing_status + grace_period_ends_at (3-day)
  * - Malformed payload → 400
  * - Unknown product_id → 422 + audit_log entry
- * - validateSeatCount fail (below tier minimum) → 422 + audit_log entry
+ * - Seat count is NOT validated at webhook time (deferred to checkout) — the
+ *   event is accepted and seat_cap reconciled
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -132,7 +134,7 @@ function makeTeamUpdatedEvent(overrides?: Record<string, unknown>) {
       status: 'active',
       quantity: 5,
       metadata: { team_id: '00000000-0000-4000-a000-000000000999' },
-      prices: [{ product_id: 'prod_team_monthly' }],
+      prices: [{ product_id: 'prod_growth_monthly' }],
       current_period_start: '2026-04-01T00:00:00Z',
       current_period_end: '2026-05-01T00:00:00Z',
       ...overrides,
@@ -172,7 +174,7 @@ function setupDefaultTeamMocks(currentSeatCap = 3) {
   mockSelect.mockReturnValueOnce({
     eq: vi.fn().mockReturnValueOnce({
       single: vi.fn().mockResolvedValueOnce({
-        data: { seat_cap: currentSeatCap, billing_tier: 'team', billing_status: 'active' },
+        data: { seat_cap: currentSeatCap, billing_tier: 'growth', billing_status: 'active' },
         error: null,
       }),
     }),
@@ -196,19 +198,16 @@ function setupDefaultTeamMocks(currentSeatCap = 3) {
 beforeEach(() => {
   vi.clearAllMocks();
 
-  // Required env vars for the webhook handler
+  // Required env vars for the webhook handler. Growth is the only team-based
+  // tier (the retired team/business/enterprise tiers were removed 2026-06-09).
   vi.stubEnv('POLAR_WEBHOOK_SECRET', WEBHOOK_SECRET);
   vi.stubEnv('POLAR_ACCESS_TOKEN', 'test-access-token');
-  vi.stubEnv('POLAR_TEAM_MONTHLY_PRODUCT_ID', 'prod_team_monthly');
-  vi.stubEnv('POLAR_TEAM_ANNUAL_PRODUCT_ID', 'prod_team_annual');
-  vi.stubEnv('POLAR_BUSINESS_MONTHLY_PRODUCT_ID', 'prod_business_monthly');
-  vi.stubEnv('POLAR_BUSINESS_ANNUAL_PRODUCT_ID', 'prod_business_annual');
+  vi.stubEnv('POLAR_GROWTH_MONTHLY_PRODUCT_ID', 'prod_growth_monthly');
+  vi.stubEnv('POLAR_GROWTH_ANNUAL_PRODUCT_ID', 'prod_growth_annual');
 
-  // Also set individual-tier vars so the existing solo handler stays happy
+  // Pro (individual) product IDs so the solo handler stays happy.
   vi.stubEnv('POLAR_PRO_MONTHLY_PRODUCT_ID', 'prod_pro_monthly');
   vi.stubEnv('POLAR_PRO_ANNUAL_PRODUCT_ID', 'prod_pro_annual');
-  vi.stubEnv('POLAR_POWER_MONTHLY_PRODUCT_ID', 'prod_power_monthly');
-  vi.stubEnv('POLAR_POWER_ANNUAL_PRODUCT_ID', 'prod_power_annual');
 
   // Default headers mock (overridden per test by createTeamWebhookRequest)
   vi.mocked(headers).mockResolvedValue(
@@ -306,7 +305,7 @@ describe('POST /api/webhooks/polar — team subscription events', () => {
       mockSelect.mockReturnValueOnce({
         eq: vi.fn().mockReturnValueOnce({
           single: vi.fn().mockResolvedValueOnce({
-            data: { seat_cap: 3, billing_tier: 'team', billing_status: 'active' },
+            data: { seat_cap: 3, billing_tier: 'growth', billing_status: 'active' },
             error: null,
           }),
         }),
@@ -367,7 +366,7 @@ describe('POST /api/webhooks/polar — team subscription events', () => {
       expect(mockUpdate).toHaveBeenCalledTimes(1);
       const updateCall = mockUpdate.mock.calls[0][0] as Record<string, unknown>;
       expect(updateCall.seat_cap).toBe(5);
-      expect(updateCall.billing_tier).toBe('team');
+      expect(updateCall.billing_tier).toBe('growth');
       expect(updateCall.billing_status).toBe('active');
       expect(updateCall.billing_cycle).toBe('monthly');
 
@@ -434,7 +433,7 @@ describe('POST /api/webhooks/polar — team subscription events', () => {
           status: 'canceled',
           quantity: 5,
           metadata: { team_id: '00000000-0000-4000-a000-000000000999' },
-          prices: [{ product_id: 'prod_team_monthly' }],
+          prices: [{ product_id: 'prod_growth_monthly' }],
           canceled_at: '2026-04-22T10:00:00Z',
         },
       };
@@ -492,7 +491,7 @@ describe('POST /api/webhooks/polar — team subscription events', () => {
           status: 'past_due',
           quantity: 5,
           metadata: { team_id: '00000000-0000-4000-a000-000000000999' },
-          prices: [{ product_id: 'prod_team_monthly' }],
+          prices: [{ product_id: 'prod_growth_monthly' }],
         },
       };
 
@@ -619,81 +618,28 @@ describe('POST /api/webhooks/polar — team subscription events', () => {
   // validateSeatCount fail → 422
   // --------------------------------------------------------------------------
 
-  describe('seat count validation', () => {
-    it('returns 422 when seat count is below tier minimum (team requires >= 3)', async () => {
-      // Idempotency upsert — new event
-      mockUpsert.mockReturnValueOnce({
-        select: vi.fn().mockResolvedValueOnce({
-          data: [{ event_id: 'evt_low_seats_001' }],
-          error: null,
-        }),
-      });
+  describe('seat count validation (deferred to checkout — not enforced at webhook time)', () => {
+    // WHY no webhook-time seat validation: it was removed 2026-06-09 (billing
+    // consolidation). Growth seat counts are validated server-side at
+    // `/api/billing/checkout` before checkout, and Polar's hosted page is
+    // locked via min_seats/max_seats. A webhook-time guard risked 422-ing a
+    // valid transitional event (e.g. a cancellation firing subscription.updated
+    // with seats=0). The webhook now accepts the event and reconciles seat_cap.
+    it('no longer 422s a below-minimum seat count — accepts the event and writes seat_cap', async () => {
+      setupDefaultTeamMocks(3); // current seat_cap 3 → event lowers to 1 (a decrease)
 
-      // audit_log.insert for the invalid seat count error
-      mockInsert.mockResolvedValueOnce({ data: null, error: null });
-
-      const event = {
-        id: 'evt_low_seats_001',
-        type: 'subscription.updated',
-        data: {
-          id: 'sub_team_abc123',
-          status: 'active',
-          quantity: 1, // below team minimum of 3
-          metadata: { team_id: '00000000-0000-4000-a000-000000000999' },
-          prices: [{ product_id: 'prod_team_monthly' }],
-          current_period_start: '2026-04-01T00:00:00Z',
-          current_period_end: '2026-05-01T00:00:00Z',
-        },
-      };
-
+      const event = makeTeamUpdatedEvent({ quantity: 1 }); // below the old min of 3
       const req = createTeamWebhookRequest(event);
       const res = await POST(req);
 
-      expect(res.status).toBe(422);
-      const body = await res.json();
-      expect(body.error).toMatch(/invalid seat count/i);
-
-      // Verify audit_log was written
-      expect(mockInsert).toHaveBeenCalledTimes(1);
-      const auditInsert = mockInsert.mock.calls[0][0] as Record<string, unknown>;
-      expect(auditInsert.action).toBe('team_subscription_updated');
-      expect((auditInsert.metadata as Record<string, unknown>).error).toBe('invalid_seat_count');
+      // Previously this returned 422 'invalid seat count'. It now succeeds.
+      expect(res.status).toBe(200);
+      const updateCall = mockUpdate.mock.calls[0][0] as Record<string, unknown>;
+      expect(updateCall.seat_cap).toBe(1);
+      expect(updateCall.billing_tier).toBe('growth');
     });
 
-    it('returns 422 when seat count is below business minimum (business requires >= 10)', async () => {
-      // Idempotency upsert — new event
-      mockUpsert.mockReturnValueOnce({
-        select: vi.fn().mockResolvedValueOnce({
-          data: [{ event_id: 'evt_biz_low_seats_001' }],
-          error: null,
-        }),
-      });
-
-      mockInsert.mockResolvedValueOnce({ data: null, error: null });
-
-      const event = {
-        id: 'evt_biz_low_seats_001',
-        type: 'subscription.updated',
-        data: {
-          id: 'sub_biz_abc123',
-          status: 'active',
-          quantity: 5, // below business minimum of 10
-          metadata: { team_id: '00000000-0000-4000-b000-000000000999' },
-          prices: [{ product_id: 'prod_business_monthly' }],
-          current_period_start: '2026-04-01T00:00:00Z',
-          current_period_end: '2026-05-01T00:00:00Z',
-        },
-      };
-
-      const req = createTeamWebhookRequest(event);
-      const res = await POST(req);
-
-      expect(res.status).toBe(422);
-      const body = await res.json();
-      expect(body.error).toMatch(/invalid seat count/i);
-    });
-
-    it('accepts seat count at exactly the tier minimum (team = 3)', async () => {
+    it('accepts a seat count at the Growth minimum (3)', async () => {
       setupDefaultTeamMocks(3); // same as new count → no seat-change audit row
 
       const event = makeTeamUpdatedEvent({ quantity: 3 }); // exactly at minimum
@@ -705,76 +651,29 @@ describe('POST /api/webhooks/polar — team subscription events', () => {
   });
 
   // --------------------------------------------------------------------------
-  // Product ID mapping (Deliverable 4)
+  // Product ID mapping — Growth is the only team-based tier with catalog products
   // --------------------------------------------------------------------------
 
   describe('product ID mapping', () => {
-    it('maps prod_team_monthly to tier=team, cycle=monthly', async () => {
+    it('maps the Growth monthly product to tier=growth, cycle=monthly', async () => {
       setupDefaultTeamMocks(3);
-      const event = makeTeamUpdatedEvent({ prices: [{ product_id: 'prod_team_monthly' }] });
+      const event = makeTeamUpdatedEvent({ prices: [{ product_id: 'prod_growth_monthly' }] });
       const req = createTeamWebhookRequest(event);
       await POST(req);
 
       const updateCall = mockUpdate.mock.calls[0][0] as Record<string, unknown>;
-      expect(updateCall.billing_tier).toBe('team');
+      expect(updateCall.billing_tier).toBe('growth');
       expect(updateCall.billing_cycle).toBe('monthly');
     });
 
-    it('maps prod_team_annual to tier=team, cycle=annual', async () => {
+    it('maps the Growth annual product to tier=growth, cycle=annual', async () => {
       setupDefaultTeamMocks(3);
-      const event = makeTeamUpdatedEvent({ prices: [{ product_id: 'prod_team_annual' }] });
+      const event = makeTeamUpdatedEvent({ prices: [{ product_id: 'prod_growth_annual' }] });
       const req = createTeamWebhookRequest(event);
       await POST(req);
 
       const updateCall = mockUpdate.mock.calls[0][0] as Record<string, unknown>;
-      expect(updateCall.billing_tier).toBe('team');
-      expect(updateCall.billing_cycle).toBe('annual');
-    });
-
-    it('maps prod_business_monthly to tier=business, cycle=monthly', async () => {
-      // Use business-appropriate seat count (min 10)
-      setupDefaultTeamMocks(10);
-      const event = {
-        id: 'evt_biz_mapping',
-        type: 'subscription.updated',
-        data: {
-          id: 'sub_biz_abc',
-          status: 'active',
-          quantity: 10,
-          metadata: { team_id: '00000000-0000-4000-b000-000000000999' },
-          prices: [{ product_id: 'prod_business_monthly' }],
-          current_period_start: '2026-04-01T00:00:00Z',
-          current_period_end: '2026-05-01T00:00:00Z',
-        },
-      };
-      const req = createTeamWebhookRequest(event);
-      await POST(req);
-
-      const updateCall = mockUpdate.mock.calls[0][0] as Record<string, unknown>;
-      expect(updateCall.billing_tier).toBe('business');
-      expect(updateCall.billing_cycle).toBe('monthly');
-    });
-
-    it('maps prod_business_annual to tier=business, cycle=annual', async () => {
-      setupDefaultTeamMocks(10);
-      const event = {
-        id: 'evt_biz_annual_mapping',
-        type: 'subscription.updated',
-        data: {
-          id: 'sub_biz_annual',
-          status: 'active',
-          quantity: 10,
-          metadata: { team_id: '00000000-0000-4000-b000-000000000999' },
-          prices: [{ product_id: 'prod_business_annual' }],
-          current_period_start: '2026-04-01T00:00:00Z',
-          current_period_end: '2026-05-01T00:00:00Z',
-        },
-      };
-      const req = createTeamWebhookRequest(event);
-      await POST(req);
-
-      const updateCall = mockUpdate.mock.calls[0][0] as Record<string, unknown>;
-      expect(updateCall.billing_tier).toBe('business');
+      expect(updateCall.billing_tier).toBe('growth');
       expect(updateCall.billing_cycle).toBe('annual');
     });
   });

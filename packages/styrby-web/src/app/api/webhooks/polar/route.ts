@@ -62,7 +62,7 @@ import {
   verifyPolarSignatureOrThrow,
   PolarSignatureError,
 } from '@/lib/polar-webhook-signature';
-import { validateSeatCount, shouldHonorManualOverride } from '@styrby/shared/billing';
+import { shouldHonorManualOverride } from '@styrby/shared/billing';
 import { polar, isTeamSeatProduct, STYRBY_PRORATION_BEHAVIOR } from '@/lib/polar';
 import { getPlanFromProductId } from '@/lib/billing/polar-products';
 
@@ -651,47 +651,16 @@ async function handleTeamSubscriptionEvent(
   // may still carry that field on Polar replay events.
   const seatCount = subscriptionData.seats ?? subscriptionData.quantity ?? 0;
 
-  // WHY narrow to legacy seat-based tiers: validateSeatCount in
-  // @styrby/shared/billing has signature (tier: 'team' | 'business' | 'enterprise', ...).
-  // Post-cutover the resolver may also return 'pro' or 'growth' (PR #197);
-  // 'pro' has no seat dimension (individual plan). For 'growth' the seat
-  // count is validated server-side at `/api/billing/checkout` before any
-  // Polar checkout is created, and Polar's hosted page is locked via
-  // min_seats/max_seats — so a separate webhook-time validation is
-  // belt-and-suspenders we can add in a follow-up. The current guard
-  // protects only legacy team/business which validateSeatCount accepts.
-  if (
-    eventType === 'subscription.updated' &&
-    resolvedTier &&
-    (resolvedTier === 'team' || resolvedTier === 'business')
-  ) {
-    const validation = validateSeatCount(resolvedTier, seatCount);
-    if (!validation.ok) {
-      console.error(
-        `polar/route: invalid seat count ${seatCount} for tier '${resolvedTier}': ${validation.reason}`
-      );
-
-      await supabase.from('audit_log').insert({
-        action: 'team_subscription_updated',
-        target_type: 'team',
-        target_id: teamId,
-        metadata: {
-          error: 'invalid_seat_count',
-          seat_count: seatCount,
-          tier: resolvedTier,
-          reason: validation.reason,
-          min_seats: validation.minSeats,
-          polar_subscription_id: subscriptionData.id,
-          event_id: eventId,
-        },
-      });
-
-      return NextResponse.json(
-        { error: `Invalid seat count: ${validation.reason}` },
-        { status: 422 }
-      );
-    }
-  }
+  // WHY no webhook-time seat validation: the resolver now returns only the
+  // live tiers 'pro' | 'growth' (the retired team/business/enterprise tiers
+  // can no longer resolve — they had zero Polar products). 'pro' has no seat
+  // dimension. For 'growth' the seat count is already validated server-side at
+  // `/api/billing/checkout` before checkout, with Polar's hosted page locked
+  // via min_seats/max_seats. A webhook-time guard would risk 422-ing a valid
+  // transitional event (e.g. a cancellation firing subscription.updated with
+  // seats=0), so it stays deferred as belt-and-suspenders. (The old guard here
+  // called @styrby/shared/billing's validateSeatCount, which only knew the
+  // legacy team/business tiers — removed alongside that module's deletion.)
 
   // --------------------------------------------------------------------------
   // 4. Database update — write billing state to teams table

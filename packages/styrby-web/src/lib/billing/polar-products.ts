@@ -343,6 +343,167 @@ export function validateSeatCount(tierId: PublicTierId, seatCount: number): bool
 }
 
 /**
+ * Detailed result of {@link validateSeatCountResult} — a discriminated union so
+ * callers can surface a specific failure reason + the tier minimum to the user.
+ *
+ * WHY a result object (not just the boolean {@link validateSeatCount}): server
+ * routes (e.g. `/api/billing/seats`) return a 422 with a human-readable
+ * `message` and `minSeats` so the client can render an actionable error. The
+ * boolean form remains for client-side render guards (pricing slider) where a
+ * yes/no answer is all that's needed.
+ */
+export type SeatValidationResult = { ok: true } | { ok: false; reason: string; minSeats: number };
+
+/**
+ * Validates a seat count for a tier and returns a detailed, user-surfaceable
+ * result.
+ *
+ * - Pro: must be exactly 1 (single-user plan; min == max == 1).
+ * - Growth: must be an integer in [{@link GROWTH_BASE_SEATS}, {@link GROWTH_MAX_SEATS}].
+ *
+ * WHY this replaces the legacy `@styrby/shared/billing` `validateSeatCount`:
+ * the legacy validator's `TIER_DEFINITIONS` only knew `team`/`business`/
+ * `enterprise` and had NO `growth` key — so calling it with a Growth team's
+ * `billing_tier='growth'` dereferenced `undefined.minSeats` → a 500. This
+ * canonical version is keyed by the live `'pro' | 'growth'` model.
+ *
+ * @param tierId - Canonical tier identifier (`'pro'` or `'growth'`).
+ * @param seatCount - Proposed seat count.
+ * @returns `{ ok: true }` or `{ ok: false, reason, minSeats }`.
+ *
+ * @example
+ * ```ts
+ * const v = validateSeatCountResult('growth', 2);
+ * if (!v.ok) console.error(v.reason); // "Minimum seat count for growth is 3, got 2."
+ * ```
+ */
+export function validateSeatCountResult(
+  tierId: PublicTierId,
+  seatCount: number
+): SeatValidationResult {
+  const tier = CANONICAL_TIER_DEFINITIONS[tierId];
+
+  // Number.isFinite rejects NaN/±Infinity; Number.isInteger additionally
+  // rejects fractional seat counts. Both are required to be exhaustive.
+  if (!Number.isFinite(seatCount)) {
+    return { ok: false, reason: `Seat count must be a finite number, got ${seatCount}.`, minSeats: tier.minSeats };
+  }
+  if (!Number.isInteger(seatCount)) {
+    return { ok: false, reason: `Seat count must be an integer, got ${seatCount}.`, minSeats: tier.minSeats };
+  }
+  if (seatCount < tier.minSeats) {
+    return { ok: false, reason: `Minimum seat count for ${tierId} is ${tier.minSeats}, got ${seatCount}.`, minSeats: tier.minSeats };
+  }
+  if (seatCount > tier.maxSeats) {
+    // Growth self-serve caps at GROWTH_MAX_SEATS; above that routes to sales.
+    return { ok: false, reason: `Maximum seat count for ${tierId} is ${tier.maxSeats}, got ${seatCount}. Contact sales for larger teams.`, minSeats: tier.minSeats };
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Input shape for {@link calculateProrationCents}.
+ */
+export interface ProrationInput {
+  /** Seats before the change. Must be a non-negative integer. */
+  oldSeats: number;
+  /** Seats after the change. Must be a non-negative integer. */
+  newSeats: number;
+  /** Canonical tier identifier (determines per-seat price; Pro has none). */
+  tierId: PublicTierId;
+  /** Billing interval — selects the monthly vs. annual per-seat price. */
+  cycle: BillingInterval;
+  /** Days already elapsed in the current cycle. 0 <= daysElapsed <= daysInCycle. */
+  daysElapsed: number;
+  /** Total days in the current cycle (≈28-31 monthly, ≈365-366 annual). */
+  daysInCycle: number;
+}
+
+/**
+ * Calculates the prorated charge in integer USD cents for adding Growth seats
+ * mid-cycle. Used for the seat-change PREVIEW + the charge we expect Polar to
+ * apply when we raise the subscription quantity.
+ *
+ * Formula: `Δseats × perSeatPriceCents × remainingDays / daysInCycle`, floored.
+ *
+ * WHY cycle-aware (the legacy module was not): every Growth seat above the
+ * included {@link GROWTH_BASE_SEATS} bundle is billed at the add-on price —
+ * `$19/mo` ({@link GROWTH_SEAT_MONTHLY_USD_CENTS}) on monthly, `$190/yr`
+ * ({@link GROWTH_SEAT_ANNUAL_USD_CENTS}) on annual. The legacy
+ * `calculateProrationCents` always used the monthly price, so an annual
+ * subscriber's preview was ~12× too low. Selecting the price by `cycle` makes
+ * the preview match Polar's actual proration.
+ *
+ * WHY Math.floor: fractional cents are always truncated in the customer's
+ * favour (consistent with {@link calculateAnnualCostCents}).
+ *
+ * Pro returns 0 (single-seat plan — no seat dimension). Downgrades / no-change
+ * return 0 (Polar issues a credit for decreases; this function never charges
+ * for a decrease).
+ *
+ * @param input - {@link ProrationInput}.
+ * @returns Prorated charge in integer USD cents (>= 0).
+ * @throws {RangeError} When numeric inputs are out of range or non-integer.
+ *
+ * @example
+ * ```ts
+ * // Growth monthly 3→5, 15 of 30 days elapsed: 2 × 1900 × 15/30 = 1900 ($19)
+ * calculateProrationCents({ oldSeats: 3, newSeats: 5, tierId: 'growth',
+ *   cycle: 'monthly', daysElapsed: 15, daysInCycle: 30 }); // 1900
+ * // Growth annual 3→4, 73 of 365 days elapsed: 1 × 19000 × 292/365 = 15200 ($152)
+ * calculateProrationCents({ oldSeats: 3, newSeats: 4, tierId: 'growth',
+ *   cycle: 'annual', daysElapsed: 73, daysInCycle: 365 }); // 15200
+ * ```
+ */
+export function calculateProrationCents({
+  oldSeats,
+  newSeats,
+  tierId,
+  cycle,
+  daysElapsed,
+  daysInCycle,
+}: ProrationInput): number {
+  // Defensive input validation — comparison guards alone silently pass NaN
+  // (every NaN comparison is false), so Number.isFinite + Number.isInteger
+  // are both required. Preserves the legacy validator's throw-on-bad-input
+  // contract that `/api/billing/seats` relies on.
+  if (!Number.isFinite(oldSeats) || !Number.isInteger(oldSeats) || oldSeats < 0) {
+    throw new RangeError(`oldSeats must be a non-negative integer, got ${oldSeats}.`);
+  }
+  if (!Number.isFinite(newSeats) || !Number.isInteger(newSeats) || newSeats < 0) {
+    throw new RangeError(`newSeats must be a non-negative integer, got ${newSeats}.`);
+  }
+  if (!Number.isFinite(daysElapsed) || !Number.isInteger(daysElapsed) || daysElapsed < 0) {
+    throw new RangeError(`daysElapsed must be a non-negative integer, got ${daysElapsed}.`);
+  }
+  if (!Number.isFinite(daysInCycle) || !Number.isInteger(daysInCycle) || daysInCycle <= 0) {
+    throw new RangeError(`daysInCycle must be a positive integer, got ${daysInCycle}.`);
+  }
+  if (daysElapsed > daysInCycle) {
+    throw new RangeError(`daysElapsed (${daysElapsed}) cannot exceed daysInCycle (${daysInCycle}).`);
+  }
+
+  // Pro is single-seat — there is no seat dimension to prorate.
+  if (tierId === 'pro') return 0;
+
+  const deltaSeats = newSeats - oldSeats;
+  // Only upgrades (seat increases) generate a proration charge. Decreases are
+  // credited by Polar's billing engine, not charged here.
+  if (deltaSeats <= 0) return 0;
+
+  const remainingDays = daysInCycle - daysElapsed;
+  // End-of-cycle (no remaining days) or start-of-cycle (daysElapsed 0): Polar's
+  // next invoice covers the new seats in full — no separate proration charge.
+  if (remainingDays === 0 || daysElapsed === 0) return 0;
+
+  const perSeatPriceCents =
+    cycle === 'annual' ? GROWTH_SEAT_ANNUAL_USD_CENTS : GROWTH_SEAT_MONTHLY_USD_CENTS;
+
+  return Math.floor((deltaSeats * perSeatPriceCents * remainingDays) / daysInCycle);
+}
+
+/**
  * Module-scope `Intl.NumberFormat` instances reused across every
  * {@link formatCents} call.
  *

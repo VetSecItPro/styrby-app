@@ -31,6 +31,8 @@ import {
   TIER_DEFINITIONS_CANONICAL,
   GROWTH_BASE_SEATS,
   GROWTH_MAX_SEATS,
+  validateSeatCountResult,
+  calculateProrationCents,
 } from '../polar-products';
 
 // ============================================================================
@@ -261,5 +263,82 @@ describe('TIER_DEFINITIONS_CANONICAL — strict 2-tier view', () => {
     expect(TIER_DEFINITIONS_CANONICAL.growth.baseMonthlyUsdCents).toBe(9900);
     expect(TIER_DEFINITIONS_CANONICAL.growth.seatPriceMonthlyUsdCents).toBe(1900);
     expect(TIER_DEFINITIONS_CANONICAL.growth.baseSeats).toBe(GROWTH_BASE_SEATS);
+  });
+});
+
+describe('validateSeatCountResult — detailed seat validation (replaces legacy shared validator)', () => {
+  it('accepts Growth at the minimum (3) and the maximum (25)', () => {
+    expect(validateSeatCountResult('growth', GROWTH_BASE_SEATS)).toEqual({ ok: true });
+    expect(validateSeatCountResult('growth', GROWTH_MAX_SEATS)).toEqual({ ok: true });
+  });
+
+  it('rejects Growth below the minimum, with reason + minSeats', () => {
+    const v = validateSeatCountResult('growth', 2);
+    expect(v.ok).toBe(false);
+    if (!v.ok) {
+      expect(v.minSeats).toBe(GROWTH_BASE_SEATS);
+      expect(v.reason).toMatch(/minimum seat count for growth is 3/i);
+    }
+  });
+
+  it('rejects Growth above the self-serve maximum and points to sales', () => {
+    const v = validateSeatCountResult('growth', GROWTH_MAX_SEATS + 1);
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.reason).toMatch(/maximum seat count for growth is 25.*sales/i);
+  });
+
+  it('rejects non-integer and non-finite seat counts', () => {
+    expect(validateSeatCountResult('growth', 3.5).ok).toBe(false);
+    expect(validateSeatCountResult('growth', NaN).ok).toBe(false);
+    expect(validateSeatCountResult('growth', Infinity).ok).toBe(false);
+  });
+
+  it('Pro accepts exactly 1 seat and rejects anything else', () => {
+    expect(validateSeatCountResult('pro', 1)).toEqual({ ok: true });
+    expect(validateSeatCountResult('pro', 2).ok).toBe(false);
+    expect(validateSeatCountResult('pro', 0).ok).toBe(false);
+  });
+
+  it('REGRESSION: growth no longer dereferences an undefined tier definition (the old 500)', () => {
+    // The legacy @styrby/shared/billing validator had no `growth` key; calling
+    // it with 'growth' threw `Cannot read properties of undefined (reading
+    // 'minSeats')`. This must never throw for the live tier.
+    expect(() => validateSeatCountResult('growth', 5)).not.toThrow();
+  });
+});
+
+describe('calculateProrationCents — cycle-aware Growth seat proration', () => {
+  it('monthly: 3→5 at half-cycle charges 2 × $19 × 1/2 = $19', () => {
+    expect(
+      calculateProrationCents({ oldSeats: 3, newSeats: 5, tierId: 'growth', cycle: 'monthly', daysElapsed: 15, daysInCycle: 30 })
+    ).toBe(1900);
+  });
+
+  it('annual: 3→4 at 1/5 elapsed charges 1 × $190 × 4/5 = $152 (NOT the monthly $19)', () => {
+    // This is the cycle-awareness fix: the legacy validator always used the
+    // monthly seat price, so an annual subscriber's preview was ~12x too low.
+    expect(
+      calculateProrationCents({ oldSeats: 3, newSeats: 4, tierId: 'growth', cycle: 'annual', daysElapsed: 73, daysInCycle: 365 })
+    ).toBe(15200);
+  });
+
+  it('returns 0 for downgrades and no-change (Polar credits decreases)', () => {
+    expect(calculateProrationCents({ oldSeats: 5, newSeats: 3, tierId: 'growth', cycle: 'monthly', daysElapsed: 10, daysInCycle: 30 })).toBe(0);
+    expect(calculateProrationCents({ oldSeats: 5, newSeats: 5, tierId: 'growth', cycle: 'monthly', daysElapsed: 10, daysInCycle: 30 })).toBe(0);
+  });
+
+  it('returns 0 at cycle boundaries (start or end of cycle)', () => {
+    expect(calculateProrationCents({ oldSeats: 3, newSeats: 5, tierId: 'growth', cycle: 'monthly', daysElapsed: 0, daysInCycle: 30 })).toBe(0);
+    expect(calculateProrationCents({ oldSeats: 3, newSeats: 5, tierId: 'growth', cycle: 'monthly', daysElapsed: 30, daysInCycle: 30 })).toBe(0);
+  });
+
+  it('Pro always returns 0 (no seat dimension)', () => {
+    expect(calculateProrationCents({ oldSeats: 1, newSeats: 1, tierId: 'pro', cycle: 'monthly', daysElapsed: 15, daysInCycle: 30 })).toBe(0);
+  });
+
+  it('throws RangeError on non-integer / out-of-range inputs (defensive contract)', () => {
+    expect(() => calculateProrationCents({ oldSeats: 3.5, newSeats: 5, tierId: 'growth', cycle: 'monthly', daysElapsed: 15, daysInCycle: 30 })).toThrow(RangeError);
+    expect(() => calculateProrationCents({ oldSeats: 3, newSeats: 5, tierId: 'growth', cycle: 'monthly', daysElapsed: 40, daysInCycle: 30 })).toThrow(RangeError);
+    expect(() => calculateProrationCents({ oldSeats: 3, newSeats: 5, tierId: 'growth', cycle: 'monthly', daysElapsed: 15, daysInCycle: 0 })).toThrow(RangeError);
   });
 });
