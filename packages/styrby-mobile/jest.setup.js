@@ -179,12 +179,17 @@ jest.mock('expo-camera', () => ({
  * shape (default export with createPasskey / authenticateWithPasskey) and
  * returns JSON strings, matching the production contract.
  * Tests that exercise enrollment/authentication override these with
- * jest.mock('expo-passkey', ...) locally.
+ * jest.mock('expo-passkey/native', ...) locally.
  */
-// WHY mocking 'expo-passkey' (not '/native'): Metro resolves the bare package
-// name on native platforms to build/index.native.js via platform-aware
-// resolution. Our app code imports from 'expo-passkey' to match that.
-jest.mock('expo-passkey', () => ({
+// WHY mocking 'expo-passkey/native' (the subpath, not bare): since PR #295 the
+// app code imports `ExpoPasskey from 'expo-passkey/native'` (SDK 54 / Metro
+// 0.82+ honors the package exports map; the bare import broke on-device — see
+// app/(auth)/login.tsx). This global stub MUST target the same specifier the
+// source imports, otherwise the real native module loads and throws
+// "Cannot use import statement outside a module". (Was bare 'expo-passkey'
+// pre-fix, which silently went dead when the source switched to the subpath and
+// broke the login-passkey / passkeys / auth-screens suites.)
+jest.mock('expo-passkey/native', () => ({
   __esModule: true,
   default: {
     isPasskeySupported: jest.fn(() => true),

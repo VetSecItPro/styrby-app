@@ -38,7 +38,13 @@ jest.mock('../../src/lib/config', () => ({
   getApiBaseUrl: jest.fn(() => 'http://localhost:3000'),
 }));
 
-jest.mock('expo-passkey', () => ({
+// WHY 'expo-passkey/native' (not bare 'expo-passkey'): app/(auth)/login.tsx
+// imports the platform-specific `expo-passkey/native` subpath (SDK 54 / Metro
+// 0.82+ honors the exports map). Mocking the bare specifier leaves the real Expo
+// native module (`requireNativeModule`) to load, which throws "Cannot use import
+// statement outside a module" under the pure-node jest env. Mock what the source
+// actually imports.
+jest.mock('expo-passkey/native', () => ({
   __esModule: true,
   default: {
     authenticateWithPasskey: jest.fn(),

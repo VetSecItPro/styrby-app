@@ -61,6 +61,11 @@ jest.mock('@expo/vector-icons', () => ({
   Ionicons: 'Ionicons',
 }));
 
+// NOTE: this suite renders app/(auth)/login.tsx (imports `expo-passkey/native`),
+// but needs no local passkey mock — the global stub in jest.setup.js handles it.
+// Local overrides are only needed by suites that assert on passkey calls
+// (login-passkey, passkeys).
+
 jest.mock('styrby-shared', () => ({
   decodePairingUrl: jest.fn(() => ({
     channelId: 'test-channel',

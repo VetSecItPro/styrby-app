@@ -74,7 +74,11 @@ jest.mock('../../../src/lib/config', () => ({
 
 const mockPasskeyCreate = jest.fn();
 const mockPasskeyAuthenticate = jest.fn();
-jest.mock('expo-passkey', () => ({
+// WHY 'expo-passkey/native' (not bare 'expo-passkey'): app/settings/passkeys.tsx
+// imports the platform-specific `expo-passkey/native` subpath. Mocking the bare
+// specifier leaves the real Expo native module to load and throw under the
+// pure-node jest env. Mock what the source actually imports.
+jest.mock('expo-passkey/native', () => ({
   __esModule: true,
   default: {
     createPasskey: mockPasskeyCreate,
