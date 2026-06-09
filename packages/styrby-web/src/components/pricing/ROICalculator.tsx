@@ -60,14 +60,19 @@ function formatDollars(dollars: number): string {
  * coding tasks" is measurable and honest; "reduced your AI bill by X%" is
  * not what Styrby primarily does.
  *
- * WHY 20-40% is the default range: research on AI coding tools (GitHub Copilot
- * study, McKinsey 2023 developer survey, Stripe developer productivity report)
- * consistently shows 20-40% productivity gains on tasks like boilerplate,
- * test generation, and code review - not wholesale replacement of developers.
- * Defaults at 25% (conservative midpoint of the range).
- *
- * We do NOT claim 60-80% gains. Those numbers are marketing fiction; a
- * realistic calculator builds trust and qualifies buyers better.
+ * WHY default 25% / cap 40%: independent research measures TASK-LEVEL speedups
+ * of roughly 20-55% on routine work, NOT blanket whole-job productivity:
+ *   - GitHub Copilot RCT (Peng et al. 2023, arXiv:2302.06590): the Copilot
+ *     group finished a scoped HTTP-server task 55.8% faster (95% CI 21-89%).
+ *   - McKinsey 2023 ("Unleashing developer productivity with generative AI"):
+ *     ~20-45% faster on documentation/generation/refactoring, shrinking to
+ *     <10% on complex or unfamiliar tasks.
+ * Sustained, team-wide throughput gains run BELOW those single-task peaks
+ * (later workplace RCTs show the felt speedup exceeds the measured one). So we
+ * default to a conservative 25% and cap the slider at 40% — deliberately under
+ * the headline numbers. We do NOT claim 60-80% gains; those are marketing
+ * fiction. (The earlier "Stripe developer productivity report" citation was
+ * removed — that report measures technical-debt cost, not AI productivity.)
  *
  * @param inputs - The ROI calculator inputs.
  * @returns Annual value of recovered developer time in USD.
@@ -238,9 +243,27 @@ export function ROICalculator() {
             onChange={update('productivityGainPct')}
           />
           <p className="text-[10px] text-muted-foreground leading-relaxed">
-            Productivity gain range 5-40% reflects published research (GitHub Copilot,
-            McKinsey 2023, Stripe). We cap at 40% to stay honest - claims above 50% are
-            not supported by independent studies for typical engineering work.
+            The 5-40% range reflects published research on AI coding tools:{' '}
+            <a
+              href="https://github.blog/news-insights/research/research-quantifying-github-copilots-impact-on-developer-productivity-and-happiness/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              GitHub Copilot RCT
+            </a>{' '}
+            (55.8% faster on a scoped task) and{' '}
+            <a
+              href="https://www.mckinsey.com/capabilities/tech-and-ai/our-insights/unleashing-developer-productivity-with-generative-ai"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              McKinsey 2023
+            </a>{' '}
+            (~20-45% on routine tasks). We default to 25% and cap at 40%: sustained
+            team-wide gains run below single-task peaks, so anything higher would
+            overstate it.
           </p>
         </div>
 
