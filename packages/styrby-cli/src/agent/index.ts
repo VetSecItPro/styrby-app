@@ -48,80 +48,29 @@ export * from './factories';
  * - Kiro (AWS, per-prompt credit billing)
  * - Droid (BYOK, multi-backend via LiteLLM)
  */
-export function initializeAgents(): void {
-  // Import and register agents from factories
-  // Each factory is optional - if it doesn't exist, we skip registration
+export async function initializeAgents(): Promise<void> {
+  // WHY async dynamic import (not require()): this package is ESM
+  // ("type": "module"), where bare `require()` is undefined. Under tsx every
+  // require() in the previous implementation threw and was silently swallowed
+  // by a per-factory try/catch, so NO agent registered at runtime — the CLI
+  // reported "Registered agents: none registered" and every `styrby start
+  // --agent <x>` failed. `await import('./factories')` loads the factory barrel
+  // lazily HERE (only on `start`, not on every CLI command — preserving the
+  // original startup-perf intent) and works under both tsx and the esbuild
+  // bundle. No try/catch: a factory that fails to load should fail loudly, not
+  // leave the registry silently empty.
+  const factories = await import('./factories');
 
-  // Gemini - Google AI
-  try {
-    const { registerGeminiAgent } = require('./factories/gemini');
-    registerGeminiAgent();
-  } catch {
-    // Gemini factory not available
-  }
-
-  // OpenCode - Terminal-based AI coding assistant with JSON output support
-  try {
-    const { registerOpenCodeAgent } = require('./factories/opencode');
-    registerOpenCodeAgent();
-  } catch {
-    // OpenCode factory not available
-  }
-
-  // Aider - AI pair programming tool
-  try {
-    const { registerAiderAgent } = require('./factories/aider');
-    registerAiderAgent();
-  } catch {
-    // Aider factory not available
-  }
-
-  // Goose - Block/Square AI coding agent (Apache 2.0, MCP protocol)
-  try {
-    const { registerGooseAgent } = require('./factories/goose');
-    registerGooseAgent();
-  } catch {
-    // Goose factory not available
-  }
-
-  // Amp - Sourcegraph AI coding agent (deep mode with sub-agents)
-  try {
-    const { registerAmpAgent } = require('./factories/amp');
-    registerAmpAgent();
-  } catch {
-    // Amp factory not available
-  }
-
-  // Crush - Charmbracelet AI coding agent (ACP-compatible, charm TUI)
-  try {
-    const { registerCrushAgent } = require('./factories/crush');
-    registerCrushAgent();
-  } catch {
-    // Crush factory not available
-  }
-
-  // Kilo - Community AI coding agent (500+ models, Memory Bank)
-  try {
-    const { registerKiloAgent } = require('./factories/kilo');
-    registerKiloAgent();
-  } catch {
-    // Kilo factory not available
-  }
-
-  // Kiro - AWS AI coding agent (per-prompt credit billing)
-  try {
-    const { registerKiroAgent } = require('./factories/kiro');
-    registerKiroAgent();
-  } catch {
-    // Kiro factory not available
-  }
-
-  // Droid - BYOK AI coding agent (multi-backend via LiteLLM)
-  try {
-    const { registerDroidAgent } = require('./factories/droid');
-    registerDroidAgent();
-  } catch {
-    // Droid factory not available
-  }
+  factories.registerClaudeAgent();   // Anthropic — managed binary-spawn (stream-json), subscription billing
+  factories.registerCodexAgent();    // OpenAI — MCP transport via `codex mcp-server`
+  factories.registerGeminiAgent();   // Google AI
+  factories.registerOpenCodeAgent(); // terminal-based, JSON output
+  factories.registerAiderAgent();    // AI pair programming
+  factories.registerGooseAgent();    // Block/Square (Apache 2.0, MCP)
+  factories.registerAmpAgent();      // Sourcegraph (deep mode)
+  factories.registerCrushAgent();    // Charmbracelet (ACP)
+  factories.registerKiloAgent();     // Community (500+ models)
+  factories.registerKiroAgent();     // AWS (per-prompt credits)
+  factories.registerDroidAgent();    // BYOK (multi-backend)
 }
 

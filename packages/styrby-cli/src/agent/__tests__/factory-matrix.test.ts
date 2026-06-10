@@ -1,9 +1,10 @@
 /**
- * Conformance test for the 9 streaming agent factories.
+ * Conformance test for the 10 streaming agent factories.
  *
  * WHY this file exists (Track C3, in-session task #68):
- *   The CLI supports 11 agents (claude + codex via launcher pattern, plus 9
- *   "streaming" agents via the StreamingAgentBackendBase pattern). Each
+ *   The CLI supports 11 agents: 10 "streaming" agents via the
+ *   StreamingAgentBackendBase pattern (claude joined in PR2 as a managed
+ *   binary-spawn over stream-json) + codex via the launcher/MCP pattern. Each
  *   streaming agent registers itself with the global `agentRegistry` via a
  *   `registerXAgent()` function. The recurring bug class this catches:
  *     "we added agent #12 and forgot to wire it into the registry / index."
@@ -17,15 +18,17 @@
  *   - DOES NOT spawn any actual agent processes (those are integration tests)
  *
  * Excluded:
- *   - claude + codex use the launcher pattern (not streaming base class), so
- *     they don't register via this mechanism. Their conformance is verified
- *     by their own dedicated tests + the e2e smoke tests.
+ *   - codex uses the launcher/MCP pattern (implements AgentBackend directly,
+ *     not via the streaming base class), so it doesn't register via this
+ *     mechanism. Its conformance is verified by its own dedicated test
+ *     (codex.test.ts) + the e2e smoke tests.
  *
  * @module agent/__tests__/factory-matrix
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import {
+  registerClaudeAgent,
   registerGeminiAgent,
   registerAiderAgent,
   registerOpenCodeAgent,
@@ -47,6 +50,7 @@ import type { AgentBackend, AgentId } from '@/agent/core/AgentBackend';
  * Order matters only for output readability; the registry is unordered.
  */
 const EXPECTED_STREAMING_AGENTS: AgentId[] = [
+  'claude',
   'gemini',
   'aider',
   'opencode',
@@ -63,6 +67,7 @@ const EXPECTED_STREAMING_AGENTS: AgentId[] = [
  * register-then-verify in a single loop.
  */
 const REGISTRATIONS: Record<string, () => void> = {
+  claude: registerClaudeAgent,
   gemini: registerGeminiAgent,
   aider: registerAiderAgent,
   opencode: registerOpenCodeAgent,
@@ -88,16 +93,16 @@ const REQUIRED_BACKEND_METHODS = [
   'onMessage',
 ] as const;
 
-describe('Agent factory conformance matrix (9 streaming agents)', () => {
+describe('Agent factory conformance matrix (10 streaming agents)', () => {
   beforeAll(() => {
-    // Register all 9. Idempotent — register() just re-overwrites the entry.
+    // Register all 10. Idempotent — register() just re-overwrites the entry.
     for (const fn of Object.values(REGISTRATIONS)) {
       fn();
     }
   });
 
   describe('registry contents', () => {
-    it('contains all 9 expected streaming agent IDs', () => {
+    it('contains all 10 expected streaming agent IDs', () => {
       const registered = agentRegistry.list();
       for (const expected of EXPECTED_STREAMING_AGENTS) {
         expect(registered).toContain(expected);
@@ -174,12 +179,15 @@ describe('Agent factory conformance matrix (9 streaming agents)', () => {
       // factories/ doesn't, the streaming-list and canonical-list will fall
       // out of sync. We assert via cardinality + the known exclusions.
       //
-      // Canonical 11 = streaming 9 + launcher 2 (claude + codex)
-      // 9 + 2 = 11 ✓
-      expect(EXPECTED_STREAMING_AGENTS.length).toBe(9);
+      // Canonical 11 = streaming 10 (incl. claude) + launcher 1 (codex)
+      // 10 + 1 = 11 ✓
+      // claude moved to the streaming set in PR2 (managed binary-spawn via
+      // stream-json, StreamingAgentBackendBase). codex stays launcher-pattern
+      // (implements AgentBackend directly over the MCP transport).
+      expect(EXPECTED_STREAMING_AGENTS.length).toBe(10);
 
-      // Sanity check: claude + codex should NOT be in the streaming list
-      expect(EXPECTED_STREAMING_AGENTS).not.toContain('claude' as AgentId);
+      // claude IS streaming now; codex is the sole launcher-pattern agent.
+      expect(EXPECTED_STREAMING_AGENTS).toContain('claude' as AgentId);
       expect(EXPECTED_STREAMING_AGENTS).not.toContain('codex' as AgentId);
     });
   });

@@ -28,8 +28,17 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { logger } from '@/ui/logger';
 import type { CostReport, BillingModel } from '@styrby/shared/cost';
+import type {
+  SessionId,
+  StartSessionResult,
+  AgentFactoryOptions,
+  AgentFactoryMetadata,
+} from '../core';
+import { agentRegistry } from '../core';
+import { StreamingAgentBackendBase } from '../StreamingAgentBackendBase';
 
 // ============================================================================
 // Auth Mode Detection
@@ -187,4 +196,344 @@ export function parseClaudeJsonlLine(
   };
 
   return report;
+}
+
+// ============================================================================
+// Claude Backend (managed binary-spawn, stream-json)
+// ============================================================================
+
+/**
+ * Permission mode passed to the `claude` CLI for a managed session.
+ *
+ * WHY default 'acceptEdits': a remote-controlled session runs unattended, so it
+ * must not block on interactive prompts; 'acceptEdits' lets Claude apply file
+ * edits while the sandbox/allowlist still governs riskier actions. Override via
+ * options for a stricter ('plan') or looser ('bypassPermissions') posture.
+ */
+export type ClaudePermissionMode =
+  | 'acceptEdits'
+  | 'auto'
+  | 'plan'
+  | 'default'
+  | 'bypassPermissions';
+
+/**
+ * Options for creating a Claude backend.
+ */
+export interface ClaudeBackendOptions extends AgentFactoryOptions {
+  /** Model alias/id for the session (e.g. 'claude-sonnet-4-6'). */
+  model?: string;
+  /** Permission mode for the headless session (default 'acceptEdits'). */
+  permissionMode?: ClaudePermissionMode;
+  /** Claude session id to resume (preserves conversation context across prompts). */
+  resumeSessionId?: string;
+  /** Tool allowlist (e.g. ['Bash(git *)', 'Read']). */
+  allowedTools?: string[];
+  /** Extra `claude` CLI args (validated for shell-safety by the base class). */
+  extraArgs?: string[];
+}
+
+/**
+ * Result of creating a Claude backend.
+ */
+export interface ClaudeBackendResult {
+  /** The backend instance, ready to start a session. */
+  backend: ClaudeBackend;
+  /** The resolved model (undefined = Claude's configured default). */
+  model: string | undefined;
+  /** Capability / source metadata. */
+  metadata: AgentFactoryMetadata;
+}
+
+/**
+ * A single Claude Code stream-json line.
+ *
+ * Claude emits newline-delimited JSON in `--output-format stream-json` mode: a
+ * `system`/init line (carries the resumable `session_id`), one or more
+ * `assistant`/`user` lines (message content + tool use/results), and a final
+ * `result` line. Typed loosely because only a subset of fields is consumed.
+ */
+interface ClaudeStreamMessage {
+  type: 'system' | 'assistant' | 'user' | 'result' | string;
+  subtype?: string;
+  session_id?: string;
+  message?: {
+    role?: string;
+    content?: Array<{
+      type: string;
+      text?: string;
+      name?: string;
+      input?: Record<string, unknown>;
+      id?: string;
+      tool_use_id?: string;
+      content?: unknown;
+    }>;
+  };
+}
+
+/** Claude tool names that mutate files (for fs-edit surfacing). */
+const CLAUDE_EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+
+/**
+ * Claude Code backend — clean-room managed spawn of the `claude` binary.
+ *
+ * WHY this reimplements the spawn technique instead of wrapping Happy's
+ * `src/claude/` loop: that loop (`runClaude`/`loop`/`session`) imports
+ * `ApiClient`/`AgentState` symbols deleted in the Supabase relay refactor, so it
+ * is stale, broken, and quarantined from typechecking. Reusing it would drag
+ * ~6.8k LOC of dead code into the build (a large seam). Instead we spawn the
+ * `claude` binary in headless stream-json mode and parse its JSONL — the same
+ * line-based pattern {@link StreamingAgentBackendBase} already powers for
+ * opencode/aider.
+ *
+ * WHY binary-spawn (not the official Agent SDK): spawning the user's installed
+ * `claude` runs against their `~/.claude/auth.json`, preserving Max/Pro
+ * SUBSCRIPTION billing (costUsd=0). The Agent SDK expects API-key auth and a
+ * separate credit pool, which would be a cost regression for subscription users.
+ */
+export class ClaudeBackend extends StreamingAgentBackendBase {
+  protected readonly logTag = 'ClaudeBackend';
+
+  /** Claude's own session id, captured from the init line; used for --resume. */
+  private claudeSessionId: string | null;
+  private readonly billingModel: BillingModel;
+
+  constructor(private readonly options: ClaudeBackendOptions) {
+    super();
+    // Detect subscription vs api-key once so every cost-report is classified
+    // correctly (subscription => costUsd 0).
+    this.billingModel = detectClaudeBillingModel();
+    this.claudeSessionId = options.resumeSessionId ?? null;
+  }
+
+  /**
+   * Start a Claude session, optionally with an initial prompt.
+   *
+   * @param initialPrompt - First prompt; when omitted the backend idles until
+   *   the first {@link sendPrompt}.
+   * @returns The local session id (a UUID; Claude's own id is tracked internally
+   *   for --resume continuity).
+   */
+  async startSession(initialPrompt?: string): Promise<StartSessionResult> {
+    if (this.disposed) throw new Error('ClaudeBackend has been disposed');
+    this.sessionId = randomUUID();
+    this.emit({ type: 'status', status: 'starting' });
+
+    if (initialPrompt) {
+      this.emit({ type: 'status', status: 'running' });
+      await this.sendPrompt(this.sessionId, initialPrompt);
+    } else {
+      this.emit({ type: 'status', status: 'idle' });
+    }
+    return { sessionId: this.sessionId };
+  }
+
+  /**
+   * Send a prompt to the Claude session.
+   *
+   * Spawns `claude -p <prompt> --output-format stream-json --verbose`, resuming
+   * the prior Claude conversation (via `--resume`) so context carries across
+   * prompts. Resolves when the process exits cleanly (or was cancelled).
+   *
+   * @param sessionId - Must match the active session id.
+   * @param prompt - The user's prompt text.
+   */
+  async sendPrompt(sessionId: SessionId, prompt: string): Promise<void> {
+    if (this.disposed) throw new Error('ClaudeBackend has been disposed');
+    if (sessionId !== this.sessionId) throw new Error(`Invalid session ID: ${sessionId}`);
+
+    // Reset run-scoped state (clears the cancelled flag) so this run's exit is
+    // classified correctly by the close handler.
+    this.beginRun();
+    this.emit({ type: 'status', status: 'running' });
+
+    const args: string[] = [
+      '-p',
+      prompt,
+      '--output-format',
+      'stream-json',
+      // --verbose is required for stream-json to emit the full event stream in
+      // print mode (otherwise only the final result is printed).
+      '--verbose',
+      '--permission-mode',
+      this.options.permissionMode ?? 'acceptEdits',
+    ];
+    if (this.options.model) args.push('--model', this.options.model);
+    if (this.claudeSessionId) args.push('--resume', this.claudeSessionId);
+    if (this.options.allowedTools?.length) {
+      args.push('--allowedTools', this.options.allowedTools.join(','));
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const child = this.spawnAgent({
+        command: 'claude',
+        args,
+        cwd: this.options.cwd,
+        extraEnv: this.options.env,
+        userExtraArgs: this.options.extraArgs,
+        // The prompt is passed via `-p`, not stdin. Ignore stdin so claude
+        // doesn't wait ~3s for input that never comes ("no stdin data received
+        // in 3s") before each turn. stdout/stderr stay piped for streamLines().
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      if (child.stdout) {
+        this.streamLines(child.stdout, (line) => this.handleLine(line));
+      }
+      if (child.stderr) {
+        child.stderr.on('data', (data: Buffer) => {
+          logger.debug(`[ClaudeBackend] stderr: ${data.toString().trim()}`);
+        });
+      }
+
+      child.on('close', (code) => {
+        logger.debug(`[ClaudeBackend] Process exited with code: ${code}`);
+        this.process = null;
+        this.clearCancelTimer();
+        if (code === 0 || this.wasCancelled()) {
+          this.emit({ type: 'status', status: 'idle' });
+          resolve();
+        } else {
+          const detail = `Claude exited with code ${code}`;
+          this.emit({ type: 'status', status: 'error', detail });
+          reject(new Error(detail));
+        }
+      });
+
+      // ENOENT -> friendly install hint; other spawn errors forwarded.
+      this.attachInstallHintErrorHandler(child, 'claude', reject);
+    });
+  }
+
+  /**
+   * Cancel the in-flight prompt (SIGTERM, then SIGKILL escalation via the base).
+   *
+   * @param sessionId - Must match the active session id.
+   */
+  async cancel(sessionId: SessionId): Promise<void> {
+    if (sessionId !== this.sessionId) throw new Error(`Invalid session ID: ${sessionId}`);
+    if (this.process) {
+      // Mark cancelled BEFORE SIGTERM so the close handler treats the resulting
+      // non-zero exit as an intentional cancel, not a crash.
+      this.markCancelled();
+      this.process.kill('SIGTERM');
+      this.scheduleForceKill();
+    }
+    this.emit({ type: 'status', status: 'idle' });
+  }
+
+  /**
+   * Parse one stream-json line: emit a cost-report if it carries usage, then map
+   * its content to {@link AgentMessage}s.
+   */
+  private handleLine(line: string): void {
+    if (!line.trim()) return;
+
+    // Cost extraction (assistant lines with a usage block) reuses the shared
+    // parser so subscription billing stays correct.
+    const report = parseClaudeJsonlLine(line, this.sessionId ?? '', this.billingModel);
+    if (report) this.emit({ type: 'cost-report', report });
+
+    let msg: ClaudeStreamMessage;
+    try {
+      msg = JSON.parse(line) as ClaudeStreamMessage;
+    } catch {
+      logger.debug('[ClaudeBackend] Non-JSON stdout line ignored');
+      return;
+    }
+
+    // Capture Claude's session id from any line that carries it so follow-up
+    // prompts can --resume the same conversation.
+    if (typeof msg.session_id === 'string') this.claudeSessionId = msg.session_id;
+
+    switch (msg.type) {
+      case 'assistant':
+        for (const block of msg.message?.content ?? []) {
+          if (block.type === 'text' && block.text) {
+            this.emit({ type: 'model-output', fullText: block.text });
+          } else if (block.type === 'tool_use' && block.id) {
+            this.emit({
+              type: 'tool-call',
+              toolName: block.name ?? 'unknown',
+              args: block.input ?? {},
+              callId: block.id,
+            });
+            // Surface file mutations so the mobile UI can show a diff affordance.
+            if (block.name && CLAUDE_EDIT_TOOLS.has(block.name)) {
+              const input = block.input ?? {};
+              const filePath = (input.file_path as string) ?? (input.path as string);
+              if (filePath) {
+                this.emit({ type: 'fs-edit', description: `${block.name}: ${filePath}`, path: filePath });
+              }
+            }
+          }
+        }
+        return;
+      case 'user':
+        // Claude echoes tool results back as a user message.
+        for (const block of msg.message?.content ?? []) {
+          if (block.type === 'tool_result' && block.tool_use_id) {
+            this.emit({
+              type: 'tool-result',
+              toolName: 'tool',
+              result: block.content,
+              callId: block.tool_use_id,
+            });
+          }
+        }
+        return;
+      case 'result':
+        // Final line; the close handler emits idle. Nothing extra to map here.
+        return;
+      default:
+        // system/init and any future line types: no content to surface.
+        return;
+    }
+  }
+
+  // respondToPermission, waitForResponseComplete, onMessage/offMessage and
+  // dispose are inherited from StreamingAgentBackendBase. The session runs with
+  // a fixed --permission-mode, so the base emit-only permission default is
+  // correct (interactive per-tool mobile approval is a follow-up).
+}
+
+/**
+ * Create a Claude backend.
+ *
+ * @param options - Configuration options (cwd is required).
+ * @returns The backend plus resolved model + capability metadata.
+ *
+ * @example
+ * ```ts
+ * const { backend } = createClaudeBackend({ cwd: '/path/to/project' });
+ * const { sessionId } = await backend.startSession('Explain this repo');
+ * ```
+ */
+export function createClaudeBackend(options: ClaudeBackendOptions): ClaudeBackendResult {
+  logger.debug('[ClaudeBackend] Creating backend', {
+    cwd: options.cwd,
+    model: options.model,
+    permissionMode: options.permissionMode ?? 'acceptEdits',
+  });
+
+  return {
+    backend: new ClaudeBackend(options),
+    model: options.model,
+    metadata: {
+      modelSource: options.model ? 'explicit' : 'default',
+      supportsStreaming: true,
+      supportsTools: true,
+    },
+  };
+}
+
+/**
+ * Register the Claude backend with the global agent registry.
+ *
+ * Called from `initializeAgents()` so `styrby start --agent claude` resolves to
+ * a managed, relay-bridged session instead of the old informational MCP stub.
+ */
+export function registerClaudeAgent(): void {
+  agentRegistry.register('claude', (opts) => createClaudeBackend(opts).backend);
+  logger.debug('[ClaudeBackend] Registered with agent registry');
 }

@@ -291,7 +291,7 @@ export class MultiAgentOrchestrator {
 
     // ── 3. Spawn agents ───────────────────────────────────────────────────────
     const { initializeAgents, agentRegistry } = await import('@/agent/index');
-    initializeAgents();
+    await initializeAgents();
 
     const spawnedAgents: SpawnedAgent[] = [];
 

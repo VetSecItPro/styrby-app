@@ -167,15 +167,25 @@ export class ApiSessionManager {
     };
     agent.onMessage(agentMessageHandler);
 
+    // WHY: the manager owns the canonical session id (`sessionId`, written to
+    // Supabase + addressed by mobile), but a backend mints its OWN id in
+    // startSession() and validates against it in sendPrompt()/cancel(). We track
+    // the backend's id and pass it on the agent calls so relay input reaches the
+    // backend's session (the relay handler runs after startSession, so the
+    // closure reads the updated value). Without this, every chat/cancel failed
+    // with "Invalid session ID" — the manager id never matched the backend id.
+    let backendSessionId: string = sessionId;
+
     // 3. Set up relay -> agent bridge (mobile input goes to agent)
     const relayMessageHandler = (message: RelayMessage) => {
-      this.handleRelayMessage(sessionId, message, agent, agentType, api);
+      this.handleRelayMessage(sessionId, message, agent, agentType, api, backendSessionId);
     };
     api.onRelayMessage(relayMessageHandler);
 
     // 4. Start the agent process
     logger.debug('Starting agent session', { sessionId, agentType, projectPath });
     const startResult = await agent.startSession();
+    backendSessionId = startResult.sessionId;
     logger.debug('Agent session started', { sessionId, agentSessionId: startResult.sessionId });
 
     // Update status to running
@@ -406,18 +416,22 @@ export class ApiSessionManager {
    * - command:end_session -> triggers session stop
    * - command:interrupt -> agent.cancel() (same as cancel for now)
    *
-   * @param sessionId - Session the message targets
+   * @param sessionId - Canonical (manager) session id the message targets; used
+   *   for session-matching + relay responses.
    * @param message - The relay message from mobile
    * @param agent - Agent backend to forward input to
    * @param agentType - Agent type for logging
    * @param api - StyrbyApi for sending responses back
+   * @param backendSessionId - The backend's OWN session id (from startSession);
+   *   used on agent.sendPrompt()/cancel() since backends validate their own id.
    */
   private handleRelayMessage(
     sessionId: string,
     message: RelayMessage,
     agent: AgentBackend,
     agentType: SharedAgentType,
-    api: StyrbyApi
+    api: StyrbyApi,
+    backendSessionId: string
   ): void {
     // SECURITY: classification (schema validation + nonce verify + routing)
     // is delegated to the pure `classifyRelayMessage` helper. See
@@ -468,7 +482,7 @@ export class ApiSessionManager {
           sessionId: verdict.sessionId,
           contentLength: verdict.content.length,
         });
-        agent.sendPrompt(verdict.sessionId, verdict.content).catch((error) => {
+        agent.sendPrompt(backendSessionId, verdict.content).catch((error) => {
           logger.error('Failed to send prompt to agent', { error });
           // Also surface the error to mobile via session-state. Wrapped in
           // safeRelaySend so a relay-down condition doesn't mask the
@@ -503,7 +517,7 @@ export class ApiSessionManager {
         return;
 
       case 'cancel':
-        agent.cancel(verdict.sessionId).catch((error) => {
+        agent.cancel(backendSessionId).catch((error) => {
           logger.debug('Error cancelling agent', { error });
         });
         return;
