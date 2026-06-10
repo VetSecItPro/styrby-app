@@ -9,6 +9,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import type { AgentType } from '@styrby/shared';
 import { ChatThread } from './chat-thread';
 import { ChatInput } from './chat-input';
 import { SummaryTab } from './summary-tab';
@@ -259,7 +260,14 @@ export function SessionView({
           />
 
           {/* Input (only shown for active sessions) */}
-          {isSessionActive && <ChatInput sessionId={session.id} />}
+          {isSessionActive && (
+            <ChatInput
+              sessionId={session.id}
+              userId={userId}
+              agent={session.agent_type as AgentType}
+              machineId={session.machine_id}
+            />
+          )}
 
           {/* Ended session footer with summary */}
           {!isSessionActive && (
