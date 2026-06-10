@@ -2,8 +2,15 @@
  * useChatSend
  *
  * Builds the `handleSend` callback used by the chat input bar. Handles
- * session lazy-creation, optimistic message append, optional E2E encryption
- * of the relay payload, and Supabase persistence.
+ * session lazy-creation, optimistic message append, the relay send, and
+ * Supabase persistence.
+ *
+ * WHY the relay payload is PLAINTEXT (not E2E-encrypted): the CLI dispatcher
+ * reads `payload.content` directly and never decrypts an `encrypted_content`
+ * field. Encrypting the relay payload (as the pre-2026-06-10 code did, setting
+ * `content: ''` when paired) made the CLI forward an EMPTY string to the agent.
+ * E2E encryption lives on the persisted history instead, via `saveMessageToDb`;
+ * the transient relay control message is plaintext over TLS, matching web.
  *
  * WHY a dedicated hook: `handleSend` is ~90 LOC of branching logic. Pulling
  * it into a hook drops complexity from the orchestrator and gives us a
