@@ -39,6 +39,13 @@ import type {
 } from '../core';
 import { agentRegistry } from '../core';
 import { StreamingAgentBackendBase } from '../StreamingAgentBackendBase';
+import {
+  startClaudePermissionServer,
+  PERMISSION_MCP_SERVER_NAME,
+  PERMISSION_PROMPT_TOOL_ID,
+  type RunningPermissionServer,
+  type PermissionDecision,
+} from './claudePermissionServer';
 
 // ============================================================================
 // Auth Mode Detection
@@ -248,6 +255,32 @@ export interface ClaudeBackendOptions extends AgentFactoryOptions {
   resumeSessionId?: string;
   /** Tool allowlist (e.g. ['Bash(git *)', 'Read']). */
   allowedTools?: string[];
+  /**
+   * Route every gated tool-use to the paired mobile device for an inline
+   * approve/deny decision (default `true`).
+   *
+   * WHY default on: this is the premium behavior — claude pauses at each
+   * non-allowlisted tool and asks, the same as Codex. When `true` the backend
+   * spawns claude with `--permission-mode default` + a `--permission-prompt-tool`
+   * pointed at an in-process MCP server (see {@link ClaudeBackend}). Set `false`
+   * for unattended/automation sessions that should run on a fixed
+   * {@link permissionMode} ('acceptEdits'/'bypassPermissions') without prompting.
+   * Tools in {@link allowedTools} are pre-approved and never prompt.
+   */
+  interactivePermissions?: boolean;
+  /**
+   * Per-tool approval timeout in ms (default 240000 = 4 min). On timeout the
+   * decision FAILS CLOSED (deny) so a tool never runs without an explicit
+   * approval and claude is never left blocked indefinitely.
+   */
+  permissionTimeoutMs?: number;
+  /**
+   * Tool names routed to mobile approval when {@link interactivePermissions} is
+   * on (default {@link DEFAULT_GATED_TOOLS}). Passed as claude's
+   * `permissions.ask` list so they prompt even if the user's local settings
+   * allow them. Read-only tools omitted here stay auto-allowed.
+   */
+  gatedTools?: string[];
   /** Extra `claude` CLI args (validated for shell-safety by the base class). */
   extraArgs?: string[];
 }
@@ -296,6 +329,24 @@ interface ClaudeStreamMessage {
 const CLAUDE_EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
 /**
+ * Tools routed to mobile approval by default in interactive sessions.
+ *
+ * WHY this set: these are the side-effecting / external tools (mutate the repo,
+ * run shell, reach the network). Read-only tools (Read/Glob/Grep) are left
+ * auto-allowed so a remote session is not death-by-a-thousand-prompts. Override
+ * via {@link ClaudeBackendOptions.gatedTools}.
+ *
+ * WHY a `permissions.ask` list (not just --permission-prompt-tool): claude only
+ * consults the permission-prompt tool for a tool-use that its rules don't
+ * already allow/deny. A user's `~/.claude/settings.json` `allow` list (e.g.
+ * `Bash(*)`) would otherwise auto-approve and silently bypass mobile approval.
+ * Permission precedence is deny > ask > allow, so putting these tools in `ask`
+ * (passed via --settings) forces the prompt -> our tool -> mobile, regardless of
+ * the user's local allow list. Verified live against claude 2.1.169.
+ */
+const DEFAULT_GATED_TOOLS = ['Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch'];
+
+/**
  * Claude Code backend — clean-room managed spawn of the `claude` binary.
  *
  * WHY this reimplements the spawn technique instead of wrapping Happy's
@@ -324,12 +375,29 @@ export class ClaudeBackend extends StreamingAgentBackendBase {
    */
   private billingModel: BillingModel;
 
+  /** Whether per-tool decisions are routed to mobile (see options). */
+  private readonly interactivePermissions: boolean;
+  /** Per-tool approval timeout (fail-closed deny). */
+  private readonly permissionTimeoutMs: number;
+  /**
+   * Parked approval promises keyed by request id (claude's tool_use id, or a
+   * generated id). Resolved by {@link respondToPermission} with the relayed
+   * mobile decision — the same park-and-resolve pattern CodexBackend uses.
+   */
+  private readonly pendingApprovals = new Map<string, (d: PermissionDecision) => void>();
+  /** In-process MCP server hosting the permission-prompt tool (lazy). */
+  private permissionServer: RunningPermissionServer | null = null;
+  /** Temp `--mcp-config` file path registering the permission server (lazy). */
+  private mcpConfigPath: string | null = null;
+
   constructor(private readonly options: ClaudeBackendOptions) {
     super();
     // Detect subscription vs api-key once so every cost-report is classified
     // correctly (subscription => costUsd 0).
     this.billingModel = detectClaudeBillingModel();
     this.claudeSessionId = options.resumeSessionId ?? null;
+    this.interactivePermissions = options.interactivePermissions ?? true;
+    this.permissionTimeoutMs = options.permissionTimeoutMs ?? 240_000;
   }
 
   /**
@@ -381,9 +449,40 @@ export class ClaudeBackend extends StreamingAgentBackendBase {
       // --verbose is required for stream-json to emit the full event stream in
       // print mode (otherwise only the final result is printed).
       '--verbose',
-      '--permission-mode',
-      this.options.permissionMode ?? 'acceptEdits',
     ];
+
+    if (this.interactivePermissions) {
+      // Interactive per-tool approval: claude runs in 'default' mode (which gates
+      // tools) and routes every gated decision to our in-process permission MCP
+      // server via --permission-prompt-tool. The server's handler calls
+      // this.decide() -> emits permission-request -> awaits the mobile response.
+      // --strict-mcp-config keeps claude from also loading the user's own MCP
+      // servers (we only want ours for the prompt hook).
+      await this.ensurePermissionServer();
+      // WHY --settings with a permissions.ask list: forces the gated tools to
+      // prompt even if the user's ~/.claude/settings.json allows them (ask >
+      // allow). The prompt is delegated to our --permission-prompt-tool. Inline
+      // JSON (not a file) since spawn() passes args without a shell.
+      const gated = this.options.gatedTools ?? DEFAULT_GATED_TOOLS;
+      const settings = JSON.stringify({
+        permissions: { defaultMode: 'default', ask: gated, allow: [], deny: [] },
+      });
+      args.push(
+        '--permission-mode',
+        'default',
+        '--settings',
+        settings,
+        '--mcp-config',
+        this.mcpConfigPath as string,
+        '--strict-mcp-config',
+        '--permission-prompt-tool',
+        PERMISSION_PROMPT_TOOL_ID,
+      );
+    } else {
+      // Unattended/automation: fixed permission mode, no prompting.
+      args.push('--permission-mode', this.options.permissionMode ?? 'acceptEdits');
+    }
+
     if (this.options.model) args.push('--model', this.options.model);
     if (this.claudeSessionId) args.push('--resume', this.claudeSessionId);
     if (this.options.allowedTools?.length) {
@@ -527,10 +626,122 @@ export class ClaudeBackend extends StreamingAgentBackendBase {
     }
   }
 
-  // respondToPermission, waitForResponseComplete, onMessage/offMessage and
-  // dispose are inherited from StreamingAgentBackendBase. The session runs with
-  // a fixed --permission-mode, so the base emit-only permission default is
-  // correct (interactive per-tool mobile approval is a follow-up).
+  /**
+   * Lazily start the in-process permission MCP server and write its
+   * `--mcp-config` file. Idempotent: reused across prompts in the same session,
+   * torn down in {@link dispose}.
+   */
+  private async ensurePermissionServer(): Promise<void> {
+    if (this.permissionServer) return;
+    this.permissionServer = await startClaudePermissionServer((toolName, input, toolUseId) =>
+      this.decide(toolName, input, toolUseId),
+    );
+    // Register the in-process server as an HTTP MCP server claude connects to.
+    const config = {
+      mcpServers: {
+        [PERMISSION_MCP_SERVER_NAME]: { type: 'http', url: this.permissionServer.url },
+      },
+    };
+    this.mcpConfigPath = path.join(os.tmpdir(), `styrby-claude-mcp-${randomUUID()}.json`);
+    fs.writeFileSync(this.mcpConfigPath, JSON.stringify(config), 'utf8');
+    logger.debug(`[ClaudeBackend] permission MCP config at ${this.mcpConfigPath}`);
+  }
+
+  /**
+   * Decide whether claude may use a tool. Emits a `permission-request` and parks
+   * a promise resolved by {@link respondToPermission} when the mobile decision
+   * arrives. Fails CLOSED (deny) after {@link permissionTimeoutMs} so a tool is
+   * never auto-run and claude is never blocked indefinitely.
+   *
+   * @param toolName - The claude tool awaiting approval (e.g. 'Bash').
+   * @param input - The tool's input arguments (surfaced to mobile).
+   * @param toolUseId - Claude's tool_use id when present; the correlation key.
+   * @returns The decision once relayed back (or a timeout deny).
+   */
+  private decide(
+    toolName: string,
+    input: Record<string, unknown>,
+    toolUseId: string | undefined,
+  ): Promise<PermissionDecision> {
+    const id = toolUseId ?? randomUUID();
+    return new Promise<PermissionDecision>((resolve) => {
+      const timer = setTimeout(() => {
+        if (this.pendingApprovals.delete(id)) {
+          this.emit({ type: 'permission-response', id, approved: false });
+          resolve({ approved: false, message: 'Approval timed out' });
+        }
+      }, this.permissionTimeoutMs);
+      // Unref so a pending approval timer never keeps the event loop alive on
+      // shutdown (dispose drains pending approvals explicitly).
+      timer.unref?.();
+
+      this.pendingApprovals.set(id, (decision) => {
+        clearTimeout(timer);
+        resolve(decision);
+      });
+      this.emit({
+        type: 'permission-request',
+        id,
+        reason: `Claude wants to run: ${toolName}`,
+        payload: input,
+      });
+    });
+  }
+
+  /**
+   * Resolve a parked per-tool approval with the relayed mobile decision.
+   *
+   * Mirrors CodexBackend: look up the pending request by id, resolve its promise
+   * (unblocking the MCP permission-prompt handler so claude proceeds or skips the
+   * tool), and emit a `permission-response` for UI/analytics. Falls back to the
+   * base emit-only behavior when no request is parked (e.g. a non-interactive
+   * session, or a late/duplicate response).
+   *
+   * @param requestId - The id from the `permission-request` message.
+   * @param approved - Whether the user approved the tool.
+   */
+  override async respondToPermission(requestId: string, approved: boolean): Promise<void> {
+    const resolve = this.pendingApprovals.get(requestId);
+    if (resolve) {
+      this.pendingApprovals.delete(requestId);
+      resolve({ approved });
+      this.emit({ type: 'permission-response', id: requestId, approved });
+      return;
+    }
+    await super.respondToPermission(requestId, approved);
+  }
+
+  /**
+   * Tear down the permission server, remove its temp config, and deny any
+   * still-parked approvals so a blocked claude process can exit cleanly.
+   */
+  override async dispose(): Promise<void> {
+    // Deny outstanding approvals first so the MCP handlers return (allowing claude
+    // to finish) before we kill the server + child in super.dispose().
+    for (const resolve of this.pendingApprovals.values()) {
+      resolve({ approved: false, message: 'Session ended' });
+    }
+    this.pendingApprovals.clear();
+
+    if (this.permissionServer) {
+      try {
+        await this.permissionServer.close();
+      } catch {
+        /* best-effort teardown */
+      }
+      this.permissionServer = null;
+    }
+    if (this.mcpConfigPath) {
+      try {
+        fs.rmSync(this.mcpConfigPath, { force: true });
+      } catch {
+        /* best-effort cleanup */
+      }
+      this.mcpConfigPath = null;
+    }
+
+    await super.dispose();
+  }
 }
 
 /**
@@ -549,6 +760,7 @@ export function createClaudeBackend(options: ClaudeBackendOptions): ClaudeBacken
   logger.debug('[ClaudeBackend] Creating backend', {
     cwd: options.cwd,
     model: options.model,
+    interactivePermissions: options.interactivePermissions ?? true,
     permissionMode: options.permissionMode ?? 'acceptEdits',
   });
 
