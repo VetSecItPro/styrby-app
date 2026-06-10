@@ -26,6 +26,7 @@ const h = vi.hoisted(() => {
         encryption_nonce: 'NONCE',
       }),
     ),
+    saveCommand: vi.fn(async (_input: unknown): Promise<unknown> => ({})),
   };
 });
 
@@ -34,6 +35,9 @@ vi.mock('@/hooks/useRelaySend', () => ({
 }));
 vi.mock('@/lib/encryption', () => ({
   encryptForSession: (content: string, machineId: string) => h.encryptForSession(content, machineId),
+}));
+vi.mock('@/lib/offline-storage', () => ({
+  saveCommand: (input: unknown) => h.saveCommand(input),
 }));
 
 import { ChatInput } from '../chat-input';
@@ -44,6 +48,7 @@ beforeEach(() => {
   h.connected = true;
   h.sendChat.mockClear().mockResolvedValue(undefined);
   h.encryptForSession.mockClear().mockResolvedValue({ content_encrypted: 'CT', encryption_nonce: 'NONCE' });
+  h.saveCommand.mockClear().mockResolvedValue({});
   global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }) as unknown as typeof fetch;
 });
 afterEach(() => cleanup());
@@ -89,12 +94,39 @@ describe('ChatInput send path', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  it('disables send + shows a connecting hint when the relay is not connected', () => {
+  it('queues offline (saveCommand) instead of broadcasting when disconnected', async () => {
     h.connected = false;
     render(<ChatInput {...BASE_PROPS} />);
 
-    expect(screen.getByLabelText('Send message')).toBeDisabled();
-    expect(screen.getByText(/Connecting to relay/i)).toBeInTheDocument();
+    // Offline hint shown. Sending while offline is allowed (queueing) — proven
+    // by saveCommand being invoked below (a disabled button wouldn't fire it).
+    expect(screen.getByText(/Offline — messages are queued/i)).toBeInTheDocument();
+
+    await typeAndSend('offline message');
+
+    await waitFor(() =>
+      expect(h.saveCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command_type: 'chat',
+          payload: { content: 'offline message', agent: 'claude', session_id: 'sess-1' },
+          machine_id: 'machine-1',
+          session_id: 'sess-1',
+        }),
+      ),
+    );
+    expect(h.sendChat).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
+    // The confirmation notice (distinct from the standing offline hint).
+    expect(screen.getByText(/message queued\. It will send/i)).toBeInTheDocument();
+  });
+
+  it('errors when queueing offline with no paired machine', async () => {
+    h.connected = false;
+    render(<ChatInput {...BASE_PROPS} machineId={null} />);
+    await typeAndSend('offline message');
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/no paired machine/i));
+    expect(h.saveCommand).not.toHaveBeenCalled();
   });
 
   it('surfaces an error and keeps the input when the broadcast fails', async () => {

@@ -27,12 +27,20 @@ import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 export interface StoredCommand {
   /** Auto-incrementing local key (used as IndexedDB primary key) */
   localId?: number;
-  /** Unique command ID (UUID) */
+  /** Unique command ID (UUID) — also used as the server queue PK for dedup */
   id: string;
   /** The type of command (e.g., 'chat', 'permission_response', 'cancel') */
   command_type: string;
   /** JSON-serialized command payload */
   payload: string;
+  /**
+   * The CLI machine this command targets. REQUIRED: `offline_command_queue`
+   * has `machine_id UUID NOT NULL REFERENCES machines(id)`, so this must be a
+   * real machine id (NOT the user id — that was the FK-violation bug).
+   */
+  machine_id: string;
+  /** The session this command belongs to, or null for session-less commands. */
+  session_id: string | null;
   /** ISO 8601 timestamp when the command was created */
   created_at: string;
   /** Whether this command has been synced to Supabase */
@@ -50,6 +58,10 @@ export interface SaveCommandInput {
   command_type: string;
   /** The command payload (will be JSON-stringified) */
   payload: Record<string, unknown>;
+  /** Target CLI machine id (required — FK to machines on the server queue). */
+  machine_id: string;
+  /** Owning session id, or null. */
+  session_id?: string | null;
   /** Optional custom timestamp; defaults to now */
   created_at?: string;
 }
@@ -143,6 +155,8 @@ async function getDb(): Promise<IDBPDatabase<OfflineStorageDB>> {
  * await saveCommand({
  *   command_type: 'chat',
  *   payload: { content: 'Hello', agent: 'claude' },
+ *   machine_id: session.machine_id,
+ *   session_id: session.id,
  * });
  */
 export async function saveCommand(command: SaveCommandInput): Promise<StoredCommand> {
@@ -152,6 +166,8 @@ export async function saveCommand(command: SaveCommandInput): Promise<StoredComm
     id: command.id ?? crypto.randomUUID(),
     command_type: command.command_type,
     payload: JSON.stringify(command.payload),
+    machine_id: command.machine_id,
+    session_id: command.session_id ?? null,
     created_at: command.created_at ?? new Date().toISOString(),
     synced: false,
   };
