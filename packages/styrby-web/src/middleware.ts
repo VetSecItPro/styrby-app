@@ -326,8 +326,9 @@ export async function middleware(request: NextRequest) {
 
   // ── Search engines and humans: pass through to auth logic ────────────────
 
-  // Update Supabase auth session
-  const response = await updateSession(request);
+  // Update Supabase auth session. We keep the validated user so protected-route
+  // gating can check a real session instead of trusting cookie presence.
+  const { response, user: sessionUser } = await updateSession(request);
 
   // ── Admin route guard (/admin/* and /api/admin/*) ─────────────────────────
   //
@@ -442,30 +443,23 @@ export async function middleware(request: NextRequest) {
 
   if (isProtectedPath) {
     /**
-     * Derive the Supabase session cookie name from NEXT_PUBLIC_SUPABASE_URL.
+     * Gate protected routes on the VALIDATED session, not cookie presence.
      *
-     * WHY: Hardcoding the project ref creates a maintenance hazard -- if the
-     * Supabase project changes (e.g., migration to a new instance), the cookie
-     * check silently breaks and all protected routes become inaccessible.
-     * Deriving it from the environment variable keeps the middleware in sync
-     * with whichever Supabase project is configured.
-     *
-     * Cookie format: `sb-{project_ref}-auth-token`
-     * URL format:    `https://{project_ref}.supabase.co`
+     * WHY (bugs #15, #46): The previous gate checked `request.cookies.has(
+     * 'sb-<ref>-auth-token')`. That is wrong in two directions:
+     *   - False-negative: when a session JWT exceeds ~3180 bytes (common with
+     *     Google/GitHub OAuth), Supabase chunks it into `.0`/`.1` cookies and
+     *     the base `sb-<ref>-auth-token` cookie is ABSENT — locking out legit
+     *     users on every protected page.
+     *   - False-positive: anyone can set a cookie literally named
+     *     `sb-<ref>-auth-token` to any value and pass the gate, because no JWT
+     *     validation ran here.
+     * updateSession() now calls getUser() (which verifies the JWT signature
+     * and expiry against Supabase) and returns the validated user. We gate on
+     * that — a null user means no real session regardless of which cookies
+     * are present.
      */
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
-    const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1] ?? '';
-    const cookieName = `sb-${projectRef}-auth-token`;
-
-    // FIX-052: Check both cookie presence AND updateSession result
-    // WHY: Cookie presence alone doesn't guarantee the JWT is valid --
-    // it could be expired or tampered. updateSession already refreshes
-    // the token, but we also check if the response indicates auth failure
-    // (e.g., redirect to login means the session refresh failed).
-    const hasSession = request.cookies.has(cookieName);
-    const isAuthRedirect = response.headers.get('location')?.includes('/login');
-
-    if (!hasSession || isAuthRedirect) {
+    if (!sessionUser) {
       // Redirect to login with return URL
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', request.nextUrl.pathname);

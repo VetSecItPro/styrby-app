@@ -129,7 +129,11 @@ describe('POST /api/auth/passkey/verify', () => {
   });
 
   it('forwards verify-login and propagates session payload', async () => {
-    const edgePayload = { success: true, access_token: 'tok', refresh_token: 'ref' };
+    // WHY hashed_token (not access_token): the verify-passkey edge function
+    // mints a magiclink and returns { verified, hashed_token, email }. The proxy
+    // forwards verbatim; the browser exchanges hashed_token via verifyOtp. This
+    // mock encodes the REAL edge contract so it can't drift from reality. (bug #3)
+    const edgePayload = { verified: true, hashed_token: 'hash-tok', email: 'a@b.com' };
     global.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(edgePayload), { status: 200 }),
     ) as typeof fetch;
@@ -138,7 +142,8 @@ describe('POST /api/auth/passkey/verify', () => {
     const res = await POST(req);
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.access_token).toBe('tok');
+    expect(json.hashed_token).toBe('hash-tok');
+    expect(json.verified).toBe(true);
   });
 
   it('propagates 422 from edge function (invalid signature)', async () => {
@@ -250,7 +255,7 @@ describe('POST /api/auth/passkey/verify', () => {
       error: null,
     });
     global.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 }),
+      new Response(JSON.stringify({ verified: true, hashed_token: 'hash-tok' }), { status: 200 }),
     ) as typeof fetch;
 
     const req = makeRequest({ action: 'verify-login', email: 'success@example.com', response: { id: 'cred' } });

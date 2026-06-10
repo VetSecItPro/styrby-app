@@ -40,13 +40,22 @@ export class Stream<T> implements AsyncIterableIterator<T> {
             })
         }
 
-        // Check terminal states
-        if (this.isDone) {
-            return Promise.resolve({ done: true, value: undefined })
-        }
-
+        // Check terminal states.
+        // WHY (audit 2026-06-09 fix #21): the error check MUST take precedence
+        // over the done check. If error() was called while no consumer was parked
+        // in readReject (the generator was between awaits, or items were just
+        // queued), hasError is set but the rejection was never delivered. If
+        // isDone is also set (done() and error() both fired), checking isDone
+        // first returned { done: true } and silently swallowed the error — the
+        // turn loop then believed the Claude process ended cleanly when it had
+        // actually crashed. Surfacing the error first restores correct failure
+        // propagation to mobile.
         if (this.hasError) {
             return Promise.reject(this.hasError)
+        }
+
+        if (this.isDone) {
+            return Promise.resolve({ done: true, value: undefined })
         }
 
         // Wait for new data

@@ -735,6 +735,36 @@ describe('AiderBackend — cancel', () => {
     // No sendPrompt call — no active process
     await expect(backend.cancel(sessionId)).resolves.not.toThrow();
   });
+
+  it('does NOT surface a false error when a cancelled process exits non-zero (audit fix #6)', async () => {
+    const { backend } = createAiderBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    // Start a prompt and capture its promise so we can assert it resolves.
+    const promptPromise = backend.sendPrompt(sessionId, 'long running task');
+
+    // User taps Cancel -> SIGTERM. The subprocess then exits with a
+    // signal/non-zero code (Node reports null for SIGTERM-killed processes).
+    await backend.cancel(sessionId);
+    (currentMockProcess.stdout as PassThrough).end();
+    (currentMockProcess.stderr as PassThrough).end();
+    process.nextTick(() => currentMockProcess.emit('close', null));
+
+    // The in-flight sendPrompt promise must RESOLVE (not reject) — a cancel is
+    // intentional, not an agent failure.
+    await expect(promptPromise).resolves.toBeUndefined();
+
+    // No 'error' status frame may have been emitted by the close handler.
+    const errorStatuses = messages.filter(
+      (m: any) => m.type === 'status' && m.status === 'error',
+    );
+    expect(errorStatuses).toHaveLength(0);
+
+    // The terminal status must be a clean idle.
+    const lastStatus = messages.filter((m: any) => m.type === 'status').at(-1) as any;
+    expect(lastStatus?.status).toBe('idle');
+  });
 });
 
 // ===========================================================================

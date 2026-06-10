@@ -183,7 +183,11 @@ export const TIERS = {
       messagesPerMonth: 100_000,
       budgetAlerts: 5,
       webhooks: 10,
-      teamMembers: 100,
+      // Canonical Growth seat ceiling is 25 (Polar product max). The team page
+      // and POST /api/teams/[id]/members both enforce against this constant, so
+      // 25 here caps invitations at the billed maximum (was 100 = 75 unbilled
+      // seats of revenue leak). (bug #18)
+      teamMembers: 25,
       apiKeys: 5,
       /** Maximum saved session bookmarks. -1 means unlimited. */
       bookmarks: -1,

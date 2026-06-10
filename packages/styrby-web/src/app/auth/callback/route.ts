@@ -25,6 +25,7 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { sendWelcomeEmail } from '@/lib/resend';
+import { isDisposableEmail } from '@/lib/disposable-emails';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -174,6 +175,24 @@ export async function GET(request: Request) {
     }
 
     const user = sessionData.user;
+
+    // -------------------------------------------------------------------------
+    // Step 0: Disposable-email enforcement (bugs #48 / #31)
+    //
+    // WHY here: the OTP send/verify path now blocks disposable addresses
+    // server-side, but OAuth (GitHub/Google) bypassed that gate entirely — a
+    // user could sign up with a throwaway address just by clicking "Continue
+    // with GitHub". The callback is the only server-side point where the
+    // provider-VERIFIED email is available, so we enforce the policy uniformly
+    // here. We use the verified session email (not a client-supplied value).
+    //
+    // On a disposable hit we tear down the just-created session and redirect to
+    // /login so no usable session survives the rejection.
+    // -------------------------------------------------------------------------
+    if (user.email && isDisposableEmail(user.email)) {
+      await supabase.auth.signOut();
+      return NextResponse.redirect(`${origin}/login?error=disposable_email`);
+    }
 
     // -------------------------------------------------------------------------
     // Step 1: Welcome email for new users

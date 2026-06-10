@@ -52,6 +52,7 @@ import * as Sentry from '@sentry/nextjs';
 import { createAdminClient } from '@/lib/supabase/server';
 import { rateLimit } from '@/lib/rateLimit';
 import { OTP_SEND_RATE_LIMIT, hashEmail, MAX_EMAIL_LENGTH } from '@/lib/auth/api-config';
+import { isDisposableEmail } from '@/lib/disposable-emails';
 
 // ============================================================================
 // Zod Schema
@@ -192,6 +193,19 @@ async function handlePost(request: NextRequest): Promise<NextResponse> {
   }
 
   const body: OtpSendBody = parsed.data;
+
+  // ── 2b. Disposable-email server-side backstop (bug #31) ───────────────────
+  // WHY here (server-side, not just the React form): the CLI and any direct
+  // caller hit this endpoint without the website forms, so the client-side
+  // disposable-email gate was fully bypassable — a throwaway address could
+  // auto-provision a real user (shouldCreateUser:true) and mint a long-lived
+  // API key. We silently no-op the send (okInvariantResponse) rather than
+  // returning a distinct error, preserving the account-enumeration-defense
+  // invariance the rest of this endpoint maintains (OWASP A01:2021): a caller
+  // cannot distinguish "blocked disposable" from "accepted" from the response.
+  if (isDisposableEmail(body.email)) {
+    return okInvariantResponse();
+  }
 
   // ── 3. Send OTP via Supabase Auth ─────────────────────────────────────────
   // WHY createAdminClient() per-request: fresh instance prevents cross-request

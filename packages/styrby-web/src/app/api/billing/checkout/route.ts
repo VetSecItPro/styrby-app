@@ -104,11 +104,16 @@ const idempotencyCache = new Map<string, CachedCheckout>();
 /**
  * Computes the idempotency key for a checkout request.
  *
- * WHY include the 60-second bucket: ensures the dedup window is rolling.
- * Two requests at second 0 and second 65 produce different keys (and thus
- * two checkouts — the user clearly intends a new purchase). Two requests
- * at second 0 and second 30 produce the same key (dedup). Floor by the
- * TTL so keys align with the cache's natural eviction.
+ * WHY no time bucket in the key (bug #32): a tumbling bucket
+ * (Math.floor(now / TTL)) made two clicks that straddle a bucket boundary
+ * (t=00:59.99 → bucket N, t=01:00.04 → bucket N+1) produce DIFFERENT keys, so
+ * the second click missed the cache and created a second Polar checkout — a
+ * real double-charge risk. The key is now purely the request identity
+ * (user+tier+cycle+seats); the rolling 60s window is enforced entirely by each
+ * cache entry's own `expiresAt` TTL (getCachedCheckout lazily evicts on read).
+ * A double-tap within 60s of the FIRST tap always hits the same live entry,
+ * regardless of wall-clock boundaries; after the entry expires a genuine repeat
+ * purchase produces a fresh checkout.
  */
 function computeIdempotencyKey(
   userId: string,
@@ -116,8 +121,7 @@ function computeIdempotencyKey(
   billingCycle: string,
   seats: number | undefined,
 ): string {
-  const bucket = Math.floor(Date.now() / IDEMPOTENCY_TTL_MS);
-  const payload = `${userId}|${tierId}|${billingCycle}|${seats ?? 0}|${bucket}`;
+  const payload = `${userId}|${tierId}|${billingCycle}|${seats ?? 0}`;
   // SHA-256 keeps the cache key fixed-length and keeps userId out of any
   // accidental log dump of the cache (defense-in-depth — the cache itself
   // is in-memory and never logged today, but this costs us nothing).

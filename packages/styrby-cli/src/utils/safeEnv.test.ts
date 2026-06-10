@@ -77,3 +77,43 @@ describe('validateExtraArgs - path traversal blocklist (per-agent flags)', () =>
     ]);
   });
 });
+
+describe('validateExtraArgs - SPACE-SEPARATED flag/value bypass (audit fix #8)', () => {
+  // WHY: the `=`-joined checks only see one token. Splitting the flag and its
+  // value across two argv elements (`['--config', '/etc/passwd']`) previously
+  // bypassed every guard. These cases assert the pairwise flag-context check.
+  it.each([
+    ['--config /etc/passwd', ['--config', '/etc/passwd']],
+    ['--profile /etc/secret.toml', ['--profile', '/etc/secret.toml']],
+    ['--env-file /etc/shadow', ['--env-file', '/etc/shadow']],
+    ['-config /etc/passwd (short flag)', ['-config', '/etc/passwd']],
+  ])('rejects %s targeting /etc/', (_label, args) => {
+    expect(() => validateExtraArgs(args)).toThrow(/Unsafe argument targeting system path/);
+  });
+
+  it.each([
+    ['--config ../../../etc/secret.toml', ['--config', '../../../etc/secret.toml']],
+    ['--profile ../../secret.toml', ['--profile', '../../secret.toml']],
+    ['--include ../../bad', ['--include', '../../bad']],
+    ['--load ../../bad', ['--load', '../../bad']],
+  ])('rejects %s path traversal', (_label, args) => {
+    expect(() => validateExtraArgs(args)).toThrow(/Unsafe path traversal/);
+  });
+
+  it('still allows a space-separated config flag pointing at a project-relative path', () => {
+    expect(validateExtraArgs(['--config', './config.toml'])).toEqual([
+      '--config',
+      './config.toml',
+    ]);
+    expect(validateExtraArgs(['--profile', 'workspace/dev.json'])).toEqual([
+      '--profile',
+      'workspace/dev.json',
+    ]);
+  });
+
+  it('does not treat a non-config flag value as a config path', () => {
+    // `--model /etc/whatever` is not a config-loading flag, so its value is not
+    // path-checked (it is not loaded as a config file). Should pass.
+    expect(validateExtraArgs(['--model', 'sonnet-4'])).toEqual(['--model', 'sonnet-4']);
+  });
+});

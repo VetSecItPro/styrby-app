@@ -364,10 +364,14 @@ async function deleteHandler(
 
   const supabase = createApiAdminClient();
 
-  // Build the delete query
+  // Build the delete query.
+  // WHY count: 'exact' (bug #45): without it Supabase returns count=null, so the
+  // `count === 0` 404 branch below is dead code and a DELETE of a non-existent
+  // (or other-user's) checkpoint returned 200 { deleted: true } — a misleading
+  // contract. Requesting an exact count makes the documented 404 reachable.
   let query = supabase
     .from('session_checkpoints')
-    .delete()
+    .delete({ count: 'exact' })
     .eq('session_id', sessionId)
     .eq('user_id', userId);
 

@@ -579,6 +579,10 @@ class KiloBackend extends StreamingAgentBackendBase {
       throw new Error(`Invalid session ID: ${sessionId}`);
     }
 
+    // Reset run-scoped state (clears the cancelled flag) so this run's exit is
+    // classified correctly by the close handler (audit 2026-06-09 fix #6).
+    this.beginRun();
+
     this.lineBuffer = '';
     this.emit({ type: 'status', status: 'running' });
 
@@ -706,6 +710,12 @@ class KiloBackend extends StreamingAgentBackendBase {
           if (code === 0) {
             this.emit({ type: 'status', status: 'idle' });
             resolve();
+          } else if (this.wasCancelled()) {
+            // Intentional user cancel (or dispose) SIGTERM'd the process, which
+            // surfaces here as a non-zero/null exit. Emit a clean idle status and
+            // resolve instead of a spurious agent error (audit 2026-06-09 fix #6).
+            this.emit({ type: 'status', status: 'idle' });
+            resolve();
           } else {
             this.emit({
               type: 'status',
@@ -762,6 +772,9 @@ class KiloBackend extends StreamingAgentBackendBase {
 
     if (this.process) {
       logger.debug('[KiloBackend] Cancelling Kilo process');
+      // Mark cancelled BEFORE SIGTERM so the close handler treats the resulting
+      // non-zero exit as an intentional cancel, not a crash (audit 2026-06-09 fix #6).
+      this.markCancelled();
       this.process.kill('SIGTERM');
       // WHY: Give Kilo 3 seconds to flush any pending Memory Bank writes to disk
       // before SIGKILL. A partial write could corrupt the project context on next

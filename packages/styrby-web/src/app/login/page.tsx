@@ -252,12 +252,34 @@ function LoginForm() {
 
       const verifyData = await verifyRes.json();
 
-      // 4. Set the Supabase session from the tokens the edge function returns
-      if (verifyData.access_token && verifyData.refresh_token) {
-        await supabase.auth.setSession({
-          access_token: verifyData.access_token,
-          refresh_token: verifyData.refresh_token,
+      // 4. Exchange the edge function's hashed_token for a real Supabase session.
+      // WHY: The verify-passkey edge function mints a magiclink and returns
+      // `{ verified, hashed_token, email }` (NOT access_token/refresh_token).
+      // The client must redeem hashed_token via verifyOtp({ type: 'email' })
+      // to establish the session cookie. Without this the dashboard sees no
+      // session and bounces the user back to /login. (bug #3)
+      if (!verifyData.hashed_token) {
+        throw new Error('Passkey sign-in did not complete. Try again.');
+      }
+
+      const { error: otpError } = await supabase.auth.verifyOtp({
+        token_hash: verifyData.hashed_token,
+        type: 'email',
+      });
+      if (otpError) throw otpError;
+
+      // WHY: Confirm a session actually exists before navigating to a protected
+      // route. A 200 response without a usable session would otherwise redirect
+      // the user into a bounce-back loop with no error shown. (bug #47)
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) {
+        setMessage({
+          type: 'error',
+          text: 'Passkey sign-in did not complete. Try again.',
         });
+        return;
       }
 
       router.push(redirect);

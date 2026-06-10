@@ -546,6 +546,61 @@ describe('POST /api/webhooks/polar', () => {
       expect(mockUpsert).toHaveBeenCalled();
     });
 
+    it('BUG #16: subscriptions upsert failure → 500 AND dedup row compensating-deleted', async () => {
+      // Wire a delete() mock so the compensating-delete path can run + be asserted.
+      const mockDelete = vi.fn();
+      const deleteEqFn = vi.fn().mockResolvedValue({ data: null, error: null });
+      mockDelete.mockReturnValue({ eq: deleteEqFn });
+      mockFrom.mockReturnValue({
+        select: mockSelect,
+        eq: mockEq,
+        single: mockSingle,
+        maybeSingle: mockMaybeSingle,
+        upsert: mockUpsert,
+        update: mockUpdate,
+        insert: mockInsert,
+        order: mockOrder,
+        limit: mockLimit,
+        delete: mockDelete,
+      });
+
+      // Call 1: dedup upsert into polar_webhook_events — chains .select() and
+      // returns a recorded row (this delivery wrote the dedup row).
+      mockUpsert.mockReturnValueOnce({
+        select: vi.fn().mockResolvedValue({
+          data: [{ event_id: 'evt_created_fail_001' }],
+          error: null,
+        }),
+      });
+      // Call 2: subscriptions upsert — awaited directly, resolves to an error
+      // simulating a transient DB / constraint failure.
+      mockUpsert.mockResolvedValueOnce({
+        data: null,
+        error: { message: 'simulated DB failure on subscriptions upsert' },
+      });
+
+      // Profile lookups succeed; no existing sub.
+      mockSingle.mockResolvedValueOnce({ data: { id: 'user-uuid-123' }, error: null });
+      mockSingle.mockResolvedValueOnce({ data: { user_id: 'user-uuid-123' }, error: null });
+      mockSingle.mockResolvedValueOnce({ data: null, error: null });
+
+      const event = {
+        id: 'evt_created_fail_001',
+        ...createSubscriptionEvent('subscription.created'),
+      };
+      const response = await sendSignedEvent(event);
+
+      // Polar must see a 500 so it retries.
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body.error).toBe('Processing failed');
+
+      // The dedup row recorded THIS delivery must be deleted so the retry
+      // re-runs the upsert (otherwise the dedup short-circuit drops it = drift).
+      expect(mockDelete).toHaveBeenCalled();
+      expect(deleteEqFn).toHaveBeenCalledWith('event_id', 'evt_created_fail_001');
+    });
+
     it('handles subscription.updated event', async () => {
       // Mock 1: Profile lookup succeeds
       mockSingle.mockResolvedValueOnce({

@@ -54,12 +54,12 @@ function permResponse(payload: { request_id: string; request_nonce: string; appr
   };
 }
 
-/** Build a valid command message. */
-function command(action: string, agent?: string) {
+/** Build a valid command message, optionally scoped to a target session. */
+function command(action: string, agent?: string, params?: Record<string, unknown>) {
   return {
     ...BASE,
     type: 'command' as const,
-    payload: { agent: agent ?? 'claude', action },
+    payload: { agent: agent ?? 'claude', action, ...(params ? { params } : {}) },
   };
 }
 
@@ -233,5 +233,74 @@ describe('classifyRelayMessage: cancel/end-session carry the current session_id'
     const verdict = classifyRelayMessage(SESSION_ID, command('end_session'), ALWAYS_OK);
     if (verdict.action !== 'end-session') throw new Error('expected end-session');
     expect(verdict.sessionId).toBe(SESSION_ID);
+  });
+});
+
+describe('classifyRelayMessage: command cross-session scoping (audit fix #9)', () => {
+  // WHY: a cancel/interrupt/end_session command previously fanned out to EVERY
+  // active session on the daemon because it had no session targeting. Cancelling
+  // session A also killed session B. Commands now carry params.session_id and are
+  // dropped when they target a DIFFERENT session than the one being processed,
+  // mirroring the chat cross-session guard.
+
+  it('drops a cancel targeted at a DIFFERENT session', () => {
+    const verdict = classifyRelayMessage(
+      SESSION_ID,
+      command('cancel', 'claude', { session_id: 'some-other-session' }),
+      ALWAYS_OK,
+    );
+    expect(verdict.action).toBe('drop-wrong-session');
+    if (verdict.action !== 'drop-wrong-session') throw new Error('expected drop-wrong-session');
+    expect(verdict.targetSession).toBe('some-other-session');
+  });
+
+  it('drops an interrupt targeted at a DIFFERENT session', () => {
+    const verdict = classifyRelayMessage(
+      SESSION_ID,
+      command('interrupt', 'claude', { session_id: 'other' }),
+      ALWAYS_OK,
+    );
+    expect(verdict.action).toBe('drop-wrong-session');
+  });
+
+  it('drops an end_session targeted at a DIFFERENT session', () => {
+    const verdict = classifyRelayMessage(
+      SESSION_ID,
+      command('end_session', 'claude', { session_id: 'other' }),
+      ALWAYS_OK,
+    );
+    expect(verdict.action).toBe('drop-wrong-session');
+  });
+
+  it('processes a cancel explicitly targeted at THIS session', () => {
+    const verdict = classifyRelayMessage(
+      SESSION_ID,
+      command('cancel', 'claude', { session_id: SESSION_ID }),
+      ALWAYS_OK,
+    );
+    expect(verdict.action).toBe('cancel');
+    if (verdict.action !== 'cancel') throw new Error('expected cancel');
+    expect(verdict.sessionId).toBe(SESSION_ID);
+  });
+
+  it('still processes a command with NO session_id (backward compatibility)', () => {
+    // Single-session clients that omit session_id keep targeting the current
+    // session — the fan-out fix must not break them.
+    expect(classifyRelayMessage(SESSION_ID, command('cancel'), ALWAYS_OK).action).toBe('cancel');
+    expect(classifyRelayMessage(SESSION_ID, command('end_session'), ALWAYS_OK).action).toBe(
+      'end-session',
+    );
+  });
+
+  it('ignores a non-string session_id and falls through to normal routing', () => {
+    // A malformed numeric session_id must not match the string sessionId, but
+    // also must not throw — it is simply not a targeting match, so the command
+    // targets the current session (legacy behavior).
+    const verdict = classifyRelayMessage(
+      SESSION_ID,
+      command('cancel', 'claude', { session_id: 12345 }),
+      ALWAYS_OK,
+    );
+    expect(verdict.action).toBe('cancel');
   });
 });

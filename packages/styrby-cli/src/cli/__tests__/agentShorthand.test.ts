@@ -107,4 +107,34 @@ describe('buildStartArgs', () => {
     buildStartArgs(input, 'codex', null);
     expect(input).toEqual(['codex', '--project', '.']);
   });
+
+  describe('--agent deduplication (audit fix #40)', () => {
+    it('strips a redundant --agent pair so shorthand wins deterministically', () => {
+      // `styrby codex --agent gemini` must launch codex, not gemini, regardless
+      // of whether the downstream parser is first-wins or last-wins.
+      expect(buildStartArgs(['codex', '--agent', 'gemini'], 'codex', null))
+        .toEqual(['--agent', 'codex']);
+    });
+
+    it('strips a redundant --agent pair but keeps other flags', () => {
+      expect(buildStartArgs(['codex', '--agent', 'gemini', '--project', '.'], 'codex', null))
+        .toEqual(['--agent', 'codex', '--project', '.']);
+    });
+
+    it('strips the inline --agent=value form too', () => {
+      expect(buildStartArgs(['codex', '--agent=gemini', '--project', '.'], 'codex', null))
+        .toEqual(['--agent', 'codex', '--project', '.']);
+    });
+
+    it('strips a user --agent when a config default supplies the agent', () => {
+      expect(buildStartArgs(['--agent', 'gemini', '--project', '.'], null, 'aider'))
+        .toEqual(['--agent', 'aider', '--project', '.']);
+    });
+
+    it('emits exactly one --agent flag', () => {
+      const result = buildStartArgs(['codex', '--agent', 'gemini'], 'codex', null);
+      expect(result.filter((a) => a === '--agent')).toHaveLength(1);
+      expect(result.filter((a) => a.startsWith('--agent='))).toHaveLength(0);
+    });
+  });
 });

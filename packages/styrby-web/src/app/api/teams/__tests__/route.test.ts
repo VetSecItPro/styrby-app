@@ -186,8 +186,8 @@ describe('Teams API — /api/teams', () => {
       expect(body.teams[0].member_count).toBe(3);
       expect(body.tier).toBe('growth');
       expect(body.canCreateTeam).toBe(true);
-      // Phase 5: Growth tier teamMembers limit = 100 (was 3 in legacy team tier).
-      expect(body.teamLimit).toBe(100);
+      // Canonical Growth seat ceiling is 25 (Polar product max). (bug #18)
+      expect(body.teamLimit).toBe(25);
     });
 
     it('returns empty teams array when user has no teams', async () => {

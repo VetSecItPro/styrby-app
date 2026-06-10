@@ -255,6 +255,23 @@ describe('POST /api/v1/auth/otp/send — Happy path', () => {
 });
 
 // ============================================================================
+// Disposable-email server-side backstop (bug #31)
+// ============================================================================
+
+describe('POST /api/v1/auth/otp/send — disposable-email backstop (bug #31)', () => {
+  it('silently no-ops (200 ok) and does NOT provision for a disposable address', async () => {
+    // mailinator.com is in the disposable blocklist. The response must be
+    // indistinguishable from a normal accept (enumeration-defense invariance),
+    // but signInWithOtp (which auto-provisions a user) must NOT be called.
+    const res = await POST(makeRequest({ email: 'throwaway@mailinator.com' }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ ok: true });
+    expect(mockSignInWithOtp).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
 // 3. 200 + Sentry on Supabase error
 // ============================================================================
 

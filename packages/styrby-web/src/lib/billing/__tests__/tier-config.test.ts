@@ -35,10 +35,11 @@ describe('TIERS — canonical 3-tier config (free + pro + growth)', () => {
     expect(TIERS.pro.price.annual).toBe(390);
   });
 
-  it('Growth has $99/$990 base pricing + 100-seat ceiling (Decisions #3 / #4)', () => {
+  it('Growth has $99/$990 base pricing + 25-seat ceiling (Decisions #3 / #4)', () => {
     expect(TIERS.growth.price.monthly).toBe(99);
     expect(TIERS.growth.price.annual).toBe(990);
-    expect(TIERS.growth.limits.teamMembers).toBe(100);
+    // Canonical Growth seat ceiling is 25 (Polar product max). (bug #18)
+    expect(TIERS.growth.limits.teamMembers).toBe(25);
   });
 });
 

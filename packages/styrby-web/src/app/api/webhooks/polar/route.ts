@@ -1211,8 +1211,14 @@ export async function POST(request: Request) {
         //
         // SOC2 CC9.2: Idempotency across all billing event paths.
         // ──────────────────────────────────────────────────────────────────────
+        // Tracks whether THIS delivery wrote the dedup row, so the upsert
+        // error path below can compensate-delete it and let Polar retry
+        // (bugs #16/#17 — mirror the refund handler's compensating delete).
+        let individualEventId: string | undefined;
+        let individualDedupRecorded = false;
         {
           const rawEventId = (rawParsed as Record<string, unknown>).id as string | undefined;
+          individualEventId = rawEventId;
           if (!rawEventId) {
             // No top-level id — cannot enforce event-id idempotency.
             // Log and fall through to state-based upsert idempotency.
@@ -1258,6 +1264,9 @@ export async function POST(request: Request) {
                 );
               }
               return NextResponse.json({ received: true });
+            } else {
+              // We are the delivery that recorded the dedup row this time.
+              individualDedupRecorded = true;
             }
           }
         }
@@ -1584,7 +1593,7 @@ export async function POST(request: Request) {
         const polarSeats =
           (data as { seats?: number | null }).seats ?? null;
 
-        await supabase.from('subscriptions').upsert(
+        const { error: upsertError } = await supabase.from('subscriptions').upsert(
           {
             user_id: profileId,
             polar_subscription_id: data.id,
@@ -1610,6 +1619,32 @@ export async function POST(request: Request) {
           }
         );
 
+        if (upsertError) {
+          // BUG #16: the dedup row was written BEFORE this upsert. If we swallow
+          // the error and return 200, Polar never retries AND the dedup row
+          // short-circuits any replay — the paying customer is permanently left
+          // on the wrong tier (billing drift). Mirror the refund handler: delete
+          // the dedup row we recorded this delivery so Polar's retry re-runs the
+          // upsert, then return 500.
+          console.error(
+            'polar/route: subscription.created/updated — failed to upsert subscription:',
+            upsertError.message
+          );
+          if (individualDedupRecorded && individualEventId) {
+            const { error: dedupDeleteErr } = await supabase
+              .from('polar_webhook_events')
+              .delete()
+              .eq('event_id', individualEventId);
+            if (dedupDeleteErr) {
+              console.error(
+                'polar/route: subscription.created/updated — CRITICAL: failed to delete idempotency row after upsert failure (manual replay required):',
+                dedupDeleteErr.message
+              );
+            }
+          }
+          return NextResponse.json({ error: 'Processing failed' }, { status: 500 });
+        }
+
         if (isDev) console.log('Subscription upserted successfully');
         break;
       }
@@ -1626,8 +1661,13 @@ export async function POST(request: Request) {
         // followed by a delayed-replay of the cancel, the subscription would
         // be silently re-canceled. Mirror the dedup pattern from the
         // created/updated cases above (lines ~894–942).
+        // Tracks whether THIS delivery wrote the dedup row, so the .update()
+        // error path below can compensate-delete it and let Polar retry (bug #17).
+        let cancelEventId: string | undefined;
+        let cancelDedupRecorded = false;
         {
           const rawEventId = (rawParsed as Record<string, unknown>).id as string | undefined;
+          cancelEventId = rawEventId;
           if (!rawEventId) {
             console.error(
               'polar/route: subscription.canceled event missing top-level id field — cannot enforce event-id dedup'
@@ -1662,6 +1702,8 @@ export async function POST(request: Request) {
                 );
               }
               return NextResponse.json({ received: true });
+            } else {
+              cancelDedupRecorded = true;
             }
           }
         }
@@ -1689,7 +1731,7 @@ export async function POST(request: Request) {
           (data as Record<string, unknown>).ended_at as string | undefined ||
           null;
 
-        await supabase
+        const { error: cancelUpdateErr } = await supabase
           .from('subscriptions')
           .update({
             status: 'canceled',
@@ -1710,6 +1752,31 @@ export async function POST(request: Request) {
             ...(periodEnd ? { current_period_end: periodEnd } : {}),
           })
           .eq('polar_subscription_id', data.id);
+
+        if (cancelUpdateErr) {
+          // BUG #17: same dedup-before-write hazard as created/updated. If we
+          // swallow this error, the sub stays status='active' with no
+          // canceled_at/period-end, so the downgrade cron never picks it up and
+          // the user keeps paid tier indefinitely. Delete the dedup row recorded
+          // this delivery so Polar retries, then return 500.
+          console.error(
+            'polar/route: subscription.canceled — failed to update subscription:',
+            cancelUpdateErr.message
+          );
+          if (cancelDedupRecorded && cancelEventId) {
+            const { error: dedupDeleteErr } = await supabase
+              .from('polar_webhook_events')
+              .delete()
+              .eq('event_id', cancelEventId);
+            if (dedupDeleteErr) {
+              console.error(
+                'polar/route: subscription.canceled — CRITICAL: failed to delete idempotency row after update failure (manual replay required):',
+                dedupDeleteErr.message
+              );
+            }
+          }
+          return NextResponse.json({ error: 'Processing failed' }, { status: 500 });
+        }
 
         if (isDev) console.log('Subscription canceled successfully');
         break;
@@ -1750,10 +1817,15 @@ export async function POST(request: Request) {
         // revoke event would re-run the cascade-cancel sweep and re-write
         // the audit row. The state-based fallback (UPDATE is idempotent)
         // keeps correctness if dedup table writes fail.
+        // Tracks whether THIS delivery wrote the dedup row, so the .update()
+        // error path below can compensate-delete it and let Polar retry (bug #33).
+        let revokeEventId: string | undefined;
+        let revokeDedupRecorded = false;
         {
           const rawEventId = (rawParsed as Record<string, unknown>).id as
             | string
             | undefined;
+          revokeEventId = rawEventId;
           if (!rawEventId) {
             console.error(
               'polar/route: subscription.revoked event missing top-level id field — cannot enforce event-id dedup',
@@ -1785,6 +1857,8 @@ export async function POST(request: Request) {
                 );
               }
               return NextResponse.json({ received: true });
+            } else {
+              revokeDedupRecorded = true;
             }
           }
         }
@@ -1844,12 +1918,27 @@ export async function POST(request: Request) {
           .eq('polar_subscription_id', data.id);
 
         if (revokeUpdateErr) {
-          // 500 → Polar retries, which is safe because the .update is
-          // idempotent and the dedup row above prevents double-cascade.
+          // BUG #33: 500 → Polar retries, BUT the dedup row written above also
+          // short-circuits that retry (the upsert conflicts and we return 200 at
+          // the duplicate branch), so the failed revoke UPDATE is never re-applied
+          // and the user keeps their paid tier. Delete the dedup row recorded this
+          // delivery so the retry actually re-runs the revoke (mirror refund @2216).
           console.error(
             'polar/route: subscription.revoked — failed to update main subscription:',
             revokeUpdateErr.message,
           );
+          if (revokeDedupRecorded && revokeEventId) {
+            const { error: dedupDeleteErr } = await supabase
+              .from('polar_webhook_events')
+              .delete()
+              .eq('event_id', revokeEventId);
+            if (dedupDeleteErr) {
+              console.error(
+                'polar/route: subscription.revoked — CRITICAL: failed to delete idempotency row after update failure (manual replay required):',
+                dedupDeleteErr.message,
+              );
+            }
+          }
           return NextResponse.json(
             { error: 'Processing failed' },
             { status: 500 },

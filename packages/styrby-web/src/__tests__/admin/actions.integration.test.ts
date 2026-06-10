@@ -217,7 +217,7 @@ describe('overrideTierAction — integration (form → Zod → RPC)', () => {
 
     const result = await overrideTierAction(
       VALID_UUID,
-      makeFormData({ targetUserId: VALID_UUID, newTier: 'enterprise', reason: 'bypass attempt' })
+      makeFormData({ targetUserId: VALID_UUID, newTier: 'growth', reason: 'bypass attempt' })
     );
 
     expect(result).toEqual({ ok: false, error: 'Not authorized' });

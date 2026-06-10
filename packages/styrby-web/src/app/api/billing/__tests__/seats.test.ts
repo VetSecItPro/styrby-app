@@ -595,6 +595,47 @@ describe('PATCH /api/billing/seats', () => {
     expect(insertArg.metadata.old_seat_count).toBe(5);
   });
 
+  // ── BUG #49: indeterminate oldSeats (quantity AND seat_cap both null) ───────
+
+  it('treats oldSeats as indeterminate when quantity AND seat_cap are both null (no phantom increase)', async () => {
+    // WHY: a paused sub (quantity null) whose seat_cap was never webhook-synced
+    // (null) previously fabricated oldSeats=1, mislabeling a PATCH-to-current as
+    // a +N increase with a phantom proration. Now we skip proration and use
+    // memberCount (the authoritative current seat floor) as the audit baseline.
+    mockSubsGet.mockResolvedValue({
+      id: 'polar_sub_abc',
+      quantity: null,
+      currentPeriodStart: new Date(Date.now() - 15 * 86_400_000).toISOString(),
+      currentPeriodEnd: new Date(Date.now() + 15 * 86_400_000).toISOString(),
+    });
+    mockTeamBillingSelect.mockResolvedValue({
+      data: { ...TEAM_BILLING_ROW, seat_cap: null, active_seats: null },
+      error: null,
+    });
+    // Current members = 3; PATCH to the current count of 3 (a no-op).
+    setMemberCount(3);
+    const req = buildRequest({ ...VALID_PATCH_BODY, new_seat_count: 3 });
+    const res = await PATCH(req);
+
+    expect(res.status).toBe(200);
+    const json = await res.json() as { success: boolean; proration_cents: number };
+    expect(json.success).toBe(true);
+    // No fabricated charge.
+    expect(json.proration_cents).toBe(0);
+
+    // Audit baseline = memberCount (3), NOT the fabricated 1, so the delta is 0
+    // (a no-op) rather than a phantom +2 increase.
+    const insertArg = mockAuditInsert.mock.calls[0][0] as {
+      action: string;
+      metadata: { old_seat_count: number; delta: number; old_seat_count_indeterminate: boolean };
+    };
+    expect(insertArg.metadata.old_seat_count).toBe(3);
+    expect(insertArg.metadata.delta).toBe(0);
+    expect(insertArg.metadata.old_seat_count_indeterminate).toBe(true);
+    // 3 → 3 is not an increase.
+    expect(insertArg.action).toBe('team_seat_count_decreased');
+  });
+
   // ── WAVE-E-001: advisory-lock serialization ────────────────────────────────
 
   describe('WAVE-E-001 advisory lock', () => {

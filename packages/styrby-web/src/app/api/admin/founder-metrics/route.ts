@@ -273,6 +273,12 @@ export async function GET(request: NextRequest) {
         .from('subscriptions')
         .select('tier, status, updated_at')
         .eq('status', 'canceled')
+        // BUG #50: apply the SAME `%no_mrr%` exclusion as the active query above.
+        // The churn ratio divides canceled by (active + canceled); if a comp
+        // '_no_mrr' account is ever canceled it would inflate BOTH the canceled
+        // numerator and denominator while its active counterparts were excluded,
+        // skewing the rate. Both sides of the ratio must use the same population.
+        .not('polar_subscription_id', 'ilike', '%no_mrr%')
         .gte('updated_at', ninetyDaysAgo.toISOString()),
 
       // Agent usage: session count + total cost per agent_type (last 90 days)

@@ -506,6 +506,54 @@ describe('POST /api/billing/checkout', () => {
   });
 
   /**
+   * Bug #32 regression: a double-tap that straddles a 60-second wall-clock
+   * boundary must still dedup to ONE Polar checkout. The previous tumbling
+   * bucket (Math.floor(now / TTL)) produced different keys across the boundary,
+   * spawning two checkouts. With the rolling-TTL key, the second tap (well
+   * within 60s of the first) always hits the live cache entry.
+   */
+  it('bug #32: dedupes a double-tap straddling a 60s boundary (one Polar checkout)', async () => {
+    vi.useFakeTimers();
+    // Park wall-clock just before a 60s boundary: floor(now/60000) would tick
+    // over between the two taps under the old tumbling-bucket scheme.
+    vi.setSystemTime(59_999);
+
+    vi.resetModules();
+    const { POST: PostFresh } = await import('../route');
+
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: 'user-boundary', email: 'boundary@test.com' } },
+      error: null,
+    });
+    mockCheckoutCreate.mockResolvedValue({ url: 'https://polar.test/checkout/boundary-1' });
+
+    const makeReq = () =>
+      new Request('http://localhost/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tierId: 'pro', billingCycle: 'monthly' }),
+      });
+
+    const r1 = await PostFresh(makeReq() as never); // bucket N under old scheme
+    // Advance 50ms — crosses the 60_000ms boundary (now = 60_049 → bucket N+1).
+    vi.setSystemTime(60_049);
+    const r2 = await PostFresh(makeReq() as never); // would be bucket N+1
+
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    const b1 = await r1.json();
+    const b2 = await r2.json();
+    expect(b2.url).toBe(b1.url);
+
+    // The critical assertion: only ONE Polar checkout despite the boundary cross.
+    expect(mockCheckoutCreate).toHaveBeenCalledTimes(1);
+
+    mockCheckoutCreate.mockReset();
+    mockGetUser.mockReset();
+    vi.useRealTimers();
+  });
+
+  /**
    * Test 10: Returns 500 when Polar SDK throws
    * WHY: Polar can throw network/API/rate-limit errors. Route catches
    * and returns a generic error message to avoid leaking internal details.

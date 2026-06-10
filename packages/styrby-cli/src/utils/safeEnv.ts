@@ -249,7 +249,8 @@ export function safeBufferAppend(currentBuffer: string, newData: string): string
  * @throws {Error} If arguments contain suspicious patterns
  */
 export function validateExtraArgs(args: string[]): string[] {
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
     // Block shell metacharacters that could be dangerous if shell: true is ever used
     if (/[;&|`$(){}]/.test(arg)) {
       throw new Error(
@@ -292,6 +293,67 @@ export function validateExtraArgs(args: string[]): string[] {
         `Unsafe path traversal in argument: "${arg}". Relative parent references are not allowed in config paths.`
       );
     }
+
+    // SECURITY (audit 2026-06-09 HIGH fix #8): the two checks above only inspect
+    // a single token, so a SPACE-SEPARATED form like `["--config", "/etc/passwd"]`
+    // or `["--profile", "../../secret.toml"]` bypassed them entirely — the flag
+    // token alone has no `/etc/` and no `../`, and the value token alone does not
+    // start with a config flag, so neither regex matched. Track flag context:
+    // when this arg is a bare config-loading flag (no inline `=` value), validate
+    // the NEXT element (its value) against the same path rules.
+    if (i + 1 < args.length && isBareConfigFlag(arg)) {
+      assertSafeConfigValue(args[i + 1]);
+    }
   }
   return args;
+}
+
+/**
+ * Config-loading flags whose value, if attacker-controlled, can point an agent
+ * at a sensitive or out-of-tree file. Union of every supported agent's flags.
+ */
+const CONFIG_LOADING_FLAGS = [
+  'config',
+  'rc',
+  'init',
+  'env-file',
+  'dotenv',
+  'include',
+  'load',
+  'profile',
+] as const;
+
+/**
+ * Whether `arg` is a config-loading flag with NO inline value (i.e. its value is
+ * supplied as the next argv element). Matches both `--flag` and `-flag` forms.
+ *
+ * Returns false for the `=`-joined form (`--config=...`) — that case is already
+ * handled by the single-token checks in `validateExtraArgs`.
+ *
+ * @param arg - The argv element to test.
+ * @returns True if `arg` is a bare config-loading flag awaiting a separate value.
+ */
+function isBareConfigFlag(arg: string): boolean {
+  return new RegExp(`^--?(?:${CONFIG_LOADING_FLAGS.join('|')})$`).test(arg);
+}
+
+/**
+ * Validate a bare config-flag VALUE (the argv element following a config flag).
+ *
+ * Applies the same system-path and path-traversal rules used for the inline
+ * (`=`-joined) form, but against the raw value token (no flag prefix). Closes
+ * the space-separated bypass (audit 2026-06-09 fix #8).
+ *
+ * @param value - The value token following a config-loading flag.
+ * @throws {Error} If the value targets a system path or contains traversal.
+ */
+function assertSafeConfigValue(value: string): void {
+  if (/^\s*\/etc\//.test(value)) {
+    throw new Error(`Unsafe argument targeting system path: "${value}".`);
+  }
+  if (/\.\.[/\\]/.test(value)) {
+    throw new Error(
+      `Unsafe path traversal in argument: "${value}". Relative parent references are not allowed in config paths.`
+    );
+  }
 }

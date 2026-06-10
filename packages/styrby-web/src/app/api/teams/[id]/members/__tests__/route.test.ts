@@ -254,9 +254,9 @@ describe('Team Members Invitation API — /api/teams/[id]/members', () => {
     it('returns 403 when team member limit is reached', async () => {
       mockAuthenticated();
 
-      // WHY: Phase 5 — Growth tier (legacy 'power' resolves to 'growth') allows
-      // 100 team members. This test verifies that the limit counts both
-      // existing members AND pending invitations.
+      // WHY: Growth tier (legacy 'power' resolves to 'growth') allows the
+      // canonical maximum of 25 seats (bug #18). This test verifies that the
+      // limit counts both existing members AND pending invitations.
 
       // 1. team found
       fromCallQueue.push({
@@ -270,17 +270,17 @@ describe('Team Members Invitation API — /api/teams/[id]/members', () => {
         error: null,
       });
 
-      // 3. getUserTier => power → growth (limit: 100 in Phase 5)
+      // 3. getUserTier => power → growth (limit: 25, canonical Growth ceiling)
       fromCallQueue.push({ data: { tier: 'power' }, error: null });
       fromCallQueue.push({ data: [], error: null }); // SEC-ADV-004: empty team_members
 
-      // 4. member count => 99 existing members
-      fromCallQueue.push({ count: 99, error: null });
+      // 4. member count => 24 existing members
+      fromCallQueue.push({ count: 24, error: null });
 
       // 5. pending invitation count => 1 pending
       fromCallQueue.push({ count: 1, error: null });
 
-      // Total = 99 + 1 = 100, which equals the Growth tier limit.
+      // Total = 24 + 1 = 25, which equals the Growth tier limit.
 
       const req = createNextRequest({ email: 'new@example.com' });
       const response = await POST(req, createRouteContext());
@@ -288,7 +288,7 @@ describe('Team Members Invitation API — /api/teams/[id]/members', () => {
 
       const body = await response.json();
       expect(body.error).toContain('maximum');
-      expect(body.error).toContain('100');
+      expect(body.error).toContain('25');
     });
 
     it('returns 400 when invitee is already a member', async () => {
