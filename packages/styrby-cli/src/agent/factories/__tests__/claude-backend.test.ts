@@ -239,3 +239,23 @@ describe('lifecycle', () => {
     await expect(backend.sendPrompt('wrong-id', 'p')).rejects.toThrow(/Invalid session ID/);
   });
 });
+
+describe('billing detection from stream-json apiKeySource', () => {
+  it('init apiKeySource:"none" → cost-report billed as subscription ($0)', async () => {
+    const { backend, messages } = makeBackend();
+    const { sessionId } = await backend.startSession();
+    await drive(backend.sendPrompt(sessionId, 'hi'), [
+      { type: 'system', subtype: 'init', session_id: 'claude-x', apiKeySource: 'none' },
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }], usage: { input_tokens: 10, output_tokens: 5 } } },
+      { type: 'result' },
+    ]);
+
+    const cost = messages.find((m) => m.type === 'cost-report') as
+      | { type: 'cost-report'; report: { billingModel: string; costUsd: number } }
+      | undefined;
+    expect(cost).toBeDefined();
+    // Corrected from the api-key seed to subscription via the init line.
+    expect(cost!.report.billingModel).toBe('subscription');
+    expect(cost!.report.costUsd).toBe(0);
+  });
+});
