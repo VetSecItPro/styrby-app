@@ -91,6 +91,25 @@ export function detectClaudeBillingModel(): BillingModel {
   }
 }
 
+/**
+ * Map the Claude Code stream-json `apiKeySource` to a billing model.
+ *
+ * This is the AUTHORITATIVE billing signal for a managed session, replacing the
+ * stale {@link detectClaudeBillingModel} heuristic: modern claude (2.1.x) no
+ * longer writes a `subscriptionType` to `~/.claude/auth.json` (auth moved to the
+ * keychain / `.credentials.json`), so the file-read mislabeled subscription
+ * users as `api-key`. The init line's `apiKeySource` reflects the actual session.
+ *
+ * @param apiKeySource - The `apiKeySource` field from the system/init line.
+ *   `'none'` means no API key is configured — the session runs on the user's
+ *   Claude subscription. Any other value (`'user'` / `'project'` / `'org'` /
+ *   `'apiKey'` / …) means an API key is in use.
+ * @returns `'subscription'` when `apiKeySource` is `'none'`, otherwise `'api-key'`.
+ */
+export function billingModelFromApiKeySource(apiKeySource: string | undefined): BillingModel {
+  return apiKeySource === 'none' ? 'subscription' : 'api-key';
+}
+
 // ============================================================================
 // JSONL Parser
 // ============================================================================
@@ -257,6 +276,8 @@ interface ClaudeStreamMessage {
   type: 'system' | 'assistant' | 'user' | 'result' | string;
   subtype?: string;
   session_id?: string;
+  /** Present on the system/init line: 'none' = subscription, else api-key. */
+  apiKeySource?: string;
   message?: {
     role?: string;
     content?: Array<{
@@ -296,7 +317,12 @@ export class ClaudeBackend extends StreamingAgentBackendBase {
 
   /** Claude's own session id, captured from the init line; used for --resume. */
   private claudeSessionId: string | null;
-  private readonly billingModel: BillingModel;
+  /**
+   * Billing model for cost reports. Seeded from the (stale) auth.json heuristic,
+   * then corrected to the authoritative value from the stream-json `apiKeySource`
+   * once the system/init line arrives (see handleLine).
+   */
+  private billingModel: BillingModel;
 
   constructor(private readonly options: ClaudeBackendOptions) {
     super();
@@ -445,6 +471,16 @@ export class ClaudeBackend extends StreamingAgentBackendBase {
     // Capture Claude's session id from any line that carries it so follow-up
     // prompts can --resume the same conversation.
     if (typeof msg.session_id === 'string') this.claudeSessionId = msg.session_id;
+
+    // Authoritative billing detection: the system/init line carries `apiKeySource`.
+    // 'none' means no API key — the session runs on the user's Claude subscription
+    // (costUsd 0). Any other value means an API key is in use (api-key billing).
+    // This corrects the constructor's detectClaudeBillingModel() seed, whose
+    // ~/.claude/auth.json heuristic is stale (modern claude stores auth elsewhere,
+    // so subscription users were mislabeled api-key).
+    if (typeof msg.apiKeySource === 'string') {
+      this.billingModel = billingModelFromApiKeySource(msg.apiKeySource);
+    }
 
     switch (msg.type) {
       case 'assistant':

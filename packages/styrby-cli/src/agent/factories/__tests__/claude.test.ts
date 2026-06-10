@@ -37,7 +37,7 @@ vi.mock('@/ui/logger', () => ({
 // ---------------------------------------------------------------------------
 
 import * as fs from 'node:fs';
-import { detectClaudeBillingModel, parseClaudeJsonlLine } from '../claude';
+import { detectClaudeBillingModel, parseClaudeJsonlLine, billingModelFromApiKeySource } from '../claude';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -374,5 +374,29 @@ describe('parseClaudeJsonlLine — subscription billing model', () => {
     const report = parseClaudeJsonlLine(line, SESSION_ID, 'subscription');
 
     expect(report!.source).toBe('agent-reported');
+  });
+});
+
+// ===========================================================================
+// billingModelFromApiKeySource — the authoritative (stream-json) signal
+// ===========================================================================
+
+/**
+ * Tests for billingModelFromApiKeySource — replaces the stale auth.json read.
+ */
+describe('billingModelFromApiKeySource', () => {
+  it('returns "subscription" when apiKeySource is "none" (no API key → subscription)', () => {
+    expect(billingModelFromApiKeySource('none')).toBe('subscription');
+  });
+
+  it.each(['user', 'project', 'org', 'apiKey', 'ANTHROPIC_API_KEY'])(
+    'returns "api-key" when apiKeySource is %s',
+    (source) => {
+      expect(billingModelFromApiKeySource(source)).toBe('api-key');
+    },
+  );
+
+  it('returns "api-key" when apiKeySource is undefined', () => {
+    expect(billingModelFromApiKeySource(undefined)).toBe('api-key');
   });
 });
