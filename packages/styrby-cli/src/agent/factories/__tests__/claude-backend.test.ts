@@ -56,11 +56,31 @@ import type { AgentMessage } from '../../core/AgentBackend';
 
 const spawnMock = vi.mocked(spawn);
 
+// WHY interactivePermissions:false by default here: most of these tests assert
+// arg construction / stream mapping / lifecycle and should NOT spin up the real
+// in-process permission MCP server. The interactive default (true) is covered by
+// its own describe block + claudePermissionServer.test.ts.
 function makeBackend(opts: Record<string, unknown> = {}) {
-  const { backend } = createClaudeBackend({ cwd: '/tmp/project', ...opts } as any);
+  const { backend } = createClaudeBackend({ cwd: '/tmp/project', interactivePermissions: false, ...opts } as any);
   const messages: AgentMessage[] = [];
   backend.onMessage((m) => messages.push(m));
   return { backend, messages };
+}
+
+/**
+ * Build a backend with interactive per-tool approval ENABLED (the product
+ * default). `decide` is reachable via a typed cast for round-trip assertions
+ * without standing up the real claude<->MCP transport.
+ */
+function makeInteractive(opts: Record<string, unknown> = {}) {
+  const { backend } = createClaudeBackend({ cwd: '/tmp/project', ...opts } as any);
+  const messages: AgentMessage[] = [];
+  backend.onMessage((m) => messages.push(m));
+  const decide = (toolName: string, input: Record<string, unknown>, id: string | undefined) =>
+    (backend as unknown as {
+      decide: (t: string, i: Record<string, unknown>, id: string | undefined) => Promise<{ approved: boolean; message?: string }>;
+    }).decide(toolName, input, id);
+  return { backend, messages, decide };
 }
 
 /** Drive a pending sendPrompt: feed JSONL stdout lines, end stream, close proc. */
@@ -109,8 +129,8 @@ describe('startSession (no prompt)', () => {
 });
 
 describe('spawn arg construction', () => {
-  it('uses stream-json + verbose + acceptEdits by default', async () => {
-    const { backend } = makeBackend();
+  it('uses stream-json + verbose + acceptEdits when non-interactive', async () => {
+    const { backend } = makeBackend(); // interactivePermissions:false (see makeBackend)
     const { sessionId } = await backend.startSession();
     await drive(backend.sendPrompt(sessionId, 'hello'), [{ type: 'result' }]);
 
@@ -119,6 +139,9 @@ describe('spawn arg construction', () => {
     expect(args).toEqual(
       expect.arrayContaining(['-p', 'hello', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'acceptEdits']),
     );
+    // No interactive plumbing in non-interactive mode.
+    expect(args).not.toContain('--permission-prompt-tool');
+    expect(args).not.toContain('--mcp-config');
   });
 
   it('includes --model and --allowedTools when provided', async () => {
@@ -257,5 +280,88 @@ describe('billing detection from stream-json apiKeySource', () => {
     // Corrected from the api-key seed to subscription via the init line.
     expect(cost!.report.billingModel).toBe('subscription');
     expect(cost!.report.costUsd).toBe(0);
+  });
+});
+
+describe('interactive per-tool permissions', () => {
+  it('spawns with default mode + permission-prompt-tool + mcp-config (the product default)', async () => {
+    const { backend } = makeInteractive();
+    const { sessionId } = await backend.startSession();
+    await drive(backend.sendPrompt(sessionId, 'go'), [{ type: 'result' }]);
+
+    const [, args] = spawnMock.mock.calls[0];
+    expect(args).toEqual(
+      expect.arrayContaining([
+        '--permission-mode', 'default',
+        '--strict-mcp-config',
+        '--permission-prompt-tool', 'mcp__styrby__permission_prompt',
+      ]),
+    );
+    // --mcp-config points at a real temp file path.
+    const cfgIdx = args.indexOf('--mcp-config');
+    expect(cfgIdx).toBeGreaterThan(-1);
+    expect(typeof args[cfgIdx + 1]).toBe('string');
+    // --settings carries the permissions.ask list that forces gated tools to
+    // prompt (ask > allow) even under a permissive local config.
+    const setIdx = args.indexOf('--settings');
+    expect(setIdx).toBeGreaterThan(-1);
+    const settings = JSON.parse(args[setIdx + 1] as string);
+    expect(settings.permissions.ask).toEqual(
+      expect.arrayContaining(['Bash', 'Write', 'Edit']),
+    );
+    // It must NOT pass the fixed acceptEdits mode in interactive sessions.
+    expect(args).not.toContain('acceptEdits');
+    await backend.dispose();
+  });
+
+  it('decide() emits a permission-request and respondToPermission(true) approves', async () => {
+    const { backend, messages, decide } = makeInteractive();
+    const pending = decide('Bash', { command: 'ls' }, 'tool-1');
+
+    expect(messages).toContainEqual(
+      expect.objectContaining({ type: 'permission-request', id: 'tool-1', payload: { command: 'ls' } }),
+    );
+
+    await backend.respondToPermission('tool-1', true);
+    await expect(pending).resolves.toEqual({ approved: true });
+    expect(messages).toContainEqual(
+      expect.objectContaining({ type: 'permission-response', id: 'tool-1', approved: true }),
+    );
+    await backend.dispose();
+  });
+
+  it('respondToPermission(false) denies the parked tool-use', async () => {
+    const { backend, decide } = makeInteractive();
+    const pending = decide('Edit', { file_path: '/x.ts' }, 'tool-2');
+    await backend.respondToPermission('tool-2', false);
+    await expect(pending).resolves.toEqual({ approved: false });
+    await backend.dispose();
+  });
+
+  it('fails CLOSED (deny) when approval times out', async () => {
+    const { backend, messages, decide } = makeInteractive({ permissionTimeoutMs: 20 });
+    const pending = decide('Bash', { command: 'rm -rf /' }, 'tool-3');
+    await expect(pending).resolves.toEqual({ approved: false, message: 'Approval timed out' });
+    expect(messages).toContainEqual(
+      expect.objectContaining({ type: 'permission-response', id: 'tool-3', approved: false }),
+    );
+    await backend.dispose();
+  });
+
+  it('generates a correlation id when claude provides no tool_use id', async () => {
+    const { backend, messages, decide } = makeInteractive();
+    const pending = decide('Read', { file_path: '/y.ts' }, undefined);
+    const req = messages.find((m) => m.type === 'permission-request') as { id: string } | undefined;
+    expect(req?.id).toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/i);
+    await backend.respondToPermission(req!.id, true);
+    await expect(pending).resolves.toEqual({ approved: true });
+    await backend.dispose();
+  });
+
+  it('dispose() denies any still-parked approvals so claude can exit', async () => {
+    const { backend, decide } = makeInteractive();
+    const pending = decide('Bash', { command: 'sleep 999' }, 'tool-4');
+    await backend.dispose();
+    await expect(pending).resolves.toEqual(expect.objectContaining({ approved: false }));
   });
 });
