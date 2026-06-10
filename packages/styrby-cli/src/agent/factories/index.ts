@@ -79,6 +79,19 @@ export {
   type DroidBackendResult,
 } from './droid';
 
-// Future factories:
-// export { createCodexBackend, registerCodexAgent, type CodexBackendOptions } from './codex';
-// export { createClaudeBackend, registerClaudeAgent, type ClaudeBackendOptions } from './claude';
+// Codex factory (OpenAI, MCP transport via `codex mcp-server`)
+export {
+  createCodexBackend,
+  registerCodexAgent,
+  type CodexBackendOptions,
+  type CodexBackendResult,
+} from './codex';
+
+// Claude factory (managed binary-spawn, stream-json — preserves subscription billing)
+export {
+  createClaudeBackend,
+  registerClaudeAgent,
+  type ClaudeBackendOptions,
+  type ClaudeBackendResult,
+  type ClaudePermissionMode,
+} from './claude';

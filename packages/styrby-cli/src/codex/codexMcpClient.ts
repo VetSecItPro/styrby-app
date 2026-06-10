@@ -8,7 +8,7 @@ import { logger } from '@/ui/logger';
 import type { CodexSessionConfig, CodexToolResponse } from './types';
 import { z } from 'zod';
 import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { CodexPermissionHandler } from './utils/permissionHandler';
+import type { CodexPermissionBridge } from './permissionBridge';
 import { execSync } from 'child_process';
 import { buildSafeEnv } from '@/utils/safeEnv';
 
@@ -55,7 +55,7 @@ export class CodexMcpClient {
     private sessionId: string | null = null;
     private conversationId: string | null = null;
     private handler: ((event: unknown) => void) | null = null;
-    private permissionHandler: CodexPermissionHandler | null = null;
+    private permissionHandler: CodexPermissionBridge | null = null;
 
     constructor() {
         this.client = new Client(
@@ -87,7 +87,7 @@ export class CodexMcpClient {
     /**
      * Set the permission handler for tool approval
      */
-    setPermissionHandler(handler: CodexPermissionHandler): void {
+    setPermissionHandler(handler: CodexPermissionBridge): void {
         this.permissionHandler = handler;
     }
 
