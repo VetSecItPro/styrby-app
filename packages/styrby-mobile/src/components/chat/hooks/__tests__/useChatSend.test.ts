@@ -44,6 +44,16 @@ jest.mock('../../agent-config', () => ({
   chatLogger: { error: jest.fn(), log: jest.fn(), warn: jest.fn() },
 }));
 
+/** Capture offline-storage saveCommand calls for the offline-enqueue path. */
+const mockSaveCommand = jest.fn<Promise<unknown>, unknown[]>(async () => ({}));
+
+// WHY @/ alias: the source imports '../../../services/offline-storage' (relative
+// from hooks/), but jest.mock resolves paths relative to THIS test file, which
+// sits one level deeper (__tests__/). @/ maps to src/ — same absolute target.
+jest.mock('@/services/offline-storage', () => ({
+  saveCommand: (...args: unknown[]) => mockSaveCommand(...args),
+}));
+
 // ============================================================================
 // Imports
 // ============================================================================
@@ -117,8 +127,14 @@ describe('useChatSend', () => {
     expect(deps.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('does nothing when not connected', async () => {
-    const deps = buildDeps({ isConnected: false });
+  it('does NOT broadcast over the relay when offline (queues instead)', async () => {
+    // WHY: offline sends no longer early-return — they enqueue locally via
+    // saveCommand and are delivered on reconnect by offline-sync. The relay
+    // broadcast (sendMessage) must NOT be called while offline.
+    const deps = buildDeps({
+      isConnected: false,
+      pairingInfo: { machineId: 'machine-1', userId: 'u1', deviceName: 'MBP', pairedAt: '' },
+    });
     const { result } = renderHook(() => useChatSend(deps));
 
     await act(async () => {
@@ -126,6 +142,55 @@ describe('useChatSend', () => {
     });
 
     expect(deps.sendMessage).not.toHaveBeenCalled();
+  });
+
+  // --------------------------------------------------------------------------
+  // Offline enqueue (parity with web ChatInput offline branch)
+  // --------------------------------------------------------------------------
+
+  it('enqueues the chat via saveCommand when offline with a paired machine', async () => {
+    const deps = buildDeps({
+      isConnected: false,
+      sessionId: 'existing-session',
+      pairingInfo: { machineId: 'machine-1', userId: 'u1', deviceName: 'MBP', pairedAt: '' },
+    });
+    const { result } = renderHook(() => useChatSend(deps));
+
+    await act(async () => {
+      await result.current();
+    });
+
+    expect(mockSaveCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command_type: 'chat',
+        payload: expect.objectContaining({
+          content: 'hello world',
+          agent: 'claude',
+          session_id: 'existing-session',
+        }),
+        machine_id: 'machine-1',
+        session_id: 'existing-session',
+      }),
+    );
+    // Optimistic append still happens so the user sees their message.
+    expect(deps.setMessages).toHaveBeenCalledWith(expect.any(Function));
+    expect(deps.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('appends an error and does NOT enqueue when offline with no paired machine', async () => {
+    const deps = buildDeps({ isConnected: false, pairingInfo: null });
+    const { result } = renderHook(() => useChatSend(deps));
+
+    await act(async () => {
+      await result.current();
+    });
+
+    expect(mockSaveCommand).not.toHaveBeenCalled();
+    // The catch block appends an error message (optimistic + error = 2 calls).
+    const calls = (deps.setMessages as jest.Mock).mock.calls;
+    const errorUpdater = calls[calls.length - 1][0];
+    const errorMessages = errorUpdater([]);
+    expect(errorMessages[0].role).toBe('error');
   });
 
   // --------------------------------------------------------------------------
