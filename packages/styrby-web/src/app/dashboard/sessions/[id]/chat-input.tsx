@@ -8,6 +8,9 @@
  */
 
 import { useState, useRef, KeyboardEvent } from 'react';
+import type { AgentType } from '@styrby/shared';
+import { useRelaySend } from '@/hooks/useRelaySend';
+import { encryptForSession } from '@/lib/encryption';
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -17,6 +20,16 @@ import { useState, useRef, KeyboardEvent } from 'react';
 interface ChatInputProps {
   /** Session ID for sending messages */
   sessionId: string;
+  /** Authenticated user id — relay channel is `relay:{userId}`. */
+  userId: string;
+  /** The session's agent type (carried in the relay chat payload). */
+  agent: AgentType;
+  /**
+   * The session's CLI machine id. Used to encrypt the message for at-rest
+   * persistence in `session_messages`. Null when the session has no machine
+   * (the live broadcast still works; persistence is skipped).
+   */
+  machineId: string | null;
 }
 
 /* ──────────────────────────── Icons ──────────────────────────── */
@@ -69,36 +82,53 @@ function LoaderIcon({ className }: { className?: string }) {
  *
  * @param props - ChatInput configuration
  */
-export function ChatInput({ sessionId }: ChatInputProps) {
+export function ChatInput({ sessionId, userId, agent, machineId }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { sendChat, connected } = useRelaySend(userId);
 
   /**
    * Sends the current message to the session.
+   *
+   * Two channels (see the web-send plan):
+   *  1. LIVE control — broadcast plaintext over the relay so the CLI/agent
+   *     receives it now (`sendChat`). This is the path that drives the agent.
+   *  2. HISTORY — encrypt for at-rest E2E and persist to `session_messages`
+   *     so the message renders in the thread (ChatThread reads that table via
+   *     realtime). Best-effort: if the CLI key isn't available we skip it
+   *     rather than fail the send — the agent already got the message.
+   *
    * Clears the input and refocuses on success.
    */
   const sendMessage = async () => {
     const trimmedMessage = message.trim();
-    if (!trimmedMessage || isSending) return;
+    if (!trimmedMessage || isSending || !connected) return;
 
     setIsSending(true);
     setError(null);
 
     try {
-      const response = await fetch('/api/relay/send-message', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId,
-          content: trimmedMessage,
-        }),
-      });
+      // 1. Live control path (required) — reaches the agent.
+      await sendChat(trimmedMessage, agent, sessionId);
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to send message');
+      // 2. Persist for history (best-effort, E2E at-rest).
+      if (machineId) {
+        const enc = await encryptForSession(trimmedMessage, machineId);
+        if (enc) {
+          const response = await fetch('/api/relay/send-message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId, ...enc }),
+          });
+          if (!response.ok) {
+            // History persistence failed, but the agent already received the
+            // message via the broadcast. Log, don't block the send.
+            const data = await response.json().catch(() => ({}));
+            console.error('Failed to persist message to history:', data.error);
+          }
+        }
       }
 
       setMessage('');
@@ -175,7 +205,7 @@ export function ChatInput({ sessionId }: ChatInputProps) {
         {/* Send button */}
         <button
           onClick={sendMessage}
-          disabled={!message.trim() || isSending}
+          disabled={!message.trim() || isSending || !connected}
           className="flex-shrink-0 rounded-lg bg-orange-600 p-3 text-white hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 focus:ring-offset-zinc-900"
           aria-label={isSending ? 'Sending message...' : 'Send message'}
         >
@@ -187,11 +217,17 @@ export function ChatInput({ sessionId }: ChatInputProps) {
         </button>
       </div>
 
-      {/* Keyboard shortcut hint */}
-      <p className="mt-2 text-xs text-zinc-400">
-        Press <kbd className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">Enter</kbd> to send,{' '}
-        <kbd className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">Shift + Enter</kbd> for new line
-      </p>
+      {/* Keyboard shortcut hint / relay status */}
+      {connected ? (
+        <p className="mt-2 text-xs text-zinc-400">
+          Press <kbd className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">Enter</kbd> to send,{' '}
+          <kbd className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">Shift + Enter</kbd> for new line
+        </p>
+      ) : (
+        <p className="mt-2 text-xs text-amber-400/80" role="status">
+          Connecting to relay…
+        </p>
+      )}
     </div>
   );
 }

@@ -415,3 +415,69 @@ describe('tryDecryptMessage()', () => {
     expect(chain.single).toHaveBeenCalledOnce();
   });
 });
+
+describe('encryptForSession()', () => {
+  beforeEach(() => {
+    mockLocalStorage.clear();
+    mockLocalStorage.getItem.mockClear();
+    vi.clearAllMocks();
+    mockCreateClient.mockReturnValue({ from: mockSupabaseFrom });
+  });
+
+  /** Seed the web device's keypair into localStorage and mock the CLI key lookup. */
+  async function setup(cliPublicKeyBase64: string | null, webKeypair: { publicKey: Uint8Array; secretKey: Uint8Array }) {
+    const { encodeBase64 } = await import('@styrby/shared/encryption');
+    const storedKeypair = JSON.stringify({
+      publicKey: await encodeBase64(webKeypair.publicKey),
+      secretKey: await encodeBase64(webKeypair.secretKey),
+    });
+    mockLocalStorage.getItem.mockImplementation((key: string) =>
+      key === 'styrby_web_encryption_keypair' ? storedKeypair : null
+    );
+    mockSupabaseFrom.mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: cliPublicKeyBase64 ? { public_key: cliPublicKeyBase64 } : null,
+        error: null,
+      }),
+    });
+  }
+
+  it('returns null when the CLI machine has no registered public key', async () => {
+    const webKeypair = await generateKeyPair();
+    await setup(null, webKeypair);
+
+    const { encryptForSession } = await freshEncryption();
+    const result = await encryptForSession('hello', 'machine-without-key');
+
+    expect(result).toBeNull();
+  });
+
+  it('produces content_encrypted + encryption_nonce that the CLI can decrypt', async () => {
+    // web = sender, CLI = recipient. The CLI opens with (webPublicKey, cliSecret).
+    const webKeypair = await generateKeyPair();
+    const cliKeypair = await generateKeyPair();
+    const { encodeBase64, decryptFromStorage } = await import('@styrby/shared/encryption');
+    await setup(await encodeBase64(cliKeypair.publicKey), webKeypair);
+
+    const { encryptForSession } = await freshEncryption();
+    const plaintext = 'Fix the failing test in main.ts';
+    const enc = await encryptForSession(plaintext, 'cli-machine-id');
+
+    expect(enc).not.toBeNull();
+    expect(typeof enc!.content_encrypted).toBe('string');
+    expect(enc!.content_encrypted.length).toBeGreaterThan(0);
+    expect(typeof enc!.encryption_nonce).toBe('string');
+    expect(enc!.encryption_nonce.length).toBeGreaterThan(0);
+
+    // The CLI decrypts with the web sender's public key + its own secret.
+    const decrypted = await decryptFromStorage(
+      enc!.content_encrypted,
+      enc!.encryption_nonce,
+      webKeypair.publicKey,
+      cliKeypair.secretKey
+    );
+    expect(decrypted).toBe(plaintext);
+  });
+});

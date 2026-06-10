@@ -310,3 +310,68 @@ export async function tryDecryptMessage(
     return { content: null, wasEncrypted: true };
   }
 }
+
+// ============================================================================
+// Encryption (outbound — for persisting the user's own messages)
+// ============================================================================
+
+/**
+ * Encrypted payload produced by {@link encryptForSession}, shaped to the
+ * `session_messages` columns the `/api/relay/send-message` route requires.
+ */
+export interface EncryptedForSession {
+  /** NaCl box ciphertext (base64) → `session_messages.content_encrypted`. */
+  content_encrypted: string;
+  /** NaCl box nonce (base64) → `session_messages.encryption_nonce`. */
+  encryption_nonce: string;
+}
+
+/**
+ * Encrypt a message for at-rest E2E storage in `session_messages`.
+ *
+ * Mirrors the mobile `encryptMessage()` service: NaCl box of the plaintext
+ * to the CLI machine's public key using this web device's secret key.
+ *
+ * WHY persistence only (NOT the relay payload): the live control path
+ * broadcasts PLAINTEXT on `relay:{userId}` because the CLI dispatcher reads
+ * `payload.content` directly and never decrypts. crypto_box here protects the
+ * stored history at rest, which is the only place E2E applies. (Mobile also
+ * encrypts the relay payload, but the CLI ignores `encrypted_content` — a
+ * separate mobile bug; web deliberately does NOT replicate it.)
+ *
+ * @param content - Plaintext message to encrypt.
+ * @param machineId - The session's CLI machine id (recipient of the box).
+ * @returns The `{ content_encrypted, encryption_nonce }` pair, or `null` when
+ *   the CLI's public key isn't available yet (caller persists best-effort:
+ *   skip persistence, the live broadcast still delivers the message).
+ * @throws Never for the missing-key case (returns null); only propagates an
+ *   unexpected crypto fault from the libsodium layer.
+ *
+ * @example
+ * const enc = await encryptForSession('Fix the test', session.machine_id);
+ * if (enc) await fetch('/api/relay/send-message', {
+ *   method: 'POST',
+ *   body: JSON.stringify({ sessionId, ...enc }),
+ * });
+ */
+export async function encryptForSession(
+  content: string,
+  machineId: string
+): Promise<EncryptedForSession | null> {
+  const senderPublicKey = await getSenderPublicKey(machineId);
+  if (!senderPublicKey) {
+    // No CLI public key registered yet — cannot encrypt. Caller skips
+    // persistence; the plaintext relay broadcast still reaches the agent.
+    return null;
+  }
+
+  const keypair = await getOrCreateWebKeyPair();
+  const { encryptForStorage } = await loadCrypto();
+  const { encrypted, nonce } = await encryptForStorage(
+    content,
+    senderPublicKey,
+    keypair.secretKey
+  );
+
+  return { content_encrypted: encrypted, encryption_nonce: nonce };
+}
