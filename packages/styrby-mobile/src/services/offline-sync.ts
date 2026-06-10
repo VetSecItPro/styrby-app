@@ -17,6 +17,7 @@ import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
 import * as SecureStore from 'expo-secure-store';
 import { createRelayClient, type RelayClient, type AgentType } from 'styrby-shared';
 import { supabase } from '../lib/supabase';
+import { encryptMessage } from './encryption';
 import {
   getPendingCommands,
   markSynced,
@@ -154,16 +155,20 @@ export async function syncPendingCommands(): Promise<number> {
  *  - `upsert` on the `id` PK with ignoreDuplicates makes re-sync idempotent
  *    (a markSynced failure or a double online event won't error or duplicate).
  *
- * WHY command_encrypted holds the JSON payload with a placeholder nonce: this
- * row is the audit/cross-device record (RLS-protected, GDPR-exported); live
- * E2E delivery happens over the relay (see deliverCommand). At-rest encryption
- * of the queued command itself is a tracked follow-up.
+ * Encrypts the command payload at rest (NaCl box to the target machine, same as
+ * session message E2E) so the DB holds ciphertext, not plaintext JSON — the row
+ * is owner-readable (RLS) + GDPR-exported. If the CLI's public key isn't
+ * available, encryptMessage throws and the per-command catch in
+ * syncPendingCommands leaves this command pending to retry next sync (no
+ * plaintext is ever written). Live delivery is separate (see deliverCommand).
  *
  * @param command - The locally stored command to sync
  * @param userId - The authenticated user's ID for the user_id column
- * @throws Error if the Supabase upsert fails
+ * @throws Error if encryption fails (CLI key unavailable) or the upsert fails
  */
 async function syncSingleCommand(command: StoredCommand, userId: string): Promise<void> {
+  const enc = await encryptMessage(command.payload, command.machine_id);
+
   const { error } = await supabase
     .from('offline_command_queue')
     .upsert(
@@ -172,8 +177,8 @@ async function syncSingleCommand(command: StoredCommand, userId: string): Promis
         user_id: userId,
         machine_id: command.machine_id, // REAL machine, was userId = FK violation
         session_id: command.session_id,
-        command_encrypted: command.payload,
-        encryption_nonce: 'pending',
+        command_encrypted: enc.encrypted,
+        encryption_nonce: enc.nonce,
         queue_order: Date.parse(command.created_at), // BIGINT-safe via migration 098
         status: 'pending',
         created_at: command.created_at,
