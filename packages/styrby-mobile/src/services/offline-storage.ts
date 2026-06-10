@@ -25,12 +25,20 @@ import * as SQLite from 'expo-sqlite';
  * Mirrors the columns in the `offline_command_queue` table.
  */
 export interface StoredCommand {
-  /** Unique command ID (UUID) */
+  /** Unique command ID (UUID) — also used as the server queue PK for dedup */
   id: string;
   /** The type of command (e.g., 'chat', 'permission_response', 'cancel') */
   command_type: string;
   /** JSON-serialized command payload */
   payload: string;
+  /**
+   * The CLI machine this command targets. REQUIRED: `offline_command_queue`
+   * has `machine_id UUID NOT NULL REFERENCES machines(id)`, so this must be a
+   * real machine id (NOT the user id — that was the FK-violation bug).
+   */
+  machine_id: string;
+  /** The session this command belongs to, or null for session-less commands. */
+  session_id: string | null;
   /** ISO 8601 timestamp when the command was created */
   created_at: string;
   /** Whether this command has been synced to Supabase */
@@ -48,6 +56,10 @@ export interface SaveCommandInput {
   command_type: string;
   /** The command payload (will be JSON-stringified) */
   payload: Record<string, unknown>;
+  /** Target CLI machine id (required — FK to machines on the server queue). */
+  machine_id: string;
+  /** Owning session id, or null. */
+  session_id?: string | null;
   /** Optional custom timestamp; defaults to now */
   created_at?: string;
 }
@@ -75,11 +87,14 @@ async function initDatabase(): Promise<SQLite.SQLiteDatabase> {
 
   db = await SQLite.openDatabaseAsync(DB_NAME);
 
+  // Fresh installs get machine_id + session_id from the CREATE TABLE below.
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS offline_storage (
       id TEXT PRIMARY KEY,
       command_type TEXT NOT NULL,
       payload TEXT NOT NULL,
+      machine_id TEXT,
+      session_id TEXT,
       created_at TEXT NOT NULL,
       synced INTEGER NOT NULL DEFAULT 0
     );
@@ -92,7 +107,37 @@ async function initDatabase(): Promise<SQLite.SQLiteDatabase> {
       ON offline_storage(created_at ASC);
   `);
 
+  // WHY idempotent ALTER: tables created before the offline-sync parity work
+  // (web PR-B mirror) lack the machine_id/session_id columns. SQLite's
+  // `ALTER TABLE ... ADD COLUMN` is not `IF NOT EXISTS`-aware and THROWS
+  // ("duplicate column name") if the column already exists, so we inspect the
+  // current schema via PRAGMA table_info and only add the missing columns.
+  // CREATE TABLE IF NOT EXISTS alone does not migrate an existing table.
+  await migrateAddColumns(db);
+
   return db;
+}
+
+/**
+ * Adds the `machine_id` / `session_id` columns to a pre-existing
+ * `offline_storage` table that was created before the offline-sync parity
+ * migration. Idempotent: inspects the live schema first and skips columns that
+ * already exist (fresh installs already have both via CREATE TABLE).
+ *
+ * @param database - The open SQLite database to migrate.
+ */
+async function migrateAddColumns(database: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await database.getAllAsync<{ name: string }>(
+    `PRAGMA table_info(offline_storage)`
+  );
+  const existing = new Set(columns.map((c) => c.name));
+
+  if (!existing.has('machine_id')) {
+    await database.execAsync(`ALTER TABLE offline_storage ADD COLUMN machine_id TEXT`);
+  }
+  if (!existing.has('session_id')) {
+    await database.execAsync(`ALTER TABLE offline_storage ADD COLUMN session_id TEXT`);
+  }
 }
 
 // ============================================================================
@@ -109,6 +154,8 @@ async function initDatabase(): Promise<SQLite.SQLiteDatabase> {
  * await saveCommand({
  *   command_type: 'chat',
  *   payload: { content: 'Hello', agent: 'claude' },
+ *   machine_id: pairingInfo.machineId,
+ *   session_id: sessionId,
  * });
  */
 export async function saveCommand(command: SaveCommandInput): Promise<StoredCommand> {
@@ -118,14 +165,24 @@ export async function saveCommand(command: SaveCommandInput): Promise<StoredComm
     id: command.id ?? crypto.randomUUID(),
     command_type: command.command_type,
     payload: JSON.stringify(command.payload),
+    machine_id: command.machine_id,
+    session_id: command.session_id ?? null,
     created_at: command.created_at ?? new Date().toISOString(),
     synced: false,
   };
 
   await database.runAsync(
-    `INSERT INTO offline_storage (id, command_type, payload, created_at, synced)
-     VALUES (?, ?, ?, ?, ?)`,
-    [stored.id, stored.command_type, stored.payload, stored.created_at, 0]
+    `INSERT INTO offline_storage (id, command_type, payload, machine_id, session_id, created_at, synced)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      stored.id,
+      stored.command_type,
+      stored.payload,
+      stored.machine_id,
+      stored.session_id,
+      stored.created_at,
+      0,
+    ]
   );
 
   return stored;
@@ -208,6 +265,8 @@ function rowToStoredCommand(row: Record<string, unknown>): StoredCommand {
     id: row.id as string,
     command_type: row.command_type as string,
     payload: row.payload as string,
+    machine_id: row.machine_id as string,
+    session_id: (row.session_id as string | null) ?? null,
     created_at: row.created_at as string,
     synced: (row.synced as number) === 1,
   };

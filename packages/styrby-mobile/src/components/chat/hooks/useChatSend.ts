@@ -17,6 +17,7 @@ import type { ChatMessageData } from '../../ChatMessage';
 import type { AgentState } from '../../TypingIndicator';
 import type { PairingInfo, UseRelayReturn } from '../../../hooks/useRelay';
 import { createSession, saveMessageToDb } from '../chat-session';
+import { saveCommand } from '../../../services/offline-storage';
 
 /**
  * Dependencies for {@link useChatSend}.
@@ -67,7 +68,7 @@ export function useChatSend(deps: UseChatSendDeps): () => Promise<void> {
   } = deps;
 
   return useCallback(async () => {
-    if (!inputText.trim() || !isConnected) return;
+    if (!inputText.trim()) return;
 
     const content = inputText.trim();
     // WHY: crypto.randomUUID() is available in Hermes (React Native) and
@@ -108,22 +109,44 @@ export function useChatSend(deps: UseChatSendDeps): () => Promise<void> {
     }
 
     try {
-      // WHY a PLAINTEXT relay payload (fixed 2026-06-10): the CLI dispatcher
-      // (`relayMessageDispatch` chat case) reads ONLY `payload.content` and
-      // never decrypts `encrypted_content`. The previous code encrypted the
-      // relay payload and set `content: ''` when a machine was paired — so the
-      // CLI forwarded an EMPTY string to the agent in the normal (paired) case,
-      // breaking mobile→agent chat. E2E encryption is applied to the persisted
-      // history via `saveMessageToDb` (above); the transient relay control
-      // message is plaintext over TLS, matching the web client.
-      await sendMessage({
-        type: 'chat',
-        payload: {
-          content,
-          agent: selectedAgent ?? 'claude',
-          session_id: currentSessionId ?? undefined,
-        },
-      });
+      if (isConnected) {
+        // ── ONLINE ────────────────────────────────────────────────────────
+        // WHY a PLAINTEXT relay payload (fixed 2026-06-10): the CLI dispatcher
+        // (`relayMessageDispatch` chat case) reads ONLY `payload.content` and
+        // never decrypts `encrypted_content`. The previous code encrypted the
+        // relay payload and set `content: ''` when a machine was paired — so the
+        // CLI forwarded an EMPTY string to the agent in the normal (paired) case,
+        // breaking mobile→agent chat. E2E encryption is applied to the persisted
+        // history via `saveMessageToDb` (above); the transient relay control
+        // message is plaintext over TLS, matching the web client.
+        await sendMessage({
+          type: 'chat',
+          payload: {
+            content,
+            agent: selectedAgent ?? 'claude',
+            session_id: currentSessionId ?? undefined,
+          },
+        });
+      } else if (machineId) {
+        // ── OFFLINE ───────────────────────────────────────────────────────
+        // Queue locally; offline-sync delivers it over the relay + records it
+        // in offline_command_queue on reconnect. Requires a machine id (the
+        // queue's machine_id FK is NOT NULL). Mirrors web ChatInput's offline
+        // branch — the optimistic UI append above already showed the message.
+        await saveCommand({
+          command_type: 'chat',
+          payload: {
+            content,
+            agent: selectedAgent ?? 'claude',
+            session_id: currentSessionId ?? undefined,
+          },
+          machine_id: machineId,
+          session_id: currentSessionId ?? null,
+        });
+      } else {
+        // Offline with no paired machine: cannot queue (FK is NOT NULL).
+        throw new Error('Cannot queue while offline: this session has no paired machine.');
+      }
     } catch {
       const errorId = `error_${Date.now()}`;
       const errorContent = 'Failed to send message. Please try again.';

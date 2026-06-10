@@ -33,8 +33,10 @@ const mockRunAsync = jest.fn(async (sql: string, params: unknown[] = []) => {
       id: params[0],
       command_type: params[1],
       payload: params[2],
-      created_at: params[3],
-      synced: params[4],
+      machine_id: params[3],
+      session_id: params[4],
+      created_at: params[5],
+      synced: params[6],
     });
     return { changes: 1 };
   }
@@ -65,6 +67,21 @@ const mockRunAsync = jest.fn(async (sql: string, params: unknown[] = []) => {
 
 const mockGetAllAsync = jest.fn(async (sql: string) => {
   sqlCalls.push({ sql, params: [] });
+
+  // initDatabase() runs `PRAGMA table_info(offline_storage)` to decide whether
+  // to ALTER in the machine_id/session_id columns. Report them as already
+  // present so the fresh-install path is exercised (CREATE TABLE includes them).
+  if (sql.includes('PRAGMA table_info')) {
+    return [
+      { name: 'id' },
+      { name: 'command_type' },
+      { name: 'payload' },
+      { name: 'machine_id' },
+      { name: 'session_id' },
+      { name: 'created_at' },
+      { name: 'synced' },
+    ];
+  }
 
   if (sql.includes('WHERE synced = 0')) {
     const results: Record<string, unknown>[] = [];
@@ -137,7 +154,7 @@ describe('Offline Storage Service', () => {
 
   describe('database initialization', () => {
     it('creates the database and storage table on first operation', async () => {
-      await saveCommand({ command_type: 'chat', payload: { content: 'init' } });
+      await saveCommand({ command_type: 'chat', payload: { content: 'init' }, machine_id: 'machine-1' });
 
       expect(SQLite.openDatabaseAsync).toHaveBeenCalledWith('styrby_offline_storage.db');
       expect(mockExecAsync).toHaveBeenCalledWith(
@@ -150,7 +167,7 @@ describe('Offline Storage Service', () => {
       // Subsequent calls skip initDatabase() entirely.
       mockExecAsync.mockClear();
 
-      await saveCommand({ command_type: 'chat', payload: { content: 'no-reinit' } });
+      await saveCommand({ command_type: 'chat', payload: { content: 'no-reinit' }, machine_id: 'machine-1' });
 
       // execAsync should NOT be called again since db is already initialized
       expect(mockExecAsync).not.toHaveBeenCalled();
@@ -166,6 +183,8 @@ describe('Offline Storage Service', () => {
       const input: SaveCommandInput = {
         command_type: 'chat',
         payload: { content: 'hello', agent: 'claude' },
+        machine_id: 'machine-1',
+        session_id: 'sess-1',
       };
 
       const result = await saveCommand(input);
@@ -173,6 +192,8 @@ describe('Offline Storage Service', () => {
       expect(result.id).toBeDefined();
       expect(result.command_type).toBe('chat');
       expect(result.payload).toBe(JSON.stringify({ content: 'hello', agent: 'claude' }));
+      expect(result.machine_id).toBe('machine-1');
+      expect(result.session_id).toBe('sess-1');
       expect(result.created_at).toBeDefined();
       expect(result.synced).toBe(false);
     });
@@ -182,6 +203,7 @@ describe('Offline Storage Service', () => {
         id: 'custom-id-123',
         command_type: 'cancel',
         payload: { action: 'cancel' },
+        machine_id: 'machine-1',
       };
 
       const result = await saveCommand(input);
@@ -195,6 +217,7 @@ describe('Offline Storage Service', () => {
         command_type: 'chat',
         payload: { content: 'with-timestamp' },
         created_at: customTimestamp,
+        machine_id: 'machine-1',
       };
 
       const result = await saveCommand(input);
@@ -212,6 +235,7 @@ describe('Offline Storage Service', () => {
       const result = await saveCommand({
         command_type: 'chat',
         payload: complexPayload,
+        machine_id: 'machine-1',
       });
 
       expect(result.payload).toBe(JSON.stringify(complexPayload));
@@ -221,44 +245,71 @@ describe('Offline Storage Service', () => {
       await saveCommand({
         command_type: 'chat',
         payload: { content: 'sync-check' },
+        machine_id: 'machine-1',
       });
 
       const insertCall = mockRunAsync.mock.calls.find(
         (call) => typeof call[0] === 'string' && call[0].includes('INSERT')
       );
       expect(insertCall).toBeDefined();
-      // synced is the 5th param (index 4)
-      expect((insertCall![1] as unknown[])[4]).toBe(0);
+      // Columns: id, command_type, payload, machine_id, session_id, created_at, synced.
+      // synced is the 7th param (index 6).
+      expect((insertCall![1] as unknown[])[6]).toBe(0);
     });
 
     it('inserts into the correct table with correct column order', async () => {
       await saveCommand({
         command_type: 'permission_response',
         payload: { request_id: 'req_1', approved: true },
+        machine_id: 'machine-xyz',
+        session_id: 'sess-9',
       });
 
       expect(mockRunAsync).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO offline_storage'),
-        expect.arrayContaining([
+        [
           expect.any(String), // id
           'permission_response', // command_type
           expect.any(String), // payload (JSON)
+          'machine-xyz', // machine_id
+          'sess-9', // session_id
           expect.any(String), // created_at
           0, // synced
-        ])
+        ]
       );
+    });
+
+    it('persists machine_id and session_id, defaulting session_id to null', async () => {
+      const result = await saveCommand({
+        command_type: 'chat',
+        payload: { content: 'no-session' },
+        machine_id: 'machine-abc',
+      });
+
+      expect(result.machine_id).toBe('machine-abc');
+      expect(result.session_id).toBeNull();
+
+      const insertCall = mockRunAsync.mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].includes('INSERT')
+      );
+      // machine_id is index 3, session_id is index 4 (null when omitted).
+      expect((insertCall![1] as unknown[])[3]).toBe('machine-abc');
+      expect((insertCall![1] as unknown[])[4]).toBeNull();
     });
 
     it('returns a proper StoredCommand object', async () => {
       const result = await saveCommand({
         command_type: 'chat',
         payload: { content: 'typed' },
+        machine_id: 'machine-1',
       });
 
       // Verify all StoredCommand properties exist
       expect(result).toHaveProperty('id');
       expect(result).toHaveProperty('command_type');
       expect(result).toHaveProperty('payload');
+      expect(result).toHaveProperty('machine_id');
+      expect(result).toHaveProperty('session_id');
       expect(result).toHaveProperty('created_at');
       expect(result).toHaveProperty('synced');
     });
@@ -267,6 +318,7 @@ describe('Offline Storage Service', () => {
       const result = await saveCommand({
         command_type: 'ping',
         payload: {},
+        machine_id: 'machine-1',
       });
 
       expect(result.payload).toBe('{}');
@@ -486,6 +538,8 @@ describe('Offline Storage Service', () => {
         id: 'round_trip',
         command_type: 'chat',
         payload: { content: 'round-trip test', nested: { key: 'value' } },
+        machine_id: 'machine-rt',
+        session_id: 'sess-rt',
         created_at: '2026-03-15T10:30:00.000Z',
       };
 
@@ -497,6 +551,8 @@ describe('Offline Storage Service', () => {
       expect(pending[0].id).toBe('round_trip');
       expect(pending[0].command_type).toBe('chat');
       expect(pending[0].payload).toBe(JSON.stringify(input.payload));
+      expect(pending[0].machine_id).toBe('machine-rt');
+      expect(pending[0].session_id).toBe('sess-rt');
       expect(pending[0].created_at).toBe('2026-03-15T10:30:00.000Z');
       expect(pending[0].synced).toBe(false);
     });
@@ -527,8 +583,8 @@ describe('Offline Storage Service', () => {
 
     it('handles multiple save-sync-clear cycles', async () => {
       // Save
-      await saveCommand({ id: 'cycle_1', command_type: 'chat', payload: { n: 1 } });
-      await saveCommand({ id: 'cycle_2', command_type: 'chat', payload: { n: 2 } });
+      await saveCommand({ id: 'cycle_1', command_type: 'chat', payload: { n: 1 }, machine_id: 'machine-1' });
+      await saveCommand({ id: 'cycle_2', command_type: 'chat', payload: { n: 2 }, machine_id: 'machine-1' });
 
       // Sync first one
       await markSynced('cycle_1');
@@ -556,6 +612,7 @@ describe('Offline Storage Service', () => {
       const result = await saveCommand({
         command_type: 'chat',
         payload: { content: 'Hello "world" & <test> \'quotes\'' },
+        machine_id: 'machine-1',
       });
 
       expect(result.payload).toBe(
@@ -568,6 +625,7 @@ describe('Offline Storage Service', () => {
       const result = await saveCommand({
         command_type: 'chat',
         payload: { content: longContent },
+        machine_id: 'machine-1',
       });
 
       const parsed = JSON.parse(result.payload);
@@ -580,6 +638,7 @@ describe('Offline Storage Service', () => {
           id: `concurrent_${i}`,
           command_type: 'chat',
           payload: { index: i },
+          machine_id: 'machine-1',
         })
       );
 
@@ -599,7 +658,7 @@ describe('Offline Storage Service', () => {
       mockRunAsync.mockRejectedValueOnce(new Error('SQLITE_FULL'));
 
       await expect(
-        saveCommand({ command_type: 'chat', payload: { content: 'fail-write' } })
+        saveCommand({ command_type: 'chat', payload: { content: 'fail-write' }, machine_id: 'machine-1' })
       ).rejects.toThrow('SQLITE_FULL');
     });
   });
