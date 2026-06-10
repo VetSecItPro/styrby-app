@@ -15,17 +15,25 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-const h = vi.hoisted(() => ({
-  sendChat: vi.fn(async () => {}),
-  connected: true,
-  encryptForSession: vi.fn(async () => ({ content_encrypted: 'CT', encryption_nonce: 'NONCE' })),
-}));
+const h = vi.hoisted(() => {
+  type Enc = { content_encrypted: string; encryption_nonce: string } | null;
+  return {
+    sendChat: vi.fn(async (_content: string, _agent: string, _sessionId?: string): Promise<void> => {}),
+    connected: true,
+    encryptForSession: vi.fn(
+      async (_content: string, _machineId: string): Promise<Enc> => ({
+        content_encrypted: 'CT',
+        encryption_nonce: 'NONCE',
+      }),
+    ),
+  };
+});
 
 vi.mock('@/hooks/useRelaySend', () => ({
   useRelaySend: () => ({ sendChat: h.sendChat, connected: h.connected }),
 }));
 vi.mock('@/lib/encryption', () => ({
-  encryptForSession: (...args: unknown[]) => h.encryptForSession(...args),
+  encryptForSession: (content: string, machineId: string) => h.encryptForSession(content, machineId),
 }));
 
 import { ChatInput } from '../chat-input';
