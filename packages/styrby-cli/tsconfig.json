@@ -37,7 +37,6 @@
     "node_modules",
     "dist",
     "**/*.test.ts",
-    "src/claude/**",
     "src/codex/**",
     "src/gemini/**",
     "src/modules/**",
