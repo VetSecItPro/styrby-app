@@ -248,10 +248,10 @@ describe('useChatSend', () => {
   });
 
   // --------------------------------------------------------------------------
-  // E2E encryption path
+  // Relay payload is PLAINTEXT (regression for the 2026-06-10 fix)
   // --------------------------------------------------------------------------
 
-  it('encrypts the relay payload when pairingInfo is present', async () => {
+  it('sends PLAINTEXT content in the relay payload even when paired (no encryption)', async () => {
     const deps = buildDeps({
       pairingInfo: { machineId: 'machine-1', userId: 'u1', deviceName: 'MBP', pairedAt: '' },
     });
@@ -261,35 +261,20 @@ describe('useChatSend', () => {
       await result.current();
     });
 
-    expect(encryptMessage).toHaveBeenCalledWith('hello world', 'machine-1');
+    // WHY: the CLI dispatcher reads `payload.content` directly and never
+    // decrypts `encrypted_content`. The old code encrypted the payload and set
+    // `content: ''` when paired, so the CLI forwarded an EMPTY string to the
+    // agent. The relay payload must stay plaintext (E2E lives in saveMessageToDb).
+    expect(encryptMessage).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        payload: expect.objectContaining({
-          encrypted_content: 'enc-base64',
-          nonce: 'nonce-base64',
-          content: '', // cleared when encrypted
-        }),
-      }),
-    );
-  });
-
-  it('falls back to plaintext when encryption throws', async () => {
-    (encryptMessage as jest.Mock).mockRejectedValueOnce(new Error('encrypt fail'));
-    const deps = buildDeps({
-      pairingInfo: { machineId: 'machine-1', userId: 'u1', deviceName: 'MBP', pairedAt: '' },
-    });
-    const { result } = renderHook(() => useChatSend(deps));
-
-    await act(async () => {
-      await result.current();
-    });
-
-    // Should still call sendMessage with plaintext content
-    expect(deps.sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
+        type: 'chat',
         payload: expect.objectContaining({ content: 'hello world' }),
       }),
     );
+    const payload = (deps.sendMessage as jest.Mock).mock.calls[0][0].payload;
+    expect(payload.content).toBe('hello world');
+    expect(payload.encrypted_content).toBeUndefined();
   });
 
   // --------------------------------------------------------------------------
