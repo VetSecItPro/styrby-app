@@ -38,7 +38,6 @@
     "dist",
     "**/*.test.ts",
     "src/codex/**",
-    "src/gemini/**",
     "src/modules/**",
     "src/parsers/**",
     "src/utils/**",
