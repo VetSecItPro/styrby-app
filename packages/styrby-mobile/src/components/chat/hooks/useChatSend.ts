@@ -16,8 +16,6 @@ import type { AgentType } from 'styrby-shared';
 import type { ChatMessageData } from '../../ChatMessage';
 import type { AgentState } from '../../TypingIndicator';
 import type { PairingInfo, UseRelayReturn } from '../../../hooks/useRelay';
-import { encryptMessage } from '../../../services/encryption';
-import { chatLogger as logger } from '../agent-config';
 import { createSession, saveMessageToDb } from '../chat-session';
 
 /**
@@ -110,43 +108,21 @@ export function useChatSend(deps: UseChatSendDeps): () => Promise<void> {
     }
 
     try {
-      // WHY: When a paired machine is available, encrypt the relay payload
-      // so the message content is protected in transit via Supabase Realtime.
-      // The CLI will decrypt using its secret key + mobile's public key.
-      // If encryption fails, fall back to plaintext relay (CLI handles both).
-      let relayPayload: {
-        content: string;
-        agent: AgentType;
-        session_id?: string;
-        encrypted_content?: string;
-        nonce?: string;
-      } = {
-        content,
-        agent: selectedAgent ?? 'claude',
-        session_id: currentSessionId ?? undefined,
-      };
-
-      if (machineId) {
-        try {
-          const encrypted = await encryptMessage(content, machineId);
-          relayPayload = {
-            ...relayPayload,
-            encrypted_content: encrypted.encrypted,
-            nonce: encrypted.nonce,
-            // WHY: Set content to empty to signal encryption to the CLI.
-            // The CLI checks for encrypted_content first.
-            content: '',
-          };
-        } catch (encryptError) {
-          // WHY: Relay-encryption failure is non-fatal. Send plaintext so
-          // the message reaches the CLI. Common during initial pairing.
-          logger.error('Relay encryption failed, sending plaintext:', encryptError);
-        }
-      }
-
+      // WHY a PLAINTEXT relay payload (fixed 2026-06-10): the CLI dispatcher
+      // (`relayMessageDispatch` chat case) reads ONLY `payload.content` and
+      // never decrypts `encrypted_content`. The previous code encrypted the
+      // relay payload and set `content: ''` when a machine was paired — so the
+      // CLI forwarded an EMPTY string to the agent in the normal (paired) case,
+      // breaking mobile→agent chat. E2E encryption is applied to the persisted
+      // history via `saveMessageToDb` (above); the transient relay control
+      // message is plaintext over TLS, matching the web client.
       await sendMessage({
         type: 'chat',
-        payload: relayPayload,
+        payload: {
+          content,
+          agent: selectedAgent ?? 'claude',
+          session_id: currentSessionId ?? undefined,
+        },
       });
     } catch {
       const errorId = `error_${Date.now()}`;
