@@ -43,6 +43,15 @@ const h = vi.hoisted(() => ({
   pending: [] as Array<Record<string, unknown>>,
   markSynced: vi.fn(async (_id: string) => {}),
   clearSynced: vi.fn(async () => 0),
+  encryptForSession: vi.fn(
+    async (
+      _payload: string,
+      _machineId: string,
+    ): Promise<{ content_encrypted: string; encryption_nonce: string } | null> => ({
+      content_encrypted: 'CIPHERTEXT',
+      encryption_nonce: 'NONCE',
+    }),
+  ),
 }));
 
 vi.mock('@/lib/supabase/client', () => ({
@@ -50,6 +59,9 @@ vi.mock('@/lib/supabase/client', () => ({
     from: () => ({ upsert: h.upsert }),
     auth: { getUser: h.getUser },
   }),
+}));
+vi.mock('../encryption', () => ({
+  encryptForSession: (payload: string, machineId: string) => h.encryptForSession(payload, machineId),
 }));
 vi.mock('@styrby/shared/relay', () => ({
   createRelayClient: () => {
@@ -87,6 +99,7 @@ beforeEach(() => {
   h.upsert.mockResolvedValue({ error: null });
   h.getUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null });
   h.clearSynced.mockResolvedValue(0);
+  h.encryptForSession.mockResolvedValue({ content_encrypted: 'CIPHERTEXT', encryption_nonce: 'NONCE' });
 });
 
 describe('syncPendingCommands', () => {
@@ -105,11 +118,26 @@ describe('syncPendingCommands', () => {
       session_id: 'sess-1',
       queue_order: Date.parse(CREATED_AT), // 1.7e12 — only valid as BIGINT
       status: 'pending',
+      // payload is encrypted at rest — NOT plaintext, NOT a 'pending' nonce.
+      command_encrypted: 'CIPHERTEXT',
+      encryption_nonce: 'NONCE',
     });
+    expect(h.encryptForSession).toHaveBeenCalledWith(expect.any(String), 'machine-xyz');
     expect((row as { machine_id: string }).machine_id).not.toBe('user-1');
     expect(opts).toEqual({ onConflict: 'id', ignoreDuplicates: true });
     expect(h.markSynced).toHaveBeenCalledWith('c1');
     expect(h.clearSynced).toHaveBeenCalled();
+  });
+
+  it('defers a command (no upsert, not marked synced) when the CLI key is unavailable', async () => {
+    h.encryptForSession.mockResolvedValue(null); // can't encrypt → never write plaintext
+    h.pending = [chatCommand()];
+
+    const count = await syncPendingCommands();
+
+    expect(count).toBe(0);
+    expect(h.upsert).not.toHaveBeenCalled();
+    expect(h.markSynced).not.toHaveBeenCalled();
   });
 
   it('delivers chat commands over the relay (connect → sendChat → disconnect)', async () => {

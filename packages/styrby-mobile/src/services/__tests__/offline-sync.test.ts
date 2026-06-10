@@ -39,6 +39,18 @@ jest.mock('../offline-storage', () => ({
 }));
 
 // ============================================================================
+// Mock the encryption service (at-rest payload encryption)
+// ============================================================================
+
+const mockEncryptMessage = jest.fn<Promise<{ encrypted: string; nonce: string }>, unknown[]>(
+  async () => ({ encrypted: 'CIPHERTEXT', nonce: 'NONCE' }),
+);
+
+jest.mock('../encryption', () => ({
+  encryptMessage: (...args: unknown[]) => mockEncryptMessage(...(args as [])),
+}));
+
+// ============================================================================
 // Mock styrby-shared (relay delivery)
 // ============================================================================
 
@@ -208,16 +220,31 @@ describe('Offline Sync Service', () => {
         user_id: 'test-user-id',
         machine_id: 'machine-xyz', // the FK fix — NOT 'test-user-id'
         session_id: 'sess-1',
-        command_encrypted: JSON.stringify({ content: 'hi there', agent: 'claude' }),
-        encryption_nonce: 'pending',
+        // payload encrypted at rest — NOT plaintext JSON, NOT a 'pending' nonce.
+        command_encrypted: 'CIPHERTEXT',
+        encryption_nonce: 'NONCE',
         queue_order: Date.parse(CREATED_AT), // 1.7e12 — only valid as BIGINT
         status: 'pending',
         created_at: CREATED_AT,
       });
+      expect(mockEncryptMessage).toHaveBeenCalledWith(expect.any(String), 'machine-xyz');
       expect((row as { machine_id: string }).machine_id).not.toBe('test-user-id');
       expect(opts).toEqual({ onConflict: 'id', ignoreDuplicates: true });
       expect(mockMarkSynced).toHaveBeenCalledWith('c1');
       expect(mockClearSynced).toHaveBeenCalled();
+    });
+
+    it('defers a command (no upsert, not marked synced) when encryption fails (CLI key unavailable)', async () => {
+      mockGetPendingCommands.mockResolvedValue([createStoredCommand({ id: 'c1' })]);
+      mockEncryptMessage.mockRejectedValueOnce(new Error('no key'));
+
+      const count = await syncPendingCommands();
+
+      expect(count).toBe(0);
+      // syncSingleCommand throws at encryptMessage before touching the DB, so
+      // the queue table is never reached — no plaintext (or anything) written.
+      expect(supabase.from).not.toHaveBeenCalled();
+      expect(mockMarkSynced).not.toHaveBeenCalled();
     });
 
     it('carries a null session_id through to the upsert', async () => {

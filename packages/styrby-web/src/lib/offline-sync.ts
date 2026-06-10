@@ -17,6 +17,7 @@
 import { createRelayClient, type RelayClient } from '@styrby/shared/relay';
 import type { AgentType } from '@styrby/shared';
 import { createClient } from '@/lib/supabase/client';
+import { encryptForSession } from './encryption';
 import {
   getPendingCommands,
   markSynced,
@@ -145,6 +146,16 @@ async function syncSingleCommand(
   userId: string,
   supabase: ReturnType<typeof createClient>
 ): Promise<void> {
+  // Encrypt the command payload at rest (NaCl box to the target machine, same
+  // as session message E2E). The DB then holds ciphertext, not plaintext JSON —
+  // offline_command_queue is owner-readable (RLS) + GDPR-exported. If the CLI's
+  // public key isn't available yet we cannot encrypt: throw so this command
+  // stays pending and retries on the next sync (no plaintext is ever written).
+  const enc = await encryptForSession(command.payload, command.machine_id);
+  if (!enc) {
+    throw new Error(`No encryption key for machine ${command.machine_id}; deferring command ${command.id}`);
+  }
+
   const { error } = await supabase
     .from('offline_command_queue')
     .upsert(
@@ -153,8 +164,8 @@ async function syncSingleCommand(
         user_id: userId,
         machine_id: command.machine_id,
         session_id: command.session_id,
-        command_encrypted: command.payload,
-        encryption_nonce: 'pending',
+        command_encrypted: enc.content_encrypted,
+        encryption_nonce: enc.encryption_nonce,
         queue_order: Date.parse(command.created_at),
         status: 'pending',
         created_at: command.created_at,
