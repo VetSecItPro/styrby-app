@@ -14,6 +14,8 @@
  * browsers.
  */
 
+import { createRelayClient, type RelayClient } from '@styrby/shared/relay';
+import type { AgentType } from '@styrby/shared';
 import { createClient } from '@/lib/supabase/client';
 import {
   getPendingCommands,
@@ -21,6 +23,9 @@ import {
   clearSynced,
   type StoredCommand,
 } from './offline-storage';
+
+/** localStorage key holding the web device's machine id (shared with useRelaySend). */
+const WEB_MACHINE_ID_KEY = 'styrby_web_machine_id';
 
 // ============================================================================
 // State
@@ -73,17 +78,30 @@ export async function syncPendingCommands(): Promise<number> {
       return 0;
     }
 
-    for (const command of pending) {
-      try {
-        await syncSingleCommand(command, user.id, supabase);
-        await markSynced(command.id);
-        syncedCount++;
-      } catch (error) {
-        // WHY: We log and continue rather than throwing. A single failed
-        // insert (e.g., duplicate key, schema mismatch) should not prevent
-        // the rest of the queue from syncing.
-        console.error(`[OfflineSync] Failed to sync command ${command.id}:`, error);
+    // Open a transient relay connection to DELIVER queued chats now that we're
+    // back online. Best-effort: if the relay can't connect, commands are still
+    // persisted to the audit queue below (delivery just doesn't happen this
+    // pass). The CLI session may also have ended — then the broadcast reaches
+    // no listener, which is acceptable (the command is still recorded).
+    const relay = await openDeliveryRelay(supabase, user.id);
+
+    try {
+      for (const command of pending) {
+        try {
+          // 1. Persist to the server queue (audit + cross-device record).
+          await syncSingleCommand(command, user.id, supabase);
+          // 2. Deliver chats to the agent over the relay (best-effort).
+          await deliverCommand(relay, command);
+          await markSynced(command.id);
+          syncedCount++;
+        } catch (error) {
+          // WHY: We log and continue rather than throwing. A single failed
+          // upsert (e.g., schema mismatch) should not block the rest of the queue.
+          console.error(`[OfflineSync] Failed to sync command ${command.id}:`, error);
+        }
       }
+    } finally {
+      if (relay) await relay.disconnect().catch(() => { /* best-effort teardown */ });
     }
 
     // Clean up synced records from local storage
@@ -100,19 +118,27 @@ export async function syncPendingCommands(): Promise<number> {
 }
 
 /**
- * Inserts a single command into the Supabase `offline_command_queue` table.
+ * Upserts a single command into the Supabase `offline_command_queue` table.
  *
- * WHY the command is inserted with minimal encryption fields: The Supabase
- * schema requires `command_encrypted` and `encryption_nonce`. In a full
- * implementation these would use the machine key's TweetNaCl encryption.
- * For now we store the JSON payload as the "encrypted" value with a
- * placeholder nonce, since end-to-end encryption is handled at the relay
- * layer and these commands are already authenticated via RLS.
+ * Fixes the latent bugs the bug-hunt found (2026-06-09):
+ *  - machine_id is the command's REAL target machine (was `userId` → FK
+ *    violation against machines(id), so every sync failed).
+ *  - session_id is carried through (was omitted).
+ *  - queue_order = Date.parse(created_at) ms-epoch is now safe (migration 098
+ *    widened the column INTEGER → BIGINT; INT4 overflowed before).
+ *  - `upsert` on the `id` PK with ignoreDuplicates makes re-sync idempotent
+ *    (a markSynced failure or a double online event won't error or duplicate).
+ *
+ * WHY command_encrypted holds the JSON payload with a placeholder nonce: this
+ * row is the audit/cross-device record (RLS-protected, GDPR-exported); live
+ * E2E delivery happens over the relay (see the delivery step in
+ * syncPendingCommands). At-rest encryption of the queued command itself is a
+ * tracked follow-up.
  *
  * @param command - The locally stored command to sync
  * @param userId - The authenticated user's ID for the user_id column
  * @param supabase - The Supabase client instance
- * @throws Error if the Supabase insert fails
+ * @throws Error if the Supabase upsert fails
  */
 async function syncSingleCommand(
   command: StoredCommand,
@@ -121,22 +147,85 @@ async function syncSingleCommand(
 ): Promise<void> {
   const { error } = await supabase
     .from('offline_command_queue')
-    .insert({
-      user_id: userId,
-      // WHY machine_id uses a placeholder: The actual machine_id should come
-      // from the paired CLI instance. In a future iteration, the pairing
-      // service will provide this. For now we use the user_id as a fallback
-      // to satisfy the NOT NULL constraint.
-      machine_id: userId,
-      command_encrypted: command.payload,
-      encryption_nonce: 'pending',
-      queue_order: Date.parse(command.created_at),
-      status: 'pending',
-      created_at: command.created_at,
-    });
+    .upsert(
+      {
+        id: command.id,
+        user_id: userId,
+        machine_id: command.machine_id,
+        session_id: command.session_id,
+        command_encrypted: command.payload,
+        encryption_nonce: 'pending',
+        queue_order: Date.parse(command.created_at),
+        status: 'pending',
+        created_at: command.created_at,
+      },
+      { onConflict: 'id', ignoreDuplicates: true }
+    );
 
   if (error) {
-    throw new Error(`Supabase insert failed: ${error.message}`);
+    throw new Error(`Supabase upsert failed: ${error.message}`);
+  }
+}
+
+/**
+ * Open a transient relay connection used to deliver queued commands on
+ * reconnect. Returns null when the relay can't be created/connected — delivery
+ * is best-effort, so the caller still persists commands to the audit queue.
+ *
+ * @param supabase - Authenticated Supabase client.
+ * @param userId - The user's id (relay channel is `relay:{userId}`).
+ * @returns A connected RelayClient, or null if connection failed.
+ */
+async function openDeliveryRelay(
+  supabase: ReturnType<typeof createClient>,
+  userId: string
+): Promise<RelayClient | null> {
+  try {
+    const deviceId =
+      (typeof localStorage !== 'undefined' && localStorage.getItem(WEB_MACHINE_ID_KEY)) ||
+      `web_${crypto.randomUUID()}`;
+    const relay = createRelayClient({
+      supabase,
+      userId,
+      deviceId,
+      deviceType: 'web',
+      deviceName: 'Web Dashboard (offline-sync)',
+      platform: 'web',
+    });
+    await relay.connect();
+    return relay;
+  } catch (error) {
+    console.error(
+      '[OfflineSync] Delivery relay unavailable; commands persisted but not delivered this pass:',
+      error
+    );
+    return null;
+  }
+}
+
+/**
+ * Deliver a queued command to the agent over the relay (chat commands only).
+ *
+ * No-op when the relay is unavailable or the command isn't a deliverable chat.
+ * Never throws — delivery is best-effort and must not fail the sync (the command
+ * is already persisted to the audit queue by the caller).
+ *
+ * @param relay - The delivery relay (or null when unavailable).
+ * @param command - The queued command to deliver.
+ */
+async function deliverCommand(relay: RelayClient | null, command: StoredCommand): Promise<void> {
+  if (!relay || command.command_type !== 'chat') return;
+  try {
+    const payload = JSON.parse(command.payload) as { content?: string; agent?: string };
+    if (payload.content) {
+      await relay.sendChat(
+        payload.content,
+        (payload.agent as AgentType) ?? 'claude',
+        command.session_id ?? undefined
+      );
+    }
+  } catch (error) {
+    console.error(`[OfflineSync] Failed to deliver command ${command.id} over relay:`, error);
   }
 }
 

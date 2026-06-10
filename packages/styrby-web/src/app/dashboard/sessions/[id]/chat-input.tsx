@@ -11,6 +11,7 @@ import { useState, useRef, KeyboardEvent } from 'react';
 import type { AgentType } from '@styrby/shared';
 import { useRelaySend } from '@/hooks/useRelaySend';
 import { encryptForSession } from '@/lib/encryption';
+import { saveCommand } from '@/lib/offline-storage';
 
 /* ──────────────────────────── Types ──────────────────────────── */
 
@@ -86,6 +87,7 @@ export function ChatInput({ sessionId, userId, agent, machineId }: ChatInputProp
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { sendChat, connected } = useRelaySend(userId);
 
@@ -104,31 +106,50 @@ export function ChatInput({ sessionId, userId, agent, machineId }: ChatInputProp
    */
   const sendMessage = async () => {
     const trimmedMessage = message.trim();
-    if (!trimmedMessage || isSending || !connected) return;
+    if (!trimmedMessage || isSending) return;
 
     setIsSending(true);
     setError(null);
+    setNotice(null);
 
     try {
-      // 1. Live control path (required) — reaches the agent.
-      await sendChat(trimmedMessage, agent, sessionId);
+      if (connected) {
+        // ── ONLINE ──────────────────────────────────────────────────────
+        // 1. Live control path (required) — reaches the agent now.
+        await sendChat(trimmedMessage, agent, sessionId);
 
-      // 2. Persist for history (best-effort, E2E at-rest).
-      if (machineId) {
-        const enc = await encryptForSession(trimmedMessage, machineId);
-        if (enc) {
-          const response = await fetch('/api/relay/send-message', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionId, ...enc }),
-          });
-          if (!response.ok) {
-            // History persistence failed, but the agent already received the
-            // message via the broadcast. Log, don't block the send.
-            const data = await response.json().catch(() => ({}));
-            console.error('Failed to persist message to history:', data.error);
+        // 2. Persist for history (best-effort, E2E at-rest).
+        if (machineId) {
+          const enc = await encryptForSession(trimmedMessage, machineId);
+          if (enc) {
+            const response = await fetch('/api/relay/send-message', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sessionId, ...enc }),
+            });
+            if (!response.ok) {
+              // History persistence failed, but the agent already received the
+              // message via the broadcast. Log, don't block the send.
+              const data = await response.json().catch(() => ({}));
+              console.error('Failed to persist message to history:', data.error);
+            }
           }
         }
+      } else {
+        // ── OFFLINE ─────────────────────────────────────────────────────
+        // Queue locally; offline-sync delivers it over the relay + records it
+        // in offline_command_queue on reconnect. Requires a machine id (the
+        // queue's machine_id FK is NOT NULL).
+        if (!machineId) {
+          throw new Error('Cannot queue while offline: this session has no paired machine.');
+        }
+        await saveCommand({
+          command_type: 'chat',
+          payload: { content: trimmedMessage, agent, session_id: sessionId },
+          machine_id: machineId,
+          session_id: sessionId,
+        });
+        setNotice('Offline — message queued. It will send when you reconnect.');
       }
 
       setMessage('');
@@ -205,7 +226,7 @@ export function ChatInput({ sessionId, userId, agent, machineId }: ChatInputProp
         {/* Send button */}
         <button
           onClick={sendMessage}
-          disabled={!message.trim() || isSending || !connected}
+          disabled={!message.trim() || isSending}
           className="flex-shrink-0 rounded-lg bg-orange-600 p-3 text-white hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 focus:ring-offset-zinc-900"
           aria-label={isSending ? 'Sending message...' : 'Send message'}
         >
@@ -217,6 +238,13 @@ export function ChatInput({ sessionId, userId, agent, machineId }: ChatInputProp
         </button>
       </div>
 
+      {/* Queued-offline confirmation */}
+      {notice && (
+        <p className="mt-2 text-xs text-emerald-400/90" role="status">
+          {notice}
+        </p>
+      )}
+
       {/* Keyboard shortcut hint / relay status */}
       {connected ? (
         <p className="mt-2 text-xs text-zinc-400">
@@ -225,7 +253,7 @@ export function ChatInput({ sessionId, userId, agent, machineId }: ChatInputProp
         </p>
       ) : (
         <p className="mt-2 text-xs text-amber-400/80" role="status">
-          Connecting to relay…
+          Offline — messages are queued and sent when you reconnect.
         </p>
       )}
     </div>
