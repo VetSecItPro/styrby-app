@@ -72,15 +72,15 @@ export interface OverrideTierFormProps {
 
 // ─── Tier options ─────────────────────────────────────────────────────────────
 
-/** All valid tier values — mirrors the Zod schema in actions.ts.
- *  'power' was retired (migration 095) and is intentionally NOT offered. */
+/** Canonical sellable tier values — mirrors the Zod schema in actions.ts.
+ *  BUG #34: team/business/enterprise NEVER shipped (no Polar product, no
+ *  entitlement mapping) and 'power' was retired (migration 095). Offering any
+ *  of them let an admin write an undefined-entitlement row, so only the three
+ *  canonical tiers are selectable. */
 const TIER_OPTIONS: { value: string; label: string }[] = [
   { value: 'free', label: 'Free' },
   { value: 'pro', label: 'Pro' },
   { value: 'growth', label: 'Growth' },
-  { value: 'team', label: 'Team' },
-  { value: 'business', label: 'Business' },
-  { value: 'enterprise', label: 'Enterprise' },
 ];
 
 // ─── Component ────────────────────────────────────────────────────────────────

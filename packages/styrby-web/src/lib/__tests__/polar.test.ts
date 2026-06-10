@@ -123,7 +123,8 @@ describe('Polar Billing Module — Phase 5 (Pro + Growth)', () => {
       it('has the expected limits shape (team features)', () => {
         expect(TIERS.growth.limits.machines).toBe(9);
         expect(TIERS.growth.limits.historyDays).toBe(365);
-        expect(TIERS.growth.limits.teamMembers).toBe(100);
+        // Canonical Growth seat ceiling is 25 (Polar product max). (bug #18)
+        expect(TIERS.growth.limits.teamMembers).toBe(25);
       });
 
       it('has $99/mo $990/yr base pricing (Decision #3 / #4)', () => {

@@ -862,7 +862,7 @@ describe('GooseBackend — error handling', () => {
     expect(errorStatuses.length).toBeGreaterThan(0);
   });
 
-  it('emits error status when stderr contains "failed"', async () => {
+  it('emits error status for a structured Traceback header', async () => {
     const { backend } = createGooseBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
@@ -870,13 +870,32 @@ describe('GooseBackend — error handling', () => {
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
     (currentMockProcess.stderr as EventEmitter).emit(
       'data',
-      Buffer.from('Connection failed: timeout after 30s'),
+      Buffer.from('Traceback (most recent call last):\n  File "x.py", line 1'),
     );
     simulateProcess(currentMockProcess, [], 0);
     await promptPromise;
 
     const errorStatuses = messages.filter((m: any) => m.type === 'status' && m.status === 'error');
     expect(errorStatuses.length).toBeGreaterThan(0);
+  });
+
+  it('does NOT emit error status for a benign "0 errors" diagnostic (audit fix #20)', async () => {
+    // WHY: the previous case-insensitive substring scan flipped the session to
+    // an error state on a completely successful run like "Tests passed, 0 errors".
+    const { backend } = createGooseBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    (currentMockProcess.stderr as EventEmitter).emit(
+      'data',
+      Buffer.from('Tests passed, 0 errors, 0 warnings'),
+    );
+    simulateProcess(currentMockProcess, [], 0);
+    await promptPromise;
+
+    const errorStatuses = messages.filter((m: any) => m.type === 'status' && m.status === 'error');
+    expect(errorStatuses).toHaveLength(0);
   });
 
   it('rejects sendPrompt when the spawned process emits an "error" event', async () => {

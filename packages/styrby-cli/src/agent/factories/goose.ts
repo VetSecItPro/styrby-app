@@ -195,6 +195,42 @@ function isFileEditTool(toolName: string): boolean {
   return fileEditTools.some((t) => toolName.toLowerCase().includes(t));
 }
 
+/**
+ * Detect an ANCHORED / structured error signal in a chunk of agent stderr.
+ *
+ * WHY (audit 2026-06-09 fix #20): the previous gate was a case-insensitive
+ * substring scan for 'error'/'exception'/'failed' anywhere in stderr. A normal
+ * diagnostic such as "Tests passed, 0 errors" or "0 errors, 0 warnings" tripped
+ * it and emitted a `status: 'error'` frame, flipping the session to an error
+ * state mid-run even though the agent succeeded (close later resolves with code
+ * 0). That produced a flickering / stuck-error session UI on completely
+ * successful runs.
+ *
+ * We now require a STRUCTURED marker: a line that STARTS with an error label
+ * (after optional leading whitespace / log-level brackets), a Python traceback
+ * header, or a panic. "0 errors" no longer matches because the word is not at a
+ * line start in an error-label position.
+ *
+ * @param text - A chunk of stderr output (may contain multiple lines).
+ * @returns True if any line carries a structured error signal.
+ */
+export function hasStructuredErrorSignal(text: string): boolean {
+  for (const rawLine of text.split(/\r?\n/)) {
+    // Strip a leading log-level prefix like "[2026-06-09] " or "WARN: " noise
+    // is irrelevant; we anchor on the error token itself at the start of the
+    // meaningful content.
+    const line = rawLine.replace(/^\s+/, '');
+    if (
+      /^(?:error|fatal|panic|exception|traceback)\b[:\s]/i.test(line) ||
+      /^traceback \(most recent call last\)/i.test(line) ||
+      /^panic:/i.test(line)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // ============================================================================
 // GooseBackend Class
 // ============================================================================
@@ -439,6 +475,10 @@ class GooseBackend extends StreamingAgentBackendBase {
       throw new Error(`Invalid session ID: ${sessionId}`);
     }
 
+    // Reset run-scoped state (clears the cancelled flag) so this run's exit is
+    // classified correctly by the close handler (audit 2026-06-09 fix #6).
+    this.beginRun();
+
     this.lineBuffer = '';
     this.emit({ type: 'status', status: 'running' });
 
@@ -483,6 +523,13 @@ class GooseBackend extends StreamingAgentBackendBase {
     logger.debug(`[GooseBackend] Spawning goose with args:`, args);
 
     return new Promise<void>((resolve, reject) => {
+      // WHY (audit 2026-06-09 fix #38): the 'error' (ENOENT/spawn-failure) and
+      // 'close' handlers can BOTH fire for a single failed spawn. Previously the
+      // close handler then emitted a second, contradictory status frame ("Goose
+      // exited with code 1") that clobbered the friendly install hint the error
+      // handler had just shown. This sentinel ensures whichever handler settles
+      // the promise first wins; the other becomes a no-op.
+      let settled = false;
       try {
         // SECURITY: Use buildSafeEnv() instead of spreading process.env to prevent
         // leaking secrets (SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL, etc.) to the
@@ -524,13 +571,10 @@ class GooseBackend extends StreamingAgentBackendBase {
           const text = data.toString();
           logger.debug(`[GooseBackend] stderr: ${text.trim()}`);
 
-          // Emit error status for critical errors
-          if (
-            text.includes('Error') ||
-            text.includes('error') ||
-            text.includes('Exception') ||
-            text.includes('failed')
-          ) {
+          // Emit error status only for ANCHORED/structured error signals so a
+          // benign line like "0 errors" does not poison the session state
+          // (audit 2026-06-09 fix #20).
+          if (hasStructuredErrorSignal(text)) {
             this.emit({
               type: 'status',
               status: 'error',
@@ -552,7 +596,22 @@ class GooseBackend extends StreamingAgentBackendBase {
             this.lineBuffer = '';
           }
 
+          this.process = null;
+
+          // If the 'error' handler already settled this run (e.g. ENOENT), do
+          // not emit a second contradictory status / reject again (fix #38).
+          if (settled) {
+            return;
+          }
+          settled = true;
+
           if (code === 0) {
+            this.emit({ type: 'status', status: 'idle' });
+            resolve();
+          } else if (this.wasCancelled()) {
+            // Intentional user cancel (or dispose) SIGTERM'd the process, which
+            // surfaces here as a non-zero/null exit. Emit a clean idle status and
+            // resolve instead of a spurious agent error (audit 2026-06-09 fix #6).
             this.emit({ type: 'status', status: 'idle' });
             resolve();
           } else {
@@ -563,14 +622,18 @@ class GooseBackend extends StreamingAgentBackendBase {
             });
             reject(new Error(`Goose exited with code ${code}`));
           }
-
-          this.process = null;
         });
 
         // Handle process spawn errors (e.g., binary not found)
         // WHY (Phase 0.3 / SOC2 CC7.2): Surface friendly install hint on
         // ENOENT instead of raw "spawn ... ENOENT" Node error.
         this.process.on('error', (err: NodeJS.ErrnoException) => {
+          // First settler wins; a later 'close' must not re-emit (fix #38).
+          if (settled) {
+            return;
+          }
+          settled = true;
+
           if (err.code === 'ENOENT') {
             const message = formatInstallHint('goose');
             logger.warn(`[GooseBackend] ${message}`);
@@ -610,6 +673,9 @@ class GooseBackend extends StreamingAgentBackendBase {
 
     if (this.process) {
       logger.debug('[GooseBackend] Cancelling Goose process');
+      // Mark cancelled BEFORE SIGTERM so the close handler treats the resulting
+      // non-zero exit as an intentional cancel, not a crash (audit 2026-06-09 fix #6).
+      this.markCancelled();
       this.process.kill('SIGTERM');
       // WHY: Give Goose 3 seconds to clean up MCP server connections gracefully
       // before forcing a kill. MCP servers may be running as child processes of

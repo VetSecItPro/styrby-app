@@ -301,6 +301,18 @@ describe('Session Checkpoints API', () => {
       const res = await DELETE(makeRequest('DELETE', VALID_SESSION_ID, undefined, `?checkpointId=${checkpointId}`));
       expect(res.status).toBe(200);
     });
+
+    // BUG #45: deleting a non-existent checkpoint must 404 (not 200 deleted:true).
+    // With { count: 'exact' } the route now sees count=0 and returns the
+    // documented 404 instead of silently claiming a deletion that never happened.
+    it('returns 404 when no checkpoint matched (count: 0)', async () => {
+      fromCallQueue.push({ data: null, error: null, count: 0 });
+
+      const res = await DELETE(makeRequest('DELETE', VALID_SESSION_ID, undefined, '?name=does-not-exist'));
+      expect(res.status).toBe(404);
+      const body = await res.json();
+      expect(body.error).toBe('Checkpoint not found');
+    });
   });
 
   // --------------------------------------------------------------------------

@@ -224,6 +224,21 @@ describe('overrideTierAction', () => {
     expect(mockRpc).not.toHaveBeenCalled();
   });
 
+  // BUG #34: never-shipped tiers must be rejected at the schema layer so an admin
+  // can't write an undefined-entitlement subscription row.
+  it.each(['team', 'business', 'enterprise', 'power'])(
+    '(a) rejects never-shipped/retired tier %s without calling the RPC',
+    async (badTier) => {
+      const { overrideTierAction } = await import('../actions');
+      const result = await overrideTierAction(
+        VALID_UUID,
+        makeFormData({ targetUserId: VALID_UUID, newTier: badTier, reason: 'test reason' })
+      );
+      expect(result).toMatchObject({ ok: false, field: 'newTier' });
+      expect(mockRpc).not.toHaveBeenCalled();
+    }
+  );
+
   it('(a) returns error with field when reason is empty', async () => {
     const { overrideTierAction } = await import('../actions');
 
@@ -256,7 +271,7 @@ describe('overrideTierAction', () => {
     const { overrideTierAction } = await import('../actions');
     const result = await overrideTierAction(
       VALID_UUID,
-      makeFormData({ targetUserId: VALID_UUID, newTier: 'enterprise', reason: 'test reason' })
+      makeFormData({ targetUserId: VALID_UUID, newTier: 'growth', reason: 'test reason' })
     );
 
     expect(result).toEqual({ ok: false, error: 'Not authorized' });
@@ -293,7 +308,7 @@ describe('overrideTierAction', () => {
     const { overrideTierAction } = await import('../actions');
     const result = await overrideTierAction(
       VALID_UUID,
-      makeFormData({ targetUserId: VALID_UUID, newTier: 'team', reason: 'test reason' })
+      makeFormData({ targetUserId: VALID_UUID, newTier: 'pro', reason: 'test reason' })
     );
 
     expect(result).toMatchObject({ ok: false, error: 'Internal error — check Sentry' });
@@ -347,7 +362,7 @@ describe('overrideTierAction', () => {
     await expect(
       overrideTierAction(
         VALID_UUID,
-        makeFormData({ targetUserId: VALID_UUID, newTier: 'enterprise', reason: 'perm override' })
+        makeFormData({ targetUserId: VALID_UUID, newTier: 'growth', reason: 'perm override' })
       )
     ).rejects.toThrow(/NEXT_REDIRECT/);
 

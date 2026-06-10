@@ -4,6 +4,7 @@
 
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import type { User } from '@supabase/supabase-js';
 
 /**
  * Checks if Supabase environment variables are properly configured.
@@ -21,20 +22,40 @@ function hasValidSupabaseConfig(): boolean {
 }
 
 /**
- * Updates the Supabase auth session by refreshing the token if needed.
- * Should be called in middleware for every request.
+ * The validated result of a session refresh pass.
+ *
+ * WHY the `user` field: protected-route gating in middleware must validate the
+ * actual session, not merely the presence of an auth cookie. Returning the
+ * `getUser()` result lets the caller gate on a verified user (null = forged,
+ * expired, or chunked-but-unverifiable token) instead of pattern-matching a
+ * cookie name that an attacker can set or that goes missing for chunked JWTs.
+ * (bugs #15, #46)
+ */
+export interface UpdateSessionResult {
+  /** The refreshed Next.js response carrying any rotated auth cookies. */
+  response: NextResponse;
+  /** The authenticated user, or null when no valid session exists. */
+  user: User | null;
+}
+
+/**
+ * Updates the Supabase auth session by refreshing the token if needed, and
+ * returns the validated user so the caller can gate protected routes on a
+ * real session rather than cookie presence.
  *
  * @param request - Next.js request object
- * @returns Next.js response with updated cookies
+ * @returns The refreshed response plus the validated user (null if unauthenticated)
  */
-export async function updateSession(request: NextRequest) {
+export async function updateSession(request: NextRequest): Promise<UpdateSessionResult> {
   let supabaseResponse = NextResponse.next({
     request,
   });
 
-  // Skip session refresh if Supabase is not configured (CI/test environment)
+  // Skip session refresh if Supabase is not configured (CI/test environment).
+  // WHY user:null here: without config we cannot validate a session, so the
+  // gate must fail-closed for protected paths.
   if (!hasValidSupabaseConfig()) {
-    return supabaseResponse;
+    return { response: supabaseResponse, user: null };
   }
 
   const supabase = createServerClient(
@@ -60,8 +81,11 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  // Refresh session if expired - this will also update cookies
-  await supabase.auth.getUser();
+  // Refresh session if expired - this will also update cookies. We keep the
+  // validated user so the middleware can gate protected routes on it.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  return supabaseResponse;
+  return { response: supabaseResponse, user };
 }

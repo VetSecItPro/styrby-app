@@ -13,6 +13,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import * as fs from 'node:fs';
 import type { SupportedAgentType } from '@/persistence';
+import { logger } from '@/ui/logger';
 
 /**
  * Configuration values
@@ -65,15 +66,39 @@ export function ensureConfigDir(): void {
  */
 export function loadConfig(): StyrbyConfig {
   ensureConfigDir();
+
+  let content: string;
   try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      const content = fs.readFileSync(CONFIG_FILE, 'utf-8');
-      return JSON.parse(content) as StyrbyConfig;
+    if (!fs.existsSync(CONFIG_FILE)) {
+      return {};
     }
-  } catch {
-    // Return empty config on error
+    content = fs.readFileSync(CONFIG_FILE, 'utf-8');
+  } catch (err) {
+    // WHY (audit 2026-06-09 fix #39): a genuine IO/permission failure was
+    // previously swallowed by an empty catch, silently logging the user out
+    // (isAuthenticated() -> false) with no diagnostic. Surface it at warn level
+    // so a misconfigured ~/.styrby is debuggable, then fall back to empty.
+    logger.warn(
+      `[config] Could not read ${CONFIG_FILE}: ${err instanceof Error ? err.message : String(err)}`
+    );
+    return {};
   }
-  return {};
+
+  try {
+    return JSON.parse(content) as StyrbyConfig;
+  } catch (err) {
+    // WHY (audit 2026-06-09 fix #39): a corrupt/truncated config.json (e.g. a
+    // crash mid-write before saveConfig was made atomic) used to be swallowed
+    // here, returning {} and silently bouncing the user into a fresh login,
+    // losing their machineId/userId binding. We now log the parse failure
+    // loudly so corruption is visible rather than masquerading as "logged out".
+    logger.warn(
+      `[config] ${CONFIG_FILE} is corrupt and could not be parsed: ${
+        err instanceof Error ? err.message : String(err)
+      }. Treating as empty config; re-authentication may be required.`
+    );
+    return {};
+  }
 }
 
 /**
@@ -90,11 +115,19 @@ export function loadConfig(): StyrbyConfig {
  */
 export function saveConfig(config: StyrbyConfig): void {
   ensureConfigDir();
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), {
+  // WHY (audit 2026-06-09 fix #39): write atomically. The prior direct
+  // writeFileSync to CONFIG_FILE was non-atomic — a crash/OOM/power loss between
+  // open and full write left a TRUNCATED config.json, which loadConfig() then
+  // failed to parse and silently treated as logged-out. Writing to a temp file
+  // and renaming into place is atomic on POSIX: a reader sees either the old
+  // complete file or the new complete file, never a partial one.
+  const tmpFile = `${CONFIG_FILE}.tmp`;
+  fs.writeFileSync(tmpFile, JSON.stringify(config, null, 2), {
     mode: 0o600, // Owner read/write only — applies only to newly created file
   });
-  // Repair permissions on existing files (upgrade path).
-  fs.chmodSync(CONFIG_FILE, 0o600);
+  // Repair permissions on the temp file (upgrade path / pre-existing tmp).
+  fs.chmodSync(tmpFile, 0o600);
+  fs.renameSync(tmpFile, CONFIG_FILE);
 }
 
 /**

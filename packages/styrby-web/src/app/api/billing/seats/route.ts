@@ -520,21 +520,23 @@ export async function GET(request: Request): Promise<Response> {
   if ('error' in subResult) return subResult.error;
   const { subscription } = subResult;
 
-  // WHY quantity ?? seat_cap ?? 1: subscription.quantity is null for paused
-  // subscriptions and also when the Polar SDK type diverges from the actual
-  // REST response (SDK type drift across minor versions). seat_cap is the DB
-  // snapshot of the last webhook-confirmed seat count — the next-best source
-  // when the live API returns null. The final fallback of 1 prevents a NaN
-  // proration in the extreme case where both sources are missing, though in
-  // practice a team cannot exist without at least the minimum seat count.
-  const oldSeats = subscription.quantity ?? team.seat_cap ?? 1;
+  // WHY quantity ?? seat_cap (NOT ?? 1): subscription.quantity is null for
+  // paused subscriptions and on Polar SDK type drift. seat_cap is the DB
+  // snapshot of the last webhook-confirmed seat count — the next-best source.
+  //
+  // BUG #49 (preview parity): the previous `?? 1` fabricated current_seats=1
+  // when both sources were null, surfacing a misleading proration_cents to the
+  // client. When the prior seat count is indeterminate we report it as null and
+  // skip the proration estimate rather than inventing one off a fake baseline.
+  const knownOldSeats = subscription.quantity ?? team.seat_cap ?? null;
   const { daysElapsed, daysInCycle } = computeCycleDays(subscription);
 
-  // Compute proration preview (0 for downgrades — Polar issues a credit)
+  // Compute proration preview (0 for downgrades — Polar issues a credit — and 0
+  // when the prior seat count is indeterminate).
   const prorationCents =
-    new_seat_count > oldSeats
+    knownOldSeats !== null && new_seat_count > knownOldSeats
       ? calculateProrationCents({
-          oldSeats,
+          oldSeats: knownOldSeats,
           newSeats: new_seat_count,
           tierId: tier,
           cycle,
@@ -544,7 +546,7 @@ export async function GET(request: Request): Promise<Response> {
       : 0;
 
   return NextResponse.json({
-    current_seats: oldSeats,
+    current_seats: knownOldSeats,
     new_seats: new_seat_count,
     proration_cents: prorationCents,
     tier,
@@ -770,27 +772,33 @@ export async function PATCH(request: Request): Promise<Response> {
   if ('error' in subResult) return subResult.error;
   const { subscription } = subResult;
 
-  // WHY quantity ?? seat_cap ?? 1: subscription.quantity is null for paused
-  // subscriptions and also when the Polar SDK type diverges from the actual
-  // REST response (SDK type drift across minor versions). seat_cap is the DB
-  // snapshot of the last webhook-confirmed seat count — the next-best source
-  // when the live API returns null. The final fallback of 1 prevents a NaN
-  // proration in the extreme case where both sources are missing, though in
-  // practice a team cannot exist without at least the minimum seat count.
-  const oldSeats = subscription.quantity ?? team.seat_cap ?? 1;
+  // WHY quantity ?? seat_cap (NOT ?? 1): subscription.quantity is null for
+  // paused subscriptions and on Polar SDK type drift. seat_cap is the DB
+  // snapshot of the last webhook-confirmed seat count — the next-best source.
+  //
+  // BUG #49: the previous `?? 1` final fallback fabricated oldSeats=1 when BOTH
+  // quantity AND seat_cap were null, which mislabeled a no-op PATCH-to-current
+  // as a +N increase, charged a phantom proration, and wrote a bogus audit
+  // delta. When both sources are null oldSeats is INDETERMINATE: we skip
+  // proration entirely (no fabricated charge) and fall back to memberCount —
+  // the authoritative current seat floor already fetched under the lock — for
+  // the audit baseline so the recorded delta reflects reality rather than a
+  // made-up increase.
+  const knownOldSeats = subscription.quantity ?? team.seat_cap ?? null;
+  const oldSeatsForAudit = knownOldSeats ?? memberCount;
   const { daysElapsed, daysInCycle } = computeCycleDays(subscription);
 
   // ── Step 8: Compute proration ─────────────────────────────────────────────
 
-  // WHY only for upgrades: downgrades (new < old) produce a Polar credit, not
-  // a charge. Polar handles credit issuance internally; we do not compute or
-  // issue credits ourselves — that is Polar's billing engine responsibility.
-  // calculateProrationCents would return a negative number for downgrades if
-  // called — we skip the call entirely to avoid any ambiguity.
+  // WHY only for upgrades with a KNOWN prior seat count: downgrades (new < old)
+  // produce a Polar credit, not a charge (Polar issues credits internally). And
+  // when the prior seat count is indeterminate (knownOldSeats === null) we
+  // cannot compute a trustworthy proration, so we skip it rather than invent
+  // one off a fabricated baseline (bug #49).
   const prorationCents =
-    new_seat_count > oldSeats
+    knownOldSeats !== null && new_seat_count > knownOldSeats
       ? calculateProrationCents({
-          oldSeats,
+          oldSeats: knownOldSeats,
           newSeats: new_seat_count,
           tierId: tier,
           cycle,
@@ -858,8 +866,14 @@ export async function PATCH(request: Request): Promise<Response> {
   // action for a downgrade makes compliance queries misleading — an ops engineer
   // searching for decreases would miss the event. The delta field is negative for
   // decreases, giving an unambiguous signal in either direction.
+  // WHY direction derived from oldSeatsForAudit (memberCount when the prior
+  // seat count is indeterminate): avoids fabricating an "increase" off a made-up
+  // baseline of 1 (bug #49). The delta is computed against the same baseline so
+  // the compliance trail stays internally consistent.
   const auditAction =
-    new_seat_count > oldSeats ? 'team_seat_count_increased' : 'team_seat_count_decreased';
+    new_seat_count > oldSeatsForAudit
+      ? 'team_seat_count_increased'
+      : 'team_seat_count_decreased';
 
   const adminClient = createAdminClient();
   const { error: auditError } = await adminClient.from('audit_log').insert({
@@ -868,14 +882,18 @@ export async function PATCH(request: Request): Promise<Response> {
     resource_type: 'team',
     resource_id: team_id,
     metadata: {
-      old_seat_count: oldSeats,
+      old_seat_count: oldSeatsForAudit,
       new_seat_count,
       // WHY negative delta for decreases: makes it unambiguous at query time
       // without needing to compare old vs new fields. Positive = upgrade, negative = downgrade.
-      delta: new_seat_count - oldSeats,
+      delta: new_seat_count - oldSeatsForAudit,
+      // WHY flag indeterminate baselines: when Polar quantity + seat_cap were
+      // both null we used memberCount as the baseline; ops reconciling billing
+      // deltas needs to know the prior count was inferred, not authoritative.
+      old_seat_count_indeterminate: knownOldSeats === null,
       // WHY include proration_cents in audit: allows ops to reconcile billing
       // discrepancies against the expected proration amount without querying Polar.
-      // proration_cents is 0 for decreases per calculateProrationCents contract.
+      // proration_cents is 0 for decreases AND for indeterminate baselines.
       proration_cents: prorationCents,
       days_elapsed: daysElapsed,
       days_in_cycle: daysInCycle,

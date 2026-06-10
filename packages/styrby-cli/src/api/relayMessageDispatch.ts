@@ -116,7 +116,21 @@ export function classifyRelayMessage(
     }
 
     case 'command': {
-      const { action: commandAction } = message.payload;
+      const { action: commandAction, params } = message.payload;
+
+      // Cross-session protection (audit 2026-06-09 HIGH fix #9): a
+      // cancel/interrupt/end_session command carries the targeted session in
+      // params.session_id. Without this guard the command fanned out to EVERY
+      // active session on the daemon — cancelling session A also killed session
+      // B. Mirror the chat path (step 3 above): if a session_id is present and
+      // doesn't match the session we're handling, drop it. Commands with no
+      // session_id keep the legacy behavior of targeting the current session
+      // (backward compatibility for single-session clients).
+      const targetSession = params?.['session_id'];
+      if (typeof targetSession === 'string' && targetSession !== sessionId) {
+        return { action: 'drop-wrong-session', targetSession };
+      }
+
       switch (commandAction) {
         case 'cancel':
         case 'interrupt':

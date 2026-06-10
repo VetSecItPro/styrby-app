@@ -265,16 +265,24 @@ export async function issueRefundAction(
   // OWASP A07:2021, SOC 2 CC6.1.
   {
     const mfaClient = await createClient();
-    const { data: { user: actingAdmin } } = await mfaClient.auth.getUser();
-    if (actingAdmin) {
-      try {
-        await assertAdminMfa(actingAdmin.id);
-      } catch (err) {
-        if (err instanceof AdminMfaRequiredError) {
-          return { ok: false, error: err.code };
-        }
-        throw err;
+    const { data: { user: actingAdmin }, error: actingAdminErr } =
+      await mfaClient.auth.getUser();
+    // BUG #51: fail CLOSED on a null acting user. The previous `if (actingAdmin)`
+    // wrapper skipped the MFA gate entirely when getUser() returned null (auth
+    // network blip, refreshed-but-unreadable session), letting a Polar refund
+    // execute with NO MFA — and unlike the other actions, the refund's money
+    // movement happens BEFORE any user-scoped RPC could fail-close. Treat a
+    // missing acting user as unauthenticated.
+    if (actingAdminErr || !actingAdmin) {
+      return { ok: false, error: 'Unauthorized' };
+    }
+    try {
+      await assertAdminMfa(actingAdmin.id);
+    } catch (err) {
+      if (err instanceof AdminMfaRequiredError) {
+        return { ok: false, error: err.code };
       }
+      throw err;
     }
   }
 
@@ -595,16 +603,21 @@ export async function issueCreditAction(
   // ── MFA gate — H42 Layer 1 ────────────────────────────────────────────────
   // OWASP A07:2021, SOC 2 CC6.1.
   {
-    const { data: { user: actingAdmin } } = await supabase.auth.getUser();
-    if (actingAdmin) {
-      try {
-        await assertAdminMfa(actingAdmin.id);
-      } catch (err) {
-        if (err instanceof AdminMfaRequiredError) {
-          return { ok: false, error: err.code };
-        }
-        throw err;
+    const { data: { user: actingAdmin }, error: actingAdminErr } =
+      await supabase.auth.getUser();
+    // BUG #51: fail CLOSED on a null acting user — never skip the MFA gate when
+    // getUser() returns null. (The user-scoped RPC below would also fail-close on
+    // a null JWT, but the gate must be unconditional for consistency + defense.)
+    if (actingAdminErr || !actingAdmin) {
+      return { ok: false, error: 'Unauthorized' };
+    }
+    try {
+      await assertAdminMfa(actingAdmin.id);
+    } catch (err) {
+      if (err instanceof AdminMfaRequiredError) {
+        return { ok: false, error: err.code };
       }
+      throw err;
     }
   }
 
@@ -711,16 +724,21 @@ export async function sendChurnSaveOfferAction(
   // ── MFA gate — H42 Layer 1 ────────────────────────────────────────────────
   // OWASP A07:2021, SOC 2 CC6.1.
   {
-    const { data: { user: actingAdmin } } = await supabase.auth.getUser();
-    if (actingAdmin) {
-      try {
-        await assertAdminMfa(actingAdmin.id);
-      } catch (err) {
-        if (err instanceof AdminMfaRequiredError) {
-          return { ok: false, error: err.code };
-        }
-        throw err;
+    const { data: { user: actingAdmin }, error: actingAdminErr } =
+      await supabase.auth.getUser();
+    // BUG #51: fail CLOSED on a null acting user — never skip the MFA gate when
+    // getUser() returns null. (The user-scoped RPC below would also fail-close on
+    // a null JWT, but the gate must be unconditional for consistency + defense.)
+    if (actingAdminErr || !actingAdmin) {
+      return { ok: false, error: 'Unauthorized' };
+    }
+    try {
+      await assertAdminMfa(actingAdmin.id);
+    } catch (err) {
+      if (err instanceof AdminMfaRequiredError) {
+        return { ok: false, error: err.code };
       }
+      throw err;
     }
   }
 

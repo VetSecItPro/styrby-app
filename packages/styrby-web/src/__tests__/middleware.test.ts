@@ -100,10 +100,9 @@ function makeRequest(
 }
 
 /**
- * Builds a mock NextResponse-like object that updateSession() returns.
+ * Builds a mock NextResponse-like object that updateSession() carries.
  *
- * @param locationHeader - If set, the response has a Location redirect header
- *   (indicates Supabase determined the session is invalid/expired).
+ * @param locationHeader - If set, the response has a Location redirect header.
  */
 function mockSessionResponse(locationHeader?: string) {
   const headers = new Headers();
@@ -117,6 +116,22 @@ function mockSessionResponse(locationHeader?: string) {
   };
 }
 
+/**
+ * Builds the full { response, user } shape that updateSession() now returns.
+ *
+ * WHY: middleware gates protected routes on the VALIDATED user (bugs #15/#46),
+ * not cookie presence, so the mock must encode whether a real session exists.
+ *
+ * @param user - The validated user (null = unauthenticated). Defaults to null.
+ * @param locationHeader - Optional redirect Location header on the response.
+ */
+function mockUpdateSessionResult(
+  user: { id: string } | null = null,
+  locationHeader?: string,
+) {
+  return { response: mockSessionResponse(locationHeader), user };
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -125,8 +140,10 @@ describe('middleware', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Default: updateSession returns a plain pass-through response (no redirect)
-    mockUpdateSession.mockResolvedValue(mockSessionResponse());
+    // Default: updateSession returns a pass-through response with NO validated
+    // user (unauthenticated). Tests that exercise authenticated paths override
+    // this with a non-null user.
+    mockUpdateSession.mockResolvedValue(mockUpdateSessionResult(null));
 
     // Default: Redis env vars are absent so aiCrawlerLimiter is null
     // (Ratelimit constructor was called at module load time; tests that need
@@ -300,6 +317,13 @@ describe('middleware', () => {
     function makeAuthenticatedRequest(path: string): NextRequest {
       const cookieName = getSupabaseCookieName();
 
+      // WHY also stub a validated user: middleware now gates on the user returned
+      // by updateSession() (a verified JWT), not cookie presence (bugs #15/#46).
+      // The cookie is kept so the request still resembles a real authed request.
+      mockUpdateSession.mockResolvedValue(
+        mockUpdateSessionResult({ id: 'authed-user-id' }),
+      );
+
       const req = new NextRequest(`http://localhost:3000${path}`, {
         headers: {
           'user-agent': 'Mozilla/5.0 Chrome/120',
@@ -336,14 +360,61 @@ describe('middleware', () => {
       expect(location).not.toContain('/login');
     });
 
-    it('redirects when updateSession signals invalid session (location → /login)', async () => {
-      // Even if the cookie is present, if updateSession sets a redirect to /login
-      // we should still block the user (expired/tampered JWT)
+    it('redirects when session is invalid despite cookie presence (validated user is null)', async () => {
+      // WHY (bugs #15/#46): a forged/expired/garbage JWT cookie must NOT pass the
+      // gate. updateSession()'s getUser() returns no user for such tokens, so the
+      // middleware redirects to /login even though the cookie is present.
+      const cookieName = getSupabaseCookieName();
+      mockUpdateSession.mockResolvedValue(mockUpdateSessionResult(null));
+
+      const req = new NextRequest('http://localhost:3000/dashboard', {
+        headers: {
+          'user-agent': 'Mozilla/5.0 Chrome/120',
+          cookie: `${cookieName}=forged-or-expired-jwt`,
+        },
+      });
+      const response = await middleware(req);
+
+      const location = response.headers.get('location') ?? '';
+      expect(location).toContain('/login');
+    });
+
+    it('allows access to /dashboard for chunked-session user (no base auth-token cookie)', async () => {
+      // WHY (bug #15): large OAuth JWTs are split into `.0`/`.1` cookies and the
+      // base `sb-<ref>-auth-token` cookie is absent. The old cookie-presence gate
+      // locked these legit users out. Now the gate trusts the validated user, so
+      // a chunked session (no base cookie) is correctly allowed through.
+      const cookieName = getSupabaseCookieName();
       mockUpdateSession.mockResolvedValue(
-        mockSessionResponse('http://localhost:3000/login?reason=session_expired')
+        mockUpdateSessionResult({ id: 'chunked-user-id' }),
       );
 
-      const req = makeAuthenticatedRequest('/dashboard');
+      const req = new NextRequest('http://localhost:3000/dashboard', {
+        headers: {
+          'user-agent': 'Mozilla/5.0 Chrome/120',
+          // Only chunked cookies present — base cookie intentionally absent.
+          cookie: `${cookieName}.0=part0; ${cookieName}.1=part1`,
+        },
+      });
+      const response = await middleware(req);
+
+      const location = response.headers.get('location') ?? '';
+      expect(location).not.toContain('/login');
+    });
+
+    it('rejects a forged base auth-token cookie with no valid session', async () => {
+      // WHY (bug #46): previously anyone could set `sb-<ref>-auth-token` to any
+      // value and pass the gate. Now an unvalidated user (null) is rejected even
+      // with the base cookie present.
+      const cookieName = getSupabaseCookieName();
+      mockUpdateSession.mockResolvedValue(mockUpdateSessionResult(null));
+
+      const req = new NextRequest('http://localhost:3000/dashboard', {
+        headers: {
+          'user-agent': 'Mozilla/5.0 Chrome/120',
+          cookie: `${cookieName}=attacker-supplied-value`,
+        },
+      });
       const response = await middleware(req);
 
       const location = response.headers.get('location') ?? '';
@@ -453,9 +524,7 @@ describe('middleware', () => {
       // Cookie present but updateSession detected an expired/invalid JWT.
       // The site_admins guard runs first and returns 404 (fail-closed on
       // unauthenticated/non-admin) before the legacy 401 layer is reached.
-      mockUpdateSession.mockResolvedValue(
-        mockSessionResponse('http://localhost:3000/login')
-      );
+      mockUpdateSession.mockResolvedValue(mockUpdateSessionResult(null));
 
       const cookieName = getSupabaseCookieName();
       const req = new NextRequest('http://localhost:3000/api/admin/support', {
@@ -478,7 +547,9 @@ describe('middleware', () => {
       // This confirms the guard never silently allows a request through when
       // its dependencies are misconfigured. The happy-path (valid admin session
       // passes through to the route handler) is covered by guard.test.ts.
-      mockUpdateSession.mockResolvedValue(mockSessionResponse());
+      mockUpdateSession.mockResolvedValue(
+        mockUpdateSessionResult({ id: 'admin-candidate' }),
+      );
 
       const cookieName = getSupabaseCookieName();
       const req = new NextRequest('http://localhost:3000/api/admin/support', {

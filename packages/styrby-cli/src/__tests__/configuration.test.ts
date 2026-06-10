@@ -2,16 +2,18 @@
  * Tests for configuration.ts — ~/.styrby/config.json read/write.
  *
  * Covers:
- * - saveConfig creates a new file with mode 0o600  (sec H-05 fix: new file)
- * - saveConfig calls chmodSync 0o600 on existing file  (sec H-05 fix: upgrade path)
+ * - saveConfig writes the temp file with mode 0o600  (sec H-05 fix: new file)
+ * - saveConfig calls chmodSync 0o600 then renames atomically  (audit fix #39)
  * - loadConfig returns correct values round-trip
+ * - loadConfig surfaces a warning + returns {} on corrupt JSON  (audit fix #39)
  * - setConfigValue merges without clobbering other keys
  *
  * WHY: config.json holds the auth token and machine ID. World-readable permissions
  * would expose credentials to other local users. The chmodSync call in saveConfig
  * was added to repair pre-existing files that were created without the restrictive
- * mode. These tests guard that both the new-file and existing-file paths enforce
- * mode 0o600. (sec H-05)
+ * mode. saveConfig now writes to a temp file + atomically renames so a crash
+ * mid-write never leaves a truncated config (audit 2026-06-09 fix #39). These
+ * tests guard the 0o600 mode AND the atomic write+rename ordering.
  *
  * @module __tests__/configuration.test
  */
@@ -33,6 +35,7 @@ vi.mock('node:fs', async (importOriginal) => {
     mkdirSync: vi.fn(),
     writeFileSync: vi.fn(),
     chmodSync: vi.fn(),
+    renameSync: vi.fn(),
     readFileSync: vi.fn().mockImplementation(() => { throw new Error('ENOENT'); }),
   };
 });
@@ -48,31 +51,43 @@ describe('saveConfig', () => {
     vi.mocked(fs.readFileSync).mockImplementation(() => { throw new Error('no file'); });
   });
 
-  it('writes config.json with mode 0o600 (new file path)', () => {
+  it('writes the temp file with mode 0o600 (new file path)', () => {
     saveConfig({ machineId: 'test-machine' });
 
     expect(fs.writeFileSync).toHaveBeenCalledOnce();
-    const [, , opts] = vi.mocked(fs.writeFileSync).mock.calls[0] as [string, string, { mode: number }];
+    const [tmpPath, , opts] = vi.mocked(fs.writeFileSync).mock.calls[0] as [string, string, { mode: number }];
+    // Atomic write target is the temp file, not the final config.json.
+    expect(tmpPath).toContain('config.json.tmp');
     expect(opts.mode).toBe(0o600);
   });
 
-  it('calls chmodSync 0o600 after writing (existing file path — upgrade fix)', () => {
+  it('calls chmodSync 0o600 on the temp file (upgrade fix)', () => {
     saveConfig({ machineId: 'test-machine' });
 
     expect(fs.chmodSync).toHaveBeenCalledOnce();
     const [filePath, mode] = vi.mocked(fs.chmodSync).mock.calls[0] as [string, number];
-    expect(filePath).toContain('config.json');
+    expect(filePath).toContain('config.json.tmp');
     expect(mode).toBe(0o600);
   });
 
-  it('chmodSync is called AFTER writeFileSync (order matters)', () => {
+  it('renames the temp file onto config.json atomically (audit fix #39)', () => {
+    saveConfig({ machineId: 'test-machine' });
+
+    expect(fs.renameSync).toHaveBeenCalledOnce();
+    const [from, to] = vi.mocked(fs.renameSync).mock.calls[0] as [string, string];
+    expect(from).toContain('config.json.tmp');
+    expect(to).toMatch(/config\.json$/);
+  });
+
+  it('write -> chmod -> rename happen in that order (atomicity invariant)', () => {
     const callOrder: string[] = [];
     vi.mocked(fs.writeFileSync).mockImplementation(() => { callOrder.push('write'); });
     vi.mocked(fs.chmodSync).mockImplementation(() => { callOrder.push('chmod'); });
+    vi.mocked(fs.renameSync).mockImplementation(() => { callOrder.push('rename'); });
 
     saveConfig({ debug: true });
 
-    expect(callOrder).toEqual(['write', 'chmod']);
+    expect(callOrder).toEqual(['write', 'chmod', 'rename']);
   });
 });
 
@@ -92,6 +107,15 @@ describe('loadConfig', () => {
   it('returns empty object when file read throws', () => {
     vi.mocked(fs.readFileSync).mockImplementation(() => { throw new Error('ENOENT'); });
     const config = loadConfig();
+    expect(config).toEqual({});
+  });
+
+  it('returns {} on corrupt/truncated JSON (audit fix #39: no silent swallow)', () => {
+    // Simulate a config.json truncated mid-write (the non-atomic-save hazard).
+    vi.mocked(fs.readFileSync).mockReturnValue('{ "machineId": "abc", "userI');
+    const config = loadConfig();
+    // It still degrades to empty (so the app doesn't crash), but the parse
+    // failure is now logged loudly rather than masquerading as "logged out".
     expect(config).toEqual({});
   });
 });

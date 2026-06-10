@@ -88,6 +88,9 @@ export function isBareCommand(command: string | undefined): boolean {
  * buildStartArgs(['codex', '--project', '.'], 'codex', null);
  * // => ['--agent', 'codex', '--project', '.']
  *
+ * buildStartArgs(['codex', '--agent', 'gemini'], 'codex', null);
+ * // => ['--agent', 'codex']   (shorthand wins; the redundant pair is stripped)
+ *
  * buildStartArgs([], undefined, 'gemini');
  * // => ['--agent', 'gemini']
  *
@@ -100,10 +103,49 @@ export function buildStartArgs(
   configDefaultAgent: string | null | undefined,
 ): string[] {
   if (shorthand) {
-    return ['--agent', shorthand, ...args.slice(1)];
+    // WHY (audit 2026-06-09 fix #40): `styrby codex --agent gemini` previously
+    // emitted ['--agent', 'codex', '--agent', 'gemini'] — TWO --agent flags.
+    // Which one wins then depends entirely on handleStart's parser semantics
+    // (first-wins vs last-wins). If last-wins, the user gets gemini despite
+    // typing the `codex` shorthand — a silent wrong-agent launch (wrong model,
+    // wrong billing). Strip any existing --agent pair from the trailing args so
+    // exactly one --agent is present and shorthand precedence is deterministic.
+    return ['--agent', shorthand, ...stripAgentFlag(args.slice(1))];
   }
   if (configDefaultAgent) {
-    return ['--agent', configDefaultAgent, ...args];
+    return ['--agent', configDefaultAgent, ...stripAgentFlag(args)];
   }
   return args;
+}
+
+/**
+ * Remove every `--agent <value>` pair (and the `--agent=<value>` inline form)
+ * from an argv slice.
+ *
+ * WHY: when a higher-precedence source (an agent shorthand or a config default)
+ * already supplies `--agent`, leaving a second `--agent` in the user-provided
+ * args produces a duplicate flag whose resolution is parser-dependent. Stripping
+ * the lower-precedence pair guarantees a single, deterministic `--agent`.
+ *
+ * @param args - The argv slice to sanitize.
+ * @returns A copy of `args` with all `--agent` flags (and their values) removed.
+ */
+function stripAgentFlag(args: string[]): string[] {
+  const result: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--agent') {
+      // Skip the flag and its space-separated value (if any).
+      if (i + 1 < args.length) {
+        i += 1;
+      }
+      continue;
+    }
+    if (arg.startsWith('--agent=')) {
+      // Inline form: skip the single token.
+      continue;
+    }
+    result.push(arg);
+  }
+  return result;
 }

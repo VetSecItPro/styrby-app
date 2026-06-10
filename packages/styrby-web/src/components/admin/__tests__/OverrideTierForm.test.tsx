@@ -102,13 +102,15 @@ describe('OverrideTierForm', () => {
     render(
       <OverrideTierForm
         targetUserId="a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-        currentTier="enterprise"
+        currentTier="growth"
         action={mockBoundAction}
       />
     );
 
+    // Only the canonical sellable tiers (free/pro/growth) are selectable
+    // (bug #34). currentTier pre-selects one of those.
     const select = screen.getByTestId('tier-select') as HTMLSelectElement;
-    expect(select.value).toBe('enterprise');
+    expect(select.value).toBe('growth');
   });
 
   it('(d) renders field-specific error when state has ok: false with field', async () => {

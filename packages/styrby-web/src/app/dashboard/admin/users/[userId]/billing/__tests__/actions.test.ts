@@ -810,6 +810,45 @@ describe('issueRefundAction', () => {
     expect(mockCreatePolarRefund).not.toHaveBeenCalled();
     expect(mockRpc).not.toHaveBeenCalled();
   });
+
+  // BUG #51: fail CLOSED when getUser() returns a null acting user. Previously the
+  // MFA gate was wrapped in `if (actingAdmin)`, so a null user skipped MFA and the
+  // Polar refund (money movement, which precedes the RPC) executed unguarded.
+  it('(MFA gate) fails closed (Unauthorized) and skips Polar + RPC when acting user is null', async () => {
+    (createClient as Mock).mockResolvedValue({
+      rpc: mockRpc,
+      auth: {
+        getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
+      },
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: { polar_customer_id: 'cus_test_default', user_id: VALID_UUID },
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    });
+
+    const { issueRefundAction } = await import('../actions');
+    const result = await issueRefundAction(
+      VALID_UUID,
+      makeFormData({
+        targetUserId: VALID_UUID,
+        subscriptionId: 'sub_polar_123',
+        amount_cents: '4900',
+        reason: 'Customer requested refund for billing error',
+      })
+    );
+
+    expect(result).toEqual({ ok: false, error: 'Unauthorized' });
+    // MFA gate is never reached, and crucially no money moves.
+    expect(assertAdminMfa).not.toHaveBeenCalled();
+    expect(mockCreatePolarRefund).not.toHaveBeenCalled();
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
 });
 
 // ─── issueCreditAction ────────────────────────────────────────────────────────

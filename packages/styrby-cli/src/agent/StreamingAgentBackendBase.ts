@@ -180,6 +180,59 @@ export abstract class StreamingAgentBackendBase implements AgentBackend {
   protected disposed = false;
 
   /**
+   * True when the in-flight run was terminated by an intentional user
+   * `cancel()` (or by `dispose()`), rather than by the agent crashing.
+   *
+   * WHY (audit 2026-06-09 HIGH fix #6): a user-initiated cancel SIGTERMs the
+   * subprocess, which then fires the `close` handler with a non-zero / signal
+   * exit code. Without this flag the close handler treated that as an agent
+   * FAILURE — emitting a `status: 'error'` frame ("Aider exited with code
+   * null") and rejecting the in-flight `sendPrompt` promise. Mobile then
+   * showed a spurious error for what was a normal cancel.
+   *
+   * Subclass `close` handlers consult `wasCancelled()` and, when true, emit a
+   * clean idle/cancelled status + resolve instead of error + reject. The flag
+   * is cleared at the start of each new prompt via `beginRun()`.
+   */
+  protected cancelled = false;
+
+  /**
+   * Reset run-scoped state at the start of a new prompt.
+   *
+   * Currently clears the `cancelled` flag so a fresh run is not mistaken for a
+   * previously-cancelled one. Subclasses MUST call this at the top of
+   * `sendPrompt()` (before spawning) so the cancel-vs-crash discrimination in
+   * the close handler is correct per run.
+   */
+  protected beginRun(): void {
+    this.cancelled = false;
+  }
+
+  /**
+   * Mark the in-flight run as intentionally cancelled.
+   *
+   * Subclass `cancel()` implementations MUST call this BEFORE sending SIGTERM
+   * so the subsequent `close` handler can distinguish an intentional cancel
+   * from an agent crash (audit 2026-06-09 fix #6).
+   */
+  protected markCancelled(): void {
+    this.cancelled = true;
+  }
+
+  /**
+   * Whether the current/just-ended run was terminated by an intentional
+   * cancel or dispose.
+   *
+   * Subclass `close` handlers use this to decide, on a non-zero exit, whether
+   * to surface a clean cancelled status (true) or a genuine error (false).
+   *
+   * @returns True if `cancel()`/`dispose()` initiated the termination.
+   */
+  protected wasCancelled(): boolean {
+    return this.cancelled;
+  }
+
+  /**
    * SIGTERM -> SIGKILL escalation timer, or undefined when no cancel is in
    * flight.
    *
@@ -474,15 +527,49 @@ export abstract class StreamingAgentBackendBase implements AgentBackend {
     if (this.disposed) return;
     this.disposed = true;
 
+    // Mark cancelled so any close handler that fires from the SIGTERM below
+    // treats the exit as an intentional teardown, not an agent crash
+    // (audit 2026-06-09 fix #6). `emit()` is also a no-op once `disposed` is
+    // set, so no status frame escapes regardless.
+    this.cancelled = true;
+
     this.clearCancelTimer();
 
     if (this.process) {
+      // WHY (audit 2026-06-09 fix #37): the class docstring promises force-kill
+      // escalation as a reliability guarantee, but dispose() previously only
+      // sent SIGTERM and immediately nulled `this.process`. A misbehaving agent
+      // that ignores SIGTERM (blocked in a syscall, owns a child process group)
+      // then survived disposal, leaking an orphaned subprocess that holds file
+      // handles and — for cloud-billed agents — can keep incurring cost after
+      // the user believes the session ended.
+      //
+      // Capture the child in a LOCAL const before nulling the field, then
+      // schedule a SIGKILL against that local ref so escalation still fires even
+      // though `this.process` is cleared. We use a detached, unref'd timer so it
+      // does not keep the Node event loop alive during graceful CLI shutdown.
+      const child = this.process;
       try {
-        this.process.kill('SIGTERM');
+        child.kill('SIGTERM');
       } catch {
         // Process may already be dead; safe to ignore.
       }
       this.process = null;
+
+      if (!child.killed) {
+        const forceKill = setTimeout(() => {
+          if (!child.killed) {
+            try {
+              child.kill('SIGKILL');
+            } catch {
+              // Already exited between the check and the kill; ignore.
+            }
+          }
+        }, FORCE_KILL_DELAY_MS);
+        // Do not let this escalation timer hold the process open; if the event
+        // loop drains first the OS reaps the child on parent exit anyway.
+        forceKill.unref?.();
+      }
     }
 
     // WHY: Drop references to application-level handlers so the closures they

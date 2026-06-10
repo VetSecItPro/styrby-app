@@ -133,6 +133,19 @@ function mockSessionResponse(locationHeader?: string) {
 }
 
 /**
+ * Builds the { response, user } shape updateSession() now returns.
+ *
+ * WHY: middleware gates protected routes on the validated user (bugs #15/#46).
+ * Admin tests that fall through to the protected-path gate need a non-null user.
+ *
+ * @param user - The validated user (null = unauthenticated). Defaults to an
+ *   authenticated stub so admin-pass-through tests reach the guard.
+ */
+function mockUpdateSessionResult(user: { id: string } | null = { id: 'admin-user' }) {
+  return { response: mockSessionResponse(), user };
+}
+
+/**
  * Builds a 404 NextResponse-like object — what requireSiteAdmin returns for
  * a non-admin or unauthenticated user.
  */
@@ -154,7 +167,7 @@ describe('admin middleware integration', () => {
     vi.clearAllMocks();
 
     // Default: updateSession returns a plain pass-through (no redirect).
-    mockUpdateSession.mockResolvedValue(mockSessionResponse());
+    mockUpdateSession.mockResolvedValue(mockUpdateSessionResult());
 
     // Default: requireSiteAdmin denies (non-admin path).
     // Tests that need the admin to pass through override this.
@@ -170,7 +183,7 @@ describe('admin middleware integration', () => {
       // requireSiteAdmin returns null → allow the request through.
       // WHY null: guard.ts returns null when the user is a confirmed admin.
       mockRequireSiteAdmin.mockResolvedValue(null);
-      mockUpdateSession.mockResolvedValue(mockSessionResponse());
+      mockUpdateSession.mockResolvedValue(mockUpdateSessionResult());
 
       // WHY stub env vars: the middleware calls getHttpsUrlEnv('NEXT_PUBLIC_SUPABASE_URL')
       // before creating the Supabase client. Without a valid https:// URL, it
@@ -338,7 +351,7 @@ describe('admin middleware integration', () => {
 
       for (const path of paths) {
         vi.clearAllMocks();
-        mockUpdateSession.mockResolvedValue(mockSessionResponse());
+        mockUpdateSession.mockResolvedValue(mockUpdateSessionResult());
 
         const req = makeRequest(path, false);
         const response = await middleware(req);

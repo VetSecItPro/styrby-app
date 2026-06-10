@@ -29,6 +29,7 @@ import type {
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, validateExtraArgs } from '@/utils/safeEnv';
+import { resolveApiKeyEnv, type ApiKeyProvider } from '@/utils/apiKeyProvider';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
 import type { CostReport } from '@styrby/shared/cost';
 
@@ -59,6 +60,21 @@ export interface AiderBackendOptions extends AgentFactoryOptions {
    * These files will be available for Aider to read and edit.
    */
   files?: string[];
+
+  /**
+   * LLM provider this BYOK key belongs to (e.g. 'anthropic', 'openai').
+   *
+   * WHY (audit 2026-06-09 HIGH fix #7): Aider is multi-provider, but the
+   * factory previously hardcoded the key into OPENAI_API_KEY. An Aider user
+   * supplying an Anthropic `sk-ant-...` key had it exported under the wrong
+   * name, disclosing it to OpenAI's auth endpoint during Aider's provider
+   * validation (the cross-provider key-disclosure class the goose fix closed)
+   * and silently failing to authenticate.
+   *
+   * If unset, the factory sniffs the key prefix and falls back to legacy
+   * fan-out only when sniffing fails (with a deprecation warning).
+   */
+  provider?: ApiKeyProvider;
 }
 
 /**
@@ -244,6 +260,10 @@ class AiderBackend extends StreamingAgentBackendBase {
       throw new Error(`Invalid session ID: ${sessionId}`);
     }
 
+    // Reset run-scoped state (clears the cancelled flag) so this run's exit is
+    // classified correctly by the close handler (audit 2026-06-09 fix #6).
+    this.beginRun();
+
     // Update input token estimate
     this.inputTokens += estimateTokens(prompt);
     this.streamingOutputTokens = 0;
@@ -295,8 +315,19 @@ class AiderBackend extends StreamingAgentBackendBase {
           cwd: this.options.cwd,
           env: buildSafeEnv({
             ...this.options.env,
-            // Pass API key if provided
-            ...(this.options.apiKey ? { OPENAI_API_KEY: this.options.apiKey } : {}),
+            // SECURITY (audit 2026-06-09 HIGH fix #7): inject the API key only
+            // under the env-var name(s) for its detected provider. The previous
+            // hardcoded OPENAI_API_KEY shipped Anthropic/Google keys to OpenAI's
+            // auth endpoint during Aider startup validation, disclosing them to
+            // the wrong vendor (and silently failing auth). resolveApiKeyEnv()
+            // prefers an explicit `provider`, falls back to prefix-sniffing, and
+            // only multi-injects (with a deprecation warn) when both fail.
+            ...resolveApiKeyEnv(
+              this.options.apiKey,
+              ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY'],
+              this.options.provider,
+              'AiderBackend',
+            ),
           }),
           stdio: ['pipe', 'pipe', 'pipe'],
         });
@@ -414,6 +445,13 @@ class AiderBackend extends StreamingAgentBackendBase {
           if (code === 0) {
             this.emit({ type: 'status', status: 'idle' });
             resolve();
+          } else if (this.wasCancelled()) {
+            // Intentional user cancel (or dispose) SIGTERM'd the process, which
+            // surfaces here as a non-zero/null exit. Emit a clean idle status and
+            // resolve instead of reporting a spurious agent error to mobile
+            // (audit 2026-06-09 fix #6).
+            this.emit({ type: 'status', status: 'idle' });
+            resolve();
           } else {
             this.emit({
               type: 'status',
@@ -456,6 +494,10 @@ class AiderBackend extends StreamingAgentBackendBase {
 
     if (this.process) {
       logger.debug('[AiderBackend] Cancelling Aider process');
+      // Mark the run cancelled BEFORE SIGTERM so the close handler treats the
+      // resulting non-zero/signal exit as an intentional cancel, not a crash
+      // (audit 2026-06-09 fix #6).
+      this.markCancelled();
       this.process.kill('SIGTERM');
 
       // WHY: Track the escalation timer via base class so it is cleared on

@@ -56,7 +56,12 @@ export type AdminActionResult =
  */
 const OverrideTierSchema = z.object({
   targetUserId: z.string().uuid({ message: 'Invalid user ID' }),
-  newTier: z.enum(['free', 'pro', 'growth', 'team', 'business', 'enterprise'], {
+  // BUG #34: restrict to the canonical sellable set only. team/business/
+  // enterprise NEVER shipped (no Polar product, no entitlement mapping); 'power'
+  // is retired (premium===growth via normalizeTier). Accepting any of those let
+  // an admin write an undefined-entitlement subscription row in two clicks
+  // (premium gates silently deny, the dossier shows a tier with no Polar sub).
+  newTier: z.enum(['free', 'pro', 'growth'], {
     errorMap: () => ({ message: 'newTier must be a valid tier' }),
   }),
   expiresAt: z.string().datetime({ offset: true }).nullable().optional(),

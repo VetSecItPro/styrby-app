@@ -67,10 +67,18 @@ export async function POST(request: NextRequest): Promise<Response> {
     return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 });
   }
 
-  const secretsMatch = crypto.timingSafeEqual(
-    Buffer.from(incomingSecret, 'utf8'),
-    Buffer.from(cronSecret, 'utf8'),
-  );
+  // WHY the length pre-check (bug #30): crypto.timingSafeEqual throws a
+  // RangeError when the two buffers differ in length — which is the COMMON
+  // unauthorized case (missing/empty/short Authorization header). Without the
+  // pre-check that RangeError propagates as a 500 instead of the documented
+  // 401, so virtually every unauthorized probe returned 500. The `||`
+  // short-circuit guarantees timingSafeEqual only ever sees equal-length
+  // buffers, preserving the constant-time property for same-length inputs.
+  const incomingBuf = Buffer.from(incomingSecret, 'utf8');
+  const cronBuf = Buffer.from(cronSecret, 'utf8');
+  const secretsMatch =
+    incomingBuf.length === cronBuf.length &&
+    crypto.timingSafeEqual(incomingBuf, cronBuf);
 
   if (!secretsMatch) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
