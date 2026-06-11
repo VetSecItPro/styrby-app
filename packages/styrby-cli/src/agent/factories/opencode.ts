@@ -26,6 +26,12 @@ import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
 import { toNonNegativeNumber } from '@/utils/coerce';
+import {
+  resolveOpencodeStorageDir,
+  readStepFinishParts,
+  findLatestAssistantMessageId,
+  selectMissedStepFinishes,
+} from './opencodeStorage';
 import { resolveApiKeyEnv, type ApiKeyProvider } from '@/utils/apiKeyProvider';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
 import type { CostReport } from '@styrby/shared/cost';
@@ -123,6 +129,10 @@ interface OpenCodeTokens {
 interface OpenCodePart {
   /** Part discriminator: 'step-start' | 'text' | 'step-finish' | tool parts. */
   type?: string;
+  /** Stable part id (`prt_...`); used to dedupe stdout vs storage recovery. */
+  id?: string;
+  /** Owning assistant message id (`msg_...`); locates the turn in storage. */
+  messageID?: string;
   /** Assistant text (present on `text` events). */
   text?: string;
   /** Step cost in USD (present on `step-finish`). */
@@ -171,6 +181,13 @@ class OpenCodeBackend extends StreamingAgentBackendBase {
   private inputTokens = 0;
   private outputTokens = 0;
   private totalCost = 0;
+  // #26855 cost-recovery state, reset per turn (see resetTurnCostTracking):
+  /** Part ids of step-finish events we emitted from stdout this turn. */
+  private seenStepFinishIds = new Set<string>();
+  /** Count of step-finish events seen on stdout this turn. */
+  private stdoutStepFinishCount = 0;
+  /** The current turn's assistant message id, learned from stdout step-finish events. */
+  private currentTurnMessageId: string | null = null;
   private lineBuffer = '';
 
   constructor(private options: OpenCodeBackendOptions) {
@@ -204,50 +221,61 @@ class OpenCodeBackend extends StreamingAgentBackendBase {
         const part = msg.part;
         if (!part) break;
         const t = part.tokens ?? {};
-        // WHY set (not accumulate): the verified single-step session reports the
-        // turn totals on its one step_finish. Multi-step (tool-using) sessions
-        // emit multiple step_finish events whose aggregation semantics are not yet
-        // captured — taking the latest avoids double-counting the resent context
-        // window (part.tokens.input includes full context each step). Multi-step
-        // aggregation is a tracked follow-up (real tool-session capture needed).
+        // Track this stdout step-finish so the on-close storage reconciliation
+        // (opencode #26855) can tell which steps already reached us and recover
+        // only the ones the stream dropped. id/messageID may be absent on older
+        // opencode; the reconciler degrades to count-based recovery if so.
+        this.stdoutStepFinishCount += 1;
+        if (part.id) this.seenStepFinishIds.add(part.id);
+        if (part.messageID) this.currentTurnMessageId = part.messageID;
+        // WHY emit PER-STEP values (NOT a running total) — multi-step billing
+        // correctness, verified 2026-06-11 by tracing the real cost_records
+        // contract (not inferred):
+        //   • opencode emits one step_finish PER API call. A tool-using turn
+        //     emits several; each carries THAT call's input/output/cost (you are
+        //     billed for the full input context on every call — that is real
+        //     spend, not double-counting).
+        //   • We emit one cost-report per step_finish. The cost-reporter writes
+        //     ONE cost_records row per event (unique idempotency key,
+        //     `cost-${Date.now()}-${uuid}`), and budget-monitor SUMS the rows.
+        //   • Therefore summing the per-step rows already yields the true turn
+        //     total. DO NOT accumulate into a running total here: that would make
+        //     each emitted row cumulative, and the downstream sum would
+        //     quadratically OVER-count. (This corrects the prior "take latest"
+        //     comment, which misdescribed the behavior.)
+        //   • Known residual risk — opencode issue #26855: `run --format json`
+        //     can exit before emitting the FINAL step_finish on stdout (it is in
+        //     session storage but not the stream), so we may miss the last call's
+        //     cost. Tracked; a storage-read fallback is the eventual fix.
         //
-        // WHY toNonNegativeNumber (#24 DAST fix): the raw values are typed
-        // `number?` but come from untrusted stdout. A buggy/old binary that sends
-        // a string or negative would otherwise propagate a non-number into the
-        // `number`-typed CostReport and into `input + output` arithmetic (string
-        // concat). Coercing at the parse boundary keeps the declared type honest.
-        this.inputTokens = t.input === undefined ? this.inputTokens : toNonNegativeNumber(t.input);
-        this.outputTokens = t.output === undefined ? this.outputTokens : toNonNegativeNumber(t.output);
+        // WHY toNonNegativeNumber (#24): raw values are untrusted stdout; coerce
+        // a string/negative/NaN to a finite number at the parse boundary so the
+        // `number`-typed CostReport stays honest. Per-step (default 0 if a field
+        // is absent) — never carry a prior step's value forward, which would
+        // re-count it when the rows are summed.
+        const stepInput = toNonNegativeNumber(t.input);
+        const stepOutput = toNonNegativeNumber(t.output);
         const cacheRead = toNonNegativeNumber(t.cache?.read);
         const cacheWrite = toNonNegativeNumber(t.cache?.write);
-        if (part.cost !== undefined) this.totalCost = toNonNegativeNumber(part.cost, this.totalCost);
+        const stepCost = toNonNegativeNumber(part.cost);
+        this.inputTokens = stepInput;
+        this.outputTokens = stepOutput;
+        this.totalCost = stepCost;
 
-        // Legacy token-count (kept for existing consumers).
+        // Legacy token-count (kept for existing consumers) — this step's tokens.
         this.emit({
           type: 'token-count',
-          inputTokens: this.inputTokens,
-          outputTokens: this.outputTokens,
-          totalTokens: this.inputTokens + this.outputTokens,
-          costUsd: this.totalCost,
+          inputTokens: stepInput,
+          outputTokens: stepOutput,
+          totalTokens: stepInput + stepOutput,
+          costUsd: stepCost,
         });
 
         // Unified CostReport — source='agent-reported' (opencode reports real USD).
-        const costReport: CostReport = {
-          sessionId: this.sessionId ?? '',
-          messageId: null,
-          agentType: 'opencode',
-          model: this.options.model ?? 'unknown',
-          timestamp: new Date().toISOString(),
-          source: 'agent-reported',
-          billingModel: 'api-key',
-          costUsd: this.totalCost,
-          inputTokens: this.inputTokens,
-          outputTokens: this.outputTokens,
-          cacheReadTokens: cacheRead,
-          cacheWriteTokens: cacheWrite,
-          rawAgentPayload: msg as unknown as Record<string, unknown>,
-        };
-        this.emit({ type: 'cost-report', report: costReport });
+        this.emitCostReport(
+          { input: stepInput, output: stepOutput, cacheRead, cacheWrite, cost: stepCost },
+          msg as unknown as Record<string, unknown>,
+        );
         break;
       }
 
@@ -263,6 +291,87 @@ class OpenCodeBackend extends StreamingAgentBackendBase {
         // until the real shape is verified. Tracked in the per-agent protocol
         // verification task.
         logger.debug('[OpenCodeBackend] Unhandled opencode event type:', msg.type);
+    }
+  }
+
+  /**
+   * Build + emit a unified CostReport for one opencode API call (one step).
+   *
+   * Shared by the live stdout path and the on-close storage reconciliation so
+   * both produce byte-identical cost-report shapes (the cost-reporter writes one
+   * summed cost_records row per event).
+   *
+   * @param v - This step's usage (already coerced to finite non-negative numbers).
+   * @param raw - Raw payload for audit (the stdout event, or a storage marker).
+   */
+  private emitCostReport(
+    v: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number },
+    raw: Record<string, unknown>,
+  ): void {
+    const report: CostReport = {
+      sessionId: this.sessionId ?? '',
+      messageId: null,
+      agentType: 'opencode',
+      model: this.options.model ?? 'unknown',
+      timestamp: new Date().toISOString(),
+      source: 'agent-reported',
+      billingModel: 'api-key',
+      costUsd: v.cost,
+      inputTokens: v.input,
+      outputTokens: v.output,
+      cacheReadTokens: v.cacheRead,
+      cacheWriteTokens: v.cacheWrite,
+      rawAgentPayload: raw,
+    };
+    this.emit({ type: 'cost-report', report });
+  }
+
+  /** Reset the per-turn #26855 cost-recovery tracking at the start of a prompt. */
+  private resetTurnCostTracking(): void {
+    this.seenStepFinishIds.clear();
+    this.stdoutStepFinishCount = 0;
+    this.currentTurnMessageId = null;
+  }
+
+  /**
+   * Recover any step-finish costs that opencode persisted to session storage but
+   * never emitted on stdout (opencode issue #26855: `run --format json` can exit
+   * on `session.status=idle` before flushing the final step-finish event).
+   *
+   * Reads the turn's step-finish parts from opencode's on-disk storage, selects
+   * the ones the stdout stream missed (id-dedupe when available, else count-based
+   * trailing recovery), and emits a recovered cost-report for each — so the
+   * billed total is complete regardless of the user's opencode version. Wholly
+   * best-effort: any failure (no storage, fork without this layout, malformed
+   * files) leaves the live-streamed costs untouched and never throws.
+   */
+  private reconcileCostFromStorage(): void {
+    try {
+      const sessionId = this.openCodeSessionId;
+      if (!sessionId) return;
+      const storageDir = resolveOpencodeStorageDir();
+      const messageId =
+        this.currentTurnMessageId ?? findLatestAssistantMessageId(storageDir, sessionId);
+      if (!messageId) return;
+      const parts = readStepFinishParts(storageDir, messageId);
+      if (parts.length === 0) return;
+      const missed = selectMissedStepFinishes(
+        parts,
+        this.seenStepFinishIds,
+        this.stdoutStepFinishCount,
+      );
+      for (const p of missed) {
+        logger.debug(
+          `[OpenCodeBackend] Recovered step-finish ${p.id} from storage (opencode #26855); cost=${p.cost}`,
+        );
+        this.emitCostReport(
+          { input: p.inputTokens, output: p.outputTokens, cacheRead: p.cacheReadTokens, cacheWrite: p.cacheWriteTokens, cost: p.cost },
+          { recovered: true, source: 'session-storage', partId: p.id, messageId },
+        );
+      }
+    } catch (err) {
+      // Recovery must never break the run; the live-streamed costs still stand.
+      logger.debug('[OpenCodeBackend] storage cost reconciliation skipped:', err);
     }
   }
 
@@ -307,6 +416,7 @@ class OpenCodeBackend extends StreamingAgentBackendBase {
     this.outputTokens = 0;
     this.totalCost = 0;
     this.lineBuffer = '';
+    this.resetTurnCostTracking();
     this.openCodeSessionId = this.options.resumeSessionId ?? null;
 
     this.emit({ type: 'status', status: 'starting' });
@@ -344,6 +454,9 @@ class OpenCodeBackend extends StreamingAgentBackendBase {
     // Reset run-scoped state (clears the cancelled flag) so this run's exit is
     // classified correctly by the close handler (audit 2026-06-09 fix #6).
     this.beginRun();
+    // Reset per-turn cost-recovery tracking so the on-close storage
+    // reconciliation only considers THIS turn's step-finishes (#26855).
+    this.resetTurnCostTracking();
 
     this.emit({ type: 'status', status: 'running' });
 
@@ -439,6 +552,11 @@ class OpenCodeBackend extends StreamingAgentBackendBase {
             }
             this.lineBuffer = '';
           }
+
+          // Recover any step-finish costs opencode persisted to storage but
+          // never flushed to stdout (#26855). Best-effort + deduped against the
+          // stdout-seen steps, so it is a no-op when the stream was complete.
+          this.reconcileCostFromStorage();
 
           if (code === 0) {
             this.emit({ type: 'status', status: 'idle' });

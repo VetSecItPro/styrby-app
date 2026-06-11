@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2026-06-11 - Multi-step cost accounting verified + clarified
+
+#### Changed
+
+- **opencode/kilo cost reporting is now provably correct for multi-step
+  (tool-using) turns.** Verified the real billing path end-to-end: each
+  `step_finish` is one API call, the backend emits one `cost-report` per event,
+  the cost-reporter writes one `cost_records` row per event (unique idempotency
+  key), and budget-monitor SUMS the rows — so per-step values already sum to the
+  true turn total. The step handlers now emit explicit per-step deltas (never
+  carry a prior step's value forward) and the misleading "take latest" comment
+  is corrected to document the insert-per-event-summed contract. Added a
+  multi-step regression test asserting deltas, not running totals (a running
+  total would have caused the downstream sum to over-count). Single-step cost
+  was already verified correct against real stored opencode session data.
+
+#### Fixed
+
+- **opencode cost is no longer lost when the final step is dropped from stdout
+  (root-cause fix for opencode issue #26855).** opencode's `run --format json`
+  can exit on `session.status=idle` before flushing the final `step_finish` to
+  stdout — but it persists every step to session storage. The backend now
+  reconciles against that authoritative storage on process close
+  (`opencodeStorage.ts`): it reads the turn's step-finish parts and recovers any
+  the stream dropped (deduped by part id / count, so it never double-counts and
+  is a no-op when the stream was complete). Version-independent — works whether
+  or not the user's opencode has the upstream fix. +14 tests (storage reader +
+  recovery integration).
+
+#### Known issue (upstream, remaining)
+
+- kilo (an opencode fork) shares the #26855 stdout-truncation risk, but its
+  on-disk storage layout was not confirmed (no keyed kilo session captured), so
+  it is not yet wired. The reconciliation module is parameterized and ready;
+  tracked as a follow-up (`COST-OPENCODE-26855` in exclusions.json).
+
 ### 2026-06-11 - Version-compat + concurrency fixes
 
 #### Fixed

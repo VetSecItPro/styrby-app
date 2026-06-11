@@ -232,26 +232,37 @@ class KiloBackend extends StreamingAgentBackendBase {
         const part = msg.part;
         if (!part) break;
         const t = part.tokens ?? {};
-        // WHY set (not accumulate): mirrors the verified OpenCode single-step
-        // semantics — the turn totals land on one step_finish. Multi-step
-        // aggregation is a tracked follow-up (#30).
+        // WHY emit PER-STEP values (NOT a running total) — multi-step billing
+        // correctness (mirrors opencode.ts; verified 2026-06-11 via the real
+        // cost_records contract): each step_finish is one API call, we emit one
+        // cost-report per event, the cost-reporter writes one summed cost_records
+        // row per event, so summing per-step rows = the true turn total.
+        // Accumulating into a running total here would make each row cumulative
+        // and the downstream SUM would over-count. (Corrects the prior "take
+        // latest" comment.) RESIDUAL RISK (kilo only): issue #26855 — the final
+        // step_finish may not reach stdout. opencode.ts now reconciles against
+        // session storage on close to recover it (opencodeStorage.ts); kilo can
+        // adopt the same once its storage dir is confirmed (COST-OPENCODE-26855).
         //
-        // WHY toNonNegativeNumber (#24 DAST fix): these come from untrusted
-        // stdout; a string/negative would propagate a non-number into the
-        // `number`-typed CostReport and token arithmetic. Coerce at the boundary.
-        this.inputTokens = t.input === undefined ? this.inputTokens : toNonNegativeNumber(t.input);
-        this.outputTokens = t.output === undefined ? this.outputTokens : toNonNegativeNumber(t.output);
+        // WHY toNonNegativeNumber (#24): untrusted stdout; coerce per-step
+        // (default 0 if absent) — never carry a prior step's value forward, which
+        // would re-count it when rows are summed.
+        const stepInput = toNonNegativeNumber(t.input);
+        const stepOutput = toNonNegativeNumber(t.output);
         const cacheRead = toNonNegativeNumber(t.cache?.read);
         const cacheWrite = toNonNegativeNumber(t.cache?.write);
-        if (part.cost !== undefined) this.totalCost = toNonNegativeNumber(part.cost, this.totalCost);
+        const stepCost = toNonNegativeNumber(part.cost);
+        this.inputTokens = stepInput;
+        this.outputTokens = stepOutput;
+        this.totalCost = stepCost;
 
-        // Legacy token-count (kept for existing consumers).
+        // Legacy token-count (kept for existing consumers) — this step's tokens.
         this.emit({
           type: 'token-count',
-          inputTokens: this.inputTokens,
-          outputTokens: this.outputTokens,
-          totalTokens: this.inputTokens + this.outputTokens,
-          costUsd: this.totalCost,
+          inputTokens: stepInput,
+          outputTokens: stepOutput,
+          totalTokens: stepInput + stepOutput,
+          costUsd: stepCost,
         });
 
         // Unified CostReport — source='agent-reported' (Kilo reports real USD).
@@ -263,9 +274,9 @@ class KiloBackend extends StreamingAgentBackendBase {
           timestamp: new Date().toISOString(),
           source: 'agent-reported',
           billingModel: 'api-key',
-          costUsd: this.totalCost,
-          inputTokens: this.inputTokens,
-          outputTokens: this.outputTokens,
+          costUsd: stepCost,
+          inputTokens: stepInput,
+          outputTokens: stepOutput,
           cacheReadTokens: cacheRead,
           cacheWriteTokens: cacheWrite,
           rawAgentPayload: msg as unknown as Record<string, unknown>,
