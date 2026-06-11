@@ -171,15 +171,20 @@ async function deriveApprovalToken(
  * @returns true iff the tokens are identical.
  */
 function timingSafeEqual(expected: string, candidate: string): boolean {
-  // Length mismatch check must NOT short-circuit in a way that leaks length.
-  // We pad candidate to expected.length so the XOR loop always runs the same
-  // number of iterations regardless of candidate length.
-  const exp = expected.toLowerCase();
-  const can = candidate.toLowerCase().padEnd(exp.length, '\0').slice(0, exp.length);
+  // WHY exact (no toLowerCase) — SEC-CRYPTO-102: this gates an IDOR-sensitive
+  // approval token, so the comparison must be case-SENSITIVE. The prior
+  // `.toLowerCase()` on both sides made it case-insensitive, which both accepts
+  // a wrong-case token and collapses the keyspace if the token format ever
+  // changes from lowercase hex to anything mixed-case (base64url, etc.).
+  //
+  // Length mismatch must NOT short-circuit in a way that leaks length: we pad
+  // candidate to expected.length so the XOR loop always runs the same number of
+  // iterations, and seed `diff` to 1 on a length difference.
+  const can = candidate.padEnd(expected.length, '\0').slice(0, expected.length);
 
   let diff = expected.length === candidate.length ? 0 : 1;
-  for (let i = 0; i < exp.length; i++) {
-    diff |= exp.charCodeAt(i) ^ can.charCodeAt(i);
+  for (let i = 0; i < expected.length; i++) {
+    diff |= expected.charCodeAt(i) ^ can.charCodeAt(i);
   }
   return diff === 0;
 }

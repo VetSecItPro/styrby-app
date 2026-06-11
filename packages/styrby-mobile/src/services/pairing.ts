@@ -174,7 +174,11 @@ export async function executePairing(qrData: string): Promise<PairingAttemptResu
 
   try {
     await SecureStore.setItemAsync(PAIRING_INFO_KEY, JSON.stringify(pairingInfo));
-    await SecureStore.setItemAsync(PAIRING_TOKEN_KEY, payload.token);
+    // SEC-MOB-005: the pairing token is a live relay credential — keep it
+    // device-bound (out of cloud backups / keychain sync).
+    await SecureStore.setItemAsync(PAIRING_TOKEN_KEY, payload.token, {
+      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    });
   } catch {
     return createError('STORAGE_FAILED');
   }

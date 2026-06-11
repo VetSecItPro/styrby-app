@@ -41,6 +41,12 @@ import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
 import { toNonNegativeNumber } from '@/utils/coerce';
+import {
+  resolveOpencodeStorageDir,
+  readStepFinishParts,
+  findLatestAssistantMessageId,
+  selectMissedStepFinishes,
+} from './opencodeStorage';
 import { resolveApiKeyEnv, type ApiKeyProvider } from '@/utils/apiKeyProvider';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
 import type { CostReport } from '@styrby/shared/cost';
@@ -134,6 +140,10 @@ interface KiloTokens {
 interface KiloPart {
   /** Part discriminator: 'step-start' | 'text' | 'step-finish' | tool parts. */
   type?: string;
+  /** Stable part id (`prt_...`); used to dedupe stdout vs storage recovery. */
+  id?: string;
+  /** Owning assistant message id (`msg_...`); locates the turn in storage. */
+  messageID?: string;
   /** Assistant text (present on `text` events — UNVERIFIED for Kilo, see #30). */
   text?: string;
   /** Step cost in USD (present on `step-finish` — UNVERIFIED for Kilo, see #30). */
@@ -200,6 +210,13 @@ class KiloBackend extends StreamingAgentBackendBase {
   private outputTokens = 0;
   private totalCost = 0;
   private lineBuffer = '';
+  // #26855 cost-recovery state, reset per turn (see resetTurnCostTracking):
+  /** Part ids of step-finish events we emitted from stdout this turn. */
+  private seenStepFinishIds = new Set<string>();
+  /** Count of step-finish events seen on stdout this turn. */
+  private stdoutStepFinishCount = 0;
+  /** The current turn's assistant message id, learned from stdout step-finish events. */
+  private currentTurnMessageId: string | null = null;
 
   constructor(private options: KiloBackendOptions) {
     super();
@@ -239,14 +256,17 @@ class KiloBackend extends StreamingAgentBackendBase {
         // row per event, so summing per-step rows = the true turn total.
         // Accumulating into a running total here would make each row cumulative
         // and the downstream SUM would over-count. (Corrects the prior "take
-        // latest" comment.) RESIDUAL RISK (kilo only): issue #26855 — the final
-        // step_finish may not reach stdout. opencode.ts now reconciles against
-        // session storage on close to recover it (opencodeStorage.ts); kilo can
-        // adopt the same once its storage dir is confirmed (COST-OPENCODE-26855).
+        // latest" comment.) #26855: the final step_finish may not reach stdout
+        // (kilo is an opencode fork sharing the bug); reconcileCostFromStorage()
+        // recovers it from kilo's session storage on close (opencodeStorage.ts).
         //
         // WHY toNonNegativeNumber (#24): untrusted stdout; coerce per-step
         // (default 0 if absent) — never carry a prior step's value forward, which
         // would re-count it when rows are summed.
+        // Track this stdout step-finish for the on-close storage reconciliation.
+        this.stdoutStepFinishCount += 1;
+        if (part.id) this.seenStepFinishIds.add(part.id);
+        if (part.messageID) this.currentTurnMessageId = part.messageID;
         const stepInput = toNonNegativeNumber(t.input);
         const stepOutput = toNonNegativeNumber(t.output);
         const cacheRead = toNonNegativeNumber(t.cache?.read);
@@ -266,22 +286,10 @@ class KiloBackend extends StreamingAgentBackendBase {
         });
 
         // Unified CostReport — source='agent-reported' (Kilo reports real USD).
-        const costReport: CostReport = {
-          sessionId: this.sessionId ?? '',
-          messageId: null,
-          agentType: 'kilo',
-          model: this.options.model ?? 'unknown',
-          timestamp: new Date().toISOString(),
-          source: 'agent-reported',
-          billingModel: 'api-key',
-          costUsd: stepCost,
-          inputTokens: stepInput,
-          outputTokens: stepOutput,
-          cacheReadTokens: cacheRead,
-          cacheWriteTokens: cacheWrite,
-          rawAgentPayload: msg as unknown as Record<string, unknown>,
-        };
-        this.emit({ type: 'cost-report', report: costReport });
+        this.emitCostReport(
+          { input: stepInput, output: stepOutput, cacheRead, cacheWrite, cost: stepCost },
+          msg as unknown as Record<string, unknown>,
+        );
         break;
       }
 
@@ -305,6 +313,73 @@ class KiloBackend extends StreamingAgentBackendBase {
         // tool_use/tool_result/memory_bank_* schema Kilo never emits. Rather
         // than re-invent, we surface nothing until the real shape is verified.
         logger.debug('[KiloBackend] Unhandled kilo event type:', msg.type);
+    }
+  }
+
+  /**
+   * Build + emit a unified CostReport for one kilo API call (one step). Shared
+   * by the live stdout path and the on-close storage reconciliation so both
+   * produce identical cost-report shapes (one summed cost_records row per event).
+   */
+  private emitCostReport(
+    v: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number },
+    raw: Record<string, unknown>,
+  ): void {
+    const report: CostReport = {
+      sessionId: this.sessionId ?? '',
+      messageId: null,
+      agentType: 'kilo',
+      model: this.options.model ?? 'unknown',
+      timestamp: new Date().toISOString(),
+      source: 'agent-reported',
+      billingModel: 'api-key',
+      costUsd: v.cost,
+      inputTokens: v.input,
+      outputTokens: v.output,
+      cacheReadTokens: v.cacheRead,
+      cacheWriteTokens: v.cacheWrite,
+      rawAgentPayload: raw,
+    };
+    this.emit({ type: 'cost-report', report });
+  }
+
+  /** Reset the per-turn #26855 cost-recovery tracking at the start of a prompt. */
+  private resetTurnCostTracking(): void {
+    this.seenStepFinishIds.clear();
+    this.stdoutStepFinishCount = 0;
+    this.currentTurnMessageId = null;
+  }
+
+  /**
+   * Recover step-finish costs kilo persisted to session storage but never
+   * flushed to stdout (opencode #26855; kilo is an opencode fork that shares the
+   * bug). Reads kilo's storage (`<XDG_DATA_HOME|~/.local/share>/kilo/storage`,
+   * the same layout as opencode) on close and emits recovered cost-reports for
+   * the steps the stream dropped — deduped by id/count so it never double-counts
+   * and is a no-op when the stream was complete. Best-effort; never throws.
+   */
+  private reconcileCostFromStorage(): void {
+    try {
+      const sessionId = this.kiloSessionId;
+      if (!sessionId) return;
+      // kilo persists under the 'kilo' product dir (verified: opencode-fork
+      // storage/{message,part} layout at ~/.local/share/kilo/storage).
+      const storageDir = resolveOpencodeStorageDir(process.env, 'kilo');
+      const messageId =
+        this.currentTurnMessageId ?? findLatestAssistantMessageId(storageDir, sessionId);
+      if (!messageId) return;
+      const parts = readStepFinishParts(storageDir, messageId);
+      if (parts.length === 0) return;
+      const missed = selectMissedStepFinishes(parts, this.seenStepFinishIds, this.stdoutStepFinishCount);
+      for (const p of missed) {
+        logger.debug(`[KiloBackend] Recovered step-finish ${p.id} from storage (#26855); cost=${p.cost}`);
+        this.emitCostReport(
+          { input: p.inputTokens, output: p.outputTokens, cacheRead: p.cacheReadTokens, cacheWrite: p.cacheWriteTokens, cost: p.cost },
+          { recovered: true, source: 'session-storage', partId: p.id, messageId },
+        );
+      }
+    } catch (err) {
+      logger.debug('[KiloBackend] storage cost reconciliation skipped:', err);
     }
   }
 
@@ -348,6 +423,7 @@ class KiloBackend extends StreamingAgentBackendBase {
     this.outputTokens = 0;
     this.totalCost = 0;
     this.lineBuffer = '';
+    this.resetTurnCostTracking();
     this.kiloSessionId = this.options.resumeSessionId ?? null;
 
     this.emit({ type: 'status', status: 'starting' });
@@ -386,6 +462,9 @@ class KiloBackend extends StreamingAgentBackendBase {
     // Reset run-scoped state (clears the cancelled flag) so this run's exit is
     // classified correctly by the close handler (audit 2026-06-09 fix #6).
     this.beginRun();
+    // Reset per-turn cost-recovery tracking so the on-close storage
+    // reconciliation only considers THIS turn's step-finishes (#26855).
+    this.resetTurnCostTracking();
 
     this.lineBuffer = '';
     this.emit({ type: 'status', status: 'running' });
@@ -480,6 +559,11 @@ class KiloBackend extends StreamingAgentBackendBase {
             }
             this.lineBuffer = '';
           }
+
+          // Recover any step-finish costs kilo persisted to storage but never
+          // flushed to stdout (#26855). Best-effort + deduped; no-op when the
+          // stream was complete.
+          this.reconcileCostFromStorage();
 
           if (code === 0) {
             this.emit({ type: 'status', status: 'idle' });

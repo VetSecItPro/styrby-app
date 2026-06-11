@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2026-06-11 - kilo cost recovery (#26855)
+
+#### Fixed
+
+- **kilo now recovers costs dropped from stdout, same as opencode.** kilo is an
+  opencode fork that shares issue #26855 (`run --format json` can exit before
+  flushing the final `step_finish`). Its session storage was confirmed at
+  `~/.local/share/kilo/storage` (identical opencode layout), so KiloBackend now
+  reconciles against it on process close via the shared `opencodeStorage` reader
+  (`resolveOpencodeStorageDir(env, 'kilo')`) — deduped by part id / count, no
+  double-count, no-op when the stream was complete. +recovery tests in
+  kilo.test.ts. #26855 is now resolved for both opencode and kilo.
+
 ### 2026-06-11 - Multi-step cost accounting verified + clarified
 
 #### Changed

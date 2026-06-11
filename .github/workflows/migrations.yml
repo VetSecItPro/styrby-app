@@ -53,6 +53,11 @@ concurrency:
   group: migrations-${{ github.ref }}
   cancel-in-progress: true
 
+# SEC-INFRA-010: least-privilege default token (read-only). Jobs needing more
+# escalate explicitly.
+permissions:
+  contents: read
+
 jobs:
   verify:
     name: Apply migrations to Postgres

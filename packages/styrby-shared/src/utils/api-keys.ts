@@ -54,13 +54,23 @@ export function generateRandomString(length: number): string {
   // modern browsers, Deno, Bun, and Hermes (React Native). No fallback is
   // provided because a Math.random() fallback would silently produce
   // cryptographically weak API keys — it is safer to throw.
-  const array = new Uint8Array(length);
-  globalThis.crypto.getRandomValues(array);
-
-  // Map random bytes to alphabet characters
+  // WHY rejection sampling (SEC-CRYPTO-101): mapping a uniform 0-255 byte with
+  // `byte % ALPHABET.length` is biased when 256 is not a multiple of the
+  // alphabet size — the first (256 mod len) characters become slightly more
+  // likely. We reject bytes at or above the largest multiple of len that fits
+  // in 256, so every accepted byte maps uniformly. Bias removed at negligible
+  // cost (a few extra random bytes on rejection).
+  const len = ALPHABET.length;
+  const limit = Math.floor(256 / len) * len; // largest unbiased ceiling <= 256
   let result = '';
-  for (let i = 0; i < length; i++) {
-    result += ALPHABET[array[i] % ALPHABET.length];
+  while (result.length < length) {
+    const batch = new Uint8Array(length - result.length);
+    globalThis.crypto.getRandomValues(batch);
+    for (let i = 0; i < batch.length && result.length < length; i++) {
+      if (batch[i] < limit) {
+        result += ALPHABET[batch[i] % len];
+      }
+    }
   }
 
   return result;

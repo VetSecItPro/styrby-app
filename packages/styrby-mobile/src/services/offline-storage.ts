@@ -15,6 +15,7 @@
  */
 
 import * as SQLite from 'expo-sqlite';
+import { encryptAtRest, decryptAtRest } from './at-rest';
 
 // ============================================================================
 // Types
@@ -171,13 +172,17 @@ export async function saveCommand(command: SaveCommandInput): Promise<StoredComm
     synced: false,
   };
 
+  // SEC-MOB-001: encrypt the payload at rest. The DB column holds ciphertext;
+  // the returned StoredCommand keeps the plaintext payload for the caller.
+  const encryptedPayload = await encryptAtRest(stored.payload);
+
   await database.runAsync(
     `INSERT INTO offline_storage (id, command_type, payload, machine_id, session_id, created_at, synced)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       stored.id,
       stored.command_type,
-      stored.payload,
+      encryptedPayload,
       stored.machine_id,
       stored.session_id,
       stored.created_at,
@@ -208,7 +213,16 @@ export async function getPendingCommands(): Promise<StoredCommand[]> {
      ORDER BY created_at ASC`
   );
 
-  return rows.map(rowToStoredCommand);
+  // SEC-MOB-001: decrypt each payload back to plaintext for the sync consumer.
+  // decryptAtRest passes legacy (pre-encryption) plaintext rows through
+  // unchanged, so existing queues keep working without a migration.
+  return Promise.all(
+    rows.map(async (row) => {
+      const cmd = rowToStoredCommand(row);
+      cmd.payload = await decryptAtRest(cmd.payload);
+      return cmd;
+    }),
+  );
 }
 
 /**
@@ -247,6 +261,23 @@ export async function clearSynced(): Promise<number> {
     `DELETE FROM offline_storage WHERE synced = 1`
   );
 
+  return result.changes;
+}
+
+/**
+ * Delete EVERY queued command from local SQLite — synced or not.
+ *
+ * WHY (SEC-MOB-002): queued command payloads are user data that must not
+ * survive ACCOUNT DELETION. Unlike clearSynced (housekeeping for already-synced
+ * rows), this wipes pending rows too, so it must ONLY be called on account
+ * deletion — never on a temporary sign-out, where pending commands should be
+ * preserved to send after re-login.
+ *
+ * @returns The number of rows deleted.
+ */
+export async function clearAllCommands(): Promise<number> {
+  const database = await initDatabase();
+  const result = await database.runAsync(`DELETE FROM offline_storage`);
   return result.changes;
 }
 
