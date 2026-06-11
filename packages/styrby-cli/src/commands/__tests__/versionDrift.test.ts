@@ -143,9 +143,10 @@ describe('parseVersionFromStartupMessage', () => {
       expectedVersion: '1.2.5',
     },
     {
+      // kiro-cli (rebranded Amazon Q CLI); binary `kiro-cli`, banner "kiro-cli <ver>".
       agentId: 'kiro',
-      banner: 'kiro v0.5.0\n',
-      expectedVersion: '0.5.0',
+      banner: 'kiro-cli 2.6.1\n',
+      expectedVersion: '2.6.1',
     },
     {
       agentId: 'droid',
@@ -202,7 +203,8 @@ describe('checkVersionCompatibility', () => {
     // kilo maxTestedVersion was bumped to 7.x (real binary is v7.3.41), so the
     // "within" and "above max-tested" probes must track that.
     { agentId: 'kilo', within: '7.0.0', below: '0.9.9', above: '8.0.0' },
-    { agentId: 'kiro', within: '0.5.0', below: '0.0.9', above: '2.0.0' },
+    // kiro-cli min 2.0.0 (headless landed in CLI 2.0), maxTested 2.99.99.
+    { agentId: 'kiro', within: '2.5.0', below: '1.9.9', above: '3.0.0' },
     { agentId: 'droid', within: '0.5.0', below: '0.0.9', above: '2.0.0' },
   ];
 

@@ -1,24 +1,33 @@
 /**
- * Kiro Backend - Kiro CLI agent adapter (AWS)
+ * Kiro Backend — Kiro CLI agent adapter (AWS)
  *
- * This module provides a factory function for creating a Kiro backend.
- * Kiro is an AWS-based AI coding agent that uses a per-prompt credit system
- * instead of traditional token-based billing.
+ * VERIFIED against the real `kiro-cli` binary (v2.6.1, 2026-06-10).
  *
- * Key characteristics:
- * - Binary name: `kiro` (installed via AWS CLI or direct download)
- * - Config: `~/.config/kiro/config.json`
- * - Output: structured JSON lines via stdout
- * - Cost tracking: credit-based (credits converted to USD equivalent at a fixed rate)
- * - AWS-native: integrates with IAM, CodeWhisperer, and Amazon Q Developer
- * - Per-prompt credits: each prompt consumes a fixed number of credits regardless of
- *   response length; expensive operations (deep analysis) cost more credits
+ * Kiro CLI is the rebranded **Amazon Q Developer CLI** (AWS renamed `q` →
+ * `kiro-cli` on 2025-11-17). It is a self-contained native binary (NOT an
+ * npm/Node package) installed via `curl -fsSL https://cli.kiro.dev/install | bash`.
  *
- * WHY per-prompt credits: Kiro's AWS credit model differs from token-based pricing.
- * One credit equals approximately $0.01 USD (1 credit = $0.01). We convert credits
- * to USD for unified cost tracking in the Styrby dashboard.
+ * Key characteristics (all verified against the real binary, replacing the prior
+ * fabricated `kiro run --output-format jsonl` + credit-billing fiction):
+ * - **Binary name: `kiro-cli`** (NOT `kiro` — the old code's `spawn('kiro')` was
+ *   a guaranteed ENOENT). Backward-compatible aliases `q`/`q chat` also exist.
+ * - **Headless invocation: `kiro-cli chat --no-interactive "<prompt>"`** — the
+ *   prompt is a trailing positional argument; `--no-interactive` prints the first
+ *   response to stdout and exits.
+ * - **Output: PLAIN TEXT (markdown), with ANSI/terminal control codes.** There is
+ *   NO JSON/stream-json for chat responses — `--format json` exists ONLY for
+ *   `--list-models`. So we strip ANSI and forward the text as `model-output`.
+ * - **Auth: `KIRO_API_KEY` env var** (headless; paid tiers only). Without it the
+ *   CLI tries a browser login, which is useless in a relay/headless context.
+ * - **No token/credit/cost telemetry in CLI output.** Kiro bills on credits at
+ *   the account level (overage ~$0.04/credit, not the previously-invented
+ *   $0.01), and the CLI does not print any usage figure. So this backend emits
+ *   NO cost-report — kiro sessions have no CLI-derivable cost (see #30).
+ * - **Tools: `--trust-all-tools` / `--trust-tools=<names>`** auto-approve tool
+ *   use (no structured permission events are emitted, so the mobile per-tool
+ *   approval flow cannot gate kiro the way it gates claude/codex).
  *
- * @see https://kiro.dev
+ * @see https://kiro.dev/docs/cli/headless/
  * @module factories/kiro
  */
 
@@ -35,23 +44,26 @@ import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
-import type { CostReport } from '@styrby/shared/cost';
 
 // ============================================================================
-// Constants
+// Helpers
 // ============================================================================
 
 /**
- * USD cost per single Kiro credit.
+ * Strip ANSI/terminal control sequences from kiro-cli output.
  *
- * WHY: Kiro bills in credits rather than tokens. As of the current pricing
- * schedule, 1 credit = $0.01 USD. This constant is exported so downstream
- * code (e.g., future cost-reporter config) can read it without hardcoding
- * the rate. It is also snapshotted into each CostReport for audit accuracy.
+ * WHY: kiro-cli writes its chat response as styled markdown — it emits CSI color
+ * codes, cursor show/hide (`ESC[?25l`), and spinner frames. None of that is part
+ * of the model's actual text, so we remove it before forwarding `model-output`.
+ * Matches CSI (`ESC[ … final`) and a couple of common single-char escapes.
  *
- * @see https://kiro.dev/pricing
+ * @param text - Raw stdout chunk from kiro-cli.
+ * @returns The text with ANSI control sequences removed.
  */
-export const KIRO_CREDIT_TO_USD = 0.01;
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\u001b\[[0-?]*[ -\/]*[@-~]/g, '').replace(/\u001b[=>]/g, '');
+}
 
 // ============================================================================
 // Types
@@ -62,42 +74,39 @@ export const KIRO_CREDIT_TO_USD = 0.01;
  */
 export interface KiroBackendOptions extends AgentFactoryOptions {
   /**
-   * AWS profile to use for Kiro authentication.
-   * Maps to the AWS_PROFILE environment variable and the --profile flag.
-   * Defaults to Kiro's configured default profile from ~/.config/kiro/config.json.
+   * Kiro API key (`KIRO_API_KEY`). REQUIRED for headless use — without it the
+   * CLI falls back to interactive browser login, which cannot complete in a
+   * relay/daemon context. Generated from Kiro account settings (paid tiers only).
+   * When omitted, an inherited `KIRO_API_KEY` from {@link AgentFactoryOptions.env}
+   * (or the ambient environment) is used.
    */
-  awsProfile?: string;
+  apiKey?: string;
 
   /**
-   * AWS region override.
-   * Kiro defaults to the region in config.json or AWS_DEFAULT_REGION.
-   */
-  awsRegion?: string;
-
-  /**
-   * Model to use (e.g., 'claude-sonnet-4', 'amazon-nova-pro').
-   * Kiro supports AWS Bedrock models and Amazon Q Developer models.
-   * Defaults to Kiro's configured default model.
+   * Model to use (`--model`). Passed verbatim. Defaults to kiro-cli's configured
+   * default model.
    */
   model?: string;
 
   /**
-   * Whether to run in non-interactive mode (always true for Styrby).
-   * Prevents Kiro from prompting for user input on permission requests.
-   * Default: true
+   * Reasoning effort (`--effort`): 'low' | 'medium' | 'high' | 'xhigh' | 'max'.
+   * Optional; kiro-cli picks a per-model default when omitted.
    */
-  nonInteractive?: boolean;
+  effort?: string;
 
   /**
-   * Kiro session name for resuming existing sessions.
-   * When provided, Kiro will resume that session's conversation context.
+   * Trust posture for tool use in headless mode. Since kiro emits no structured
+   * permission events we can intercept, a headless run that should DO work
+   * (edit files, run commands) must pre-authorize tools:
+   *  - `true` (default): `--trust-all-tools` — auto-approve everything.
+   *  - a comma list (e.g. 'fs_read,fs_write'): `--trust-tools=<list>` — restrict.
+   *  - `false`: pass `--trust-tools=` (trust nothing; read-only-ish).
+   * WHY default true: parity with the other headless plain-text agents
+   * (aider `--yes`, crush) so kiro can actually complete coding tasks unattended.
    */
-  sessionName?: string;
+  trustTools?: boolean | string;
 
-  /**
-   * Additional Kiro CLI arguments.
-   * See: https://kiro.dev/docs/cli
-   */
+  /** Additional kiro-cli arguments (validated for shell-safety). */
   extraArgs?: string[];
 }
 
@@ -114,321 +123,50 @@ export interface KiroBackendResult {
 }
 
 // ============================================================================
-// JSON Output Parsing
-// ============================================================================
-
-/**
- * Kiro JSON output event types.
- *
- * WHY: Kiro outputs structured JSON lines where each line represents a distinct
- * event in the agent's execution flow. The credit-based billing is reported
- * through 'usage' events that include credits_consumed rather than token counts.
- */
-interface KiroJsonEvent {
-  type:
-    | 'message'
-    | 'tool_call'
-    | 'tool_result'
-    | 'usage'
-    | 'error'
-    | 'status'
-    | 'finish';
-  /** Text content for message events */
-  content?: string;
-  /** Tool name for tool_call and tool_result events */
-  tool?: string;
-  /** Tool input arguments */
-  input?: Record<string, unknown>;
-  /** Tool result output */
-  result?: unknown;
-  /** Unique ID correlating tool calls to results */
-  call_id?: string;
-  /** Usage/billing metadata for usage events */
-  usage?: KiroUsageMetadata;
-  /** Error message for error events */
-  error?: string;
-  /** Status string for status events */
-  status?: string;
-  /** Finish reason for finish events */
-  finish_reason?: string;
-}
-
-/**
- * Usage metadata from Kiro per-prompt credit billing.
- *
- * WHY: Kiro uses a credit-based system rather than per-token billing.
- * Credits are consumed per prompt based on operation type:
- * - Simple completions: 1-5 credits
- * - Code analysis: 5-20 credits
- * - Deep refactors: 20-100 credits
- *
- * We store both raw credits and the USD equivalent so cost dashboards
- * show comparable numbers across all agent types.
- */
-interface KiroUsageMetadata {
-  /** Credits consumed for this prompt */
-  credits_consumed?: number;
-  /** Approximate input tokens (for informational display, not billing) */
-  input_tokens?: number;
-  /** Approximate output tokens (for informational display, not billing) */
-  output_tokens?: number;
-  /** Estimated USD cost computed from credits_consumed */
-  cost_usd?: number;
-}
-
-/**
- * Parse a single JSONL output line from Kiro.
- *
- * @param line - A single line of Kiro stdout output
- * @returns Parsed KiroJsonEvent or null if the line is not valid JSON
- */
-function parseKiroJsonLine(line: string): KiroJsonEvent | null {
-  const trimmed = line.trim();
-  if (!trimmed || !trimmed.startsWith('{')) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(trimmed) as KiroJsonEvent;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Detect file system edits from Kiro tool names.
- *
- * WHY: Kiro uses AWS CodeWhisperer-style tool naming for file operations.
- * We detect file-editing tools to emit fs-edit events so the mobile app
- * shows users which files were modified.
- *
- * @param toolName - The tool name from the tool_call event
- * @returns true if this tool modifies the file system
- */
-function isKiroFileEditTool(toolName: string): boolean {
-  const fileEditTools = [
-    'write_file',
-    'create_file',
-    'edit_file',
-    'patch_file',
-    'str_replace',
-    'apply_patch',
-    'modify_file',
-    'update_file',
-  ];
-  return fileEditTools.some((t) => toolName.toLowerCase().includes(t));
-}
-
-// ============================================================================
 // KiroBackend Class
 // ============================================================================
 
 /**
  * Kiro Backend implementation.
  *
- * Spawns Kiro as a subprocess with JSONL output and parses structured events.
- * Handles the credit-based cost model by converting credits to USD for unified
- * cost reporting across all agent types in the Styrby dashboard.
+ * Spawns `kiro-cli chat --no-interactive <prompt>` as a one-shot subprocess and
+ * forwards its ANSI-stripped plain-text stdout to the mobile app as
+ * `model-output`. kiro-cli has no machine-readable output mode, so this backend
+ * does NOT emit usage/cost/tool/fs-edit events (see the module header + #30).
  */
 class KiroBackend extends StreamingAgentBackendBase {
   protected readonly logTag = 'KiroBackend';
-  private lineBuffer = '';
-  // WHY: Kiro uses credits, not tokens. We track credits separately and convert
-  // to USD for unified cost display. Token counts are approximate estimates
-  // that Kiro provides for informational purposes only.
-  private creditsConsumed = 0;
-  private inputTokens = 0;
-  private outputTokens = 0;
-  private totalCostUsd = 0;
+
+  // SECURITY: bounded buffer guards against a runaway process flooding stdout.
+  // We emit incrementally (per chunk) so output streams; the buffer only caps growth.
+  private outputBuffer = '';
 
   constructor(private options: KiroBackendOptions) {
     super();
   }
 
   /**
-   * Process a parsed Kiro JSON event and emit the corresponding AgentMessage.
+   * Forward a stdout chunk as `model-output` (ANSI-stripped plain text).
    *
-   * WHY: Kiro's credit-based usage model maps onto our token-count message type
-   * by expressing credits as USD cost. We include approximate token counts from
-   * Kiro's informational fields so cost breakdown charts have data to display.
-   *
-   * @param event - The parsed Kiro JSON event
-   */
-  private handleKiroEvent(event: KiroJsonEvent): void {
-    switch (event.type) {
-      case 'message':
-        if (event.content) {
-          this.emit({ type: 'model-output', textDelta: event.content });
-        }
-        break;
-
-      case 'tool_call':
-        if (event.tool && event.call_id) {
-          this.emit({
-            type: 'tool-call',
-            toolName: event.tool,
-            args: event.input ?? {},
-            callId: event.call_id,
-          });
-        }
-        break;
-
-      case 'tool_result':
-        if (event.call_id && event.tool) {
-          this.emit({
-            type: 'tool-result',
-            toolName: event.tool,
-            result: event.result,
-            callId: event.call_id,
-          });
-
-          // Detect file system edits and emit fs-edit event
-          if (isKiroFileEditTool(event.tool)) {
-            const filePath =
-              (event.input?.path as string) ??
-              (event.input?.file_path as string) ??
-              (event.input?.filename as string);
-            if (filePath) {
-              this.emit({
-                type: 'fs-edit',
-                description: `${event.tool}: ${filePath}`,
-                path: filePath,
-              });
-            }
-          }
-        }
-        break;
-
-      case 'usage':
-        // WHY: Kiro emits a usage event after each prompt with credit consumption data.
-        // We accumulate credits and convert to USD so the Styrby cost dashboard shows
-        // Kiro sessions alongside token-billed agents on a unified dollar basis.
-        if (event.usage) {
-          const credits = event.usage.credits_consumed ?? 0;
-          this.creditsConsumed += credits;
-          const incrInput = event.usage.input_tokens ?? 0;
-          const incrOutput = event.usage.output_tokens ?? 0;
-          this.inputTokens += incrInput;
-          this.outputTokens += incrOutput;
-
-          // WHY: If Kiro provides a pre-computed cost_usd, prefer it over our
-          // conversion. Otherwise compute from credits * KIRO_CREDIT_TO_USD.
-          const incrCost = event.usage.cost_usd !== undefined
-            ? event.usage.cost_usd
-            : credits * KIRO_CREDIT_TO_USD;
-          this.totalCostUsd += incrCost;
-
-          // Emit legacy token-count (keep for existing consumers)
-          this.emit({
-            type: 'token-count',
-            inputTokens: this.inputTokens,
-            outputTokens: this.outputTokens,
-            cacheReadTokens: 0,
-            cacheWriteTokens: 0,
-            costUsd: this.totalCostUsd,
-            // Include credit count for Kiro-specific display in the dashboard
-            creditsConsumed: this.creditsConsumed,
-          });
-
-          // WHY: Emit unified CostReport with billingModel='credit'. The credits
-          // object snapshots the current rateUsdPerCredit so historical cost records
-          // remain accurate even if Kiro reprices their credit packs.
-          const costReport: CostReport = {
-            sessionId: this.sessionId ?? '',
-            messageId: null,
-            agentType: 'kiro',
-            model: this.options.model ?? 'unknown',
-            timestamp: new Date().toISOString(),
-            source: 'agent-reported',
-            billingModel: 'credit',
-            costUsd: incrCost,
-            inputTokens: incrInput,
-            outputTokens: incrOutput,
-            cacheReadTokens: 0,
-            cacheWriteTokens: 0,
-            credits: {
-              consumed: credits,
-              rateUsdPerCredit: KIRO_CREDIT_TO_USD,
-            },
-            rawAgentPayload: event.usage as unknown as Record<string, unknown>,
-          };
-          this.emit({ type: 'cost-report', report: costReport });
-        }
-        break;
-
-      case 'error':
-        this.emit({
-          type: 'status',
-          status: 'error',
-          detail: event.error ?? 'Kiro encountered an error',
-        });
-        break;
-
-      case 'status':
-        if (event.status) {
-          const statusMap: Record<string, 'starting' | 'running' | 'idle' | 'stopped' | 'error'> =
-            {
-              starting: 'starting',
-              running: 'running',
-              idle: 'idle',
-              complete: 'idle',
-              done: 'idle',
-              stopped: 'stopped',
-              error: 'error',
-            };
-          const mapped = statusMap[event.status] ?? 'running';
-          this.emit({ type: 'status', status: mapped });
-        }
-        break;
-
-      case 'finish':
-        // WHY: Kiro emits 'finish' when the agent's response is fully complete.
-        // We transition to 'idle' so the mobile app knows the next prompt can be sent.
-        this.emit({ type: 'status', status: 'idle' });
-        break;
-
-      default:
-        logger.debug('[KiroBackend] Unknown event type:', event);
-    }
-  }
-
-  /**
-   * Process stdout data, buffering partial lines before parsing.
-   *
-   * WHY: Node.js streams deliver data in arbitrary chunks — a single JSON object
-   * may arrive across multiple 'data' events. We buffer until we see a newline
-   * before attempting to parse.
-   *
-   * @param data - Raw buffer chunk from the process stdout
+   * @param data - Raw buffer chunk from kiro-cli stdout.
    */
   private processStdout(data: Buffer): void {
-    const text = data.toString();
-    // SECURITY: Cap buffer size to prevent memory exhaustion from a buggy or
-    // malicious agent emitting continuous data without newlines.
-    this.lineBuffer = safeBufferAppend(this.lineBuffer, text);
-
-    const lines = this.lineBuffer.split('\n');
-    // Keep the last (potentially incomplete) line in the buffer
-    this.lineBuffer = lines.pop() ?? '';
-
-    for (const line of lines) {
-      const event = parseKiroJsonLine(line);
-      if (event) {
-        this.handleKiroEvent(event);
-      } else if (line.trim()) {
-        logger.debug('[KiroBackend] Non-JSON stdout:', line);
-      }
+    const raw = data.toString();
+    this.outputBuffer = safeBufferAppend(this.outputBuffer, raw);
+    const text = stripAnsi(raw);
+    if (text.trim()) {
+      // WHY plain passthrough: kiro-cli has no structured event schema, so the
+      // text IS the model output. No per-event usage/tool/cost data is recoverable.
+      this.emit({ type: 'model-output', textDelta: text });
     }
   }
 
   /**
    * Start a new Kiro session.
    *
-   * Resets credit/cost/token accumulators and optionally sends an initial prompt.
-   *
-   * @param initialPrompt - Optional initial prompt to send immediately
-   * @returns Promise resolving to session information
-   * @throws {Error} When the backend has been disposed
+   * @param initialPrompt - Optional prompt to send immediately.
+   * @returns The new session info.
+   * @throws {Error} When the backend has been disposed.
    */
   async startSession(initialPrompt?: string): Promise<StartSessionResult> {
     if (this.disposed) {
@@ -436,14 +174,9 @@ class KiroBackend extends StreamingAgentBackendBase {
     }
 
     this.sessionId = randomUUID();
-    this.creditsConsumed = 0;
-    this.inputTokens = 0;
-    this.outputTokens = 0;
-    this.totalCostUsd = 0;
-    this.lineBuffer = '';
+    this.outputBuffer = '';
 
     this.emit({ type: 'status', status: 'starting' });
-
     logger.debug(`[KiroBackend] Starting session: ${this.sessionId}`);
 
     if (initialPrompt) {
@@ -457,20 +190,20 @@ class KiroBackend extends StreamingAgentBackendBase {
   }
 
   /**
-   * Send a prompt to Kiro.
+   * Send a prompt to kiro-cli.
    *
-   * Spawns a Kiro subprocess with the prompt text. Uses --output-format jsonl
-   * for structured output and --no-interactive to prevent blocking on stdin.
+   * Spawns `kiro-cli chat --no-interactive [flags] <prompt>`. The prompt is the
+   * trailing positional argument; kiro-cli writes its (plain-text) reply to
+   * stdout, which we forward as `model-output`.
    *
-   * @param sessionId - The active session ID (must match the one from startSession)
-   * @param prompt - The user's prompt text
-   * @throws {Error} When the backend is disposed, session ID is invalid, or spawn fails
+   * @param sessionId - The active session ID (must match startSession result).
+   * @param prompt - The user's prompt text.
+   * @throws {Error} When disposed, session ID is invalid, or process spawn fails.
    */
   async sendPrompt(sessionId: SessionId, prompt: string): Promise<void> {
     if (this.disposed) {
       throw new Error('Backend has been disposed');
     }
-
     if (sessionId !== this.sessionId) {
       throw new Error(`Invalid session ID: ${sessionId}`);
     }
@@ -478,61 +211,47 @@ class KiroBackend extends StreamingAgentBackendBase {
     // Reset run-scoped state (clears the cancelled flag) so this run's exit is
     // classified correctly by the close handler (audit 2026-06-09 fix #6).
     this.beginRun();
-
-    this.lineBuffer = '';
+    this.outputBuffer = '';
     this.emit({ type: 'status', status: 'running' });
 
-    // Build Kiro command arguments
-    const args: string[] = [
-      'run',              // Subcommand for one-shot prompt execution
-      '--prompt',         // Pass the prompt as an argument
-      prompt,
-      '--output-format',
-      'jsonl',            // Request structured JSONL output for parsing
-    ];
+    // `kiro-cli chat --no-interactive [flags] <prompt>` (verified). Prompt is the
+    // trailing positional argument.
+    const args: string[] = ['chat', '--no-interactive'];
 
-    // WHY: Always use non-interactive mode. Kiro may prompt for AWS credential
-    // confirmation in interactive mode. The mobile app handles permissions via
-    // the permission-request/response message flow at the server relay level.
-    const nonInteractive = this.options.nonInteractive !== false;
-    if (nonInteractive) {
-      args.push('--no-interactive');
+    // Tool trust posture (no human approval is possible in headless mode).
+    const trust = this.options.trustTools ?? true;
+    if (trust === true) {
+      args.push('--trust-all-tools');
+    } else if (typeof trust === 'string') {
+      args.push(`--trust-tools=${trust}`);
+    } else {
+      args.push('--trust-tools=');
     }
 
-    // Model override
     if (this.options.model) {
       args.push('--model', this.options.model);
     }
-
-    // Resume an existing session if session name is provided
-    if (this.options.sessionName) {
-      args.push('--session', this.options.sessionName);
+    if (this.options.effort) {
+      args.push('--effort', this.options.effort);
     }
-
-    // Extra args (validated for shell safety)
     if (this.options.extraArgs) {
       args.push(...validateExtraArgs(this.options.extraArgs));
     }
 
-    logger.debug(`[KiroBackend] Spawning kiro with args:`, args);
+    // Trailing positional prompt (single argv element — no shell, no escaping).
+    args.push(prompt);
+
+    logger.debug(`[KiroBackend] Spawning kiro-cli with args:`, args);
 
     return new Promise<void>((resolve, reject) => {
       try {
-        // SECURITY: Use buildSafeEnv() to prevent leaking internal secrets to Kiro.
-        // AWS credentials are injected explicitly; all other AWS_* vars are blocked.
-        this.process = spawn('kiro', args, {
+        // SECURITY: buildSafeEnv() blocks ambient secrets. kiro auth is its own
+        // single var (KIRO_API_KEY) — inject only that (no multi-vendor fan-out).
+        this.process = spawn('kiro-cli', args, {
           cwd: this.options.cwd,
           env: buildSafeEnv({
             ...this.options.env,
-            // WHY: Inject AWS profile and region as environment variables so Kiro
-            // can authenticate with the correct AWS credentials without requiring
-            // users to switch their global AWS_PROFILE for each session.
-            ...(this.options.awsProfile
-              ? { AWS_PROFILE: this.options.awsProfile }
-              : {}),
-            ...(this.options.awsRegion
-              ? { AWS_DEFAULT_REGION: this.options.awsRegion }
-              : {}),
+            ...(this.options.apiKey ? { KIRO_API_KEY: this.options.apiKey } : {}),
           }),
           stdio: ['pipe', 'pipe', 'pipe'],
         });
@@ -541,67 +260,37 @@ class KiroBackend extends StreamingAgentBackendBase {
           throw new Error('Failed to create stdio pipes');
         }
 
-        // Handle stdout — JSONL events from Kiro
         this.process.stdout.on('data', (data: Buffer) => {
           this.processStdout(data);
         });
 
-        // Handle stderr — warnings and diagnostic messages
         this.process.stderr.on('data', (data: Buffer) => {
           const text = data.toString();
           logger.debug(`[KiroBackend] stderr: ${text.trim()}`);
-
-          if (
-            text.includes('Error') ||
-            text.includes('error') ||
-            text.includes('Exception') ||
-            text.includes('failed')
-          ) {
-            this.emit({
-              type: 'status',
-              status: 'error',
-              detail: text.trim(),
-            });
+          if (/error|exception|failed/i.test(text)) {
+            this.emit({ type: 'status', status: 'error', detail: stripAnsi(text).trim() });
           }
         });
 
-        // Handle process close
         this.process.on('close', (code) => {
           logger.debug(`[KiroBackend] Process exited with code: ${code}`);
-
-          // Flush any remaining buffered output
-          if (this.lineBuffer.trim()) {
-            const event = parseKiroJsonLine(this.lineBuffer);
-            if (event) {
-              this.handleKiroEvent(event);
-            }
-            this.lineBuffer = '';
-          }
+          this.outputBuffer = '';
 
           if (code === 0) {
             this.emit({ type: 'status', status: 'idle' });
             resolve();
           } else if (this.wasCancelled()) {
-            // Intentional user cancel (or dispose) SIGTERM'd the process, which
-            // surfaces here as a non-zero/null exit. Emit a clean idle status and
-            // resolve instead of a spurious agent error (audit 2026-06-09 fix #6).
+            // Intentional cancel/dispose SIGTERM'd the process → non-zero/null exit.
             this.emit({ type: 'status', status: 'idle' });
             resolve();
           } else {
-            this.emit({
-              type: 'status',
-              status: 'error',
-              detail: `Kiro exited with code ${code}`,
-            });
-            reject(new Error(`Kiro exited with code ${code}`));
+            this.emit({ type: 'status', status: 'error', detail: `kiro-cli exited with code ${code}` });
+            reject(new Error(`kiro-cli exited with code ${code}`));
           }
-
           this.process = null;
         });
 
-        // Handle process spawn errors (e.g., binary not found in PATH)
-        // WHY (Phase 0.3 / SOC2 CC7.2): Surface friendly install hint on
-        // ENOENT instead of raw "spawn ... ENOENT" Node error.
+        // ENOENT → friendly install hint (Phase 0.3 / SOC2 CC7.2).
         this.process.on('error', (err: NodeJS.ErrnoException) => {
           if (err.code === 'ENOENT') {
             const message = formatInstallHint('kiro');
@@ -616,77 +305,49 @@ class KiroBackend extends StreamingAgentBackendBase {
         });
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
-        this.emit({
-          type: 'status',
-          status: 'error',
-          detail: err.message,
-        });
+        this.emit({ type: 'status', status: 'error', detail: err.message });
         reject(err);
       }
     });
   }
 
   /**
-   * Cancel the current Kiro operation.
+   * Cancel the current kiro-cli operation (SIGTERM + 3s SIGKILL escalation).
    *
-   * Sends SIGTERM to allow Kiro to clean up AWS API connections gracefully,
-   * then falls back to SIGKILL after 3 seconds if the process hasn't exited.
-   *
-   * @param sessionId - The active session ID to cancel
-   * @throws {Error} When session ID does not match the active session
+   * @param sessionId - The active session ID to cancel.
+   * @throws {Error} When session ID does not match the active session.
    */
   async cancel(sessionId: SessionId): Promise<void> {
     if (sessionId !== this.sessionId) {
       throw new Error(`Invalid session ID: ${sessionId}`);
     }
-
     if (this.process) {
-      logger.debug('[KiroBackend] Cancelling Kiro process');
-      // Mark cancelled BEFORE SIGTERM so the close handler treats the resulting
-      // non-zero exit as an intentional cancel, not a crash (audit 2026-06-09 fix #6).
+      logger.debug('[KiroBackend] Cancelling kiro-cli process');
+      // Mark cancelled BEFORE SIGTERM so the close handler treats the non-zero
+      // exit as an intentional cancel, not a crash (audit 2026-06-09 fix #6).
       this.markCancelled();
       this.process.kill('SIGTERM');
-      // WHY: Give Kiro 3 seconds to cleanly close its AWS API connections
-      // before forcing a kill. This prevents resource leaks in the Kiro
-      // process manager. The escalation timer is tracked by the base class
-      // so it is cancelled on clean exit / dispose / double-cancel
-      // (SOC2 CC7.2 event-loop hygiene).
       this.scheduleForceKill();
     }
-
     this.emit({ type: 'status', status: 'idle' });
   }
 
   /**
    * Respond to a Kiro permission request.
    *
-   * WHY: Kiro may request permission for shell execution and file system operations
-   * that could affect the AWS environment. In non-interactive mode, Kiro auto-approves.
-   * This method handles the response for interactive permission flows.
+   * SCHEMA UNVERIFIED — kiro-cli headless mode emits NO structured permission
+   * events and tool use is pre-authorized at spawn via `--trust-all-tools` /
+   * `--trust-tools`. There is no verified over-stdin y/n channel, so we only emit
+   * the `permission-response` for app-side bookkeeping and do NOT write to stdin.
    *
-   * @param requestId - The ID of the permission request
-   * @param approved - Whether the user approved the request
+   * @param requestId - The permission request id.
+   * @param approved - Whether the user approved.
    */
   async respondToPermission(requestId: string, approved: boolean): Promise<void> {
-    this.emit({
-      type: 'permission-response',
-      id: requestId,
-      approved,
-    });
-
-    if (this.process?.stdin && !this.process.killed) {
-      const response = approved ? 'y\n' : 'n\n';
-      try {
-        this.process.stdin.write(response);
-      } catch {
-        // Stdin may be closed — safe to ignore
-      }
-    }
+    this.emit({ type: 'permission-response', id: requestId, approved });
   }
 
-  // waitForResponseComplete and dispose inherited from
-  // StreamingAgentBackendBase. Base dispose() clears the listener array, the
-  // cancel timer (SOC2 CC7.2), and SIGTERMs the process.
+  // waitForResponseComplete and dispose inherited from StreamingAgentBackendBase.
 }
 
 // ============================================================================
@@ -696,28 +357,25 @@ class KiroBackend extends StreamingAgentBackendBase {
 /**
  * Create a Kiro backend.
  *
- * Kiro is an AWS-based AI coding agent that uses a per-prompt credit system
- * for billing. Credits are converted to USD at a rate of $0.01 per credit for
- * unified cost tracking across all Styrby-supported agents.
+ * Drives the verified headless `kiro-cli chat --no-interactive <prompt>` mode,
+ * which writes the model's plain-text reply to stdout. kiro-cli has no
+ * JSON/structured output mode, so this backend surfaces model text only (no
+ * usage/cost/tool events — see the module header + #30).
  *
- * The kiro binary must be installed and available in PATH.
- * Install via: `curl -sSL https://kiro.dev/install.sh | sh` or
- * `brew install kiro` (if the Homebrew tap is configured).
+ * The `kiro-cli` binary must be installed and on PATH:
+ *   curl -fsSL https://cli.kiro.dev/install | bash
+ * Headless use requires `KIRO_API_KEY` (paid tiers).
  *
- * @param options - Configuration options for the backend
- * @returns KiroBackendResult with backend instance and resolved model
- *
- * @throws {Error} If kiro binary is not installed (deferred until sendPrompt is called)
+ * @param options - Configuration options for the backend.
+ * @returns KiroBackendResult with backend instance and resolved model.
  *
  * @example
  * ```ts
  * const { backend } = createKiroBackend({
  *   cwd: '/path/to/project',
- *   awsProfile: 'dev',
- *   awsRegion: 'us-east-1',
- *   model: 'claude-sonnet-4',
+ *   apiKey: process.env.KIRO_API_KEY,
+ *   model: 'claude-sonnet-4-5',
  * });
- *
  * const { sessionId } = await backend.startSession();
  * await backend.sendPrompt(sessionId, 'Optimize the Lambda functions');
  * ```
@@ -726,10 +384,8 @@ export function createKiroBackend(options: KiroBackendOptions): KiroBackendResul
   logger.debug('[Kiro] Creating backend with options:', {
     cwd: options.cwd,
     model: options.model,
-    awsProfile: options.awsProfile,
-    awsRegion: options.awsRegion,
-    sessionName: options.sessionName,
-    nonInteractive: options.nonInteractive,
+    effort: options.effort,
+    hasApiKey: !!options.apiKey,
   });
 
   return {
@@ -737,8 +393,10 @@ export function createKiroBackend(options: KiroBackendOptions): KiroBackendResul
     model: options.model,
     metadata: {
       modelSource: options.model ? 'explicit' : 'default',
+      // Streaming true (text arrives incrementally); tools false (kiro-cli emits
+      // no structured tool-call/tool-result events in headless mode).
       supportsStreaming: true,
-      supportsTools: true,
+      supportsTools: false,
     },
   };
 }
@@ -749,16 +407,6 @@ export function createKiroBackend(options: KiroBackendOptions): KiroBackendResul
 
 /**
  * Register the Kiro backend with the global agent registry.
- *
- * Call this during application initialization to make Kiro available
- * as an agent type. After calling this, `agentRegistry.create('kiro', opts)`
- * will return a configured KiroBackend instance.
- *
- * @example
- * ```ts
- * // In application startup (initializeAgents):
- * registerKiroAgent();
- * ```
  */
 export function registerKiroAgent(): void {
   agentRegistry.register('kiro', (opts) => createKiroBackend(opts).backend);

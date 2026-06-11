@@ -430,21 +430,23 @@ const AGENT_PROBE_REGISTRY: Record<AllAgentType, AgentProbeConfig> = {
   },
 
   kiro: {
+    // VERIFIED against kiro-cli v2.6.1 (2026-06-10). Kiro CLI = rebranded
+    // Amazon Q Developer CLI; binary is `kiro-cli` (NOT `kiro`). Headless is
+    // `kiro-cli chat --no-interactive <prompt>` → PLAIN TEXT output (no JSON;
+    // --format json is only for --list-models). No token/credit/cost telemetry.
     displayName: 'Kiro (AWS)',
-    command: 'kiro',
+    command: 'kiro-cli',
     versionFlag: '--version',
     versionPattern: /(\d+\.\d+\.\d+)/,
     expectedStreamFormat: {
-      type: '"message" | "tool_call" | "tool_result" | "usage" | "error" | "status" | "finish"',
-      'usage.credits_consumed': 'number (1 credit = $0.01 USD)',
-      'usage.input_tokens': 'number (informational)',
-      'usage.output_tokens': 'number (informational)',
+      output: 'PLAIN TEXT (markdown) with ANSI control codes — no structured events',
+      cost: 'none (kiro-cli emits no token/credit/cost in output; billing is account-level)',
     },
-    parserFile: 'agent/factories/kiro.ts (handleKiroEvent)',
-    installHint: 'See https://kiro.dev for installation',
-    minSupportedVersion: '0.1.0',
-    maxTestedVersion: '1.99.99',
-    startupVersionPatterns: [/kiro v?(\d+\.\d+\.\d+)/i],
+    parserFile: 'agent/factories/kiro.ts (stripAnsi plain-text passthrough)',
+    installHint: 'curl -fsSL https://cli.kiro.dev/install | bash (binary: kiro-cli; KIRO_API_KEY for headless)',
+    minSupportedVersion: '2.0.0',
+    maxTestedVersion: '2.99.99',
+    startupVersionPatterns: [/kiro-cli v?(\d+\.\d+\.\d+)/i],
   },
 
   droid: {

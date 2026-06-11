@@ -128,18 +128,16 @@ const AGENT_TRANSCRIPTS = {
   crush: 'I\'ll write a hello world to main.ts.\nconsole.log(\'Hello, world!\');\nDone.',
 
   /**
-   * Kiro transcript captured with:
-   *   kiro run --message "write hello world to main.ts" --format json
-   * Kiro uses credit-based billing: 1 credit = $0.01 USD.
-   * Event types use 'message' for text (not 'text'), 'tool' field for tool name.
+   * Kiro transcript — kiro-cli (Amazon Q Developer CLI rebrand) has NO
+   * machine-readable output mode (verified vs kiro-cli v2.6.1, 2026-06-10).
+   * `kiro-cli chat --no-interactive --trust-all-tools <prompt>` writes the
+   * model's reply to stdout as PLAIN TEXT (markdown, with ANSI codes). The
+   * factory strips ANSI and does a plain-text stdout → model-output passthrough,
+   * emitting NO cost/usage/tool events (supportsTools:false, no usage source).
+   * So this transcript is raw text, not JSON.
+   * Source command: `kiro-cli chat --no-interactive --trust-all-tools "write hello world to main.ts"`.
    */
-  kiro: [
-    '{"type":"message","content":"I\'ll write a hello world program to main.ts."}',
-    '{"type":"tool_call","tool":"write_file","input":{"path":"main.ts","content":"console.log(\'Hello, world!\');"},"call_id":"krc-001"}',
-    '{"type":"tool_result","tool":"write_file","result":{"success":true},"call_id":"krc-001"}',
-    '{"type":"usage","usage":{"credits_consumed":2,"input_tokens":267,"output_tokens":31}}',
-    '{"type":"finish","finish_reason":"stop"}',
-  ].join('\n'),
+  kiro: 'I\'ll write a hello world program to main.ts.\nconsole.log(\'Hello, world!\');\nDone.',
 
   /**
    * Droid transcript — VERIFIED stream-json schema (Claude-Code-shaped) captured
@@ -723,12 +721,15 @@ describe('E2E smoke — crush', () => {
 /**
  * Kiro E2E smoke test.
  *
- * Kiro uses credit-based billing (1 credit = $0.01 USD). The transcript includes
- * a "usage" event with credits_used. Verifies: text streaming, credit-to-USD
- * conversion in CostReport.
+ * kiro-cli has NO machine-readable output mode (verified vs kiro-cli v2.6.1,
+ * 2026-06-10). `kiro-cli chat --no-interactive` writes the model's reply to
+ * stdout as PLAIN TEXT (with ANSI codes), so the backend strips ANSI and does a
+ * plain-text passthrough to `model-output`, emitting NO cost/usage/tool events
+ * (supportsTools:false). This test asserts the plain-text passthrough and that
+ * no cost-report is fabricated.
  */
 describe('E2E smoke — kiro', () => {
-  it('spawns, parses Kiro JSONL, converts credits to USD in CostReport', async () => {
+  it('spawns, parses plain-text transcript, emits model-output (no cost-report)', async () => {
     const { backend } = createKiroBackend({ cwd: '/project', model: 'amazon-nova-pro' });
     const messages = collectMessages(backend);
 
@@ -737,18 +738,16 @@ describe('E2E smoke — kiro', () => {
     resolveStreamingProcess(currentMockProcess, AGENT_TRANSCRIPTS.kiro);
     await promptPromise;
 
-    // 1. model-output from "text" events
+    // 1. plain-text stdout is forwarded verbatim as model-output deltas
     const textChunks = messages.filter((m: any) => m.type === 'model-output');
     expect(textChunks.length).toBeGreaterThan(0);
+    const fullText = textChunks.map((m: any) => m.textDelta).join('');
+    expect(fullText).toContain('hello world');
 
-    // 2. CostReport emitted — either from usage event or on close
+    // 2. kiro-cli has no cost-bearing output — verified 2026-06-10; it must NOT
+    //    fabricate a cost-report from plain text.
     const costReports = messages.filter((m: any) => m.type === 'cost-report');
-    expect(costReports.length).toBeGreaterThan(0);
-    const report = (costReports[0] as any).report;
-    expect(report.agentType).toBe('kiro');
-    // Kiro credits: 2 credits × $0.01 = $0.02
-    expect(typeof report.costUsd).toBe('number');
-    expect(report.costUsd).toBeGreaterThanOrEqual(0);
+    expect(costReports.length).toBe(0);
 
     await backend.dispose();
   });
@@ -1079,6 +1078,9 @@ describe('Cross-agent contract — CostReport shape', () => {
     // crush EXCLUDED: crush has no cost-bearing output — verified 2026-06-10.
     // Its `crush run` plain-text mode emits no usage/cost event, so the backend
     // (correctly) never emits a CostReport. It cannot satisfy the shape contract.
+    // kiro EXCLUDED: same reason — kiro-cli's `chat --no-interactive` is plain
+    // text with no usage/cost telemetry (verified 2026-06-10), so it never emits
+    // a CostReport and cannot satisfy the shape contract.
     {
       name: 'goose',
       create: () => createGooseBackend({ cwd: '/p', model: 'claude-sonnet-4' }),

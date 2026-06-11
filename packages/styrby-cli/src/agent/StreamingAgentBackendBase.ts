@@ -89,7 +89,9 @@ const INSTALL_HINTS: Readonly<Record<string, string>> = Object.freeze({
   goose: 'Install via: see https://github.com/aaif-goose/goose for installation',
   // Kilo CLI ships as @kilocode/cli (provides `kilo` + `kilocode` binaries).
   kilo: 'Install via: npm install -g @kilocode/cli (or see https://kilo.ai)',
-  kiro: 'Install via: see https://kiro.dev for installation',
+  // Kiro CLI (rebranded Amazon Q Developer CLI) — self-contained native binary
+  // named `kiro-cli`; headless needs KIRO_API_KEY (paid tiers). Not on npm/brew.
+  kiro: 'Install via: curl -fsSL https://cli.kiro.dev/install | bash (binary: kiro-cli; set KIRO_API_KEY for headless)',
   opencode: 'Install via: npm install -g opencode-ai',
 });
 

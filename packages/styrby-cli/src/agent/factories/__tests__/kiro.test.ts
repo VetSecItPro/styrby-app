@@ -1,15 +1,30 @@
 /**
- * Tests for the Kiro agent backend factory (AWS).
+ * Tests for the Kiro agent backend factory (AWS / Amazon Q Developer CLI rebrand).
  *
- * Covers:
- * - `createKiroBackend` factory function
- * - `registerKiroAgent` registry integration
- * - `KiroBackend` class: session lifecycle, subprocess management,
- *   JSONL output parsing, credit-based cost tracking (credits → USD),
- *   fs-edit detection from tool names, error handling, cancellation,
- *   permission response, and disposal.
+ * REALITY CHECK (kiro-cli v2.6.1, verified 2026-06-10):
+ * - Binary is `kiro-cli` (NOT `kiro`). Backward-compat aliases `q`/`q chat` exist.
+ * - Headless invocation is `kiro-cli chat --no-interactive --trust-all-tools <prompt>`
+ *   (the prompt is a trailing positional argument; `--trust-all-tools` is the
+ *   default trust posture; optional `--model` / `--effort`). There is NO `run`
+ *   subcommand, NO `--prompt`, and NO `--output-format jsonl`.
+ * - kiro-cli has NO JSON/stream output mode for chat. It writes the model's reply
+ *   to stdout as PLAIN TEXT with ANSI/terminal control codes. The factory strips
+ *   ANSI and forwards the text as `model-output`. There is no
+ *   `{message, tool_call, tool_result, usage, finish}` event schema.
+ * - kiro-cli emits NO token/credit/cost telemetry. The prior credit-billing fiction
+ *   (`KIRO_CREDIT_TO_USD`, 1 credit = $0.01) does not exist in the real binary, so
+ *   the backend emits NO cost-report / token-count / tool / fs-edit events.
+ * - Auth: injects `KIRO_API_KEY` env (from options.apiKey) only.
  *
- * All child_process and logger calls are mocked so no real Kiro binary
+ * Because of that, this suite covers ONLY verified behavior: the real spawn argv,
+ * ANSI-stripped plain-text stdout -> model-output passthrough, exit-code handling,
+ * cancellation, dispose, ENOENT install hint, and env-key injection. The previous
+ * suite's invented-JSONL-event blocks (message/tool_call/tool_result/usage/finish
+ * parsing, credit-cost tracking, fs-edit detection) are DELETED — they tested a
+ * fabricated schema the real binary does not produce (#30 — kiro-cli emits no
+ * structured output).
+ *
+ * All child_process and logger calls are mocked so no real kiro-cli binary
  * is required.
  *
  * @module factories/__tests__/kiro.test.ts
@@ -86,63 +101,18 @@ function collectMessages(backend: ReturnType<typeof createKiroBackend>['backend'
 }
 
 /**
- * Simulate a Kiro process run: emit stdout lines, then emit close event.
+ * Simulate a kiro-cli run: emit plain-text chunks as stdout data events, then
+ * close the process. (kiro-cli emits plain text, NOT line-framed JSON.)
  *
  * @param proc - The mock child process
- * @param stdoutLines - Lines of stdout to emit
+ * @param chunks - Plain-text chunks to emit on stdout
  * @param exitCode - Exit code for the close event (default: 0)
  */
-function simulateProcess(proc: MockProcess, stdoutLines: string[] = [], exitCode = 0) {
-  for (const line of stdoutLines) {
-    (proc.stdout as EventEmitter).emit('data', Buffer.from(line + '\n'));
+function simulateProcess(proc: MockProcess, chunks: string[] = [], exitCode = 0) {
+  for (const chunk of chunks) {
+    (proc.stdout as EventEmitter).emit('data', Buffer.from(chunk));
   }
   proc.emit('close', exitCode);
-}
-
-// ---- Kiro JSONL event builders ----
-
-/** Build a Kiro message event line */
-function kiroMessage(content: string): string {
-  return JSON.stringify({ type: 'message', content });
-}
-
-/** Build a Kiro tool_call event line */
-function kiroToolCall(tool: string, callId: string, input?: Record<string, unknown>): string {
-  return JSON.stringify({ type: 'tool_call', tool, call_id: callId, input });
-}
-
-/** Build a Kiro tool_result event line */
-function kiroToolResult(tool: string, callId: string, result: unknown, input?: Record<string, unknown>): string {
-  return JSON.stringify({ type: 'tool_result', tool, call_id: callId, result, input });
-}
-
-/**
- * Build a Kiro usage event with credit-based billing data.
- *
- * @param usage - Credit/token usage metadata
- */
-function kiroUsage(usage: {
-  credits_consumed?: number;
-  input_tokens?: number;
-  output_tokens?: number;
-  cost_usd?: number;
-}): string {
-  return JSON.stringify({ type: 'usage', usage });
-}
-
-/** Build a Kiro error event line */
-function kiroError(error: string): string {
-  return JSON.stringify({ type: 'error', error });
-}
-
-/** Build a Kiro status event line */
-function kiroStatus(status: string): string {
-  return JSON.stringify({ type: 'status', status });
-}
-
-/** Build a Kiro finish event line */
-function kiroFinish(): string {
-  return JSON.stringify({ type: 'finish' });
 }
 
 /** Base options used across most tests */
@@ -171,17 +141,24 @@ afterEach(() => {
 
 describe('createKiroBackend', () => {
   it('returns a backend instance and resolved model when model is provided', () => {
-    const { backend, model } = createKiroBackend({ ...BASE_OPTIONS, model: 'claude-sonnet-4' });
+    const { backend, model } = createKiroBackend({ ...BASE_OPTIONS, model: 'claude-sonnet-4-5' });
 
     expect(backend).toBeDefined();
     expect(typeof backend.startSession).toBe('function');
-    expect(model).toBe('claude-sonnet-4');
+    expect(model).toBe('claude-sonnet-4-5');
   });
 
   it('returns undefined model when no model is specified', () => {
     const { model } = createKiroBackend(BASE_OPTIONS);
 
     expect(model).toBeUndefined();
+  });
+
+  it('reports supportsTools=false (kiro-cli emits no structured tool events)', () => {
+    const { metadata } = createKiroBackend(BASE_OPTIONS);
+
+    expect(metadata?.supportsTools).toBe(false);
+    expect(metadata?.supportsStreaming).toBe(true);
   });
 
   it('returns a backend implementing the full AgentBackend interface', () => {
@@ -201,20 +178,12 @@ describe('createKiroBackend', () => {
     expect(mockSpawn).not.toHaveBeenCalled();
   });
 
-  it('passes cwd to the backend options', () => {
-    const { backend } = createKiroBackend({ cwd: '/aws/workspace' });
-
-    expect(backend).toBeDefined();
-  });
-
-  it('accepts awsProfile option', () => {
-    const { backend } = createKiroBackend({ ...BASE_OPTIONS, awsProfile: 'prod' });
-
-    expect(backend).toBeDefined();
-  });
-
-  it('accepts awsRegion option', () => {
-    const { backend } = createKiroBackend({ ...BASE_OPTIONS, awsRegion: 'us-west-2' });
+  it('accepts effort and trustTools options', () => {
+    const { backend } = createKiroBackend({
+      ...BASE_OPTIONS,
+      effort: 'high',
+      trustTools: 'fs_read,fs_write',
+    });
 
     expect(backend).toBeDefined();
   });
@@ -268,7 +237,7 @@ describe('KiroBackend — session lifecycle', () => {
     expect(statuses).toContain('idle');
   });
 
-  it('startSession with initial prompt spawns kiro', async () => {
+  it('startSession with initial prompt spawns kiro-cli', async () => {
     const { backend } = createKiroBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
 
@@ -280,8 +249,8 @@ describe('KiroBackend — session lifecycle', () => {
       .filter((m: any) => m.type === 'status')
       .map((m: any) => m.status);
 
-    expect(statuses).toContain('starting');
-    expect(statuses).toContain('running');
+    expect(statuses[0]).toBe('starting');
+    expect(statuses[1]).toBe('running');
     expect(mockSpawn).toHaveBeenCalledOnce();
   });
 
@@ -301,14 +270,28 @@ describe('KiroBackend — session lifecycle', () => {
 
     await expect(backend.startSession()).rejects.toThrow('disposed');
   });
+
+  it('dispose kills an in-flight process', async () => {
+    const { backend } = createKiroBackend(BASE_OPTIONS);
+    const { sessionId } = await backend.startSession();
+
+    // Start a send but don't finish the process — keep it in-flight
+    const killSpy = vi.spyOn(currentMockProcess, 'kill');
+    backend.sendPrompt(sessionId, 'Long operation'); // intentionally not awaited
+    await backend.dispose();
+
+    expect(killSpy).toHaveBeenCalledWith('SIGTERM');
+    // Clean up the dangling process
+    currentMockProcess.emit('close', 0);
+  });
 });
 
 // ===========================================================================
-// KiroBackend — sendPrompt
+// KiroBackend — sendPrompt (VERIFIED `kiro-cli chat` invocation)
 // ===========================================================================
 
-describe('KiroBackend — sendPrompt', () => {
-  it('spawns the kiro binary with correct arguments', async () => {
+describe('KiroBackend — sendPrompt invocation', () => {
+  it('spawns `kiro-cli chat --no-interactive --trust-all-tools <prompt>` with the prompt as a trailing positional', async () => {
     const { backend } = createKiroBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
 
@@ -316,14 +299,34 @@ describe('KiroBackend — sendPrompt', () => {
     simulateProcess(currentMockProcess);
     await promptPromise;
 
-    expect(mockSpawn).toHaveBeenCalledWith(
-      'kiro',
-      expect.arrayContaining(['run', '--prompt', 'Write tests for auth module', '--output-format', 'jsonl']),
-      expect.objectContaining({ cwd: '/project' })
-    );
+    const [bin, args] = mockSpawn.mock.calls[0] as [string, string[], unknown];
+    // Binary is kiro-cli, NOT kiro.
+    expect(bin).toBe('kiro-cli');
+    // Subcommand + flags first, prompt last (positional).
+    expect(args[0]).toBe('chat');
+    expect(args).toContain('--no-interactive');
+    expect(args).toContain('--trust-all-tools');
+    expect(args[args.length - 1]).toBe('Write tests for auth module');
+    // The fabricated old-schema flags must NOT be present.
+    expect(args).not.toContain('run');
+    expect(args).not.toContain('--prompt');
+    expect(args).not.toContain('--output-format');
+    expect(args).not.toContain('jsonl');
   });
 
-  it('passes --model flag when model is specified', async () => {
+  it('passes cwd to the spawn options', async () => {
+    const { backend } = createKiroBackend(BASE_OPTIONS);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'Hello');
+    simulateProcess(currentMockProcess);
+    await promptPromise;
+
+    const opts = (mockSpawn.mock.calls[0] as any[])[2];
+    expect(opts.cwd).toBe('/project');
+  });
+
+  it('includes --model flag (before the positional prompt) when model is specified', async () => {
     const { backend } = createKiroBackend({ ...BASE_OPTIONS, model: 'amazon-nova-pro' });
     const { sessionId } = await backend.startSession();
 
@@ -331,46 +334,63 @@ describe('KiroBackend — sendPrompt', () => {
     simulateProcess(currentMockProcess);
     await promptPromise;
 
-    const args = mockSpawn.mock.calls[0][1] as string[];
-    expect(args).toContain('--model');
-    expect(args).toContain('amazon-nova-pro');
+    const args = (mockSpawn.mock.calls[0] as any[])[1] as string[];
+    const modelIdx = args.indexOf('--model');
+    expect(modelIdx).toBeGreaterThanOrEqual(0);
+    expect(args[modelIdx + 1]).toBe('amazon-nova-pro');
+    // Prompt stays the trailing positional.
+    expect(args[args.length - 1]).toBe('Analyze costs');
   });
 
-  it('passes --session flag when sessionName is provided', async () => {
-    const { backend } = createKiroBackend({ ...BASE_OPTIONS, sessionName: 'my-kiro-session' });
+  it('includes --effort flag when effort is specified', async () => {
+    const { backend } = createKiroBackend({ ...BASE_OPTIONS, effort: 'high' });
     const { sessionId } = await backend.startSession();
 
-    const promptPromise = backend.sendPrompt(sessionId, 'Resume work');
+    const promptPromise = backend.sendPrompt(sessionId, 'Deep analysis');
     simulateProcess(currentMockProcess);
     await promptPromise;
 
-    const args = mockSpawn.mock.calls[0][1] as string[];
-    expect(args).toContain('--session');
-    expect(args).toContain('my-kiro-session');
+    const args = (mockSpawn.mock.calls[0] as any[])[1] as string[];
+    const effortIdx = args.indexOf('--effort');
+    expect(effortIdx).toBeGreaterThanOrEqual(0);
+    expect(args[effortIdx + 1]).toBe('high');
   });
 
-  it('passes AWS_PROFILE in spawn env when awsProfile is provided', async () => {
-    const { backend } = createKiroBackend({ ...BASE_OPTIONS, awsProfile: 'dev' });
+  it('uses --trust-tools=<list> when trustTools is a comma list', async () => {
+    const { backend } = createKiroBackend({ ...BASE_OPTIONS, trustTools: 'fs_read,fs_write' });
     const { sessionId } = await backend.startSession();
 
-    const promptPromise = backend.sendPrompt(sessionId, 'Deploy to dev');
+    const promptPromise = backend.sendPrompt(sessionId, 'Restricted run');
     simulateProcess(currentMockProcess);
     await promptPromise;
 
-    const spawnEnv = mockSpawn.mock.calls[0][2]?.env as Record<string, string>;
-    expect(spawnEnv.AWS_PROFILE).toBe('dev');
+    const args = (mockSpawn.mock.calls[0] as any[])[1] as string[];
+    expect(args).toContain('--trust-tools=fs_read,fs_write');
+    expect(args).not.toContain('--trust-all-tools');
   });
 
-  it('passes AWS_DEFAULT_REGION in spawn env when awsRegion is provided', async () => {
-    const { backend } = createKiroBackend({ ...BASE_OPTIONS, awsRegion: 'eu-west-1' });
+  it('injects KIRO_API_KEY into spawn env when apiKey is provided', async () => {
+    const { backend } = createKiroBackend({ ...BASE_OPTIONS, apiKey: 'kiro-secret-key' });
     const { sessionId } = await backend.startSession();
 
-    const promptPromise = backend.sendPrompt(sessionId, 'Check EU region resources');
+    const promptPromise = backend.sendPrompt(sessionId, 'Authenticated run');
     simulateProcess(currentMockProcess);
     await promptPromise;
 
-    const spawnEnv = mockSpawn.mock.calls[0][2]?.env as Record<string, string>;
-    expect(spawnEnv.AWS_DEFAULT_REGION).toBe('eu-west-1');
+    const spawnEnv = (mockSpawn.mock.calls[0] as any[])[2].env as Record<string, string>;
+    expect(spawnEnv.KIRO_API_KEY).toBe('kiro-secret-key');
+  });
+
+  it('does NOT inject KIRO_API_KEY when no apiKey is provided', async () => {
+    const { backend } = createKiroBackend(BASE_OPTIONS);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'Anonymous run');
+    simulateProcess(currentMockProcess);
+    await promptPromise;
+
+    const spawnEnv = (mockSpawn.mock.calls[0] as any[])[2].env as Record<string, string>;
+    expect(spawnEnv.KIRO_API_KEY).toBeUndefined();
   });
 
   it('throws when sendPrompt is called with wrong sessionId', async () => {
@@ -388,7 +408,7 @@ describe('KiroBackend — sendPrompt', () => {
     await expect(backend.sendPrompt(sessionId, 'test')).rejects.toThrow('disposed');
   });
 
-  it('emits error status when process exits with non-zero code', async () => {
+  it('rejects when kiro-cli exits with non-zero code', async () => {
     const { backend } = createKiroBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
@@ -401,351 +421,167 @@ describe('KiroBackend — sendPrompt', () => {
     expect(errorMsgs.length).toBeGreaterThan(0);
   });
 
-  it('rejects with error when process emits error event', async () => {
+  it('rejects with error when process emits a non-ENOENT error event', async () => {
     const { backend } = createKiroBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'test');
-    (currentMockProcess as EventEmitter).emit('error', new Error('kiro not found'));
+    (currentMockProcess as EventEmitter).emit('error', new Error('boom'));
 
-    await expect(promptPromise).rejects.toThrow('kiro not found');
+    await expect(promptPromise).rejects.toThrow('boom');
+  });
+
+  it('emits a friendly install hint on ENOENT (binary not on PATH)', async () => {
+    const { backend } = createKiroBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'test').catch(() => {});
+    const err = Object.assign(new Error('spawn kiro-cli ENOENT'), { code: 'ENOENT' });
+    (currentMockProcess as EventEmitter).emit('error', err);
+    await promptPromise;
+
+    const errStatuses = messages.filter((m: any) => m.type === 'status' && m.status === 'error');
+    expect(errStatuses[0]).toBeDefined();
+    expect((errStatuses[0] as any).detail).toMatch(/not installed/i);
+  });
+
+  it('passes extraArgs (validated) before the positional prompt', async () => {
+    const { backend } = createKiroBackend({ ...BASE_OPTIONS, extraArgs: ['--verbose'] });
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'Hello');
+    simulateProcess(currentMockProcess);
+    await promptPromise;
+
+    const args = (mockSpawn.mock.calls[0] as any[])[1] as string[];
+    expect(args).toContain('--verbose');
+    expect(args.indexOf('--verbose')).toBeLessThan(args.length - 1);
+    expect(args[args.length - 1]).toBe('Hello');
+  });
+
+  it('rejects extraArgs with shell metacharacters', async () => {
+    const { backend } = createKiroBackend({ ...BASE_OPTIONS, extraArgs: ['--config=$(malicious)'] });
+    const { sessionId } = await backend.startSession();
+
+    await expect(backend.sendPrompt(sessionId, 'test')).rejects.toThrow('Unsafe character');
+  });
+
+  it('emits "running" status when sendPrompt is called', async () => {
+    const { backend } = createKiroBackend(BASE_OPTIONS);
+    const { sessionId } = await backend.startSession();
+    const messages = collectMessages(backend);
+
+    const promptPromise = backend.sendPrompt(sessionId, 'Hello');
+    simulateProcess(currentMockProcess);
+    await promptPromise;
+
+    const statuses = messages.filter((m: any) => m.type === 'status').map((m: any) => m.status);
+    expect(statuses).toContain('running');
   });
 });
 
 // ===========================================================================
-// KiroBackend — JSONL output parsing
+// KiroBackend — plain-text stdout passthrough (VERIFIED behavior)
 // ===========================================================================
 
-describe('KiroBackend — JSONL output parsing', () => {
-  it('emits model-output for message events', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Hello Kiro');
-    simulateProcess(currentMockProcess, [kiroMessage('Here is my AWS analysis')]);
-    await promptPromise;
-
-    const outputMsgs = messages.filter((m: any) => m.type === 'model-output');
-    expect(outputMsgs).toHaveLength(1);
-    expect((outputMsgs[0] as any).textDelta).toBe('Here is my AWS analysis');
-  });
-
-  it('emits tool-call for tool_call events', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Check S3 buckets');
-    simulateProcess(currentMockProcess, [
-      kiroToolCall('list_s3_buckets', 'call-1', { region: 'us-east-1' }),
-    ]);
-    await promptPromise;
-
-    const toolCalls = messages.filter((m: any) => m.type === 'tool-call');
-    expect(toolCalls).toHaveLength(1);
-    expect((toolCalls[0] as any).toolName).toBe('list_s3_buckets');
-    expect((toolCalls[0] as any).callId).toBe('call-1');
-    expect((toolCalls[0] as any).args).toEqual({ region: 'us-east-1' });
-  });
-
-  it('emits tool-result for tool_result events', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Get Lambda metrics');
-    simulateProcess(currentMockProcess, [
-      kiroToolResult('get_metrics', 'call-2', { p99: 120, errors: 0 }),
-    ]);
-    await promptPromise;
-
-    const toolResults = messages.filter((m: any) => m.type === 'tool-result');
-    expect(toolResults).toHaveLength(1);
-    expect((toolResults[0] as any).toolName).toBe('get_metrics');
-    expect((toolResults[0] as any).callId).toBe('call-2');
-  });
-
-  it('emits idle status for finish events', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Analyze architecture');
-    simulateProcess(currentMockProcess, [kiroFinish()]);
-    await promptPromise;
-
-    const idleStatuses = messages.filter((m: any) => m.type === 'status' && m.status === 'idle');
-    expect(idleStatuses.length).toBeGreaterThan(0);
-  });
-
-  it('emits error status for error events', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Do something');
-    simulateProcess(currentMockProcess, [kiroError('AWS credentials expired')]);
-    await promptPromise;
-
-    const errorStatuses = messages.filter((m: any) => m.type === 'status' && m.status === 'error');
-    expect(errorStatuses).toHaveLength(1);
-    expect((errorStatuses[0] as any).detail).toBe('AWS credentials expired');
-  });
-
-  it('maps status events correctly', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Process request');
-    simulateProcess(currentMockProcess, [kiroStatus('running'), kiroStatus('complete')]);
-    await promptPromise;
-
-    const statusValues = messages
-      .filter((m: any) => m.type === 'status')
-      .map((m: any) => m.status);
-
-    expect(statusValues).toContain('running');
-    expect(statusValues).toContain('idle'); // 'complete' maps to 'idle'
-  });
-
-  it('ignores non-JSON lines without crashing', async () => {
+describe('KiroBackend — plain-text stdout', () => {
+  it('emits each stdout chunk as a model-output delta', async () => {
     const { backend } = createKiroBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [
-      'Kiro version 1.0.0',
-      kiroMessage('Hi there!'),
-      '  ',
-    ]);
+    simulateProcess(currentMockProcess, ['Here is my ', 'AWS analysis']);
     await promptPromise;
 
-    const outputMsgs = messages.filter((m: any) => m.type === 'model-output');
-    expect(outputMsgs).toHaveLength(1);
+    const textMessages = messages.filter((m: any) => m.type === 'model-output');
+    expect(textMessages).toHaveLength(2);
+    expect((textMessages[0] as any).textDelta).toBe('Here is my ');
+    expect((textMessages[1] as any).textDelta).toBe('AWS analysis');
+  });
+
+  it('strips ANSI/terminal control codes from model-output', async () => {
+    const { backend } = createKiroBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    // Real kiro-cli styles its markdown reply with CSI color codes + cursor
+    // show/hide. We strip them so only the model text reaches the app.
+    const ESC = String.fromCharCode(27);
+    const styled = ESC + "[?25l" + ESC + "[1;36mHello" + ESC + "[0m, world!" + ESC + "[?25h";
+    const promptPromise = backend.sendPrompt(sessionId, 'Hello');
+    simulateProcess(currentMockProcess, [styled]);
+    await promptPromise;
+
+    const textMessages = messages.filter((m: any) => m.type === 'model-output');
+    expect(textMessages).toHaveLength(1);
+    expect((textMessages[0] as any).textDelta).toBe('Hello, world!');
+    // No raw escape bytes should remain.
+    // eslint-disable-next-line no-control-regex
+    expect((textMessages[0] as any).textDelta).not.toMatch(new RegExp(String.fromCharCode(27)));
+  });
+
+  it('passes through plain text that happens to start with "{" (no JSON parsing)', async () => {
+    // WHY: the old impl parsed a fabricated JSONL schema. The real kiro-cli emits
+    // plain prose; a line beginning with "{" must still surface verbatim.
+    const { backend } = createKiroBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'Hello');
+    simulateProcess(currentMockProcess, ['{ "this": "is just text kiro printed" }']);
+    await promptPromise;
+
+    const textMessages = messages.filter((m: any) => m.type === 'model-output');
+    expect(textMessages).toHaveLength(1);
+    expect((textMessages[0] as any).textDelta).toContain('is just text kiro printed');
+  });
+
+  it('emits "idle" status on clean (code 0) exit', async () => {
+    const { backend } = createKiroBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'Hello');
+    simulateProcess(currentMockProcess, ['done thinking'], 0);
+    await promptPromise;
+
+    const statuses = messages.filter((m: any) => m.type === 'status').map((m: any) => m.status);
+    expect(statuses).toContain('idle');
+  });
+
+  it('does NOT emit usage/cost/tool/fs-edit events (kiro-cli has no schema for them)', async () => {
+    const { backend } = createKiroBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'Write a file');
+    simulateProcess(currentMockProcess, ['I wrote the file for you.']);
+    await promptPromise;
+
+    expect(messages.filter((m: any) => m.type === 'token-count')).toHaveLength(0);
+    expect(messages.filter((m: any) => m.type === 'cost-report')).toHaveLength(0);
+    expect(messages.filter((m: any) => m.type === 'tool-call')).toHaveLength(0);
+    expect(messages.filter((m: any) => m.type === 'tool-result')).toHaveLength(0);
+    expect(messages.filter((m: any) => m.type === 'fs-edit')).toHaveLength(0);
   });
 });
 
 // ===========================================================================
-// KiroBackend — credit-based cost tracking
+// DELETED — invented JSONL event schema + credit-cost tracking
 // ===========================================================================
-
-describe('KiroBackend — credit-based cost tracking', () => {
-  it('converts credits to USD at $0.01 per credit', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Analyze IAM policies');
-    simulateProcess(currentMockProcess, [
-      kiroUsage({ credits_consumed: 10, input_tokens: 500, output_tokens: 200 }),
-    ]);
-    await promptPromise;
-
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    expect(tokenCounts).toHaveLength(1);
-    // 10 credits * $0.01/credit = $0.10
-    expect((tokenCounts[0] as any).costUsd).toBeCloseTo(0.10, 5);
-    expect((tokenCounts[0] as any).inputTokens).toBe(500);
-    expect((tokenCounts[0] as any).outputTokens).toBe(200);
-  });
-
-  it('uses pre-computed cost_usd when provided by Kiro', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Deep analysis');
-    simulateProcess(currentMockProcess, [
-      kiroUsage({ credits_consumed: 50, cost_usd: 0.42 }),
-    ]);
-    await promptPromise;
-
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    // Should use provided cost_usd (0.42), not credits * rate (0.50)
-    expect((tokenCounts[0] as any).costUsd).toBeCloseTo(0.42, 5);
-  });
-
-  it('accumulates credits and cost across multiple usage events', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    // First prompt
-    let promptPromise = backend.sendPrompt(sessionId, 'First task');
-    simulateProcess(currentMockProcess, [
-      kiroUsage({ credits_consumed: 5 }),
-    ]);
-    await promptPromise;
-
-    // Reset mock for second prompt
-    currentMockProcess = makeMockProcess();
-    mockSpawn.mockReturnValue(currentMockProcess);
-
-    // Second prompt
-    promptPromise = backend.sendPrompt(sessionId, 'Second task');
-    simulateProcess(currentMockProcess, [
-      kiroUsage({ credits_consumed: 8 }),
-    ]);
-    await promptPromise;
-
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    expect(tokenCounts.length).toBeGreaterThanOrEqual(2);
-
-    // Final accumulated cost = (5 + 8) * $0.01 = $0.13
-    const lastTokenCount = tokenCounts[tokenCounts.length - 1] as any;
-    expect(lastTokenCount.costUsd).toBeCloseTo(0.13, 5);
-  });
-
-  it('includes creditsConsumed in token-count event', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Calculate credits');
-    simulateProcess(currentMockProcess, [
-      kiroUsage({ credits_consumed: 25 }),
-    ]);
-    await promptPromise;
-
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    expect((tokenCounts[0] as any).creditsConsumed).toBe(25);
-  });
-
-  it('handles zero credits without dividing or multiplying by zero', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Free operation');
-    simulateProcess(currentMockProcess, [
-      kiroUsage({ credits_consumed: 0 }),
-    ]);
-    await promptPromise;
-
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    expect(tokenCounts).toHaveLength(1);
-    expect((tokenCounts[0] as any).costUsd).toBe(0);
-  });
-
-  it('resets credit and cost accumulators on each startSession', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-
-    // First session — consume 10 credits
-    let { sessionId } = await backend.startSession();
-    let promptPromise = backend.sendPrompt(sessionId, 'First session');
-    simulateProcess(currentMockProcess, [
-      kiroUsage({ credits_consumed: 10 }),
-    ]);
-    await promptPromise;
-
-    // Clear messages and start a new session
-    messages.length = 0;
-    currentMockProcess = makeMockProcess();
-    mockSpawn.mockReturnValue(currentMockProcess);
-
-    ({ sessionId } = await backend.startSession());
-    promptPromise = backend.sendPrompt(sessionId, 'Second session');
-    simulateProcess(currentMockProcess, [
-      kiroUsage({ credits_consumed: 3 }),
-    ]);
-    await promptPromise;
-
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    expect(tokenCounts.length).toBeGreaterThan(0);
-    // New session — should only reflect 3 credits, not 13
-    const lastTokenCount = tokenCounts[tokenCounts.length - 1] as any;
-    expect(lastTokenCount.costUsd).toBeCloseTo(0.03, 5);
-  });
-});
-
-// ===========================================================================
-// KiroBackend — fs-edit detection
-// ===========================================================================
-
-describe('KiroBackend — fs-edit detection', () => {
-  it('emits fs-edit for write_file tool results', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Create Lambda handler');
-    simulateProcess(currentMockProcess, [
-      kiroToolResult('write_file', 'call-1', 'success', { path: '/project/src/handler.py' }),
-    ]);
-    await promptPromise;
-
-    const fsEdits = messages.filter((m: any) => m.type === 'fs-edit');
-    expect(fsEdits).toHaveLength(1);
-    expect((fsEdits[0] as any).path).toBe('/project/src/handler.py');
-    expect((fsEdits[0] as any).description).toContain('write_file');
-  });
-
-  it('emits fs-edit for edit_file tool results', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Update config');
-    simulateProcess(currentMockProcess, [
-      kiroToolResult('edit_file', 'call-2', 'ok', { path: '/project/config.json' }),
-    ]);
-    await promptPromise;
-
-    const fsEdits = messages.filter((m: any) => m.type === 'fs-edit');
-    expect(fsEdits).toHaveLength(1);
-    expect((fsEdits[0] as any).path).toBe('/project/config.json');
-  });
-
-  it('emits fs-edit for modify_file tool results', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Patch IAM policy');
-    simulateProcess(currentMockProcess, [
-      kiroToolResult('modify_file', 'call-3', 'done', { file_path: '/iam/policy.json' }),
-    ]);
-    await promptPromise;
-
-    const fsEdits = messages.filter((m: any) => m.type === 'fs-edit');
-    expect(fsEdits).toHaveLength(1);
-    expect((fsEdits[0] as any).path).toBe('/iam/policy.json');
-  });
-
-  it('does NOT emit fs-edit for non-file tools', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'List EC2 instances');
-    simulateProcess(currentMockProcess, [
-      kiroToolResult('list_ec2_instances', 'call-4', ['i-1234', 'i-5678']),
-    ]);
-    await promptPromise;
-
-    const fsEdits = messages.filter((m: any) => m.type === 'fs-edit');
-    expect(fsEdits).toHaveLength(0);
-  });
-
-  it('does NOT emit fs-edit when tool result has no path in input', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Write something');
-    simulateProcess(currentMockProcess, [
-      kiroToolResult('write_file', 'call-5', 'ok', { content: 'hello' }), // no path
-    ]);
-    await promptPromise;
-
-    const fsEdits = messages.filter((m: any) => m.type === 'fs-edit');
-    expect(fsEdits).toHaveLength(0);
-  });
-});
+//
+// SCHEMA UNVERIFIED / NONEXISTENT (#30 — kiro-cli emits no structured output):
+// kiro-cli v2.6.1 has NO JSON/stream output mode for chat. The prior suite's
+// `KiroBackend — JSONL output parsing`, `credit-based cost tracking`, `fs-edit
+// detection`, and `cost-report emission` blocks asserted a fabricated
+// `{message, tool_call, tool_result, usage:{credits_consumed}, finish}` schema
+// and a `KIRO_CREDIT_TO_USD` (1 credit = $0.01) billing model that the real
+// binary does not produce. They were DELETED rather than skipped because there
+// is nothing real to replace them with — kiro-cli writes plain text to stdout
+// and emits no usage/cost/tool telemetry. The plain-text passthrough block above
+// is the complete verified behavior.
 
 // ===========================================================================
 // KiroBackend — cancellation
@@ -758,9 +594,13 @@ describe('KiroBackend — cancellation', () => {
 
     // Start a prompt but do not resolve it — keep the process running
     backend.sendPrompt(sessionId, 'Long running task').catch(() => {});
+    const killSpy = vi.spyOn(currentMockProcess, 'kill');
+
     await backend.cancel(sessionId);
 
-    expect(currentMockProcess.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(killSpy).toHaveBeenCalledWith('SIGTERM');
+    // Clean up the dangling process
+    currentMockProcess.emit('close', 0);
   });
 
   it('cancel emits idle status', async () => {
@@ -812,15 +652,12 @@ describe('KiroBackend — permission response', () => {
     expect((permResponses[0] as any).approved).toBe(false);
   });
 
-  it('writes "y\\n" to stdin when approved and process is active', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-
-    // Keep process running
-    backend.sendPrompt(sessionId, 'Request permission').catch(() => {});
-    await backend.respondToPermission?.('req-3', true);
-
-    expect(currentMockProcess.stdin.write).toHaveBeenCalledWith('y\n');
+  // SCHEMA UNVERIFIED: the old test asserted a "y\n" stdin write. kiro-cli's
+  // headless mode emits NO structured permission events and pre-authorizes tool
+  // use at spawn via --trust-all-tools / --trust-tools, so there is no verified
+  // over-stdin y/n channel. We no longer fabricate that write. (#30)
+  it.skip('writes "y\\n" to stdin when approved (UNVERIFIED kiro permission channel — see #30)', () => {
+    // Requires a keyed session to confirm whether kiro-cli ever prompts over stdin.
   });
 });
 
@@ -836,7 +673,7 @@ describe('KiroBackend — message handler management', () => {
 
     const { sessionId } = await backend.startSession();
     const promptPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [kiroMessage('Hi from AWS')]);
+    simulateProcess(currentMockProcess, ['Hi from AWS']);
     await promptPromise;
 
     expect(received.some((m: any) => m.type === 'model-output')).toBe(true);
@@ -852,7 +689,7 @@ describe('KiroBackend — message handler management', () => {
 
     const { sessionId } = await backend.startSession();
     const promptPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [kiroMessage('Invisible message')]);
+    simulateProcess(currentMockProcess, ['Invisible message']);
     await promptPromise;
 
     const modelOutputs = received.filter((m: any) => m.type === 'model-output');
@@ -869,7 +706,7 @@ describe('KiroBackend — message handler management', () => {
 
     const { sessionId } = await backend.startSession();
     const promptPromise = backend.sendPrompt(sessionId, 'Broadcast');
-    simulateProcess(currentMockProcess, [kiroMessage('For all handlers')]);
+    simulateProcess(currentMockProcess, ['For all handlers']);
     await promptPromise;
 
     expect(received1.some((m: any) => m.type === 'model-output')).toBe(true);
@@ -885,7 +722,7 @@ describe('KiroBackend — message handler management', () => {
 
     const { sessionId } = await backend.startSession();
     const promptPromise = backend.sendPrompt(sessionId, 'Still works');
-    simulateProcess(currentMockProcess, [kiroMessage('Resilient output')]);
+    simulateProcess(currentMockProcess, ['Resilient output']);
     await promptPromise;
 
     expect(received.some((m: any) => m.type === 'model-output')).toBe(true);
@@ -932,18 +769,11 @@ describe('KiroBackend — disposal', () => {
     expect(currentMockProcess.kill).toHaveBeenCalledWith('SIGTERM');
   });
 
-  it('dispose prevents further message emission', async () => {
+  it('marks backend as disposed', async () => {
     const { backend } = createKiroBackend(BASE_OPTIONS);
-    const received: unknown[] = [];
-    backend.onMessage((msg) => received.push(msg));
-
-    await backend.startSession();
     await backend.dispose();
 
-    // Try to emit after disposal — should be a no-op
-    received.length = 0;
-    // No way to call emit directly, but disposal should have cleared listeners
-    expect(received).toHaveLength(0);
+    await expect(backend.startSession()).rejects.toThrow('disposed');
   });
 
   it('calling dispose twice does not throw', async () => {
@@ -952,121 +782,5 @@ describe('KiroBackend — disposal', () => {
 
     await expect(backend.dispose()).resolves.toBeUndefined();
     await expect(backend.dispose()).resolves.toBeUndefined();
-  });
-});
-
-// ===========================================================================
-// KiroBackend — extra args validation
-// ===========================================================================
-
-describe('KiroBackend — extra args validation', () => {
-  it('passes validated extra args to kiro', async () => {
-    const { backend } = createKiroBackend({
-      ...BASE_OPTIONS,
-      extraArgs: ['--verbose', '--timeout', '120'],
-    });
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Verbose output');
-    simulateProcess(currentMockProcess);
-    await promptPromise;
-
-    const args = mockSpawn.mock.calls[0][1] as string[];
-    expect(args).toContain('--verbose');
-    expect(args).toContain('--timeout');
-    expect(args).toContain('120');
-  });
-
-  it('throws for extra args containing shell metacharacters', async () => {
-    const { backend } = createKiroBackend({
-      ...BASE_OPTIONS,
-      extraArgs: ['--config=$(malicious)'],
-    });
-    const { sessionId } = await backend.startSession();
-
-    await expect(backend.sendPrompt(sessionId, 'test')).rejects.toThrow('Unsafe character');
-  });
-});
-
-// ===========================================================================
-// KiroBackend — cost-report emission
-// ===========================================================================
-
-/**
- * Tests for the unified CostReport event emitted by Kiro usage events.
- *
- * WHY: Kiro uses credit-based billing (AWS credits). The CostReport must carry
- * billingModel='credit' and a credits object with consumed + rateUsdPerCredit.
- * KIRO_CREDIT_TO_USD is exported for downstream config; we snapshot it here
- * so any rate change causes a visible test failure.
- */
-describe('KiroBackend — cost-report emission', () => {
-  it('emits cost-report with billingModel=credit and credits object on usage event', async () => {
-    const { backend } = createKiroBackend({ ...BASE_OPTIONS, model: 'kiro-default' });
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      kiroUsage({ credits_consumed: 5, input_tokens: 400, output_tokens: 150 }),
-    ]);
-    await promptPromise;
-
-    const reports = messages.filter((m: any) => m.type === 'cost-report');
-    expect(reports.length).toBeGreaterThanOrEqual(1);
-    const r = reports[0] as any;
-    expect(r.report.billingModel).toBe('credit');
-    expect(r.report.source).toBe('agent-reported');
-    expect(r.report.agentType).toBe('kiro');
-    expect(r.report.credits).toBeDefined();
-    expect(r.report.credits.consumed).toBe(5);
-    expect(typeof r.report.credits.rateUsdPerCredit).toBe('number');
-    expect(r.report.credits.rateUsdPerCredit).toBeGreaterThan(0);
-  });
-
-  it('costUsd equals credits * rateUsdPerCredit when cost_usd is not provided', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      kiroUsage({ credits_consumed: 10, input_tokens: 200, output_tokens: 80 }),
-    ]);
-    await promptPromise;
-
-    const r = messages.find((m: any) => m.type === 'cost-report') as any;
-    const { credits } = r.report;
-    expect(r.report.costUsd).toBeCloseTo(credits.consumed * credits.rateUsdPerCredit);
-  });
-
-  it('cost-report has rawAgentPayload set on agent-reported event', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      kiroUsage({ credits_consumed: 3, input_tokens: 150, output_tokens: 60 }),
-    ]);
-    await promptPromise;
-
-    const r = messages.find((m: any) => m.type === 'cost-report') as any;
-    expect(r.report.rawAgentPayload).not.toBeNull();
-  });
-
-  it('uses cost_usd directly when Kiro provides it', async () => {
-    const { backend } = createKiroBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      kiroUsage({ credits_consumed: 2, cost_usd: 0.025, input_tokens: 100, output_tokens: 50 }),
-    ]);
-    await promptPromise;
-
-    const r = messages.find((m: any) => m.type === 'cost-report') as any;
-    expect(r.report.costUsd).toBeCloseTo(0.025);
   });
 });
