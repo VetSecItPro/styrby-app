@@ -60,7 +60,8 @@ describe('startClaudePermissionServer', () => {
     await withServer(
       async () => ({ approved: true }),
       async (client, server) => {
-        expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
+        // URL carries an unguessable capability token in the path (SEC-CLAUDEPERM-001).
+        expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp\/[0-9a-f]{64}$/);
         const { tools } = await client.listTools();
         expect(tools.map((t) => t.name)).toEqual([PERMISSION_TOOL_NAME]);
       },
@@ -69,6 +70,24 @@ describe('startClaudePermissionServer', () => {
 
   it('exposes the fully-qualified tool id claude expects', () => {
     expect(PERMISSION_PROMPT_TOOL_ID).toBe('mcp__styrby__permission_prompt');
+  });
+
+  it('rejects requests that do not present the capability token (SEC-CLAUDEPERM-001)', async () => {
+    const server = await startClaudePermissionServer(async () => ({ approved: true }));
+    try {
+      const origin = new URL(server.url).origin;
+      // Correct host+port, wrong path (no/forged token) -> 404, never reaches the tool.
+      const wrong = await fetch(`${origin}/mcp`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+      });
+      expect(wrong.status).toBe(404);
+      const forged = await fetch(`${origin}/mcp/${'0'.repeat(64)}`, { method: 'GET' });
+      expect(forged.status).toBe(404);
+    } finally {
+      await server.close();
+    }
   });
 
   it('routes (tool_name, input, tool_use_id) to the decider and returns allow', async () => {

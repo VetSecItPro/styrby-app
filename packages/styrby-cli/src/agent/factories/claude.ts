@@ -347,6 +347,31 @@ const CLAUDE_EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']
 const DEFAULT_GATED_TOOLS = ['Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch'];
 
 /**
+ * Reject a structured CLI arg value that could be mis-read as a flag or smuggle
+ * control characters (SEC-CLIINJ-002, defense-in-depth).
+ *
+ * WHY: model / allowedTools / gatedTools / the captured --resume id originate
+ * partly from the mobile session config. They're passed as argv elements (spawn
+ * is shell:false, so shell injection is already impossible), but a value like
+ * `--dangerously-skip-permissions` would be ARG-confusion — claude would read it
+ * as a flag, not a data value. A leading `-` or any control char is never a
+ * legitimate model name / tool name / session id, so we fail closed.
+ *
+ * @param value - The candidate arg value.
+ * @param label - Field name for the error message.
+ * @throws {Error} when the value starts with `-` or contains whitespace.
+ */
+function assertSafeArgValue(value: string, label: string): void {
+  // Reject a leading '-' (would be read as a flag) or any control character
+  // (newline/tab smuggling). Internal spaces are allowed — a single argv element
+  // is not word-split, and legitimate tool patterns like "Bash(git *)" contain
+  // spaces.  - excludes the space ( ) by design.
+  if (value.startsWith('-') || /[\t\n\r\f\v\0]/.test(value)) {
+    throw new Error(`Unsafe ${label} value rejected (arg-confusion guard): ${JSON.stringify(value)}`);
+  }
+}
+
+/**
  * Claude Code backend — clean-room managed spawn of the `claude` binary.
  *
  * WHY this reimplements the spawn technique instead of wrapping Happy's
@@ -464,6 +489,7 @@ export class ClaudeBackend extends StreamingAgentBackendBase {
       // allow). The prompt is delegated to our --permission-prompt-tool. Inline
       // JSON (not a file) since spawn() passes args without a shell.
       const gated = this.options.gatedTools ?? DEFAULT_GATED_TOOLS;
+      for (const t of gated) assertSafeArgValue(t, 'gatedTools entry');
       const settings = JSON.stringify({
         permissions: { defaultMode: 'default', ask: gated, allow: [], deny: [] },
       });
@@ -483,9 +509,16 @@ export class ClaudeBackend extends StreamingAgentBackendBase {
       args.push('--permission-mode', this.options.permissionMode ?? 'acceptEdits');
     }
 
-    if (this.options.model) args.push('--model', this.options.model);
-    if (this.claudeSessionId) args.push('--resume', this.claudeSessionId);
+    if (this.options.model) {
+      assertSafeArgValue(this.options.model, 'model');
+      args.push('--model', this.options.model);
+    }
+    if (this.claudeSessionId) {
+      assertSafeArgValue(this.claudeSessionId, 'resume session id');
+      args.push('--resume', this.claudeSessionId);
+    }
     if (this.options.allowedTools?.length) {
+      for (const t of this.options.allowedTools) assertSafeArgValue(t, 'allowedTools entry');
       args.push('--allowedTools', this.options.allowedTools.join(','));
     }
 
@@ -643,7 +676,13 @@ export class ClaudeBackend extends StreamingAgentBackendBase {
       },
     };
     this.mcpConfigPath = path.join(os.tmpdir(), `styrby-claude-mcp-${randomUUID()}.json`);
-    fs.writeFileSync(this.mcpConfigPath, JSON.stringify(config), 'utf8');
+    // WHY mode 0o600 (SEC-CLAUDEPERM-002): the config holds the loopback URL of
+    // the permission server (the security gate's endpoint). On a shared/multi-user
+    // host, world-readable /tmp would let any local user discover the ephemeral
+    // port and reach the un-authenticated MCP tool. Owner-only read closes that
+    // discovery channel. The dir entry is created 0600 from the start (writeFileSync
+    // applies mode on create) so there is no world-readable window.
+    fs.writeFileSync(this.mcpConfigPath, JSON.stringify(config), { encoding: 'utf8', mode: 0o600 });
     logger.debug(`[ClaudeBackend] permission MCP config at ${this.mcpConfigPath}`);
   }
 

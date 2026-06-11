@@ -153,6 +153,21 @@ describe('spawn arg construction', () => {
     expect(args).toEqual(expect.arrayContaining(['--model', 'claude-opus-4-8', '--allowedTools', 'Read,Bash(git *)']));
   });
 
+  it('rejects arg-confusion values in model/allowedTools (SEC-CLIINJ-002)', async () => {
+    // A model that would be read as a flag must be rejected before spawn.
+    const b1 = makeBackend({ model: '--dangerously-skip-permissions' });
+    const s1 = await b1.backend.startSession();
+    await expect(b1.backend.sendPrompt(s1.sessionId, 'x')).rejects.toThrow(/arg-confusion guard/);
+
+    // A control char (newline smuggling) in an allowedTools entry is rejected;
+    // an internal space (e.g. "Bash(git *)") is NOT — that's a legitimate pattern.
+    const b2 = makeBackend({ allowedTools: ['Read', 'Bash\n--evil'] });
+    const s2 = await b2.backend.startSession();
+    await expect(b2.backend.sendPrompt(s2.sessionId, 'x')).rejects.toThrow(/arg-confusion guard/);
+
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
   it('resumes the captured claude session_id on the next prompt', async () => {
     const { backend } = makeBackend();
     const { sessionId } = await backend.startSession();

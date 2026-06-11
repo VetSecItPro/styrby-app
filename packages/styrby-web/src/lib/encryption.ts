@@ -105,10 +105,16 @@ export async function getOrCreateWebKeyPair(): Promise<NaClKeyPair> {
   if (stored) {
     try {
       const parsed: StoredKeyPair = JSON.parse(stored);
-      cachedKeyPair = {
-        publicKey: await decodeBase64(parsed.publicKey),
-        secretKey: await decodeBase64(parsed.secretKey),
-      };
+      const publicKey = await decodeBase64(parsed.publicKey);
+      const secretKey = await decodeBase64(parsed.secretKey);
+      // SEC-CRYPTO-001 (parity with mobile): NaCl box keys are exactly 32 bytes.
+      // A stored value that decodes to any other length is corrupt (truncation,
+      // tampering, a format change) — using it would silently produce undecryptable
+      // ciphertext. Reject + regenerate rather than encrypt with a malformed key.
+      if (publicKey.length !== 32 || secretKey.length !== 32) {
+        throw new Error('stored keypair has invalid length');
+      }
+      cachedKeyPair = { publicKey, secretKey };
       return cachedKeyPair;
     } catch {
       // Corrupted keypair - regenerate
