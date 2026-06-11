@@ -323,3 +323,16 @@ export function stopConnectivityListener(): void {
     logger.log('Connectivity listener stopped');
   }
 }
+
+/**
+ * Delete the persisted device identifier (SEC-MOB-002 account-deletion wipe).
+ *
+ * The device id is a stable per-install identifier used to scope offline-queue
+ * delivery. It is not a credential, but on account deletion we remove all local
+ * traces of the account, including this id.
+ *
+ * @returns A promise that resolves once the device id is removed.
+ */
+export async function clearDeviceId(): Promise<void> {
+  await SecureStore.deleteItemAsync(DEVICE_ID_KEY);
+}

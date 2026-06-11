@@ -14,8 +14,13 @@ import * as SecureStore from 'expo-secure-store';
 import * as Clipboard from 'expo-clipboard';
 import { supabase, signOut } from '@/lib/supabase';
 import { clearPairingInfo } from '@/services/pairing';
+import { clearStoredKeyPair } from '@/services/encryption';
+import { clearDeviceId } from '@/services/offline-sync';
+import { clearAllCommands } from '@/services/offline-storage';
+import { clearAtRestKey } from '@/services/at-rest';
 import { getApiBaseUrl } from '@/lib/config';
 import { DELETE_CONFIRMATION_PHRASE } from '@/types/account';
+import { THEME_PREFERENCE_KEY } from '@/contexts/ThemeContext';
 import { HAPTIC_PREFERENCE_KEY } from './constants';
 
 /**
@@ -199,9 +204,18 @@ export async function deleteAccount(): Promise<IoResult> {
       return { ok: false, status: response.status, message: errorMessage };
     }
 
-    // Success: clear local data and sign out
-    await clearPairingInfo();
+    // Success — PERMANENT deletion: wipe ALL local data (SEC-MOB-002). The
+    // account is irreversibly gone server-side, so nothing should remain on the
+    // device — most importantly the E2E NaCl private key (decrypts message
+    // history) and any queued command payloads. (Contrast with performSignOut,
+    // which is temporary and PRESERVES the key so re-login keeps history.)
+    await clearPairingInfo();                       // pairing info + token (relay creds)
+    await clearStoredKeyPair();                     // E2E private key — history now moot
+    await clearAtRestKey();                          // device at-rest encryption key (SEC-MOB-001)
+    await clearDeviceId();                          // device identifier
+    await clearAllCommands().catch(() => undefined); // queued command payloads (best-effort)
     await SecureStore.deleteItemAsync(HAPTIC_PREFERENCE_KEY);
+    await SecureStore.deleteItemAsync(THEME_PREFERENCE_KEY);
     await signOut();
     // Root layout auth listener redirects to login on signOut
     return { ok: true, data: undefined };
@@ -218,6 +232,14 @@ export async function deleteAccount(): Promise<IoResult> {
  *
  * WHY clear pairing first: if signOut fails partway through, no orphan
  * pairing data remains to confuse the relay hook in _layout.
+ *
+ * WHY this does NOT clear the E2E keypair (SEC-MOB-002): sign-out is TEMPORARY.
+ * The NaCl private key decrypts the user's entire message history; wiping it
+ * here would permanently lock the user out of past sessions after they log back
+ * in. The active relay credential (pairing token) IS cleared via
+ * clearPairingInfo, and the Supabase session is cleared by signOut — so logout
+ * holds no live credential while preserving the ability to read history. Full
+ * key destruction happens only in deleteAccount (permanent).
  */
 export async function performSignOut(): Promise<IoResult> {
   try {

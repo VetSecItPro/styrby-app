@@ -67,6 +67,21 @@ vi.mock('@/ui/logger', () => ({
   },
 }));
 
+// Controllable mock of the #26855 storage reader. Defaults to "no stored parts"
+// so existing tests see the on-close recovery as a no-op; the recovery test
+// sets `storageMock.parts` to simulate steps kilo persisted but dropped from
+// stdout. selectMissedStepFinishes is kept REAL (pure dedupe logic).
+const storageMock = vi.hoisted(() => ({ parts: [] as Array<Record<string, number | string>> }));
+vi.mock('../opencodeStorage', async (importActual) => {
+  const actual = await importActual<typeof import('../opencodeStorage')>();
+  return {
+    ...actual,
+    resolveOpencodeStorageDir: () => '/fake/kilo/storage',
+    findLatestAssistantMessageId: () => 'msg_test',
+    readStepFinishParts: () => storageMock.parts,
+  };
+});
+
 // ---------------------------------------------------------------------------
 // Imports — after vi.mock declarations
 // ---------------------------------------------------------------------------
@@ -532,6 +547,63 @@ describe('KiloBackend — step_finish / cost-report', () => {
     const r = messages.find((m: any) => m.type === 'cost-report') as any;
     expect(r).toBeDefined();
     expect(new Date(r.report.timestamp).toISOString()).toBe(r.report.timestamp);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #26855 cost recovery from session storage (kilo shares opencode's bug)
+// ---------------------------------------------------------------------------
+
+describe('KiloBackend — #26855 cost recovery from storage', () => {
+  afterEach(() => {
+    storageMock.parts = []; // restore default "no stored parts" for other tests
+  });
+
+  const stored = [
+    { id: 'prt_1', cost: 0.01, inputTokens: 1000, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    { id: 'prt_2', cost: 0.02, inputTokens: 1500, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    { id: 'prt_3', cost: 0.03, inputTokens: 2000, outputTokens: 30, cacheReadTokens: 0, cacheWriteTokens: 0 },
+  ];
+
+  /** A step_finish line that carries the part id + messageID (for id-dedupe). */
+  function stepFinishWithId(p: typeof stored[number]) {
+    return JSON.stringify({
+      type: 'step_finish', sessionID: 'ses_test',
+      part: { type: 'step-finish', id: p.id, messageID: 'msg_test', cost: p.cost, tokens: { input: p.inputTokens, output: p.outputTokens } },
+    });
+  }
+
+  it('recovers the final step-finish that stdout dropped', async () => {
+    storageMock.parts = stored; // storage has all 3
+    const { backend } = createKiloBackend(BASE_OPTIONS);
+    const { sessionId } = await backend.startSession();
+    const messages = collectMessages(backend);
+
+    const sendPromise = backend.sendPrompt(sessionId, 'Hi');
+    // stdout only delivered the first 2 (the 3rd is the #26855 drop), then close.
+    simulateProcess(currentMockProcess, [stepFinishWithId(stored[0]), stepFinishWithId(stored[1])]);
+    await sendPromise;
+
+    const costs = messages.filter((m: any) => m.type === 'cost-report').map((m: any) => m.report);
+    expect(costs).toHaveLength(3); // 2 live + 1 recovered
+    expect(costs[2]).toMatchObject({ agentType: 'kilo', costUsd: 0.03, inputTokens: 2000, outputTokens: 30 });
+    expect(costs[2].rawAgentPayload).toMatchObject({ recovered: true, source: 'session-storage', partId: 'prt_3' });
+    expect(costs.reduce((a: number, r: any) => a + r.costUsd, 0)).toBeCloseTo(0.06, 10);
+  });
+
+  it('does NOT double-count when stdout was already complete', async () => {
+    storageMock.parts = stored;
+    const { backend } = createKiloBackend(BASE_OPTIONS);
+    const { sessionId } = await backend.startSession();
+    const messages = collectMessages(backend);
+
+    const sendPromise = backend.sendPrompt(sessionId, 'Hi');
+    simulateProcess(currentMockProcess, stored.map(stepFinishWithId)); // all 3 on stdout
+    await sendPromise;
+
+    const costs = messages.filter((m: any) => m.type === 'cost-report').map((m: any) => m.report);
+    expect(costs).toHaveLength(3);
+    expect(costs.some((r: any) => r.rawAgentPayload?.recovered)).toBe(false);
   });
 });
 

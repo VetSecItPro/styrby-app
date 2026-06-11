@@ -26,7 +26,7 @@ jest.mock('@styrby/shared/logging', () => ({
   Logger: jest.fn().mockImplementation(() => ({})),
 }));
 
-import { initMobileSentry, getMobileSentryAdapter } from '../sentry';
+import { initMobileSentry, getMobileSentryAdapter, scrubSensitiveData } from '../sentry';
 
 // Retrieve bound mock references after registration.
 const SentryMock = jest.requireMock('@sentry/react-native') as {
@@ -122,5 +122,40 @@ describe('getMobileSentryAdapter', () => {
     const id = adapter.captureException(err);
     expect(SentryMock.captureException).toHaveBeenCalledWith(err, undefined);
     expect(id).toBe('fake-event-id');
+  });
+});
+
+describe('scrubSensitiveData (SEC-MOB-004)', () => {
+  it('redacts a JWT embedded in a string', () => {
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.abc-DEF_123';
+    expect(scrubSensitiveData(`auth failed for ${jwt}`)).toBe('auth failed for [REDACTED]');
+  });
+
+  it('redacts bearer tokens, provider keys, styrby key values, and emails', () => {
+    expect(scrubSensitiveData('Bearer abcdef123456')).toBe('[REDACTED]');
+    expect(scrubSensitiveData('sk-ABCDEFGHIJKLMNOPQRST')).toBe('[REDACTED]');
+    expect(scrubSensitiveData('key=styrby_aBcDeFgHiJkLmNoP')).toBe('key=[REDACTED]');
+    expect(scrubSensitiveData('user ada@example.com crashed')).toBe('user [REDACTED] crashed');
+  });
+
+  it('scrubs nested event structures (message, breadcrumbs, contexts)', () => {
+    const event = {
+      message: 'token eyJabc.eyJdef.ghi-_',
+      breadcrumbs: [{ message: 'sent to bob@styrby.app', data: { auth: 'Bearer secrettoken12345' } }],
+      contexts: { http: { headers: { authorization: 'Bearer anothertoken99999' } } },
+    };
+    const scrubbed = scrubSensitiveData(event) as typeof event;
+    expect(scrubbed.message).not.toContain('eyJ');
+    expect(scrubbed.breadcrumbs[0].message).toBe('sent to [REDACTED]');
+    expect(scrubbed.breadcrumbs[0].data.auth).toBe('[REDACTED]');
+    expect(scrubbed.contexts.http.headers.authorization).toBe('[REDACTED]');
+  });
+
+  it('leaves clean text and non-string values untouched', () => {
+    expect(scrubSensitiveData('a normal error message')).toBe('a normal error message');
+    expect(scrubSensitiveData(42)).toBe(42);
+    expect(scrubSensitiveData(null)).toBeNull();
+    // key NAMES (with underscores) are not key VALUES → not redacted
+    expect(scrubSensitiveData('styrby_encryption_keypair')).toBe('styrby_encryption_keypair');
   });
 });

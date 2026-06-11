@@ -18,6 +18,10 @@ const mockGetSession = jest.fn();
 const mockSelectGte = jest.fn();
 const mockSignOut = jest.fn();
 const mockClearPairingInfo = jest.fn();
+const mockClearStoredKeyPair = jest.fn();
+const mockClearAtRestKey = jest.fn();
+const mockClearDeviceId = jest.fn();
+const mockClearAllCommands = jest.fn(() => Promise.resolve(0));
 const mockSecureStoreDelete = jest.fn();
 const mockClipboardSet = jest.fn();
 const mockGetApiBaseUrl = jest.fn(() => 'http://test');
@@ -45,6 +49,26 @@ jest.mock('@/lib/supabase', () => ({
 
 jest.mock('@/services/pairing', () => ({
   clearPairingInfo: () => mockClearPairingInfo(),
+}));
+
+jest.mock('@/services/encryption', () => ({
+  clearStoredKeyPair: () => mockClearStoredKeyPair(),
+}));
+
+jest.mock('@/services/at-rest', () => ({
+  clearAtRestKey: () => mockClearAtRestKey(),
+}));
+
+jest.mock('@/services/offline-sync', () => ({
+  clearDeviceId: () => mockClearDeviceId(),
+}));
+
+jest.mock('@/services/offline-storage', () => ({
+  clearAllCommands: () => mockClearAllCommands(),
+}));
+
+jest.mock('@/contexts/ThemeContext', () => ({
+  THEME_PREFERENCE_KEY: 'styrby_theme_preference',
 }));
 
 jest.mock('@/lib/config', () => ({
@@ -231,7 +255,7 @@ describe('deleteAccount', () => {
     expect((await deleteAccount()).ok).toBe(false);
   });
 
-  it('clears local pairing + secure-store + signs out on 200', async () => {
+  it('wipes ALL local secrets (keypair, device id, queue) + signs out on 200 (SEC-MOB-002)', async () => {
     mockGetSession.mockResolvedValueOnce({ data: { session: { access_token: 'tok' } } });
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
@@ -242,6 +266,11 @@ describe('deleteAccount', () => {
     const result = await deleteAccount();
     expect(result).toEqual({ ok: true, data: undefined });
     expect(mockClearPairingInfo).toHaveBeenCalled();
+    // Permanent deletion must destroy the E2E key + device id + queued commands.
+    expect(mockClearStoredKeyPair).toHaveBeenCalled();
+    expect(mockClearAtRestKey).toHaveBeenCalled();
+    expect(mockClearDeviceId).toHaveBeenCalled();
+    expect(mockClearAllCommands).toHaveBeenCalled();
     expect(mockSecureStoreDelete).toHaveBeenCalled();
     expect(mockSignOut).toHaveBeenCalled();
   });
@@ -280,6 +309,15 @@ describe('performSignOut', () => {
     expect(await performSignOut()).toEqual({ ok: true, data: undefined });
     expect(mockClearPairingInfo).toHaveBeenCalled();
     expect(mockSecureStoreDelete).toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it('PRESERVES the E2E keypair on sign-out (SEC-MOB-002 — re-login keeps history)', async () => {
+    mockSignOut.mockResolvedValueOnce({ error: null });
+    await performSignOut();
+    // Temporary logout must NOT destroy the key (that would lose message history);
+    // only deleteAccount does. Guards against a regression into data loss.
+    expect(mockClearStoredKeyPair).not.toHaveBeenCalled();
+    expect(mockClearAllCommands).not.toHaveBeenCalled();
   });
 
   it('returns the Supabase error message when signOut fails', async () => {

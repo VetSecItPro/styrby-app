@@ -212,7 +212,14 @@ async function regenerateKeyPair(): Promise<NaClKeyPair> {
     secretKey: await encodeBase64(keypair.secretKey),
   };
 
-  await SecureStore.setItemAsync(KEYPAIR_STORAGE_KEY, JSON.stringify(storedData));
+  // SEC-MOB-005: WHEN_UNLOCKED_THIS_DEVICE_ONLY keeps the E2E private key out of
+  // iCloud/iTunes/cloud backups and off any keychain sync — a private key must
+  // never leave the device. Trade-off: a device migration does not restore the
+  // key (the user re-pairs and gets a fresh keypair on the new device), which is
+  // the secure default for a device-bound E2E identity.
+  await SecureStore.setItemAsync(KEYPAIR_STORAGE_KEY, JSON.stringify(storedData), {
+    keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+  });
 
   cachedKeyPair = keypair;
   logger.log('Generated and stored new keypair');
@@ -446,6 +453,23 @@ export function clearEncryptionCache(): void {
   inFlight = null;
   recipientKeyCache.clear();
   logger.log('Cleared encryption cache');
+}
+
+/**
+ * Permanently delete the device's E2E NaCl keypair from secure storage.
+ *
+ * WHY (SEC-MOB-002): this destroys the private key that decrypts the user's
+ * entire message history, so it must ONLY be called on ACCOUNT DELETION (a
+ * permanent, irreversible action) — never on a temporary sign-out, where the
+ * key must be preserved so re-login can still read past encrypted sessions.
+ * Also clears the in-memory cache so no copy lingers in the process.
+ *
+ * @returns A promise that resolves once the key is removed from the keychain.
+ */
+export async function clearStoredKeyPair(): Promise<void> {
+  await SecureStore.deleteItemAsync(KEYPAIR_STORAGE_KEY);
+  clearEncryptionCache();
+  logger.log('Deleted stored E2E keypair (account deletion)');
 }
 
 /**

@@ -47,6 +47,54 @@ const NOISE_PATTERNS: readonly RegExp[] = [
 ];
 
 // ============================================================================
+// PII / secret scrubbing (SEC-MOB-004)
+// ============================================================================
+
+/**
+ * Secret + PII patterns redacted from every outbound Sentry event. Crash
+ * reports can incidentally carry a token in an error message, a breadcrumb, or
+ * an HTTP context; this is the defense-in-depth gate that strips them before
+ * anything leaves the device.
+ */
+const SECRET_PATTERNS: readonly RegExp[] = [
+  /eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, // JWTs (Supabase, etc.)
+  /Bearer\s+[A-Za-z0-9._-]{8,}/gi,                          // bearer auth headers
+  /sk[-_][A-Za-z0-9]{16,}/g,                                // provider secret keys (sk-..., sk_live_...)
+  /styrby_[A-Za-z0-9]{12,}/g,                               // Styrby API key VALUES (not key names)
+  /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,        // email addresses (PII)
+];
+
+const REDACTED = '[REDACTED]';
+
+/**
+ * Recursively redact secret/PII substrings from every string in a value.
+ *
+ * Mutates and returns the value in place (Sentry events are plain objects). A
+ * depth cap guards against pathological nesting; SDK objects rarely exceed it.
+ *
+ * @param value - Any node of the Sentry event tree (object, array, or scalar).
+ * @param depth - Internal recursion depth guard.
+ * @returns The same value with secrets/PII replaced by `[REDACTED]`.
+ */
+export function scrubSensitiveData<T>(value: T, depth = 0): T {
+  if (depth > 8) return value;
+  if (typeof value === 'string') {
+    let out: string = value;
+    for (const rx of SECRET_PATTERNS) out = out.replace(rx, REDACTED);
+    return out as unknown as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => scrubSensitiveData(v, depth + 1)) as unknown as T;
+  }
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    for (const k of Object.keys(obj)) obj[k] = scrubSensitiveData(obj[k], depth + 1);
+    return value;
+  }
+  return value;
+}
+
+// ============================================================================
 // Initialization
 // ============================================================================
 
@@ -121,7 +169,8 @@ export function initMobileSentry(overrides?: MobileSentryInitOptions): void {
         (event.message as string | undefined) ||
         '';
       if (NOISE_PATTERNS.some((rx) => rx.test(msg))) return null;
-      return event;
+      // SEC-MOB-004: scrub secrets/PII from the event before it leaves the device.
+      return scrubSensitiveData(event);
     },
     ignoreErrors: [
       'Non-Error promise rejection captured',
