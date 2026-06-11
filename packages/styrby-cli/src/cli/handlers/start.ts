@@ -18,6 +18,7 @@
  */
 
 import { logger } from '@/ui/logger';
+import { AGENT_TYPES } from 'styrby-shared';
 
 /**
  * Handle the `styrby start` command.
@@ -39,7 +40,13 @@ export async function handleStart(args: string[]): Promise<void> {
   // WHY: Validate agent type early to prevent unvalidated strings from
   // reaching the logger and Supabase session records. Without this gate,
   // `styrby start --agent "$(malicious)"` would pass through to DB insert.
-  const VALID_AGENTS = ['claude', 'codex', 'gemini', 'opencode', 'aider'];
+  //
+  // WHY AGENT_TYPES (not a local list): the canonical 11-agent set lives in
+  // @styrby/shared as the single source of truth. A previous local 5-element
+  // allowlist drifted out of sync with the registered factories, silently making
+  // goose/amp/crush/kilo/kiro/droid unreachable via `styrby start` even though
+  // their backends worked. Deriving the gate from AGENT_TYPES closes that drift.
+  const VALID_AGENTS: readonly string[] = AGENT_TYPES;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--agent' || args[i] === '-a') {

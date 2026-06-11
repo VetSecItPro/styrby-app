@@ -411,16 +411,21 @@ const AGENT_PROBE_REGISTRY: Record<AllAgentType, AgentProbeConfig> = {
     command: 'kilo',
     versionFlag: '--version',
     versionPattern: /(\d+\.\d+\.\d+)/,
+    // Kilo is an OpenCode fork: `--format json` emits `{ type, sessionID, part }`
+    // events (envelope VERIFIED vs real binary v7.3.41, 2026-06-11). text →
+    // part.text; step_finish → part.cost + part.tokens. Tool-event shape is
+    // unverified (needs a keyed, tool-triggering session — #30).
     expectedStreamFormat: {
-      type: '"text" | "tool_use" | "tool_result" | "memory_bank_read" | "memory_bank_write" | "tokens" | "error" | "complete"',
-      'tokens.usage.input_tokens': 'number',
-      'tokens.usage.output_tokens': 'number',
-      'tokens.usage.cost_usd': 'number',
+      type: '"text" | "step_start" | "step_finish" | "error"',
+      'part.text': 'string (text events)',
+      'part.cost': 'number USD (step_finish)',
+      'part.tokens.input': 'number',
+      'part.tokens.output': 'number',
     },
-    parserFile: 'agent/factories/kilo.ts (handleKiloMessage)',
+    parserFile: 'agent/factories/kilo.ts (handleJsonMessage)',
     installHint: 'npm install -g @kilocode/cli',
     minSupportedVersion: '1.0.0',
-    maxTestedVersion: '2.99.99',
+    maxTestedVersion: '7.99.99',
     startupVersionPatterns: [/kilo v?(\d+\.\d+\.\d+)/i, /kilocode@(\d+\.\d+\.\d+)/i],
   },
 

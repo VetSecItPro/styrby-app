@@ -257,18 +257,22 @@ describe('OpenCodeBackend — session lifecycle', () => {
 // ---------------------------------------------------------------------------
 
 describe('OpenCodeBackend — sendPrompt', () => {
-  it('passes --format json and --non-interactive to spawn', async () => {
+  it('uses the `run` subcommand with a positional prompt + --format json (verified CLI surface)', async () => {
     const { backend } = createOpenCodeBackend({ cwd: '/tmp/project' });
     const { sessionId } = await backend.startSession();
     const promptPromise = backend.sendPrompt(sessionId, 'write a test');
     setImmediate(() => closeProcess(0));
     await promptPromise;
 
-    expect(spawn).toHaveBeenCalledWith(
-      'opencode',
-      expect.arrayContaining(['--format', 'json', '--message', 'write a test', '--non-interactive']),
-      expect.any(Object),
-    );
+    // Real opencode: `opencode run <message> --format json` (no --message flag,
+    // no --non-interactive flag — those were invented and would launch the TUI).
+    // Read THIS test's spawn (the most recent) — the mock accumulates calls across
+    // tests, so calls[0] would be an earlier test's invocation.
+    const calls = (spawn as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const args = calls[calls.length - 1][1] as string[];
+    expect(args.slice(0, 4)).toEqual(['run', 'write a test', '--format', 'json']);
+    expect(args).not.toContain('--message');
+    expect(args).not.toContain('--non-interactive');
     await backend.dispose();
   });
 
@@ -383,19 +387,20 @@ describe('OpenCodeBackend — JSON-line parsing', () => {
     return { backend, messages, sessionId, promptPromise };
   }
 
-  it('emits model-output for assistant messages', async () => {
+  it('emits model-output (fullText) for real `text` events', async () => {
     const { messages, promptPromise } = await setupWithRunningPrompt();
-    emitStdout(JSON.stringify({ type: 'assistant', content: 'Hello world' }));
+    // Real opencode text event: { type:'text', sessionID, part:{ type:'text', text } }
+    emitStdout(JSON.stringify({ type: 'text', sessionID: 'ses_1', part: { type: 'text', text: 'Hello world' } }));
     setImmediate(() => closeProcess(0));
     await promptPromise;
 
     const msg = messages.find((m: any) => m.type === 'model-output');
-    expect(msg).toMatchObject({ type: 'model-output', textDelta: 'Hello world' });
+    expect(msg).toMatchObject({ type: 'model-output', fullText: 'Hello world' });
   });
 
-  it('ignores assistant messages without content', async () => {
+  it('ignores text events without part.text', async () => {
     const { messages, promptPromise } = await setupWithRunningPrompt();
-    emitStdout(JSON.stringify({ type: 'assistant' }));
+    emitStdout(JSON.stringify({ type: 'text', sessionID: 'ses_1', part: { type: 'text' } }));
     setImmediate(() => closeProcess(0));
     await promptPromise;
 
@@ -434,7 +439,7 @@ describe('OpenCodeBackend — JSON-line parsing', () => {
 
   it('handles partial lines across multiple data chunks', async () => {
     const { messages, promptPromise } = await setupWithRunningPrompt();
-    const full = JSON.stringify({ type: 'assistant', content: 'streamed' });
+    const full = JSON.stringify({ type: 'text', sessionID: 'ses_1', part: { type: 'text', text: 'streamed' } });
     // Split arbitrarily in the middle (no trailing newline on first chunk)
     lastFakeProcess.stdout.emit('data', Buffer.from(full.slice(0, 10)));
     lastFakeProcess.stdout.emit('data', Buffer.from(full.slice(10) + '\n'));
@@ -442,7 +447,7 @@ describe('OpenCodeBackend — JSON-line parsing', () => {
     await promptPromise;
 
     const msg = messages.find((m: any) => m.type === 'model-output');
-    expect(msg).toMatchObject({ type: 'model-output', textDelta: 'streamed' });
+    expect(msg).toMatchObject({ type: 'model-output', fullText: 'streamed' });
   });
 
   it('processes buffered incomplete line on process close', async () => {
@@ -450,19 +455,42 @@ describe('OpenCodeBackend — JSON-line parsing', () => {
     // Emit without trailing newline so it stays in lineBuffer
     lastFakeProcess.stdout.emit(
       'data',
-      Buffer.from(JSON.stringify({ type: 'assistant', content: 'buffered' })),
+      Buffer.from(JSON.stringify({ type: 'text', sessionID: 'ses_1', part: { type: 'text', text: 'buffered' } })),
     );
     setImmediate(() => closeProcess(0));
     await promptPromise;
 
     const msg = messages.find((m: any) => m.type === 'model-output');
-    expect(msg).toMatchObject({ type: 'model-output', textDelta: 'buffered' });
+    expect(msg).toMatchObject({ type: 'model-output', fullText: 'buffered' });
+  });
+
+  it('emits a cost-report from a real `step_finish` event', async () => {
+    const { messages, promptPromise } = await setupWithRunningPrompt();
+    emitStdout(JSON.stringify({
+      type: 'step_finish',
+      sessionID: 'ses_1',
+      part: { type: 'step-finish', reason: 'stop', cost: 0.0123, tokens: { input: 11346, output: 17, cache: { read: 5, write: 0 } } },
+    }));
+    setImmediate(() => closeProcess(0));
+    await promptPromise;
+
+    const cost = messages.find((m: any) => m.type === 'cost-report') as any;
+    expect(cost?.report).toMatchObject({
+      agentType: 'opencode', source: 'agent-reported', billingModel: 'api-key',
+      costUsd: 0.0123, inputTokens: 11346, outputTokens: 17, cacheReadTokens: 5, cacheWriteTokens: 0,
+    });
   });
 });
 
 // ---------------------------------------------------------------------------
 
-describe('OpenCodeBackend — tool-use event routing', () => {
+// SKIPPED 2026-06-10: these tests assert an INVENTED opencode event schema
+// (`tool_use`/`tool_result` with `tool_name`/`call_id`/`tool_input`). The real
+// opencode `--format json` output uses `{type, sessionID, part}` events and was
+// verified against the live binary; the real tool-event shape has NOT been
+// captured yet (needs a tool-triggering session). Un-skip + rewrite against the
+// real schema as part of the per-agent protocol-verification task (#30).
+describe.skip('OpenCodeBackend — tool-use event routing', () => {
   async function setupWithRunningPrompt() {
     const { backend } = createOpenCodeBackend({ cwd: '/tmp/project' });
     const { messages } = collectMessages(backend);
@@ -580,7 +608,10 @@ describe('OpenCodeBackend — tool-use event routing', () => {
 
 // ---------------------------------------------------------------------------
 
-describe('OpenCodeBackend — status mapping', () => {
+// SKIPPED 2026-06-10: asserts invented `{type:'status'}` / `{type:'error'}`
+// events that real opencode does not emit (status is driven by process
+// lifecycle, not parsed events). Rewrite against the real schema under #30.
+describe.skip('OpenCodeBackend — status mapping', () => {
   async function setupWithRunningPrompt() {
     const { backend } = createOpenCodeBackend({ cwd: '/tmp/project' });
     const { messages } = collectMessages(backend);
@@ -638,7 +669,11 @@ describe('OpenCodeBackend — status mapping', () => {
 
 // ---------------------------------------------------------------------------
 
-describe('OpenCodeBackend — cost and token extraction', () => {
+// SKIPPED 2026-06-10: asserts the invented `{type:'session', Cost, PromptTokens,
+// CompletionTokens}` event. Real opencode reports usage on `step_finish`
+// (part.cost + part.tokens) — covered now by the "emits a cost-report from a real
+// step_finish event" test in the JSON-line-parsing block. Rewrite/retire under #30.
+describe.skip('OpenCodeBackend — cost and token extraction', () => {
   it('emits token-count from session messages', async () => {
     const { backend } = createOpenCodeBackend({ cwd: '/tmp/project' });
     const { messages } = collectMessages(backend);
@@ -936,7 +971,10 @@ describe('OpenCodeBackend — stderr handling', () => {
  * These tests assert that cost-report events carry the correct shape so
  * cost-reporter can persist them without data loss.
  */
-describe('OpenCodeBackend — cost-report emission', () => {
+// SKIPPED 2026-06-10: asserts cost-report from the invented `{type:'session',
+// Cost}` event. Real `step_finish`-driven cost-report is covered in the
+// JSON-line-parsing block. Rewrite/retire under #30.
+describe.skip('OpenCodeBackend — cost-report emission', () => {
   it('emits cost-report with billingModel=api-key and source=agent-reported when session has Cost', async () => {
     const { backend } = createOpenCodeBackend({ cwd: '/tmp/project', model: 'claude-sonnet-4' });
     const { messages } = collectMessages(backend);

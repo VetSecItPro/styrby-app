@@ -2,20 +2,27 @@
  * Crush Backend - Crush CLI agent adapter (Charmbracelet)
  *
  * This module provides a factory function for creating a Crush backend.
- * Crush is an AI coding agent by Charmbracelet, designed for terminal-native
- * aesthetics with ACP-compatible communication and charm-style TUI output.
+ * Crush is a Bubbletea TUI coding agent by Charmbracelet.
  *
- * Key characteristics:
+ * Key characteristics (VERIFIED against crush v0.76.0, 2026-06-10):
  * - Binary name: `crush` (installed via Homebrew or direct download from charm.sh)
- * - Config: `~/.config/crush/config.yaml`
- * - Output: ACP-compatible JSON events with charm-style ANSI terminal decorations
- * - Cost tracking: token usage in `usage` events from the ACP response stream
- * - Protocol: ACP-compatible (Agent Communication Protocol), charm-style TUI
- * - Built for terminal purists — outputs rich ANSI, bold colors, box drawings
+ * - Headless invocation: `crush run [prompt...]` — runs a single prompt
+ *   non-interactively and exits. The prompt is a POSITIONAL argument (or piped
+ *   on stdin). Verified from `crush run --help`.
+ * - Real `run` flags (verified): -C/--continue, -c/--cwd, -D/--data-dir,
+ *   -d/--debug, -m/--model, -q/--quiet (hide spinner), -s/--session,
+ *   --small-model, -v/--verbose. There is NO -h-listed --format/--no-tui/
+ *   --message/--provider flag.
+ * - Output: PLAIN TEXT. `crush run` writes the model's textual response to
+ *   stdout (suitable for piping/redirecting per the help examples, e.g.
+ *   `crush run "..." > README.md`). Status/spinner/error chrome goes to stderr
+ *   as styled ANSI boxes. There is NO machine-readable (JSON/ACP) output mode.
  *
- * WHY Crush: Charmbracelet has a passionate developer following (they built Bubbletea,
- * Gum, Lip Gloss). Crush captures that audience and differentiates Styrby by supporting
- * a visually rich terminal experience. The ACP compatibility means integration is clean.
+ * WHY only plain-text mapping: crush exposes no structured event stream, so we
+ * cannot reliably surface per-token usage, tool calls, or cost. We treat the
+ * whole stdout as assistant text (`model-output`) and rely on exit code for
+ * completion. Usage/cost/tool/fs-edit events are intentionally NOT emitted
+ * because crush provides no verified source for them (see #30).
  *
  * @see https://github.com/charmbracelet/crush
  * @module factories/crush
@@ -35,7 +42,6 @@ import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
 import { resolveApiKeyEnv, type ApiKeyProvider } from '@/utils/apiKeyProvider';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
-import type { CostReport } from '@styrby/shared/cost';
 
 // ============================================================================
 // Types
@@ -53,29 +59,27 @@ export interface CrushBackendOptions extends AgentFactoryOptions {
   apiKey?: string;
 
   /**
-   * Model to use (e.g., 'claude-sonnet-4', 'gpt-4o').
-   * Defaults to Crush's configured default from ~/.config/crush/config.yaml.
+   * Model to use. Passed verbatim to `crush run --model`. Crush accepts either
+   * a bare model name or `provider/model` to disambiguate (e.g.
+   * 'anthropic/claude-sonnet-4'). Defaults to Crush's configured default in
+   * ~/.config/crush/crush.json.
+   *
+   * WHY no separate `provider` option: crush v0.76.0 has no `--provider` flag.
+   * The provider is selected either via the `provider/model` model string or by
+   * crush's own config / detected env keys.
    */
   model?: string;
 
   /**
-   * LLM provider name (e.g., 'anthropic', 'openai').
-   * Passed as --provider flag. Defaults to Crush's config file setting.
+   * LLM provider hint, used ONLY to pick which API-key env var to inject
+   * (ANTHROPIC_API_KEY vs OPENAI_API_KEY). It is NOT passed to crush as a flag
+   * because no such flag exists. Default: sniffed from the apiKey prefix.
    */
   provider?: string;
 
   /**
-   * Whether to disable Crush's interactive TUI mode.
-   *
-   * WHY: Crush renders a full-screen TUI by default (Charmbracelet style).
-   * In Styrby's non-interactive mode, we suppress the TUI and get JSON output
-   * so the mobile app can render its own UI. Default: true
-   */
-  noTui?: boolean;
-
-  /**
-   * Session name for resuming an existing Crush session.
-   * Crush maintains persistent session history by name.
+   * Existing crush session ID to continue. Passed to `crush run --session <id>`
+   * (verified flag). Crush persists sessions in its data dir.
    */
   sessionName?: string;
 
@@ -99,129 +103,26 @@ export interface CrushBackendResult {
 }
 
 // ============================================================================
-// JSON Output Parsing
+// Output Parsing
 // ============================================================================
-
-/**
- * Crush ACP-compatible JSON event types.
- *
- * WHY: Crush outputs ACP-compatible JSON events to stdout when running with
- * --no-tui --format json. These map directly onto our AgentMessage union type.
- * The ACP spec guarantees stable event names so we can parse them reliably.
- */
-interface CrushJsonEvent {
-  /**
-   * ACP-compatible event type discriminator.
-   * Crush uses lower_snake_case names per the ACP spec.
-   */
-  type:
-    | 'text_delta'
-    | 'tool_call'
-    | 'tool_result'
-    | 'usage'
-    | 'error'
-    | 'status'
-    | 'done';
-  /** Text content delta for 'text_delta' events */
-  delta?: string;
-  /** Tool name for 'tool_call' / 'tool_result' events */
-  tool?: string;
-  /** Tool input arguments for 'tool_call' events */
-  args?: Record<string, unknown>;
-  /** Tool output for 'tool_result' events */
-  output?: unknown;
-  /** Unique call ID for correlating tool_call to tool_result */
-  call_id?: string;
-  /** Token usage metadata for 'usage' events */
-  usage?: CrushUsageMetadata;
-  /** Error message for 'error' events */
-  message?: string;
-  /** Status string for 'status' events */
-  state?: string;
-}
-
-/**
- * Token usage metadata from Crush ACP usage events.
- *
- * WHY: Crush embeds token usage in ACP usage events after each model turn.
- * We extract this to give Styrby users accurate cost tracking.
- */
-interface CrushUsageMetadata {
-  /** Input/prompt tokens consumed */
-  input_tokens?: number;
-  /** Output/completion tokens generated */
-  output_tokens?: number;
-  /** Cache read tokens (Anthropic prompt caching) */
-  cache_read_input_tokens?: number;
-  /** Cache write tokens (Anthropic prompt caching) */
-  cache_creation_input_tokens?: number;
-  /** Estimated cost in USD from Crush's internal billing calculator */
-  cost_usd?: number;
-}
-
-/**
- * Parse a single JSON event line from Crush's ACP output.
- *
- * @param line - A single line of Crush stdout (expected to be JSON)
- * @returns Parsed CrushJsonEvent or null if the line is not valid JSON
- */
-function parseCrushJsonLine(line: string): CrushJsonEvent | null {
-  const trimmed = line.trim();
-  if (!trimmed || !trimmed.startsWith('{')) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(trimmed) as CrushJsonEvent;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Detect file system edits from Crush tool names.
- *
- * WHY: Crush uses charm-style tool naming that may include stylistic prefixes
- * (e.g., "charm_write_file", "edit_file"). We detect the common patterns so
- * the mobile app can show file modification notifications.
- *
- * @param toolName - The ACP tool name from the tool_call event
- * @returns true if this tool modifies the file system
- */
-function isCrushFileEditTool(toolName: string): boolean {
-  const fileEditPatterns = [
-    'write',
-    'create',
-    'edit',
-    'patch',
-    'modify',
-    'str_replace',
-    'apply',
-    'overwrite',
-  ];
-  const lower = toolName.toLowerCase();
-  return fileEditPatterns.some((pattern) => lower.includes(pattern));
-}
-
-/**
- * Extract file path from a Crush tool input.
- *
- * Crush uses different parameter names across tools. This function checks
- * common field names for robustness.
- *
- * @param args - Tool input arguments
- * @returns File path string or null if not found
- */
-function extractCrushFilePath(args?: Record<string, unknown>): string | null {
-  if (!args) return null;
-  return (
-    (args.path as string) ??
-    (args.file_path as string) ??
-    (args.filename as string) ??
-    (args.target as string) ??
-    null
-  );
-}
+//
+// SCHEMA UNVERIFIED — crush exposes NO machine-readable output mode.
+//
+// crush v0.76.0 `crush run` writes the model's response to stdout as PLAIN
+// TEXT (verified from `crush run --help`: the examples redirect stdout straight
+// into README files). There is no --format json / --no-tui / ACP event stream.
+// The previous implementation parsed a fabricated `{text_delta, usage, tool_call,
+// done}` ACP schema that does not exist in the real binary.
+//
+// Consequently this backend can only surface the assistant's text. Token usage,
+// per-call cost, tool-call/tool-result, and fs-edit events have NO verified
+// source in crush's output and are intentionally NOT emitted. Wiring them up
+// requires a keyed crush session to capture real `--verbose`/`--debug` output
+// and confirm whether any structured signal is recoverable — tracked in #30.
+//
+// NOTE: a future verified path could parse `crush run --verbose` logs or query
+// `crush session`/`crush stats` subcommands for usage. Do NOT add such parsing
+// until the real output has been captured and confirmed against the binary.
 
 // ============================================================================
 // CrushBackend Class
@@ -230,185 +131,44 @@ function extractCrushFilePath(args?: Record<string, unknown>): string | null {
 /**
  * Crush Backend implementation.
  *
- * Spawns Crush as a subprocess with ACP-compatible JSON output and parses the
- * structured events. Handles session lifecycle, cost tracking, and file edit
- * detection from charm-style tool names.
+ * Spawns `crush run <prompt>` as a one-shot subprocess and streams its stdout
+ * (the model's plain-text response) to the mobile app as `model-output`. Crush
+ * has no structured/JSON output mode, so this backend does NOT emit usage,
+ * cost, tool, or fs-edit events (see the "Output Parsing" note above + #30).
  */
 class CrushBackend extends StreamingAgentBackendBase {
   protected readonly logTag = 'CrushBackend';
-  private lineBuffer = '';
-  private inputTokens = 0;
-  private outputTokens = 0;
-  private cacheReadTokens = 0;
-  private cacheWriteTokens = 0;
-  private totalCostUsd = 0;
+
+  // SECURITY: bounded buffer guards against a runaway process flooding stdout
+  // without newlines. We still emit incrementally (per data chunk) so the user
+  // sees output as it streams; the buffer only caps unbounded growth.
+  private outputBuffer = '';
 
   constructor(private options: CrushBackendOptions) {
     super();
   }
 
   /**
-   * Process a parsed Crush ACP JSON event and emit the corresponding AgentMessage.
+   * Process stdout data from `crush run`.
    *
-   * WHY: Crush's ACP-compatible output maps cleanly onto the AgentMessage union.
-   * This explicit mapping makes it easy to track API changes in Crush's output format.
-   *
-   * @param event - The parsed Crush JSON event
-   */
-  private handleCrushEvent(event: CrushJsonEvent): void {
-    switch (event.type) {
-      case 'text_delta':
-        if (event.delta) {
-          this.emit({ type: 'model-output', textDelta: event.delta });
-        }
-        break;
-
-      case 'tool_call':
-        if (event.tool && event.call_id) {
-          this.emit({
-            type: 'tool-call',
-            toolName: event.tool,
-            args: event.args ?? {},
-            callId: event.call_id,
-          });
-        }
-        break;
-
-      case 'tool_result':
-        if (event.call_id && event.tool) {
-          this.emit({
-            type: 'tool-result',
-            toolName: event.tool,
-            result: event.output,
-            callId: event.call_id,
-          });
-
-          // Detect file system edits and emit fs-edit notification
-          if (isCrushFileEditTool(event.tool)) {
-            const filePath = extractCrushFilePath(event.args);
-            if (filePath) {
-              this.emit({
-                type: 'fs-edit',
-                description: `${event.tool}: ${filePath}`,
-                path: filePath,
-              });
-            }
-          }
-        }
-        break;
-
-      case 'usage':
-        // WHY: Crush emits a usage event after each model turn with ACP usage data.
-        // We accumulate across the session so the mobile app shows a running total.
-        if (event.usage) {
-          const incrInput = event.usage.input_tokens ?? 0;
-          const incrOutput = event.usage.output_tokens ?? 0;
-          const incrCacheRead = event.usage.cache_read_input_tokens ?? 0;
-          const incrCacheWrite = event.usage.cache_creation_input_tokens ?? 0;
-          const incrCost = event.usage.cost_usd ?? 0;
-
-          this.inputTokens += incrInput;
-          this.outputTokens += incrOutput;
-          this.cacheReadTokens += incrCacheRead;
-          this.cacheWriteTokens += incrCacheWrite;
-          this.totalCostUsd += incrCost;
-
-          // Emit legacy token-count (keep for existing consumers)
-          this.emit({
-            type: 'token-count',
-            inputTokens: this.inputTokens,
-            outputTokens: this.outputTokens,
-            cacheReadTokens: this.cacheReadTokens,
-            cacheWriteTokens: this.cacheWriteTokens,
-            costUsd: this.totalCostUsd,
-          });
-
-          // WHY: Emit unified CostReport. Crush always reports agent-provided
-          // cost_usd via ACP, so source is always 'agent-reported'.
-          const costReport: CostReport = {
-            sessionId: this.sessionId ?? '',
-            messageId: null,
-            agentType: 'crush',
-            model: this.options.model ?? 'unknown',
-            timestamp: new Date().toISOString(),
-            source: 'agent-reported',
-            billingModel: 'api-key',
-            costUsd: incrCost,
-            inputTokens: incrInput,
-            outputTokens: incrOutput,
-            cacheReadTokens: incrCacheRead,
-            cacheWriteTokens: incrCacheWrite,
-            rawAgentPayload: event.usage as unknown as Record<string, unknown>,
-          };
-          this.emit({ type: 'cost-report', report: costReport });
-        }
-        break;
-
-      case 'error':
-        this.emit({
-          type: 'status',
-          status: 'error',
-          detail: event.message ?? 'Crush encountered an error',
-        });
-        break;
-
-      case 'status':
-        // WHY: Crush emits status events to communicate phase transitions
-        // (loading context, thinking, executing tools). We map them to our
-        // normalized status types for the mobile app status bar.
-        if (event.state) {
-          const statusMap: Record<string, 'starting' | 'running' | 'idle' | 'stopped' | 'error'> =
-            {
-              loading: 'starting',
-              thinking: 'running',
-              executing: 'running',
-              idle: 'idle',
-              done: 'idle',
-              stopped: 'stopped',
-              error: 'error',
-            };
-          const mapped = statusMap[event.state] ?? 'running';
-          this.emit({ type: 'status', status: mapped });
-        }
-        break;
-
-      case 'done':
-        // WHY: ACP 'done' signals the end of a complete agent response turn.
-        // Map to 'idle' so the mobile app knows it can send the next message.
-        this.emit({ type: 'status', status: 'idle' });
-        break;
-
-      default:
-        logger.debug('[CrushBackend] Unknown event type:', event);
-    }
-  }
-
-  /**
-   * Process stdout data, buffering partial lines until a newline is received.
-   *
-   * WHY: Node.js streams deliver data in chunks that may span line boundaries.
-   * We buffer until we see a newline before attempting to parse JSON.
+   * Crush emits the assistant's reply as plain text (no JSON event framing).
+   * We forward each chunk verbatim as a `model-output` delta so the mobile app
+   * can render the response as it streams.
    *
    * @param data - Raw buffer chunk from process stdout
    */
   private processStdout(data: Buffer): void {
     const text = data.toString();
-    // SECURITY: Cap line buffer size to prevent memory exhaustion from
-    // a misbehaving agent sending continuous data without newlines.
-    this.lineBuffer = safeBufferAppend(this.lineBuffer, text);
 
-    const lines = this.lineBuffer.split('\n');
-    // The last element may be an incomplete line — keep it in the buffer
-    this.lineBuffer = lines.pop() ?? '';
+    // SECURITY: cap retained buffer size to prevent memory exhaustion from a
+    // misbehaving agent that never stops writing. safeBufferAppend trims to the
+    // configured ceiling; we only use the buffer for the cap, not re-parsing.
+    this.outputBuffer = safeBufferAppend(this.outputBuffer, text);
 
-    for (const line of lines) {
-      const event = parseCrushJsonLine(line);
-      if (event) {
-        this.handleCrushEvent(event);
-      } else if (line.trim()) {
-        // Non-JSON output (charm-style ANSI decorations, progress bars) — log only
-        logger.debug('[CrushBackend] Non-JSON stdout:', line);
-      }
+    if (text) {
+      // WHY plain passthrough: crush has no structured event schema, so the raw
+      // text IS the model output. No per-event usage/tool data is recoverable.
+      this.emit({ type: 'model-output', textDelta: text });
     }
   }
 
@@ -428,12 +188,7 @@ class CrushBackend extends StreamingAgentBackendBase {
     }
 
     this.sessionId = randomUUID();
-    this.inputTokens = 0;
-    this.outputTokens = 0;
-    this.cacheReadTokens = 0;
-    this.cacheWriteTokens = 0;
-    this.totalCostUsd = 0;
-    this.lineBuffer = '';
+    this.outputBuffer = '';
 
     this.emit({ type: 'status', status: 'starting' });
 
@@ -452,8 +207,9 @@ class CrushBackend extends StreamingAgentBackendBase {
   /**
    * Send a prompt to Crush.
    *
-   * Spawns a Crush subprocess with ACP JSON output mode. Uses --no-tui to
-   * suppress the charm TUI and get structured JSON events on stdout.
+   * Spawns `crush run <prompt>` — crush's verified non-interactive mode. The
+   * prompt is passed as a positional argument; crush writes the model's reply
+   * as plain text to stdout, which we forward as `model-output`.
    *
    * @param sessionId - The active session ID (must match startSession result)
    * @param prompt - The user's prompt text
@@ -472,44 +228,41 @@ class CrushBackend extends StreamingAgentBackendBase {
     // classified correctly by the close handler (audit 2026-06-09 fix #6).
     this.beginRun();
 
-    this.lineBuffer = '';
+    this.outputBuffer = '';
     this.emit({ type: 'status', status: 'running' });
 
-    // Build Crush command arguments
-    const args: string[] = [
-      '--message',  // Pass the prompt as a message argument (non-interactive)
-      prompt,
-      '--format',
-      'json',       // Request ACP-compatible JSON output for parsing
-    ];
+    // Build verified `crush run` command. Subcommand FIRST, then flags, then the
+    // prompt as a trailing positional argument (`crush run [prompt...]`).
+    const args: string[] = ['run'];
 
-    // WHY: Suppress charm's full-screen TUI. In Styrby's relay mode, Crush runs
-    // as a headless subprocess. The TUI would capture the terminal and prevent
-    // stdout from flowing to our parser. --no-tui routes output to stdout as JSON.
-    const noTui = this.options.noTui !== false;
-    if (noTui) {
-      args.push('--no-tui');
-    }
+    // -q/--quiet hides crush's spinner chrome so stdout carries only the model's
+    // text (verified flag). We always want this in headless relay mode.
+    args.push('--quiet');
 
-    // Model override
+    // -m/--model: bare name or `provider/model` (verified flag).
     if (this.options.model) {
       args.push('--model', this.options.model);
     }
 
-    // Provider override
-    if (this.options.provider) {
-      args.push('--provider', this.options.provider);
-    }
-
-    // Resume an existing named session
+    // -s/--session: continue an existing crush session by ID (verified flag).
     if (this.options.sessionName) {
       args.push('--session', this.options.sessionName);
     }
 
-    // Extra args (validated for shell safety — SEC-ARGS-001)
+    // WHY no --provider/--format/--no-tui: those flags do NOT exist on crush
+    // v0.76.0 `run`. Provider selection happens via the model string and the
+    // injected API-key env var below.
+
+    // Extra args (validated for shell safety — SEC-ARGS-001). These go before
+    // the positional prompt so flag-style extras parse correctly.
     if (this.options.extraArgs) {
       args.push(...validateExtraArgs(this.options.extraArgs));
     }
+
+    // The prompt is the trailing positional argument: `crush run [flags] <prompt>`.
+    // It is passed as a single argv element (no shell), so spaces/quotes in the
+    // prompt are safe and need no escaping.
+    args.push(prompt);
 
     logger.debug(`[CrushBackend] Spawning crush with args:`, args);
 
@@ -538,7 +291,7 @@ class CrushBackend extends StreamingAgentBackendBase {
           throw new Error('Failed to create stdio pipes');
         }
 
-        // Handle stdout — ACP JSON events from Crush
+        // Handle stdout — plain-text model response from `crush run`
         this.process.stdout.on('data', (data: Buffer) => {
           this.processStdout(data);
         });
@@ -566,14 +319,9 @@ class CrushBackend extends StreamingAgentBackendBase {
         this.process.on('close', (code) => {
           logger.debug(`[CrushBackend] Process exited with code: ${code}`);
 
-          // Flush any remaining buffered output
-          if (this.lineBuffer.trim()) {
-            const event = parseCrushJsonLine(this.lineBuffer);
-            if (event) {
-              this.handleCrushEvent(event);
-            }
-            this.lineBuffer = '';
-          }
+          // stdout is emitted incrementally in processStdout(); there is no
+          // line-framed buffer to flush. Just clear the size-cap buffer.
+          this.outputBuffer = '';
 
           if (code === 0) {
             this.emit({ type: 'status', status: 'idle' });
@@ -658,8 +406,12 @@ class CrushBackend extends StreamingAgentBackendBase {
   /**
    * Respond to a Crush permission request.
    *
-   * Crush may request permission for shell execution or dangerous file operations.
-   * In --no-tui mode with ACP protocol, we write the response to stdin.
+   * SCHEMA UNVERIFIED — crush's headless `run` mode has no confirmed interactive
+   * permission protocol. Crush governs tool permissions via its config and the
+   * `--yolo` flag, not an over-stdin y/n exchange we can verify. We therefore
+   * only emit the `permission-response` event for app-side bookkeeping and do
+   * NOT fabricate a stdin write. If a real permission channel is discovered with
+   * a keyed session (#30), wire it here against verified behavior.
    *
    * @param requestId - The ID of the permission request from Crush
    * @param approved - Whether the user approved the request
@@ -670,15 +422,6 @@ class CrushBackend extends StreamingAgentBackendBase {
       id: requestId,
       approved,
     });
-
-    if (this.process?.stdin && !this.process.killed) {
-      const response = approved ? 'y\n' : 'n\n';
-      try {
-        this.process.stdin.write(response);
-      } catch {
-        // Stdin may already be closed — safe to ignore
-      }
-    }
   }
 
   // waitForResponseComplete and dispose inherited from
@@ -693,9 +436,10 @@ class CrushBackend extends StreamingAgentBackendBase {
 /**
  * Create a Crush backend.
  *
- * Crush is an AI coding agent by Charmbracelet with ACP-compatible JSON output
- * and charm-style terminal aesthetics. It integrates cleanly via the --no-tui
- * flag which routes ACP events to stdout for structured parsing.
+ * Crush is a Bubbletea TUI coding agent by Charmbracelet. We drive its verified
+ * headless `crush run <prompt>` mode, which writes the model's plain-text reply
+ * to stdout. Crush has no JSON/structured output mode, so this backend surfaces
+ * model text only (no usage/cost/tool events — see #30).
  *
  * The crush binary must be installed and available in PATH.
  * Install via: `brew install charmbracelet/tap/crush`
@@ -723,7 +467,6 @@ export function createCrushBackend(options: CrushBackendOptions): CrushBackendRe
     model: options.model,
     provider: options.provider,
     hasApiKey: !!options.apiKey,
-    noTui: options.noTui,
     sessionName: options.sessionName,
   });
 
@@ -732,8 +475,11 @@ export function createCrushBackend(options: CrushBackendOptions): CrushBackendRe
     model: options.model,
     metadata: {
       modelSource: options.model ? 'explicit' : 'default',
+      // WHY false: crush emits no structured tool-call/tool-result events in
+      // headless `run` mode, so we surface no tool data to the app. Streaming
+      // is true because stdout text arrives incrementally.
       supportsStreaming: true,
-      supportsTools: true,
+      supportsTools: false,
     },
   };
 }

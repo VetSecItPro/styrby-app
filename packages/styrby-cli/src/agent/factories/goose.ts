@@ -6,13 +6,22 @@
  * licensed under Apache 2.0. It uses the Model Context Protocol (MCP)
  * for tool interactions and outputs structured JSON event lines.
  *
- * Key characteristics:
- * - Binary name: `goose` (installed via `pip install goose-ai` or homebrew)
- * - Config: `~/.config/goose/config.yaml`
- * - Output: JSONL (one JSON object per line) via MCP protocol
- * - Cost tracking: token usage embedded in MCP response metadata
- * - Supports MCP servers for extensible tool integrations
- * - Each run is a session with a persistent session ID
+ * Key characteristics (verified against the real `goose` binary v1.37.0,
+ * 2026-06-10 — `goose --help` / `goose run --help`):
+ * - Binary name: `goose` (a single self-contained Rust binary; NOT a pip/brew
+ *   `goose-ai` package — that is a different, unrelated project). Install per
+ *   https://github.com/aaif-goose/goose (download script / release artifact).
+ * - Config: `~/.config/goose/config.yaml` (provider + model live here)
+ * - Headless run: `goose run -t/--text <prompt>` (or `-i -` to read the prompt
+ *   from stdin). `run` is non-interactive by DEFAULT; `-s/--interactive` opts
+ *   *into* an interactive session afterward. There is NO `--no-interactive`
+ *   flag (the old code invented one).
+ * - Structured output: `--output-format <text|json|stream-json>` (default
+ *   `text`). There is NO `--format jsonl` flag (the old code invented one).
+ *   We request `stream-json` for incremental parsing.
+ * - `--no-session` runs without writing a session file (good for automation).
+ * - Model / provider overrides: `--model <M>` / `--provider <P>`.
+ * - Session naming / resume: `-n/--name <NAME>` (+ `-r/--resume`).
  *
  * WHY Apache 2.0 matters: Goose's license allows us to integrate it as a
  * backend without license compatibility concerns. We must retain the Goose
@@ -21,6 +30,14 @@
  * Repo transferred 2026-04-07 from Block to the AI Alliance / Linux Foundation
  * (`block/goose` → `aaif-goose/goose`). GitHub redirects the old URL but new
  * docs and releases land at the new home.
+ *
+ * SCHEMA STATUS (#30 — UNVERIFIED): the per-line event schema emitted by
+ * `--output-format stream-json` could NOT be captured because the local
+ * environment has no provider configured (`goose run` aborts with "No provider
+ * configured. Run 'goose configure' first."). The parser below maps a BEST-
+ * GUESS event shape and is explicitly flagged as needing a real keyed session
+ * to confirm. Until then, NON-JSON / unknown lines fall through harmlessly to a
+ * debug log — the invocation is correct even if the parser is not yet proven.
  *
  * @see https://github.com/aaif-goose/goose
  * @module factories/goose
@@ -70,8 +87,11 @@ export interface GooseBackendOptions extends AgentFactoryOptions {
   provider?: string;
 
   /**
-   * Whether to disable interactive mode (always true for Styrby).
-   * Goose's --non-interactive flag prevents it from prompting for user input.
+   * Retained for API/back-compat. `goose run` is already non-interactive by
+   * default (it does NOT have a `--no-interactive` flag — the old code invented
+   * one). When this is left at its default (true) we additionally pass
+   * `--no-session` so automated runs do not litter the session DB. Set to
+   * `false` to keep a persistent session file (e.g. to later `--resume`).
    * Default: true
    */
   nonInteractive?: boolean;
@@ -106,11 +126,26 @@ export interface GooseBackendResult {
 // ============================================================================
 
 /**
- * Goose JSONL output event types.
+ * Goose `--output-format stream-json` event types.
  *
- * WHY: Goose outputs structured JSON lines via its MCP integration.
- * Each line represents a distinct event (message, tool call, cost data, etc.).
- * These types mirror Goose's actual output format so we can parse it reliably.
+ * SCHEMA UNVERIFIED (#30): goose emits one JSON object per line when
+ * `--output-format stream-json` is set, but the exact field names + the set of
+ * `type` values below are a BEST-GUESS. They could not be confirmed because the
+ * local box has no provider configured, so no real authed run could be
+ * captured. In particular:
+ *   - The `{ type: 'cost', usage: { cost_usd } }` shape is ASSUMED. goose's
+ *     internal model tracks tokens via session-DB columns
+ *     (`accumulated_input_tokens` / `accumulated_output_tokens` / `total_tokens`
+ *     / `accumulated_cost`) and an Anthropic-style `Usage` block
+ *     (`input_tokens`, `output_tokens`, `cache_read_input_tokens`,
+ *     `cache_creation_input_tokens`) — but whether a per-line `type:'cost'`
+ *     event with a `cost_usd` field is actually emitted is NOT confirmed.
+ *   - `message` / `tool_call` / `tool_result` / `error` / `status` / `finish`
+ *     are likewise best-guess `type` discriminants.
+ * TODO(#30): once a keyed `goose configure` session is available, capture real
+ * `stream-json` output and replace these guesses with the verified schema.
+ * Until then the parser is intentionally tolerant: unknown lines are logged and
+ * dropped rather than throwing, so a wrong guess degrades gracefully.
  */
 interface GooseJsonEvent {
   type: 'message' | 'tool_call' | 'tool_result' | 'cost' | 'error' | 'status' | 'finish';
@@ -309,8 +344,14 @@ class GooseBackend extends StreamingAgentBackendBase {
         break;
 
       case 'cost':
-        // WHY: Goose emits a cost event after each model response with MCP usage data.
-        // We accumulate these across the session for accurate total cost reporting.
+        // SCHEMA UNVERIFIED (#30): this assumes goose emits a per-line
+        // `{ type:'cost', usage:{...} }` event with an optional `cost_usd`.
+        // That shape is NOT confirmed against a real authed run (see the
+        // GooseJsonEvent doc). If goose instead surfaces usage on a different
+        // event (e.g. a final `finish`/`result` line carrying accumulated
+        // tokens), this branch will simply never fire and no cost is reported —
+        // a graceful degradation, not a crash. Revisit once #30 captures the
+        // real stream-json output.
         if (event.usage) {
           const prevCostUsd = this.totalCostUsd;
           this.inputTokens += event.usage.input_tokens ?? 0;
@@ -459,8 +500,10 @@ class GooseBackend extends StreamingAgentBackendBase {
   /**
    * Send a prompt to Goose.
    *
-   * Spawns a Goose subprocess with the prompt. Uses --format jsonl to get
-   * structured output. Uses --non-interactive to prevent blocking on stdin.
+   * Spawns `goose run -t <prompt> --output-format stream-json` (plus
+   * `--no-session` for ephemeral runs). `run` is non-interactive by default, so
+   * no stdin blocking occurs. See the real flags documented in the module
+   * header (verified against `goose run --help`, v1.37.0).
    *
    * @param sessionId - The active session ID (must match the one from startSession)
    * @param prompt - The user's prompt text
@@ -482,35 +525,43 @@ class GooseBackend extends StreamingAgentBackendBase {
     this.lineBuffer = '';
     this.emit({ type: 'status', status: 'running' });
 
-    // Build Goose command arguments
+    // Build Goose command arguments.
+    //
+    // VERIFIED against `goose run --help` (binary v1.37.0, 2026-06-10):
+    //   goose run -t <prompt> --output-format stream-json [--no-session]
+    //             [--model M] [--provider P] [-n NAME]
+    //
+    // `run` is one-shot + non-interactive by default. `--output-format` accepts
+    // text | json | stream-json (default text); we request stream-json for
+    // incremental line-by-line parsing. NOTE: the previously-used `--format
+    // jsonl` and `--no-interactive` flags DO NOT EXIST and have been removed.
     const args: string[] = [
-      'run',          // Subcommand for running a one-shot prompt
-      '--text',       // Pass prompt as text argument (non-interactive)
+      'run',                      // one-shot, non-interactive headless run
+      '--text',                   // pass the prompt inline (alias: -t)
       prompt,
-      '--format',
-      'jsonl',        // Request structured JSONL output for parsing
+      '--output-format',
+      'stream-json',              // line-delimited JSON events (schema unverified, #30)
     ];
 
-    // WHY: Always run non-interactively. Goose may prompt for user input
-    // in interactive mode (e.g., permission requests). Since the mobile app
-    // handles permissions via the permission-request/response message flow,
-    // we auto-approve at the CLI level and rely on the server-side flow.
-    const nonInteractive = this.options.nonInteractive !== false;
-    if (nonInteractive) {
-      args.push('--no-interactive');
+    // WHY: by default we also pass --no-session so automated mobile-driven runs
+    // do not accumulate session files in goose's local sqlite DB. Callers that
+    // want a resumable session (sessionName / --resume) set nonInteractive:false
+    // to keep the session file. This replaces the invented --no-interactive
+    // flag; `run` is already non-interactive regardless.
+    const useEphemeralSession = this.options.nonInteractive !== false;
+    if (useEphemeralSession && !this.options.sessionName) {
+      args.push('--no-session');
     }
 
-    // Add model if specified
+    // Override the configured provider/model for this run (real flags).
     if (this.options.model) {
       args.push('--model', this.options.model);
     }
-
-    // Add provider if specified
     if (this.options.provider) {
       args.push('--provider', this.options.provider);
     }
 
-    // Resume an existing session if session name is provided
+    // Name (and implicitly enable) a persistent session for later --resume.
     if (this.options.sessionName) {
       args.push('--name', this.options.sessionName);
     }
@@ -738,9 +789,10 @@ class GooseBackend extends StreamingAgentBackendBase {
  * 2026-04-07. Apache 2.0. Uses Model Context Protocol (MCP) for tool
  * integrations and outputs structured JSONL events.
  *
- * The goose binary must be installed and available in PATH.
- * Install via: `pip install goose-ai` or `brew install pivotal/tap/goose-ai`
- * (See https://github.com/aaif-goose/goose for current install instructions.)
+ * The goose binary must be installed and available in PATH (it is a single
+ * self-contained Rust binary, NOT the unrelated `goose-ai` pip/brew package).
+ * See https://github.com/aaif-goose/goose for the current install script /
+ * release artifacts.
  *
  * @param options - Configuration options for the backend
  * @returns GooseBackendResult with backend instance and resolved model

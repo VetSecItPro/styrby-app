@@ -1,14 +1,19 @@
 /**
  * Tests for the Crush agent backend factory (Charmbracelet).
  *
- * Covers:
- * - `createCrushBackend` factory function
- * - `registerCrushAgent` registry integration
- * - `CrushBackend` class: session lifecycle, subprocess management,
- *   ACP-compatible JSON event parsing, charm-style ANSI output handling,
- *   token/cost accumulation, fs-edit detection from charm tool names,
- *   status mapping, error handling, cancellation, permission response,
- *   and disposal.
+ * REALITY CHECK (crush v0.76.0, verified 2026-06-10):
+ * - Headless invocation is `crush run [flags] <prompt>` (prompt is a positional
+ *   argument). Verified flags: --quiet, --model, --session, --continue, --cwd,
+ *   --data-dir, --debug, --verbose, --small-model.
+ * - crush has NO JSON/ACP output mode. `crush run` emits the model's reply as
+ *   PLAIN TEXT on stdout. There is no --format/--no-tui/--message/--provider
+ *   flag and no `{text_delta, usage, tool_call, done}` event schema.
+ *
+ * Because of that, this suite covers ONLY verified behavior: the real spawn
+ * argv, plain-text stdout -> model-output passthrough, exit-code handling,
+ * cancellation, dispose, and env-key injection. The previous suite's
+ * invented-ACP-event blocks (tool events, usage/cost events, status/done JSON
+ * events) are removed/skipped with a reason — they tested a fabricated schema.
  *
  * All child_process and logger calls are mocked so no real Crush binary
  * is required.
@@ -80,49 +85,14 @@ function collectMessages(backend: ReturnType<typeof createCrushBackend>['backend
 }
 
 /**
- * Simulate Crush output: emit lines as stdout data events, then close the process.
+ * Simulate `crush run` output: emit plain-text chunks as stdout data events,
+ * then close the process. (crush emits plain text, NOT line-framed JSON.)
  */
-function simulateProcess(proc: MockProcess, lines: string[] = [], exitCode = 0) {
-  for (const line of lines) {
-    (proc.stdout as EventEmitter).emit('data', Buffer.from(line + '\n'));
+function simulateProcess(proc: MockProcess, chunks: string[] = [], exitCode = 0) {
+  for (const chunk of chunks) {
+    (proc.stdout as EventEmitter).emit('data', Buffer.from(chunk));
   }
   proc.emit('close', exitCode);
-}
-
-// ---- Crush ACP event builders ----
-
-function crushTextDelta(delta: string): string {
-  return JSON.stringify({ type: 'text_delta', delta });
-}
-
-function crushToolCall(tool: string, callId: string, args?: Record<string, unknown>): string {
-  return JSON.stringify({ type: 'tool_call', tool, call_id: callId, args });
-}
-
-function crushToolResult(tool: string, callId: string, output: unknown, args?: Record<string, unknown>): string {
-  return JSON.stringify({ type: 'tool_result', tool, call_id: callId, output, args });
-}
-
-function crushUsage(usage: {
-  input_tokens?: number;
-  output_tokens?: number;
-  cache_read_input_tokens?: number;
-  cache_creation_input_tokens?: number;
-  cost_usd?: number;
-}): string {
-  return JSON.stringify({ type: 'usage', usage });
-}
-
-function crushStatus(state: string): string {
-  return JSON.stringify({ type: 'status', state });
-}
-
-function crushError(message: string): string {
-  return JSON.stringify({ type: 'error', message });
-}
-
-function crushDone(): string {
-  return JSON.stringify({ type: 'done' });
 }
 
 const BASE_OPTIONS: CrushBackendOptions = {
@@ -163,6 +133,13 @@ describe('createCrushBackend', () => {
     expect(model).toBeUndefined();
   });
 
+  it('reports supportsTools=false (crush has no structured tool events)', () => {
+    const { metadata } = createCrushBackend(BASE_OPTIONS);
+
+    expect(metadata?.supportsTools).toBe(false);
+    expect(metadata?.supportsStreaming).toBe(true);
+  });
+
   it('returns a backend implementing the full AgentBackend interface', () => {
     const { backend } = createCrushBackend(BASE_OPTIONS);
 
@@ -180,10 +157,9 @@ describe('createCrushBackend', () => {
     expect(mockSpawn).not.toHaveBeenCalled();
   });
 
-  it('includes noTui, provider, and sessionName options', () => {
+  it('accepts provider and sessionName options', () => {
     const { backend } = createCrushBackend({
       ...BASE_OPTIONS,
-      noTui: true,
       provider: 'anthropic',
       sessionName: 'my-session',
     });
@@ -290,11 +266,11 @@ describe('CrushBackend — session lifecycle', () => {
 });
 
 // ===========================================================================
-// CrushBackend — sendPrompt
+// CrushBackend — sendPrompt (VERIFIED `crush run` invocation)
 // ===========================================================================
 
-describe('CrushBackend — sendPrompt', () => {
-  it('spawns crush with --message, --format json, --no-tui flags', async () => {
+describe('CrushBackend — sendPrompt invocation', () => {
+  it('spawns `crush run --quiet <prompt>` with the prompt as a trailing positional', async () => {
     const { backend } = createCrushBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
 
@@ -302,56 +278,47 @@ describe('CrushBackend — sendPrompt', () => {
     simulateProcess(currentMockProcess);
     await sendPromise;
 
-    expect(mockSpawn).toHaveBeenCalledWith(
-      'crush',
-      expect.arrayContaining(['--message', 'Refactor auth', '--format', 'json', '--no-tui']),
-      expect.any(Object)
-    );
+    const [bin, args] = mockSpawn.mock.calls[0] as [string, string[], unknown];
+    expect(bin).toBe('crush');
+    // Subcommand first, prompt last (positional).
+    expect(args[0]).toBe('run');
+    expect(args).toContain('--quiet');
+    expect(args[args.length - 1]).toBe('Refactor auth');
+    // The fabricated flags must NOT be present.
+    expect(args).not.toContain('--message');
+    expect(args).not.toContain('--format');
+    expect(args).not.toContain('--no-tui');
+    expect(args).not.toContain('--provider');
   });
 
-  it('includes --model flag when model is specified', async () => {
-    const { backend } = createCrushBackend({ ...BASE_OPTIONS, model: 'claude-sonnet-4' });
+  it('includes --model flag (before the positional prompt) when model is specified', async () => {
+    const { backend } = createCrushBackend({ ...BASE_OPTIONS, model: 'anthropic/claude-sonnet-4' });
     const { sessionId } = await backend.startSession();
 
     const sendPromise = backend.sendPrompt(sessionId, 'Hello');
     simulateProcess(currentMockProcess);
     await sendPromise;
 
-    expect(mockSpawn).toHaveBeenCalledWith(
-      'crush',
-      expect.arrayContaining(['--model', 'claude-sonnet-4']),
-      expect.any(Object)
-    );
-  });
-
-  it('includes --provider flag when provider is specified', async () => {
-    const { backend } = createCrushBackend({ ...BASE_OPTIONS, provider: 'anthropic' });
-    const { sessionId } = await backend.startSession();
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess);
-    await sendPromise;
-
-    expect(mockSpawn).toHaveBeenCalledWith(
-      'crush',
-      expect.arrayContaining(['--provider', 'anthropic']),
-      expect.any(Object)
-    );
+    const args = (mockSpawn.mock.calls[0] as any[])[1] as string[];
+    const modelIdx = args.indexOf('--model');
+    expect(modelIdx).toBeGreaterThanOrEqual(0);
+    expect(args[modelIdx + 1]).toBe('anthropic/claude-sonnet-4');
+    // Prompt stays the trailing positional.
+    expect(args[args.length - 1]).toBe('Hello');
   });
 
   it('includes --session flag when sessionName is specified', async () => {
-    const { backend } = createCrushBackend({ ...BASE_OPTIONS, sessionName: 'my-project' });
+    const { backend } = createCrushBackend({ ...BASE_OPTIONS, sessionName: 'sess-123' });
     const { sessionId } = await backend.startSession();
 
     const sendPromise = backend.sendPrompt(sessionId, 'Hello');
     simulateProcess(currentMockProcess);
     await sendPromise;
 
-    expect(mockSpawn).toHaveBeenCalledWith(
-      'crush',
-      expect.arrayContaining(['--session', 'my-project']),
-      expect.any(Object)
-    );
+    const args = (mockSpawn.mock.calls[0] as any[])[1] as string[];
+    const sessIdx = args.indexOf('--session');
+    expect(sessIdx).toBeGreaterThanOrEqual(0);
+    expect(args[sessIdx + 1]).toBe('sess-123');
   });
 
   it('throws when sendPrompt is called with wrong sessionId', async () => {
@@ -379,7 +346,7 @@ describe('CrushBackend — sendPrompt', () => {
     await expect(sendPromise).rejects.toThrow('Crush exited with code 1');
   });
 
-  it('passes extraArgs after validation', async () => {
+  it('passes extraArgs (validated) before the positional prompt', async () => {
     const { backend } = createCrushBackend({ ...BASE_OPTIONS, extraArgs: ['--verbose'] });
     const { sessionId } = await backend.startSession();
 
@@ -387,11 +354,10 @@ describe('CrushBackend — sendPrompt', () => {
     simulateProcess(currentMockProcess);
     await sendPromise;
 
-    expect(mockSpawn).toHaveBeenCalledWith(
-      'crush',
-      expect.arrayContaining(['--verbose']),
-      expect.any(Object)
-    );
+    const args = (mockSpawn.mock.calls[0] as any[])[1] as string[];
+    expect(args).toContain('--verbose');
+    expect(args.indexOf('--verbose')).toBeLessThan(args.length - 1);
+    expect(args[args.length - 1]).toBe('Hello');
   });
 
   it('rejects extraArgs with shell metacharacters', async () => {
@@ -462,20 +428,17 @@ describe('CrushBackend — sendPrompt', () => {
 });
 
 // ===========================================================================
-// CrushBackend — ACP event parsing (text_delta)
+// CrushBackend — plain-text stdout passthrough (VERIFIED behavior)
 // ===========================================================================
 
-describe('CrushBackend — text_delta events', () => {
-  it('emits model-output messages for text_delta events', async () => {
+describe('CrushBackend — plain-text stdout', () => {
+  it('emits each stdout chunk verbatim as a model-output delta', async () => {
     const { backend } = createCrushBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
     const messages = collectMessages(backend);
 
     const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [
-      crushTextDelta('Hello, '),
-      crushTextDelta('world!'),
-    ]);
+    simulateProcess(currentMockProcess, ['Hello, ', 'world!']);
     await sendPromise;
 
     const textMessages = messages.filter((m: any) => m.type === 'model-output');
@@ -484,281 +447,71 @@ describe('CrushBackend — text_delta events', () => {
     expect((textMessages[1] as any).textDelta).toBe('world!');
   });
 
-  it('ignores text_delta events with empty delta', async () => {
+  it('passes through plain text that happens to start with "{" (no JSON parsing)', async () => {
+    // WHY: the old impl swallowed non-JSON and parsed JSON. The real crush emits
+    // plain prose; a line beginning with "{" must still surface verbatim.
     const { backend } = createCrushBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
     const messages = collectMessages(backend);
 
     const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [
-      JSON.stringify({ type: 'text_delta' }), // no delta field
-    ]);
+    simulateProcess(currentMockProcess, ['{ "this": "is just text crush printed" }']);
     await sendPromise;
 
     const textMessages = messages.filter((m: any) => m.type === 'model-output');
-    expect(textMessages).toHaveLength(0);
+    expect(textMessages).toHaveLength(1);
+    expect((textMessages[0] as any).textDelta).toContain('is just text crush printed');
   });
-});
 
-// ===========================================================================
-// CrushBackend — ACP event parsing (tool_call / tool_result)
-// ===========================================================================
-
-describe('CrushBackend — tool events', () => {
-  it('emits tool-call messages for tool_call events', async () => {
+  it('emits "idle" status on clean (code 0) exit', async () => {
     const { backend } = createCrushBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
     const messages = collectMessages(backend);
 
-    const sendPromise = backend.sendPrompt(sessionId, 'Edit a file');
-    simulateProcess(currentMockProcess, [
-      crushToolCall('read_file', 'call-1', { path: '/project/src/index.ts' }),
-    ]);
+    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
+    simulateProcess(currentMockProcess, ['done thinking'], 0);
     await sendPromise;
 
-    const toolCalls = messages.filter((m: any) => m.type === 'tool-call');
-    expect(toolCalls).toHaveLength(1);
-    expect((toolCalls[0] as any).toolName).toBe('read_file');
-    expect((toolCalls[0] as any).callId).toBe('call-1');
+    const statuses = messages.filter((m: any) => m.type === 'status').map((m: any) => m.status);
+    expect(statuses).toContain('idle');
   });
 
-  it('emits tool-result messages for tool_result events', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Edit a file');
-    simulateProcess(currentMockProcess, [
-      crushToolResult('read_file', 'call-1', 'file contents here'),
-    ]);
-    await sendPromise;
-
-    const toolResults = messages.filter((m: any) => m.type === 'tool-result');
-    expect(toolResults).toHaveLength(1);
-    expect((toolResults[0] as any).toolName).toBe('read_file');
-    expect((toolResults[0] as any).result).toBe('file contents here');
-  });
-
-  it('emits fs-edit message for file-writing tool results', async () => {
+  it('does NOT emit usage/cost/tool/fs-edit events (crush has no schema for them)', async () => {
     const { backend } = createCrushBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
     const messages = collectMessages(backend);
 
     const sendPromise = backend.sendPrompt(sessionId, 'Write a file');
-    simulateProcess(currentMockProcess, [
-      crushToolResult('write_file', 'call-2', 'ok', { path: '/project/src/utils.ts' }),
-    ]);
+    simulateProcess(currentMockProcess, ['I wrote the file for you.']);
     await sendPromise;
 
-    const fsEdits = messages.filter((m: any) => m.type === 'fs-edit');
-    expect(fsEdits).toHaveLength(1);
-    expect((fsEdits[0] as any).path).toBe('/project/src/utils.ts');
-  });
-
-  it('emits fs-edit for "edit" tools', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Edit file');
-    simulateProcess(currentMockProcess, [
-      crushToolResult('edit_file', 'call-3', 'done', { file_path: '/project/app.ts' }),
-    ]);
-    await sendPromise;
-
-    const fsEdits = messages.filter((m: any) => m.type === 'fs-edit');
-    expect(fsEdits).toHaveLength(1);
-    expect((fsEdits[0] as any).path).toBe('/project/app.ts');
-  });
-
-  it('does NOT emit fs-edit for non-file-editing tools', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Run shell command');
-    simulateProcess(currentMockProcess, [
-      crushToolResult('run_command', 'call-4', 'output here'),
-    ]);
-    await sendPromise;
-
-    const fsEdits = messages.filter((m: any) => m.type === 'fs-edit');
-    expect(fsEdits).toHaveLength(0);
-  });
-
-  it('does not emit fs-edit if file path is not found in args', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Write file');
-    simulateProcess(currentMockProcess, [
-      // write_file tool result but no path info in args
-      crushToolResult('write_file', 'call-5', 'ok'),
-    ]);
-    await sendPromise;
-
-    const fsEdits = messages.filter((m: any) => m.type === 'fs-edit');
-    expect(fsEdits).toHaveLength(0);
+    expect(messages.filter((m: any) => m.type === 'token-count')).toHaveLength(0);
+    expect(messages.filter((m: any) => m.type === 'cost-report')).toHaveLength(0);
+    expect(messages.filter((m: any) => m.type === 'tool-call')).toHaveLength(0);
+    expect(messages.filter((m: any) => m.type === 'tool-result')).toHaveLength(0);
+    expect(messages.filter((m: any) => m.type === 'fs-edit')).toHaveLength(0);
   });
 });
 
 // ===========================================================================
-// CrushBackend — token/cost accumulation (usage events)
+// SKIPPED — invented ACP event schema (no machine-readable crush output exists)
 // ===========================================================================
 
-describe('CrushBackend — usage events', () => {
-  it('emits token-count messages with cumulative totals', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [
-      crushUsage({ input_tokens: 100, output_tokens: 50, cost_usd: 0.005 }),
-    ]);
-    await sendPromise;
-
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    expect(tokenCounts).toHaveLength(1);
-    expect((tokenCounts[0] as any).inputTokens).toBe(100);
-    expect((tokenCounts[0] as any).outputTokens).toBe(50);
-    expect((tokenCounts[0] as any).costUsd).toBeCloseTo(0.005);
+// SCHEMA UNVERIFIED: crush v0.76.0 has NO JSON/ACP output mode (`crush run`
+// emits plain text). These blocks tested a fabricated `{text_delta, tool_call,
+// tool_result, usage, status, done}` event stream that the real binary does not
+// produce. They stay skipped (not deleted) as a record of what would need a
+// keyed crush session to verify before any structured parsing is reintroduced
+// (#30 — needs auth + captured real `--verbose`/`--debug` output).
+describe.skip('CrushBackend — ACP JSON event parsing (FABRICATED SCHEMA — see #30)', () => {
+  it('tool_call / tool_result events', () => {
+    // No verified source. Requires keyed session capture (#30).
   });
-
-  it('accumulates token counts across multiple usage events', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [
-      crushUsage({ input_tokens: 100, output_tokens: 50 }),
-      crushUsage({ input_tokens: 200, output_tokens: 75 }),
-    ]);
-    await sendPromise;
-
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    const last = tokenCounts[tokenCounts.length - 1] as any;
-    expect(last.inputTokens).toBe(300);
-    expect(last.outputTokens).toBe(125);
+  it('usage / cost-report events', () => {
+    // No verified source. crush exposes no per-turn usage event. (#30)
   });
-
-  it('tracks cache tokens from usage events', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [
-      crushUsage({
-        input_tokens: 100,
-        output_tokens: 50,
-        cache_read_input_tokens: 80,
-        cache_creation_input_tokens: 20,
-        cost_usd: 0.01,
-      }),
-    ]);
-    await sendPromise;
-
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    const tc = tokenCounts[0] as any;
-    expect(tc.cacheReadTokens).toBe(80);
-    expect(tc.cacheWriteTokens).toBe(20);
-  });
-
-  it('resets token counts on new session', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId: s1 } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const send1 = backend.sendPrompt(s1, 'First');
-    simulateProcess(currentMockProcess, [crushUsage({ input_tokens: 500 })]);
-    await send1;
-
-    currentMockProcess = makeMockProcess();
-    mockSpawn.mockReturnValue(currentMockProcess);
-
-    const { sessionId: s2 } = await backend.startSession();
-    const send2 = backend.sendPrompt(s2, 'Second');
-    simulateProcess(currentMockProcess, [crushUsage({ input_tokens: 100 })]);
-    await send2;
-
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    // Last event should reflect only the second session's accumulation
-    const lastCount = tokenCounts[tokenCounts.length - 1] as any;
-    expect(lastCount.inputTokens).toBe(100);
-  });
-});
-
-// ===========================================================================
-// CrushBackend — status events
-// ===========================================================================
-
-describe('CrushBackend — status events', () => {
-  it('maps "loading" state to "starting"', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [crushStatus('loading')]);
-    await sendPromise;
-
-    const statuses = messages.filter((m: any) => m.type === 'status').map((m: any) => m.status);
-    expect(statuses).toContain('starting');
-  });
-
-  it('maps "thinking" state to "running"', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [crushStatus('thinking')]);
-    await sendPromise;
-
-    const statuses = messages.filter((m: any) => m.type === 'status').map((m: any) => m.status);
-    expect(statuses).toContain('running');
-  });
-
-  it('maps "executing" state to "running"', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [crushStatus('executing')]);
-    await sendPromise;
-
-    const statuses = messages.filter((m: any) => m.type === 'status').map((m: any) => m.status);
-    expect(statuses).toContain('running');
-  });
-
-  it('maps "done" state to "idle"', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [crushStatus('done')]);
-    await sendPromise;
-
-    const statuses = messages.filter((m: any) => m.type === 'status').map((m: any) => m.status);
-    expect(statuses).toContain('idle');
-  });
-
-  it('emits "idle" on "done" event', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [crushDone()]);
-    await sendPromise;
-
-    const statuses = messages.filter((m: any) => m.type === 'status').map((m: any) => m.status);
-    expect(statuses).toContain('idle');
+  it('status / done JSON events', () => {
+    // No verified source. Status is implied by exit code, not JSON events. (#30)
   });
 });
 
@@ -767,22 +520,6 @@ describe('CrushBackend — status events', () => {
 // ===========================================================================
 
 describe('CrushBackend — error handling', () => {
-  it('emits error status on "error" events', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [crushError('Provider API rate limit exceeded')]);
-    await sendPromise;
-
-    const errorStatuses = messages.filter(
-      (m: any) => m.type === 'status' && m.status === 'error'
-    );
-    expect(errorStatuses.length).toBeGreaterThan(0);
-    expect((errorStatuses[0] as any).detail).toContain('rate limit');
-  });
-
   it('emits error status on process spawn error', async () => {
     const { backend } = createCrushBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
@@ -791,7 +528,7 @@ describe('CrushBackend — error handling', () => {
     const sendPromise = backend.sendPrompt(sessionId, 'Hello');
     currentMockProcess.emit('error', new Error('spawn crush ENOENT'));
 
-    await expect(sendPromise).rejects.toThrow('spawn crush ENOENT');
+    await expect(sendPromise).rejects.toThrow();
 
     const errorStatuses = messages.filter(
       (m: any) => m.type === 'status' && m.status === 'error'
@@ -799,13 +536,18 @@ describe('CrushBackend — error handling', () => {
     expect(errorStatuses.length).toBeGreaterThan(0);
   });
 
-  it('emits error status on stderr output containing "Error"', async () => {
+  it('emits error status on stderr output containing "Error" (crush ANSI error box)', async () => {
     const { backend } = createCrushBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
     const messages = collectMessages(backend);
 
     const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    (currentMockProcess.stderr as EventEmitter).emit('data', Buffer.from('Error: config not found\n'));
+    // Real crush prints a styled "ERROR" box to stderr; our handler matches
+    // case-insensitively on error keywords.
+    (currentMockProcess.stderr as EventEmitter).emit(
+      'data',
+      Buffer.from('  ERROR  Agent processing failed: forbidden\n')
+    );
     simulateProcess(currentMockProcess);
     await sendPromise;
 
@@ -813,20 +555,6 @@ describe('CrushBackend — error handling', () => {
       (m: any) => m.type === 'status' && m.status === 'error'
     );
     expect(errorStatuses.length).toBeGreaterThan(0);
-  });
-
-  it('ignores non-JSON stdout lines gracefully', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [
-      '  \x1b[32m✓\x1b[0m Loading context...', // charm ANSI progress line
-      '────────────────────────────────', // charm box drawing
-    ]);
-
-    // Should not throw
-    await expect(sendPromise).resolves.toBeUndefined();
   });
 });
 
@@ -899,18 +627,11 @@ describe('CrushBackend — permission response', () => {
     expect((permResponses[0] as any).approved).toBe(false);
   });
 
-  it('writes "y\\n" to stdin when approved and process is running', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Dangerous operation');
-    // Process is running but not yet closed
-
-    await backend.respondToPermission?.('req-789', true);
-
-    expect(currentMockProcess.stdin.write).toHaveBeenCalledWith('y\n');
-    currentMockProcess.emit('close', 0);
-    await sendPromise;
+  // SCHEMA UNVERIFIED: the old test asserted a y\n stdin write. crush's headless
+  // `run` mode has no confirmed over-stdin permission protocol (permissions are
+  // config/--yolo driven), so we no longer fabricate that write. (#30)
+  it.skip('writes "y\\n" to stdin when approved (UNVERIFIED crush permission channel — see #30)', () => {
+    // Requires a keyed session to confirm whether crush ever prompts over stdin.
   });
 });
 
@@ -965,19 +686,6 @@ describe('CrushBackend — message handler registration', () => {
     expect(received).toHaveLength(0);
   });
 
-  it('disposed backend does not emit to handlers', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    await backend.startSession();
-    await backend.dispose();
-
-    const received: unknown[] = [];
-    backend.onMessage((msg) => received.push(msg));
-
-    // Try to trigger an event after dispose (should be silent)
-    const countBefore = received.length;
-    expect(received.length).toBe(countBefore);
-  });
-
   it('handler errors do not break other handlers', async () => {
     const { backend } = createCrushBackend(BASE_OPTIONS);
     const goodMessages: unknown[] = [];
@@ -1011,128 +719,5 @@ describe('CrushBackend — dispose', () => {
 
     // Should not throw
     await expect(backend.dispose()).resolves.toBeUndefined();
-  });
-
-  it('clears message listeners on dispose', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const received: unknown[] = [];
-    backend.onMessage((msg) => received.push(msg));
-    await backend.dispose();
-
-    const countAfterDispose = received.length;
-    // Even if we could trigger events, no new ones should arrive
-    expect(received.length).toBe(countAfterDispose);
-  });
-});
-
-// ===========================================================================
-// CrushBackend — line buffer handling
-// ===========================================================================
-
-describe('CrushBackend — line buffer handling', () => {
-  it('handles JSON split across multiple data events', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-
-    // Split a JSON event across two data chunks (simulates Node.js stream chunking)
-    const json = crushTextDelta('Hello, world!');
-    const half1 = json.slice(0, Math.floor(json.length / 2));
-    const half2 = json.slice(Math.floor(json.length / 2)) + '\n';
-
-    (currentMockProcess.stdout as EventEmitter).emit('data', Buffer.from(half1));
-    (currentMockProcess.stdout as EventEmitter).emit('data', Buffer.from(half2));
-    currentMockProcess.emit('close', 0);
-    await sendPromise;
-
-    const textMessages = messages.filter((m: any) => m.type === 'model-output');
-    expect(textMessages).toHaveLength(1);
-    expect((textMessages[0] as any).textDelta).toBe('Hello, world!');
-  });
-
-  it('flushes remaining buffer on process close', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-
-    // Emit JSON without trailing newline (simulates unterminated line in buffer)
-    const json = crushTextDelta('Final chunk');
-    (currentMockProcess.stdout as EventEmitter).emit('data', Buffer.from(json));
-    currentMockProcess.emit('close', 0);
-    await sendPromise;
-
-    const textMessages = messages.filter((m: any) => m.type === 'model-output');
-    expect(textMessages).toHaveLength(1);
-  });
-});
-
-// ===========================================================================
-// CrushBackend — cost-report emission
-// ===========================================================================
-
-/**
- * Tests for the unified CostReport event added to Crush usage events.
- *
- * WHY: migration 022 requires billing_model / source / raw_agent_payload.
- * Crush always emits agent-reported because its usage event always carries the
- * full cost breakdown from the Sourcegraph backend.
- */
-describe('CrushBackend — cost-report emission', () => {
-  it('emits cost-report with billingModel=api-key and source=agent-reported on usage event', async () => {
-    const { backend } = createCrushBackend({ ...BASE_OPTIONS, model: 'claude-sonnet-4' });
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      crushUsage({
-        input_tokens: 1000,
-        output_tokens: 400,
-        cache_read_input_tokens: 60,
-        cache_creation_input_tokens: 20,
-        cost_usd: 0.018,
-      }),
-    ]);
-    await promptPromise;
-
-    const reports = messages.filter((m: any) => m.type === 'cost-report');
-    expect(reports.length).toBeGreaterThanOrEqual(1);
-    const r = reports[0] as any;
-    expect(r.report.billingModel).toBe('api-key');
-    expect(r.report.source).toBe('agent-reported');
-    expect(r.report.agentType).toBe('crush');
-    expect(r.report.inputTokens).toBe(1000);
-    expect(r.report.outputTokens).toBe(400);
-    expect(r.report.cacheReadTokens).toBe(60);
-    expect(r.report.cacheWriteTokens).toBe(20);
-    expect(r.report.rawAgentPayload).not.toBeNull();
-  });
-
-  it('emits one cost-report per usage event with per-event incremental token counts', async () => {
-    const { backend } = createCrushBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      crushUsage({ input_tokens: 200, output_tokens: 80, cost_usd: 0.002 }),
-      crushUsage({ input_tokens: 300, output_tokens: 120, cost_usd: 0.003 }),
-    ]);
-    await promptPromise;
-
-    const reports = messages.filter((m: any) => m.type === 'cost-report');
-    // WHY: Each cost-report carries the incremental tokens from a single usage
-    // event, not session-accumulated totals. The cost-reporter sums them server-side.
-    expect(reports.length).toBe(2);
-    const r1 = reports[0] as any;
-    expect(r1.report.inputTokens).toBe(200);
-    expect(r1.report.outputTokens).toBe(80);
-    const r2 = reports[1] as any;
-    expect(r2.report.inputTokens).toBe(300);
-    expect(r2.report.outputTokens).toBe(120);
   });
 });

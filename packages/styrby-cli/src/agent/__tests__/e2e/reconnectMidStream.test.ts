@@ -224,11 +224,6 @@ const MID_TOOL_CALL_TRANSCRIPTS = {
     '{"type":"tool_use","tool_name":"write_file","tool_input":{"path":"main.ts","content":"console.log(\'Hello!\');"},"call_id":"tc-001"}',
     // No tool_result — killed here
   ].join('\n') + '\n',
-  kilo: [
-    '{"type":"text","content":"Writing hello world..."}',
-    '{"type":"tool_use","tool_name":"write_file","tool_input":{"path":"main.ts","content":"console.log(\'Hello!\');"},"call_id":"kc-001"}',
-    // No tool_result — killed here
-  ].join('\n') + '\n',
   goose: [
     '{"type":"message","content":"Creating file..."}',
     '{"type":"tool_call","tool":"write_file","input":{"path":"main.ts","content":"console.log(\'Hello!\');"},"call_id":"gc-001"}',
@@ -263,7 +258,7 @@ describe('Reconnect: streaming backends — mid-text disconnect (scenario 1)', (
     { name: 'amp', create: () => createAmpBackend({ cwd: '/p' }), partial: PARTIAL_TRANSCRIPTS.amp },
     { name: 'crush', create: () => createCrushBackend({ cwd: '/p' }), partial: PARTIAL_TRANSCRIPTS.crush },
     { name: 'kiro', create: () => createKiroBackend({ cwd: '/p' }), partial: PARTIAL_TRANSCRIPTS.kiro },
-    { name: 'droid', create: () => createDroidBackend({ cwd: '/p', backend: 'anthropic' }), partial: PARTIAL_TRANSCRIPTS.droid },
+    { name: 'droid', create: () => createDroidBackend({ cwd: '/p' }), partial: PARTIAL_TRANSCRIPTS.droid },
   ] as const;
 
   for (const { name, create, partial } of cases) {
@@ -298,9 +293,14 @@ describe('Reconnect: streaming backends — mid-text disconnect (scenario 1)', (
 // ============================================================================
 
 describe('Reconnect: streaming backends — mid-tool-call disconnect (scenario 2)', () => {
+  // NOTE: opencode removed from this scenario 2026-06-10, and kilo removed
+  // 2026-06-10 (#30). Both assert a `tool-call` is emitted mid-stream, but their
+  // real tool-event schema is not yet verified against the live binary (kilo is
+  // an OpenCode fork whose rewritten factory no longer maps the invented
+  // `tool_use` event), so the backends correctly emit no tool-call. Re-add with
+  // a real fixture once a tool-triggering session is captured (#30). goose still
+  // covers the mid-tool-call error-status behavior.
   const cases = [
-    { name: 'opencode', create: () => createOpenCodeBackend({ cwd: '/p' }), partial: MID_TOOL_CALL_TRANSCRIPTS.opencode },
-    { name: 'kilo', create: () => createKiloBackend({ cwd: '/p' }), partial: MID_TOOL_CALL_TRANSCRIPTS.kilo },
     { name: 'goose', create: () => createGooseBackend({ cwd: '/p' }), partial: MID_TOOL_CALL_TRANSCRIPTS.goose },
   ] as const;
 

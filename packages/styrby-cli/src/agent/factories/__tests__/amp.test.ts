@@ -1,13 +1,22 @@
 /**
- * Tests for the Amp agent backend factory (Sourcegraph).
+ * Tests for the Amp agent backend factory (ampcode.com).
  *
  * Covers:
  * - `createAmpBackend` factory function
  * - `registerAmpAgent` registry integration
- * - `AmpBackend` class: session lifecycle, subprocess management,
- *   JSONL output parsing, deep mode sub-agent event tracking,
- *   token/cost accumulation across sub-agents, fs-edit detection,
- *   error handling, cancellation, permission response, and disposal.
+ * - `AmpBackend` class: session lifecycle, subprocess management, the REAL
+ *   `amp -x "<prompt>" --stream-json` invocation (verified against
+ *   `amp --help`), Claude Code-compatible stream-json parsing, AMP_API_KEY-only
+ *   auth injection, error handling, cancellation, and disposal.
+ *
+ * Stream-json schema source: `amp --help` documents `--stream-json` as
+ * "Claude Code-compatible stream JSON format", so the event shape is the same
+ * newline-delimited `{type:'assistant',message:{content:[...],usage:{...}}}` /
+ * `{type:'result'}` schema the `claude` factory parses. The exact bytes could
+ * NOT be captured live (running `amp -x ... --stream-json` triggers `amp login`
+ * with no AMP_API_KEY available) — see #30. Tests therefore assert the
+ * claude-compatible shape; any assertion needing real keyed output is skipped
+ * with a reason.
  *
  * All child_process and logger calls are mocked so no real Amp binary
  * is required.
@@ -17,15 +26,18 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before the module under test is imported
 // ---------------------------------------------------------------------------
 
-function makeStream() {
-  const emitter = new EventEmitter() as EventEmitter & { write?: ReturnType<typeof vi.fn> };
-  emitter.write = vi.fn();
-  return emitter;
+// WHY PassThrough (not a bare EventEmitter): the rewritten AmpBackend consumes
+// stdout via the base class's node:readline `streamLines()`, which requires a
+// real Readable (`resume`/`pause`/`read`). PassThrough exposes the full Readable
+// API while still letting tests push bytes via `.write()` / `.emit('data', buf)`.
+function makeStream(): PassThrough {
+  return new PassThrough();
 }
 
 function makeMockProcess() {
@@ -79,59 +91,67 @@ function collectMessages(backend: ReturnType<typeof createAmpBackend>['backend']
 }
 
 /**
- * Simulate Amp output: emit lines as stdout data events, then close the process.
+ * Simulate Amp stream-json output: write newline-delimited lines to the stdout
+ * PassThrough (so the backend's readline emits 'line' events), end the streams,
+ * then fire the process 'close' on the next tick.
+ *
+ * WHY nextTick (mirrors aider.test): 'close' must fire AFTER readline has flushed
+ * the buffered lines, otherwise the close handler resolves before any line is
+ * parsed and the emitted-message assertions race.
  */
 function simulateProcess(proc: MockProcess, lines: string[] = [], exitCode = 0) {
   for (const line of lines) {
-    (proc.stdout as EventEmitter).emit('data', Buffer.from(line + '\n'));
+    (proc.stdout as PassThrough).write(line + '\n');
   }
-  proc.emit('close', exitCode);
+  (proc.stdout as PassThrough).end();
+  (proc.stderr as PassThrough).end();
+  process.nextTick(() => proc.emit('close', exitCode));
 }
 
-// ---- Amp event builders ----
+// ---- Amp stream-json event builders (Claude Code-compatible schema) ----
+// Source: `amp --help` ("Claude Code-compatible stream JSON format") + the
+// verified claude factory schema. See module header / #30.
 
-function ampText(content: string): string {
-  return JSON.stringify({ type: 'text', content });
+/** assistant line carrying a text block. */
+function ampAssistantText(text: string, model = 'amp-default'): string {
+  return JSON.stringify({
+    type: 'assistant',
+    message: { model, content: [{ type: 'text', text }] },
+  });
 }
 
-function ampToolUse(toolName: string, callId: string, input?: Record<string, unknown>): string {
-  return JSON.stringify({ type: 'tool_use', tool_name: toolName, call_id: callId, tool_input: input });
+/** assistant line carrying a tool_use block. */
+function ampToolUse(toolName: string, id: string, input?: Record<string, unknown>): string {
+  return JSON.stringify({
+    type: 'assistant',
+    message: { content: [{ type: 'tool_use', name: toolName, id, input }] },
+  });
 }
 
-function ampToolResult(
-  toolName: string,
-  callId: string,
-  result: unknown,
-  toolInput?: Record<string, unknown>
-): string {
-  return JSON.stringify({ type: 'tool_result', tool_name: toolName, call_id: callId, tool_result: result, tool_input: toolInput });
+/** user line echoing a tool_result block (Claude Code shape). */
+function ampToolResult(toolUseId: string, content: unknown): string {
+  return JSON.stringify({
+    type: 'user',
+    message: { content: [{ type: 'tool_result', tool_use_id: toolUseId, content }] },
+  });
 }
 
-function ampSubAgentStart(subAgentId: string, description?: string): string {
-  return JSON.stringify({ type: 'sub_agent_start', sub_agent_id: subAgentId, sub_agent_description: description });
-}
-
-function ampSubAgentComplete(subAgentId: string): string {
-  return JSON.stringify({ type: 'sub_agent_complete', sub_agent_id: subAgentId });
-}
-
-function ampUsage(usage: {
+/** assistant line whose usage block drives cost extraction. */
+function ampAssistantUsage(usage: {
   input_tokens?: number;
   output_tokens?: number;
-  cache_read_tokens?: number;
-  cache_write_tokens?: number;
-  cost_usd?: number;
-  sub_agent_id?: string;
-}): string {
-  return JSON.stringify({ type: 'usage', usage });
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+}, model = 'amp-default'): string {
+  return JSON.stringify({
+    type: 'assistant',
+    message: { model, usage, content: [] },
+  });
 }
 
-function ampError(error: string): string {
-  return JSON.stringify({ type: 'error', error });
-}
-
-function ampDone(): string {
-  return JSON.stringify({ type: 'done' });
+/** terminal result line. */
+function ampResult(): string {
+  return JSON.stringify({ type: 'result' });
 }
 
 const BASE_OPTIONS: AmpBackendOptions = {
@@ -306,7 +326,7 @@ describe('AmpBackend — session lifecycle', () => {
 // ===========================================================================
 
 describe('AmpBackend — sendPrompt arguments', () => {
-  it('spawns amp with "chat", "--message", and "--format json" flags', async () => {
+  it('spawns amp in execute mode with -x <prompt> --stream-json', async () => {
     const { backend } = createAmpBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
 
@@ -316,14 +336,13 @@ describe('AmpBackend — sendPrompt arguments', () => {
 
     const [cmd, args] = mockSpawn.mock.calls[0];
     expect(cmd).toBe('amp');
-    expect(args).toContain('chat');
-    expect(args).toContain('--message');
-    expect(args).toContain('Analyze the auth module');
-    expect(args).toContain('--format');
-    expect(args).toContain('json');
+    // -x must be immediately followed by the prompt (positional message form).
+    expect(args[0]).toBe('-x');
+    expect(args[1]).toBe('Analyze the auth module');
+    expect(args).toContain('--stream-json');
   });
 
-  it('includes --no-interactive flag by default', async () => {
+  it('does NOT use the invented "chat"/"--message"/"--format" flags', async () => {
     const { backend } = createAmpBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
 
@@ -332,11 +351,14 @@ describe('AmpBackend — sendPrompt arguments', () => {
     await promptPromise;
 
     const [, args] = mockSpawn.mock.calls[0];
-    expect(args).toContain('--no-interactive');
+    expect(args).not.toContain('chat');
+    expect(args).not.toContain('--message');
+    expect(args).not.toContain('--format');
+    expect(args).not.toContain('--no-interactive');
   });
 
-  it('includes --model flag when model is specified', async () => {
-    const { backend } = createAmpBackend({ ...BASE_OPTIONS, model: 'claude-opus-4' });
+  it('includes --mode when a mode is specified', async () => {
+    const { backend } = createAmpBackend({ ...BASE_OPTIONS, mode: 'deep' });
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
@@ -344,11 +366,11 @@ describe('AmpBackend — sendPrompt arguments', () => {
     await promptPromise;
 
     const [, args] = mockSpawn.mock.calls[0];
-    expect(args).toContain('--model');
-    expect(args).toContain('claude-opus-4');
+    expect(args).toContain('--mode');
+    expect(args).toContain('deep');
   });
 
-  it('does NOT include --model when model is omitted', async () => {
+  it('does NOT include --mode when mode is omitted', async () => {
     const { backend } = createAmpBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
 
@@ -357,23 +379,11 @@ describe('AmpBackend — sendPrompt arguments', () => {
     await promptPromise;
 
     const [, args] = mockSpawn.mock.calls[0];
-    expect(args).not.toContain('--model');
+    expect(args).not.toContain('--mode');
   });
 
-  it('includes --deep flag when deepMode is enabled', async () => {
-    const { backend } = createAmpBackend({ ...BASE_OPTIONS, deepMode: true });
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess);
-    await promptPromise;
-
-    const [, args] = mockSpawn.mock.calls[0];
-    expect(args).toContain('--deep');
-  });
-
-  it('does NOT include --deep when deepMode is false', async () => {
-    const { backend } = createAmpBackend({ ...BASE_OPTIONS, deepMode: false });
+  it('does NOT include the invented --deep / --max-agents / --session flags', async () => {
+    const { backend } = createAmpBackend({ ...BASE_OPTIONS, mode: 'deep' });
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
@@ -382,50 +392,14 @@ describe('AmpBackend — sendPrompt arguments', () => {
 
     const [, args] = mockSpawn.mock.calls[0];
     expect(args).not.toContain('--deep');
-  });
-
-  it('includes --max-agents when deepMode is enabled with maxSubAgents', async () => {
-    const { backend } = createAmpBackend({ ...BASE_OPTIONS, deepMode: true, maxSubAgents: 6 });
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess);
-    await promptPromise;
-
-    const [, args] = mockSpawn.mock.calls[0];
-    expect(args).toContain('--max-agents');
-    expect(args).toContain('6');
-  });
-
-  it('does NOT include --max-agents when deepMode is disabled', async () => {
-    const { backend } = createAmpBackend({ ...BASE_OPTIONS, deepMode: false, maxSubAgents: 6 });
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess);
-    await promptPromise;
-
-    const [, args] = mockSpawn.mock.calls[0];
     expect(args).not.toContain('--max-agents');
-  });
-
-  it('includes --session flag when resumeSessionId is provided', async () => {
-    const { backend } = createAmpBackend({ ...BASE_OPTIONS, resumeSessionId: 'sess-abc-123' });
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess);
-    await promptPromise;
-
-    const [, args] = mockSpawn.mock.calls[0];
-    expect(args).toContain('--session');
-    expect(args).toContain('sess-abc-123');
+    expect(args).not.toContain('--session');
   });
 
   it('appends extraArgs to the spawn call', async () => {
     const { backend } = createAmpBackend({
       ...BASE_OPTIONS,
-      extraArgs: ['--debug', '--timeout', '300'],
+      extraArgs: ['--effort', 'high'],
     });
     const { sessionId } = await backend.startSession();
 
@@ -434,12 +408,11 @@ describe('AmpBackend — sendPrompt arguments', () => {
     await promptPromise;
 
     const [, args] = mockSpawn.mock.calls[0];
-    expect(args).toContain('--debug');
-    expect(args).toContain('--timeout');
-    expect(args).toContain('300');
+    expect(args).toContain('--effort');
+    expect(args).toContain('high');
   });
 
-  it('sets ANTHROPIC_API_KEY and AMP_API_KEY when apiKey is provided', async () => {
+  it('injects ONLY AMP_API_KEY (no cross-vendor ANTHROPIC_API_KEY leak)', async () => {
     const { backend } = createAmpBackend({ ...BASE_OPTIONS, apiKey: 'amp-key-456' });
     const { sessionId } = await backend.startSession();
 
@@ -448,8 +421,9 @@ describe('AmpBackend — sendPrompt arguments', () => {
     await promptPromise;
 
     const [, , spawnOptions] = mockSpawn.mock.calls[0];
-    expect(spawnOptions.env.ANTHROPIC_API_KEY).toBe('amp-key-456');
     expect(spawnOptions.env.AMP_API_KEY).toBe('amp-key-456');
+    // SECURITY: the Amp token must NOT be forwarded to the Anthropic var.
+    expect(spawnOptions.env.ANTHROPIC_API_KEY).toBeUndefined();
   });
 
   it('passes cwd to spawn options', async () => {
@@ -485,81 +459,84 @@ describe('AmpBackend — sendPrompt arguments', () => {
 });
 
 // ===========================================================================
-// AmpBackend — JSONL output parsing and event emission
+// AmpBackend — stream-json parsing and event emission (Claude-compatible)
 // ===========================================================================
 
-describe('AmpBackend — JSONL output parsing and event emission', () => {
-  it('emits model-output message for type=text events', async () => {
+describe('AmpBackend — stream-json parsing and event emission', () => {
+  it('emits model-output for an assistant text block', async () => {
     const { backend } = createAmpBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [ampText('Here is your refactored code.')]);
+    simulateProcess(currentMockProcess, [ampAssistantText('Here is your refactored code.')]);
     await promptPromise;
 
     const outputs = messages.filter((m: any) => m.type === 'model-output');
     expect(outputs.length).toBeGreaterThan(0);
-    const text = outputs.map((m: any) => m.textDelta).join('');
+    // Claude-compatible parser emits fullText (not incremental textDelta).
+    const text = outputs.map((m: any) => m.fullText).join('');
     expect(text).toContain('Here is your refactored code.');
   });
 
-  it('does not emit model-output when text content is absent', async () => {
-    const { backend } = createAmpBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [JSON.stringify({ type: 'text' })]);
-    await promptPromise;
-
-    expect(messages.filter((m: any) => m.type === 'model-output').length).toBe(0);
-  });
-
-  it('emits tool-call message for type=tool_use events', async () => {
+  it('does not emit model-output when an assistant block has no text', async () => {
     const { backend } = createAmpBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
     simulateProcess(currentMockProcess, [
-      ampToolUse('search_files', 'call-10', { pattern: '*.ts' }),
+      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text' }] } }),
+    ]);
+    await promptPromise;
+
+    expect(messages.filter((m: any) => m.type === 'model-output').length).toBe(0);
+  });
+
+  it('emits tool-call for an assistant tool_use block', async () => {
+    const { backend } = createAmpBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, [
+      ampToolUse('Grep', 'call-10', { pattern: '*.ts' }),
     ]);
     await promptPromise;
 
     const toolCalls = messages.filter((m: any) => m.type === 'tool-call');
     expect(toolCalls.length).toBe(1);
     const call = toolCalls[0] as any;
-    expect(call.toolName).toBe('search_files');
+    expect(call.toolName).toBe('Grep');
     expect(call.callId).toBe('call-10');
     expect(call.args.pattern).toBe('*.ts');
   });
 
-  it('emits tool-result message for type=tool_result events', async () => {
+  it('emits tool-result for a user tool_result block', async () => {
     const { backend } = createAmpBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
     simulateProcess(currentMockProcess, [
-      ampToolResult('read_file', 'call-11', 'const x = 1;', { path: 'src/index.ts' }),
+      ampToolResult('call-11', 'const x = 1;'),
     ]);
     await promptPromise;
 
     const toolResults = messages.filter((m: any) => m.type === 'tool-result');
     expect(toolResults.length).toBe(1);
-    expect((toolResults[0] as any).toolName).toBe('read_file');
     expect((toolResults[0] as any).callId).toBe('call-11');
+    expect((toolResults[0] as any).result).toBe('const x = 1;');
   });
 
-  it('emits fs-edit message when tool_result uses a write tool', async () => {
+  it('emits fs-edit when an assistant tool_use is a Write with file_path', async () => {
     const { backend } = createAmpBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
     simulateProcess(currentMockProcess, [
-      ampToolResult('write_file', 'call-12', 'ok', { path: 'src/payments.ts' }),
+      ampToolUse('Write', 'call-12', { file_path: 'src/payments.ts' }),
     ]);
     await promptPromise;
 
@@ -567,18 +544,18 @@ describe('AmpBackend — JSONL output parsing and event emission', () => {
     expect(fsEdits.length).toBe(1);
     const edit = fsEdits[0] as any;
     expect(edit.path).toBe('src/payments.ts');
-    expect(edit.description).toContain('write_file');
+    expect(edit.description).toContain('Write');
     expect(edit.description).toContain('src/payments.ts');
   });
 
-  it('emits fs-edit for edit_file tool with file_path input key', async () => {
+  it('emits fs-edit for an Edit tool with path input key', async () => {
     const { backend } = createAmpBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
     simulateProcess(currentMockProcess, [
-      ampToolResult('edit_file', 'call-13', 'ok', { file_path: 'lib/db.ts' }),
+      ampToolUse('Edit', 'call-13', { path: 'lib/db.ts' }),
     ]);
     await promptPromise;
 
@@ -594,169 +571,38 @@ describe('AmpBackend — JSONL output parsing and event emission', () => {
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
     simulateProcess(currentMockProcess, [
-      ampToolResult('execute_command', 'call-14', 'exit 0'),
+      ampToolUse('Bash', 'call-14', { command: 'ls' }),
     ]);
     await promptPromise;
 
     expect(messages.filter((m: any) => m.type === 'fs-edit').length).toBe(0);
   });
 
-  it('emits sub-agent-start event message when sub_agent_start is received', async () => {
+  it('emits a cost-report from an assistant usage block (via shared claude parser)', async () => {
     const { backend } = createAmpBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
     simulateProcess(currentMockProcess, [
-      ampSubAgentStart('agent-1', 'Analyzing src/auth module'),
+      ampAssistantUsage({ input_tokens: 500, output_tokens: 200, cache_read_input_tokens: 50 }),
     ]);
     await promptPromise;
 
-    const events = messages.filter((m: any) => m.type === 'event' && m.name === 'sub-agent-start');
-    expect(events.length).toBe(1);
-    const evt = events[0] as any;
-    expect(evt.payload.subAgentId).toBe('agent-1');
-    expect(evt.payload.description).toBe('Analyzing src/auth module');
-    expect(evt.payload.activeCount).toBe(1);
+    const reports = messages.filter((m: any) => m.type === 'cost-report');
+    expect(reports.length).toBe(1);
+    const r = (reports[0] as any).report;
+    expect(r.inputTokens).toBe(500);
+    expect(r.outputTokens).toBe(200);
+    expect(r.cacheReadTokens).toBe(50);
   });
 
-  it('emits sub-agent-complete event and decrements active count', async () => {
-    const { backend } = createAmpBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      ampSubAgentStart('agent-1', 'Analyzing src/auth'),
-      ampSubAgentStart('agent-2', 'Analyzing src/payments'),
-      ampSubAgentComplete('agent-1'),
-    ]);
-    await promptPromise;
-
-    const completeEvents = messages.filter(
-      (m: any) => m.type === 'event' && m.name === 'sub-agent-complete'
-    );
-    expect(completeEvents.length).toBe(1);
-    const evt = completeEvents[0] as any;
-    expect(evt.payload.subAgentId).toBe('agent-1');
-    // One sub-agent remains active
-    expect(evt.payload.activeCount).toBe(1);
-  });
-
-  it('correctly tracks multiple concurrent sub-agents', async () => {
-    const { backend } = createAmpBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      ampSubAgentStart('agent-1'),
-      ampSubAgentStart('agent-2'),
-      ampSubAgentStart('agent-3'),
-      ampSubAgentComplete('agent-2'),
-      ampSubAgentComplete('agent-3'),
-    ]);
-    await promptPromise;
-
-    const startEvents = messages.filter((m: any) => m.type === 'event' && m.name === 'sub-agent-start');
-    const completeEvents = messages.filter((m: any) => m.type === 'event' && m.name === 'sub-agent-complete');
-
-    expect(startEvents.length).toBe(3);
-    expect(completeEvents.length).toBe(2);
-
-    // After 2 completions, 1 agent remains
-    const lastComplete = completeEvents.at(-1) as any;
-    expect(lastComplete.payload.activeCount).toBe(1);
-  });
-
-  it('emits token-count message from usage events', async () => {
-    const { backend } = createAmpBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      ampUsage({ input_tokens: 500, output_tokens: 200, cache_read_tokens: 50, cost_usd: 0.0075 }),
-    ]);
-    await promptPromise;
-
-    const tokenMessages = messages.filter((m: any) => m.type === 'token-count');
-    expect(tokenMessages.length).toBe(1);
-    const tm = tokenMessages[0] as any;
-    expect(tm.inputTokens).toBe(500);
-    expect(tm.outputTokens).toBe(200);
-    expect(tm.cacheReadTokens).toBe(50);
-    expect(tm.costUsd).toBeCloseTo(0.0075);
-  });
-
-  it('accumulates token usage across multiple usage events (sub-agent deep mode)', async () => {
-    const { backend } = createAmpBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      ampUsage({ input_tokens: 300, output_tokens: 100, cost_usd: 0.002, sub_agent_id: 'agent-1' }),
-      ampUsage({ input_tokens: 250, output_tokens: 80, cost_usd: 0.0015, sub_agent_id: 'agent-2' }),
-      ampUsage({ input_tokens: 400, output_tokens: 120, cost_usd: 0.003 }),
-    ]);
-    await promptPromise;
-
-    const tokenMessages = messages.filter((m: any) => m.type === 'token-count');
-    expect(tokenMessages.length).toBe(3);
-
-    const last = tokenMessages.at(-1) as any;
-    expect(last.inputTokens).toBe(950);
-    expect(last.outputTokens).toBe(300);
-    expect(last.costUsd).toBeCloseTo(0.0065);
-  });
-
-  it('includes sub_agent_id in token-count message for sub-agent attribution', async () => {
-    const { backend } = createAmpBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      ampUsage({ input_tokens: 100, output_tokens: 40, cost_usd: 0.001, sub_agent_id: 'agent-3' }),
-    ]);
-    await promptPromise;
-
-    const tokenMsg = messages.find((m: any) => m.type === 'token-count') as any;
-    expect(tokenMsg.subAgentId).toBe('agent-3');
-  });
-
-  it('emits error status for type=error events', async () => {
-    const { backend } = createAmpBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [ampError('Anthropic API rate limit exceeded')]);
-    await promptPromise;
-
-    const errorStatuses = messages.filter((m: any) => m.type === 'status' && m.status === 'error');
-    expect(errorStatuses.length).toBeGreaterThan(0);
-    expect((errorStatuses[0] as any).detail).toContain('rate limit');
-  });
-
-  it('emits idle status and clears sub-agents for type=done events', async () => {
-    const { backend } = createAmpBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      ampSubAgentStart('agent-1'),
-      ampDone(),
-    ]);
-    await promptPromise;
-
-    const idleStatuses = messages.filter(
-      (m: any) => m.type === 'status' && m.status === 'idle'
-    );
-    expect(idleStatuses.length).toBeGreaterThan(0);
-  });
+  // SKIP (#30 — needs keyed session): The exact field name Amp uses for an
+  // agent-reported USD cost (claude's stream-json carries no per-line cost; the
+  // total only appears on the `result` line) could not be byte-verified without
+  // a live keyed run. The shared claude parser sets costUsd=0 from usage lines,
+  // so a precise per-event cost assertion would be testing an unverified shape.
+  it.skip('reports a precise per-event USD cost (UNVERIFIED — needs keyed amp session, #30)', () => {});
 
   it('ignores non-JSON stdout lines without crashing', async () => {
     const { backend } = createAmpBackend(BASE_OPTIONS);
@@ -765,8 +611,7 @@ describe('AmpBackend — JSONL output parsing and event emission', () => {
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
     simulateProcess(currentMockProcess, [
       'Initializing Amp...',
-      '--- deep mode ---',
-      ampText('Done.'),
+      ampAssistantText('Done.'),
     ]);
 
     await expect(promptPromise).resolves.not.toThrow();
@@ -779,7 +624,7 @@ describe('AmpBackend — JSONL output parsing and event emission', () => {
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
     simulateProcess(currentMockProcess, [
       '{ broken',
-      ampText('Recovered.'),
+      ampAssistantText('Recovered.'),
     ]);
 
     await expect(promptPromise).resolves.not.toThrow();
@@ -790,7 +635,7 @@ describe('AmpBackend — JSONL output parsing and event emission', () => {
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
-    const fullLine = ampText('Chunked response from Amp');
+    const fullLine = ampAssistantText('Chunked response from Amp');
     const half1 = fullLine.slice(0, Math.floor(fullLine.length / 2));
     const half2 = fullLine.slice(Math.floor(fullLine.length / 2)) + '\n';
 
@@ -801,17 +646,17 @@ describe('AmpBackend — JSONL output parsing and event emission', () => {
     await promptPromise;
 
     const outputs = messages.filter((m: any) => m.type === 'model-output');
-    const text = outputs.map((m: any) => m.textDelta).join('');
+    const text = outputs.map((m: any) => m.fullText).join('');
     expect(text).toContain('Chunked response from Amp');
   });
 
-  it('emits idle status after process exits cleanly', async () => {
+  it('emits idle status after the result line + clean exit', async () => {
     const { backend } = createAmpBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [], 0);
+    simulateProcess(currentMockProcess, [ampResult()], 0);
     await promptPromise;
 
     const lastStatus = messages
@@ -819,32 +664,6 @@ describe('AmpBackend — JSONL output parsing and event emission', () => {
       .at(-1) as any;
 
     expect(lastStatus?.status).toBe('idle');
-  });
-
-  it('extracts session_id from events and stores for persistence', async () => {
-    const { backend } = createAmpBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    // Emit a text message that includes a session_id (Amp provides this for persistence)
-    simulateProcess(currentMockProcess, [
-      JSON.stringify({ type: 'text', content: 'hello', session_id: 'amp-persist-session-xyz' }),
-    ]);
-    await promptPromise;
-
-    // Verify the session continues to work (ampSessionId is stored internally)
-    const nextProcess = makeMockProcess();
-    mockSpawn.mockReturnValue(nextProcess);
-
-    const promptPromise2 = backend.sendPrompt(sessionId, 'follow-up');
-    simulateProcess(nextProcess);
-    await promptPromise2;
-
-    // The second spawn should include --session with the stored amp session ID
-    const secondCall = mockSpawn.mock.calls[1];
-    const [, args] = secondCall;
-    expect(args).toContain('--session');
-    expect(args).toContain('amp-persist-session-xyz');
   });
 });
 
@@ -880,39 +699,12 @@ describe('AmpBackend — error handling', () => {
     expect(errorStatus.detail).toContain('code 3');
   });
 
-  it('emits error status when stderr contains "Error"', async () => {
-    const { backend } = createAmpBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    (currentMockProcess.stderr as EventEmitter).emit(
-      'data',
-      Buffer.from('Error: Anthropic API key invalid'),
-    );
-    simulateProcess(currentMockProcess, [], 0);
-    await promptPromise;
-
-    const errorStatuses = messages.filter((m: any) => m.type === 'status' && m.status === 'error');
-    expect(errorStatuses.length).toBeGreaterThan(0);
-  });
-
-  it('emits error status when stderr contains "failed"', async () => {
-    const { backend } = createAmpBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    (currentMockProcess.stderr as EventEmitter).emit(
-      'data',
-      Buffer.from('Sub-agent failed: context window exceeded'),
-    );
-    simulateProcess(currentMockProcess, [], 0);
-    await promptPromise;
-
-    const errorStatuses = messages.filter((m: any) => m.type === 'status' && m.status === 'error');
-    expect(errorStatuses.length).toBeGreaterThan(0);
-  });
+  // WHY removed: the prior factory scanned stderr text for "Error"/"failed" and
+  // synthesized an error status. The rewrite mirrors ClaudeBackend — stderr is
+  // debug-logged only; real failures surface via a non-zero exit code (covered
+  // above) or the process 'error' event (covered below). Heuristic stderr-string
+  // matching produced false-positive error frames (e.g. amp printing a benign
+  // "no errors found" line), so it is intentionally gone.
 
   it('rejects sendPrompt when the spawned process emits an "error" event', async () => {
     const { backend } = createAmpBackend(BASE_OPTIONS);
@@ -1060,25 +852,11 @@ describe('AmpBackend — respondToPermission', () => {
     expect(permMsg.approved).toBe(false);
   });
 
-  it('writes "y\\n" to stdin when approved=true and process is running', async () => {
-    const { backend } = createAmpBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-
-    backend.sendPrompt(sessionId, 'task').catch(() => {});
-    await backend.respondToPermission('req-amp-3', true);
-
-    expect(currentMockProcess.stdin.write).toHaveBeenCalledWith('y\n');
-  });
-
-  it('writes "n\\n" to stdin when approved=false and process is running', async () => {
-    const { backend } = createAmpBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-
-    backend.sendPrompt(sessionId, 'task').catch(() => {});
-    await backend.respondToPermission('req-amp-4', false);
-
-    expect(currentMockProcess.stdin.write).toHaveBeenCalledWith('n\n');
-  });
+  // WHY removed (2 tests): the prior factory wrote 'y\n'/'n\n' to amp's stdin to
+  // answer an interactive permission prompt. That flow does not exist — execute
+  // mode (`amp -x`) is non-interactive and is spawned with stdin ignored. The
+  // base StreamingAgentBackendBase.respondToPermission is emit-only (verified by
+  // the two tests above), which is the correct behavior for amp.
 });
 
 // ===========================================================================
@@ -1099,21 +877,29 @@ describe('AmpBackend — waitForResponseComplete', () => {
 // ===========================================================================
 
 /**
- * Tests for the unified CostReport event added to Amp usage events.
+ * Tests for the unified CostReport event emitted from Amp's stream-json usage.
  *
- * WHY: migration 022 persists billing_model / source / raw_agent_payload.
- * Amp always emits agent-reported with billingModel=api-key. When sub_agent_id
- * is present it must appear in rawAgentPayload for sub-agent cost attribution.
+ * WHY: migration 022 persists billing_model / source / raw_agent_payload. Amp is
+ * BYOK (AMP_API_KEY) so it always emits source=agent-reported, billingModel=
+ * api-key. The report is built by re-stamping the shared claude parser's output
+ * with agentType='amp', so the schema stays single-owner.
+ *
+ * SCHEMA NOTE (#30): usage field names mirror claude's verified stream-json
+ * (`input_tokens` / `cache_read_input_tokens` / etc.). Not byte-verified against
+ * a real keyed amp run — see the cost-precision skip in the parsing describe.
  */
 describe('AmpBackend — cost-report emission', () => {
-  it('emits cost-report with billingModel=api-key and source=agent-reported on usage event', async () => {
+  it('emits cost-report with billingModel=api-key and source=agent-reported on a usage line', async () => {
     const { backend } = createAmpBackend({ ...BASE_OPTIONS, model: 'claude-sonnet-4' });
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
     simulateProcess(currentMockProcess, [
-      ampUsage({ input_tokens: 800, output_tokens: 300, cache_read_tokens: 50, cost_usd: 0.012 }),
+      ampAssistantUsage(
+        { input_tokens: 800, output_tokens: 300, cache_read_input_tokens: 50 },
+        'claude-sonnet-4',
+      ),
     ]);
     await promptPromise;
 
@@ -1129,19 +915,19 @@ describe('AmpBackend — cost-report emission', () => {
     expect(r.report.rawAgentPayload).not.toBeNull();
   });
 
-  it('includes sub_agent_id in rawAgentPayload when usage event has sub_agent_id', async () => {
-    const { backend } = createAmpBackend(BASE_OPTIONS);
+  it('re-stamps the report model from options when provided', async () => {
+    const { backend } = createAmpBackend({ ...BASE_OPTIONS, model: 'amp-smart' });
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
-    const promptPromise = backend.sendPrompt(sessionId, 'deep task');
+    const promptPromise = backend.sendPrompt(sessionId, 'task');
     simulateProcess(currentMockProcess, [
-      ampUsage({ input_tokens: 300, output_tokens: 100, cost_usd: 0.005, sub_agent_id: 'sub-xyz' }),
+      ampAssistantUsage({ input_tokens: 300, output_tokens: 100 }, 'some-other-model'),
     ]);
     await promptPromise;
 
     const r = messages.find((m: any) => m.type === 'cost-report') as any;
-    expect(r.report.rawAgentPayload?.sub_agent_id).toBe('sub-xyz');
+    expect(r.report.model).toBe('amp-smart');
   });
 
   it('cost-report has messageId=null (Amp does not expose per-message IDs)', async () => {
@@ -1150,7 +936,9 @@ describe('AmpBackend — cost-report emission', () => {
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [ampUsage({ cost_usd: 0.003 })]);
+    simulateProcess(currentMockProcess, [
+      ampAssistantUsage({ input_tokens: 10, output_tokens: 5 }),
+    ]);
     await promptPromise;
 
     const r = messages.find((m: any) => m.type === 'cost-report') as any;

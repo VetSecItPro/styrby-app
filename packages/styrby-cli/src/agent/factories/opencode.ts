@@ -99,31 +99,44 @@ export interface OpenCodeBackendResult {
 }
 
 /**
- * OpenCode JSON output message types.
+ * OpenCode `--format json` event — VERIFIED against the real opencode binary
+ * (v1.17.x, captured 2026-06-10). opencode emits newline-delimited events of the
+ * shape `{ type, sessionID, part }`:
+ *   - `step_start`  : turn boundary (no payload to surface)
+ *   - `text`        : assistant output, carried in `part.text` (a complete part,
+ *                     not a delta)
+ *   - `step_finish` : authoritative usage event — `part.cost` (USD) +
+ *                     `part.tokens.{input,output,reasoning,cache.{read,write}}`
+ * `sessionID` is present on EVERY event and is captured for `--session` resume.
  *
- * These match the output format when using `--format json`.
+ * WHY this replaced the prior interface: the old shape (`type:'session'` with
+ * `Cost`/`PromptTokens`/`CompletionTokens`) does not exist in opencode's output —
+ * it was an invented schema, so the parser emitted nothing against the real CLI.
  */
-interface OpenCodeJsonMessage {
-  type: 'assistant' | 'tool_use' | 'tool_result' | 'status' | 'error' | 'session';
-  content?: string;
-  tool_name?: string;
-  tool_input?: Record<string, unknown>;
-  tool_result?: unknown;
-  call_id?: string;
-  status?: string;
-  error?: string;
-  session?: OpenCodeSessionInfo;
+interface OpenCodeTokens {
+  input?: number;
+  output?: number;
+  reasoning?: number;
+  cache?: { read?: number; write?: number };
 }
-
-/**
- * OpenCode session info from JSON output.
- */
-interface OpenCodeSessionInfo {
-  id?: string;
-  Cost?: number;
-  PromptTokens?: number;
-  CompletionTokens?: number;
-  TotalTokens?: number;
+interface OpenCodePart {
+  /** Part discriminator: 'step-start' | 'text' | 'step-finish' | tool parts. */
+  type?: string;
+  /** Assistant text (present on `text` events). */
+  text?: string;
+  /** Step cost in USD (present on `step-finish`). */
+  cost?: number;
+  /** Token usage for the step (present on `step-finish`). */
+  tokens?: OpenCodeTokens;
+  /** Stop reason (present on `step-finish`). */
+  reason?: string;
+}
+interface OpenCodeJsonMessage {
+  /** Event type: 'step_start' | 'text' | 'step_finish' | …. */
+  type: string;
+  /** Session id, present on every event (used for `--session` resume). */
+  sessionID?: string;
+  part?: OpenCodePart;
 }
 
 /**
@@ -171,131 +184,78 @@ class OpenCodeBackend extends StreamingAgentBackendBase {
    * @param msg - The parsed OpenCode message
    */
   private handleJsonMessage(msg: OpenCodeJsonMessage): void {
+    // sessionID rides on EVERY event; capture it so follow-up prompts resume the
+    // same opencode session via `--session`.
+    if (msg.sessionID) this.openCodeSessionId = msg.sessionID;
+
     switch (msg.type) {
-      case 'assistant':
-        if (msg.content) {
-          this.emit({ type: 'model-output', textDelta: msg.content });
-        }
+      case 'text': {
+        // Assistant output. opencode delivers complete text parts (not deltas),
+        // so emit fullText rather than a delta.
+        const text = msg.part?.text;
+        if (text) this.emit({ type: 'model-output', fullText: text });
         break;
+      }
 
-      case 'tool_use':
-        if (msg.tool_name && msg.call_id) {
-          this.emit({
-            type: 'tool-call',
-            toolName: msg.tool_name,
-            args: msg.tool_input ?? {},
-            callId: msg.call_id,
-          });
-        }
-        break;
+      case 'step_finish': {
+        // Authoritative usage event: part.cost (USD) + part.tokens.{input,output,
+        // cache.{read,write}}. opencode is BYOK so billingModel is 'api-key'.
+        const part = msg.part;
+        if (!part) break;
+        const t = part.tokens ?? {};
+        // WHY set (not accumulate): the verified single-step session reports the
+        // turn totals on its one step_finish. Multi-step (tool-using) sessions
+        // emit multiple step_finish events whose aggregation semantics are not yet
+        // captured — taking the latest avoids double-counting the resent context
+        // window (part.tokens.input includes full context each step). Multi-step
+        // aggregation is a tracked follow-up (real tool-session capture needed).
+        this.inputTokens = t.input ?? this.inputTokens;
+        this.outputTokens = t.output ?? this.outputTokens;
+        const cacheRead = t.cache?.read ?? 0;
+        const cacheWrite = t.cache?.write ?? 0;
+        if (typeof part.cost === 'number') this.totalCost = part.cost;
 
-      case 'tool_result':
-        if (msg.call_id && msg.tool_name) {
-          this.emit({
-            type: 'tool-result',
-            toolName: msg.tool_name,
-            result: msg.tool_result,
-            callId: msg.call_id,
-          });
-
-          // Check for file edits in tool results
-          if (
-            msg.tool_name === 'write_file' ||
-            msg.tool_name === 'edit_file' ||
-            msg.tool_name === 'str_replace_editor'
-          ) {
-            const input = msg.tool_input ?? {};
-            const path = (input.path as string) ?? (input.file_path as string);
-            if (path) {
-              this.emit({
-                type: 'fs-edit',
-                description: `${msg.tool_name}: ${path}`,
-                path,
-              });
-            }
-          }
-        }
-        break;
-
-      case 'status':
-        if (msg.status) {
-          const statusMap: Record<string, 'starting' | 'running' | 'idle' | 'stopped' | 'error'> =
-            {
-              starting: 'starting',
-              running: 'running',
-              idle: 'idle',
-              complete: 'idle',
-              stopped: 'stopped',
-              error: 'error',
-            };
-          const status = statusMap[msg.status] ?? 'running';
-          this.emit({ type: 'status', status });
-        }
-        break;
-
-      case 'error':
+        // Legacy token-count (kept for existing consumers).
         this.emit({
-          type: 'status',
-          status: 'error',
-          detail: msg.error ?? 'Unknown error',
+          type: 'token-count',
+          inputTokens: this.inputTokens,
+          outputTokens: this.outputTokens,
+          totalTokens: this.inputTokens + this.outputTokens,
+          costUsd: this.totalCost,
         });
+
+        // Unified CostReport — source='agent-reported' (opencode reports real USD).
+        const costReport: CostReport = {
+          sessionId: this.sessionId ?? '',
+          messageId: null,
+          agentType: 'opencode',
+          model: this.options.model ?? 'unknown',
+          timestamp: new Date().toISOString(),
+          source: 'agent-reported',
+          billingModel: 'api-key',
+          costUsd: this.totalCost,
+          inputTokens: this.inputTokens,
+          outputTokens: this.outputTokens,
+          cacheReadTokens: cacheRead,
+          cacheWriteTokens: cacheWrite,
+          rawAgentPayload: msg as unknown as Record<string, unknown>,
+        };
+        this.emit({ type: 'cost-report', report: costReport });
         break;
+      }
 
-      case 'session':
-        if (msg.session) {
-          const session = msg.session;
-          if (session.id) {
-            this.openCodeSessionId = session.id;
-          }
-          // Update cost tracking from session data
-          if (session.Cost !== undefined) {
-            this.totalCost = session.Cost;
-          }
-          if (session.PromptTokens !== undefined) {
-            this.inputTokens = session.PromptTokens;
-          }
-          if (session.CompletionTokens !== undefined) {
-            this.outputTokens = session.CompletionTokens;
-          }
-
-          // Emit legacy token-count (keep for existing consumers)
-          this.emit({
-            type: 'token-count',
-            inputTokens: this.inputTokens,
-            outputTokens: this.outputTokens,
-            totalTokens: session.TotalTokens ?? this.inputTokens + this.outputTokens,
-            costUsd: this.totalCost,
-          });
-
-          // WHY: Emit unified CostReport alongside token-count so cost-reporter
-          // can persist the full source-of-truth shape to cost_records (migration 022).
-          // source='agent-reported' because OpenCode's session event carries Cost
-          // directly from the agent. rawAgentPayload preserves the session JSON for
-          // SOC2 CC7.2 audit trail.
-          if (session.Cost !== undefined) {
-            const costReport: CostReport = {
-              sessionId: this.sessionId ?? '',
-              messageId: null,
-              agentType: 'opencode',
-              model: this.options.model ?? 'unknown',
-              timestamp: new Date().toISOString(),
-              source: 'agent-reported',
-              billingModel: 'api-key',
-              costUsd: this.totalCost,
-              inputTokens: this.inputTokens,
-              outputTokens: this.outputTokens,
-              cacheReadTokens: 0,
-              cacheWriteTokens: 0,
-              rawAgentPayload: session as unknown as Record<string, unknown>,
-            };
-            this.emit({ type: 'cost-report', report: costReport });
-          }
-        }
+      case 'step_start':
+        // Turn boundary — no payload to surface.
         break;
 
       default:
-        // Log unknown message types for debugging
-        logger.debug('[OpenCodeBackend] Unknown message type:', msg);
+        // WHY no tool-call / tool-result / fs-edit mapping: the real opencode
+        // tool-event schema has NOT been captured yet (a tool-triggering session
+        // is required). The prior code mapped an INVENTED `tool_use`/`tool_result`
+        // schema opencode never emits — rather than re-invent, we surface nothing
+        // until the real shape is verified. Tracked in the per-agent protocol
+        // verification task.
+        logger.debug('[OpenCodeBackend] Unhandled opencode event type:', msg.type);
     }
   }
 
@@ -380,21 +340,22 @@ class OpenCodeBackend extends StreamingAgentBackendBase {
 
     this.emit({ type: 'status', status: 'running' });
 
-    // Build OpenCode command arguments
-    const args: string[] = [
-      '--format',
-      'json', // Use JSON output format
-      '--message',
-      prompt,
-      '--non-interactive', // Run in non-interactive mode
-    ];
+    // Build OpenCode command arguments.
+    //
+    // WHY this exact shape (verified against `opencode run --help`, opencode
+    // v1.17.x, 2026-06-10): headless runs use the `run` SUBCOMMAND with a
+    // POSITIONAL message — there is no `--message` flag and no `--non-interactive`
+    // flag (the prior args invented both, which would have launched the TUI or
+    // errored instead of running headless). `--format json` emits raw JSON events;
+    // `-m/--model` and `-s/--session` are real. `run` is inherently non-interactive.
+    const args: string[] = ['run', prompt, '--format', 'json'];
 
     // Add model if specified
     if (this.options.model) {
       args.push('--model', this.options.model);
     }
 
-    // Add session ID for persistence
+    // Add session ID for persistence (continue a prior session)
     if (this.openCodeSessionId) {
       args.push('--session', this.openCodeSessionId);
     }

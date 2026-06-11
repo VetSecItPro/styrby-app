@@ -199,7 +199,9 @@ describe('checkVersionCompatibility', () => {
     { agentId: 'goose', within: '1.1.0', below: '0.9.9', above: '3.0.0' },
     { agentId: 'amp', within: '0.8.0', below: '0.4.9', above: '2.0.0' },
     { agentId: 'crush', within: '0.5.0', below: '0.0.9', above: '2.0.0' },
-    { agentId: 'kilo', within: '1.2.0', below: '0.9.9', above: '3.0.0' },
+    // kilo maxTestedVersion was bumped to 7.x (real binary is v7.3.41), so the
+    // "within" and "above max-tested" probes must track that.
+    { agentId: 'kilo', within: '7.0.0', below: '0.9.9', above: '8.0.0' },
     { agentId: 'kiro', within: '0.5.0', below: '0.0.9', above: '2.0.0' },
     { agentId: 'droid', within: '0.5.0', below: '0.0.9', above: '2.0.0' },
   ];
