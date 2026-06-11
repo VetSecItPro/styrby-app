@@ -134,8 +134,12 @@ export function validateOtelConfig(config: Partial<OtelUserConfig>): OtelConfigV
       errors['endpoint'] = 'Endpoint URL is required when OTEL export is enabled';
     } else {
       const trimmed = config.endpoint.trim();
-      if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-        errors['endpoint'] = 'Endpoint must start with http:// or https://';
+      // WHY https-only (SEC-MOB-003): OTEL spans carry session + cost metadata.
+      // Permitting http:// would export that telemetry in cleartext to a
+      // user-configured collector — a passive network observer could read it.
+      // This matches the documented contract in this function's @example.
+      if (!trimmed.startsWith('https://')) {
+        errors['endpoint'] = 'Endpoint must start with https:// (cleartext http:// is not allowed)';
       } else {
         try {
           new URL(trimmed);

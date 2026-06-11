@@ -208,7 +208,7 @@ describe('MetricsScreen', () => {
     expect(result.errors['endpoint']).toBeDefined();
   });
 
-  it('validateOtelConfig: endpoint must start with http(s)://', () => {
+  it('validateOtelConfig: endpoint must be a URL (rejects non-http schemes)', () => {
     const result = validateOtelConfig({
       enabled: true,
       endpoint: 'ftp://invalid.example.com/v1/metrics',
@@ -217,7 +217,32 @@ describe('MetricsScreen', () => {
       timeoutMs: 5000,
     });
     expect(result.isValid).toBe(false);
-    expect(result.errors['endpoint']).toContain('http');
+    expect(result.errors['endpoint']).toContain('https');
+  });
+
+  // SEC-MOB-003: OTEL spans carry session + cost metadata, so a cleartext
+  // http:// collector would leak them to a passive observer. https-only.
+  it('validateOtelConfig: rejects cleartext http:// endpoint', () => {
+    const result = validateOtelConfig({
+      enabled: true,
+      endpoint: 'http://collector.example.com/v1/metrics',
+      headers: {},
+      serviceName: 'styrby-cli',
+      timeoutMs: 5000,
+    });
+    expect(result.isValid).toBe(false);
+    expect(result.errors['endpoint']).toContain('https');
+  });
+
+  it('validateOtelConfig: accepts https:// endpoint', () => {
+    const result = validateOtelConfig({
+      enabled: true,
+      endpoint: 'https://collector.example.com/v1/metrics',
+      headers: {},
+      serviceName: 'styrby-cli',
+      timeoutMs: 5000,
+    });
+    expect(result.isValid).toBe(true);
   });
 
   it('validateOtelConfig: service name cannot be empty', () => {

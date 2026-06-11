@@ -208,14 +208,35 @@ export abstract class StreamingAgentBackendBase implements AgentBackend {
   protected cancelled = false;
 
   /**
-   * Reset run-scoped state at the start of a new prompt.
+   * Reset run-scoped state at the start of a new prompt, and reject the prompt
+   * if a previous run is still in flight.
    *
-   * Currently clears the `cancelled` flag so a fresh run is not mistaken for a
+   * Clears the `cancelled` flag so a fresh run is not mistaken for a
    * previously-cancelled one. Subclasses MUST call this at the top of
    * `sendPrompt()` (before spawning) so the cancel-vs-crash discrimination in
    * the close handler is correct per run.
+   *
+   * WHY the busy guard (#27 concurrency fix): the relay dispatcher invokes
+   * `agent.sendPrompt(...)` fire-and-forget (no await — see apiSession relay
+   * handler). Two chat messages arriving in quick succession would therefore
+   * both reach `sendPrompt`, and each spawn-per-prompt backend does
+   * `this.process = spawn(...)`. Without a guard the second spawn overwrites
+   * `this.process`, ORPHANING the first child (it keeps running detached, its
+   * stdout interleaves with the second run, and its close handler nulls the
+   * second run's process reference). One agent process per backend at a time is
+   * the invariant; reject the overlapping prompt so the caller can retry after
+   * the current run finishes or is cancelled. The mobile UI normally disables
+   * input while a run is active, so this only fires on resends / double-taps /
+   * a misbehaving controller — exactly the edge case this guard exists for.
+   *
+   * @throws {Error} If a run is already in flight (`this.process` is live).
    */
   protected beginRun(): void {
+    if (this.process && !this.process.killed) {
+      throw new Error(
+        'Agent is busy: a prompt is already running. Wait for it to finish or cancel it first.',
+      );
+    }
     this.cancelled = false;
   }
 

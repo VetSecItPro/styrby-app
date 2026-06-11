@@ -871,6 +871,36 @@ describe('OpenCodeBackend — cancel', () => {
 });
 
 // ---------------------------------------------------------------------------
+// #27 concurrency guard — beginRun() rejects an overlapping prompt
+// ---------------------------------------------------------------------------
+
+describe('OpenCodeBackend — concurrent prompt guard (#27)', () => {
+  it('rejects a second prompt while the first run is still in flight', async () => {
+    const { backend } = createOpenCodeBackend({ cwd: '/tmp/project' });
+    const { sessionId } = await backend.startSession();
+
+    // First prompt spawns a process and stays running (no close emitted).
+    const first = backend.sendPrompt(sessionId, 'one');
+
+    // The relay dispatches fire-and-forget, so a second prompt can arrive
+    // mid-run. It must be rejected (busy), NOT silently spawn a second process
+    // that orphans the first.
+    await expect(backend.sendPrompt(sessionId, 'two')).rejects.toThrow(/busy/i);
+
+    // Finish the first run; this.process is nulled by the close handler.
+    lastFakeProcess.emit('close', 0);
+    await first;
+
+    // A subsequent prompt is accepted again (the guard only blocks overlap).
+    const third = backend.sendPrompt(sessionId, 'three');
+    lastFakeProcess.emit('close', 0); // close the new run so it resolves
+    await expect(third).resolves.toBeUndefined();
+
+    await backend.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
 
 describe('OpenCodeBackend — respondToPermission', () => {
   it('emits permission-response with approved=true', async () => {
