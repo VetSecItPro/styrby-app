@@ -86,10 +86,19 @@ describe('generate-summary edge function — data privacy', () => {
     expect(content).toContain('401');
   });
 
-  it('generate-summary sanitizes user-controlled values before embedding in AI prompt', () => {
+  it('generate-summary fences user-controlled values as untrusted data (SEC-LLM-004)', () => {
     const content = readFn('generate-summary/index.ts');
-    // Prompt injection protection
-    expect(content).toContain('sanitizeForPrompt');
+    // SEC-LLM-004: prompt-injection defense is now structural data-fencing, not
+    // a bypassable denylist. A per-request random fence wraps user metadata and
+    // the system prompt instructs the model to treat fenced content as data.
+    expect(content).toContain('makeFenceToken');
+    expect(content).toContain('untrustedDataSystemRule');
+    expect(content).toContain('neutralizeForFence');
+    // The old denylist sanitizer must be gone (it failed open on paraphrase).
+    expect(content).not.toContain('sanitizeForPrompt');
+    // User-controlled fields must NOT be interpolated into the static system
+    // prompt anymore — they live in the fenced user-data block.
+    expect(content).toMatch(/function buildSystemPrompt\(fence: string\)/);
   });
 });
 
