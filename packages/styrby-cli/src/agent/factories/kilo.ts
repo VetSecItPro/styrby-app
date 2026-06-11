@@ -40,6 +40,7 @@ import type {
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
+import { toNonNegativeNumber } from '@/utils/coerce';
 import { resolveApiKeyEnv, type ApiKeyProvider } from '@/utils/apiKeyProvider';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
 import type { CostReport } from '@styrby/shared/cost';
@@ -234,11 +235,15 @@ class KiloBackend extends StreamingAgentBackendBase {
         // WHY set (not accumulate): mirrors the verified OpenCode single-step
         // semantics — the turn totals land on one step_finish. Multi-step
         // aggregation is a tracked follow-up (#30).
-        this.inputTokens = t.input ?? this.inputTokens;
-        this.outputTokens = t.output ?? this.outputTokens;
-        const cacheRead = t.cache?.read ?? 0;
-        const cacheWrite = t.cache?.write ?? 0;
-        if (typeof part.cost === 'number') this.totalCost = part.cost;
+        //
+        // WHY toNonNegativeNumber (#24 DAST fix): these come from untrusted
+        // stdout; a string/negative would propagate a non-number into the
+        // `number`-typed CostReport and token arithmetic. Coerce at the boundary.
+        this.inputTokens = t.input === undefined ? this.inputTokens : toNonNegativeNumber(t.input);
+        this.outputTokens = t.output === undefined ? this.outputTokens : toNonNegativeNumber(t.output);
+        const cacheRead = toNonNegativeNumber(t.cache?.read);
+        const cacheWrite = toNonNegativeNumber(t.cache?.write);
+        if (part.cost !== undefined) this.totalCost = toNonNegativeNumber(part.cost, this.totalCost);
 
         // Legacy token-count (kept for existing consumers).
         this.emit({
