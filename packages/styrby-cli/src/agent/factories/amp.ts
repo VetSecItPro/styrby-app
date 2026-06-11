@@ -1,28 +1,41 @@
 /**
- * Amp Backend - Amp CLI agent adapter (Sourcegraph)
+ * Amp Backend - Amp CLI agent adapter (Sourcegraph / ampcode.com)
  *
- * This module provides a factory function for creating an Amp backend.
- * Amp is an AI coding agent by Sourcegraph that supports "deep mode" with
- * sub-agents for parallelized code analysis and editing tasks.
+ * This module provides a factory function for creating an Amp backend. Amp is
+ * an AI coding agent run headlessly via `amp -x "<message>"` (execute mode).
  *
- * Key characteristics:
- * - Binary name: `amp` (installed via npm or direct download from sourcegraph.com)
- * - Config: `~/.config/amp/config.json`
- * - Output: structured JSON with sub-agent event payloads
- * - Cost tracking: token usage from response metadata per sub-agent
- * - Deep mode: spawns multiple sub-agents for parallel analysis
- * - Supports streaming output via --stream flag
+ * Key characteristics (ALL verified against the installed `amp --help`,
+ * binary 0.0.1781143784-g47b692, 2026-06-11):
+ * - Binary name: `amp` (on PATH)
+ * - Config: `~/.config/amp/settings.json`
+ * - Auth: `AMP_API_KEY` env var (Amp's own access token from
+ *   https://ampcode.com/settings) — NOT ANTHROPIC_API_KEY. `amp login` /
+ *   `amp logout` manage stored credentials; `AMP_API_KEY` overrides.
+ * - Headless run: `amp -x "<message>"` (positional message; alias `--execute`).
+ *   There is NO `chat` subcommand.
+ * - JSON output: `amp -x "<message>" --stream-json` emits, per `--help`,
+ *   "Claude Code-compatible stream JSON format". i.e. the SAME newline-delimited
+ *   stream-json shape the `claude` binary emits — `{type:'assistant',
+ *   message:{content:[{type:'text'|'thinking',...}],usage:{input_tokens,...}}}`
+ *   then a final `{type:'result'}`.
+ * - Agent mode: `-m/--mode deep|rush|smart` (controls model, system prompt,
+ *   tool selection). There is NO `--deep` / `--max-agents` flag.
  *
- * WHY Amp: Sourcegraph's Amp is differentiated by its "deep mode" which
- * parallelizes code context gathering across multiple sub-agents. This enables
- * more accurate edits on large codebases. Styrby users who work on large
- * monorepos benefit from Amp's ability to read multiple files simultaneously.
+ * Because the parser mirrors claude's stream-json (the formats are documented
+ * as compatible), it reuses {@link parseClaudeJsonlLine} from the claude factory
+ * for cost extraction so there is a single source of truth for the schema.
+ *
+ * SCHEMA NOTE (#30): The exact `--stream-json` bytes could NOT be captured in
+ * this session because `amp -x ... --stream-json` triggers `amp login` (no
+ * AMP_API_KEY / stored credential available). The schema below is taken from
+ * the `--help` contract ("Claude Code-compatible") and the claude factory's
+ * verified parser. Fields beyond that contract are NOT invented. Re-verify
+ * against real keyed output when an Amp credential is available.
  *
  * @see https://ampcode.com
  * @module factories/amp
  */
 
-import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type {
   AgentBackend,
@@ -33,58 +46,59 @@ import type {
 } from '../core';
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
-import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
-import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
+import { StreamingAgentBackendBase } from '../StreamingAgentBackendBase';
 import type { CostReport } from '@styrby/shared/cost';
+import { parseClaudeJsonlLine } from './claude';
 
 // ============================================================================
 // Types
 // ============================================================================
 
 /**
+ * Amp agent mode, passed via `-m/--mode`.
+ *
+ * Verified from `amp --help`: "Set the agent mode (deep, rush, smart) — controls
+ * the model, system prompt, and tool selection". `deep` is the high-reasoning
+ * mode (may require `amp.experimental.modes: ["deep"]` in settings), `rush` is
+ * the fast/cheap mode, `smart` is the balanced default. We do NOT default this
+ * so Amp uses its own configured default unless the caller opts in.
+ */
+export type AmpMode = 'deep' | 'rush' | 'smart';
+
+/**
  * Options for creating an Amp backend.
  */
 export interface AmpBackendOptions extends AgentFactoryOptions {
   /**
-   * Amp API key from sourcegraph.com/amp.
-   * Maps to ANTHROPIC_API_KEY or AMP_API_KEY environment variable.
-   * Amp can use Anthropic models or its own Sourcegraph-hosted models.
+   * Amp access token (from https://ampcode.com/settings).
+   * Injected ONLY as the `AMP_API_KEY` environment variable — Amp's own
+   * documented auth var. It is NOT a cross-vendor model key, so it is never
+   * fanned out to ANTHROPIC_API_KEY / OPENAI_API_KEY (that would leak the token
+   * to non-Amp model endpoints during startup validation).
    */
   apiKey?: string;
 
   /**
-   * Model to use (e.g., 'claude-sonnet-4', 'claude-opus-4').
-   * Amp defaults to Claude Sonnet. Override for faster/cheaper options.
+   * Model override. Amp does not expose a generic `--model` flag in execute
+   * mode (model selection is driven by `--mode`); this field is retained for
+   * metadata/reporting only and is NOT passed to the CLI. Left here so cost
+   * reports can attribute a model name when the caller knows it.
    */
   model?: string;
 
   /**
-   * Enable deep mode for parallelized sub-agent analysis.
+   * Agent mode passed via `-m/--mode` (deep | rush | smart).
    *
-   * WHY: Deep mode spawns multiple sub-agents to gather context from different
-   * parts of the codebase simultaneously. This produces better edits on large
-   * codebases but uses more tokens. Disabled by default for cost predictability.
-   * Default: false
+   * WHY: This is Amp's real reasoning/cost dial (replaces the invented
+   * `--deep`/`--max-agents` flags). Omitted by default so Amp uses its own
+   * configured default mode.
    */
-  deepMode?: boolean;
+  mode?: AmpMode;
 
   /**
-   * Maximum number of sub-agents to spawn in deep mode.
-   * Only applies when deepMode is true. Default: 4
-   */
-  maxSubAgents?: number;
-
-  /**
-   * Additional Amp CLI arguments.
-   * See: https://ampcode.com/docs/cli
+   * Additional Amp CLI arguments, appended after the validated base flags.
    */
   extraArgs?: string[];
-
-  /**
-   * Session ID to resume (Amp supports persistent sessions).
-   * When provided, Amp will resume the session's context and history.
-   */
-  resumeSessionId?: string;
 }
 
 /**
@@ -103,128 +117,51 @@ export interface AmpBackendResult {
 }
 
 // ============================================================================
-// JSON Output Parsing
+// Stream-JSON Output Parsing (Claude Code-compatible)
 // ============================================================================
 
 /**
- * Amp JSON output message types.
+ * A single Amp `--stream-json` line.
  *
- * WHY: Amp outputs structured JSON with a type discriminator field.
- * Each message type has a specific payload structure that maps to
- * different AgentMessage variants in our abstraction layer.
+ * SCHEMA SOURCE (#30 — needs keyed session to byte-verify): `amp --help` states
+ * `--stream-json` produces "Claude Code-compatible stream JSON format". This
+ * type therefore mirrors the verified claude stream-json shape (see
+ * {@link ClaudeStreamMessage} in factories/claude.ts): a leading `system`/init
+ * line, one or more `assistant`/`user` lines carrying message content + tool
+ * use/results + a `usage` block, and a final `result` line. Typed loosely
+ * because only a subset of fields is consumed. NO Amp-specific fields are
+ * invented here — if Amp emits extensions (e.g. thinking blocks via
+ * `--stream-json-thinking`), they surface through the same `content[]` array.
  */
-interface AmpJsonMessage {
-  type:
-    | 'text'
-    | 'tool_use'
-    | 'tool_result'
-    | 'sub_agent_start'
-    | 'sub_agent_complete'
-    | 'usage'
-    | 'error'
-    | 'done';
-  /** Text content for 'text' events */
-  content?: string;
-  /** Tool name for 'tool_use' and 'tool_result' events */
-  tool_name?: string;
-  /** Tool input arguments for 'tool_use' events */
-  tool_input?: Record<string, unknown>;
-  /** Tool result for 'tool_result' events */
-  tool_result?: unknown;
-  /** Unique call ID for correlating tool_use to tool_result */
-  call_id?: string;
-  /** Sub-agent identifier for deep mode events */
-  sub_agent_id?: string;
-  /** Sub-agent description for deep mode events */
-  sub_agent_description?: string;
-  /** Token usage metadata for 'usage' events */
-  usage?: AmpUsageMetadata;
-  /** Error message for 'error' events */
-  error?: string;
-  /** Session ID for session persistence */
+interface AmpStreamMessage {
+  type: 'system' | 'assistant' | 'user' | 'result' | string;
+  subtype?: string;
+  /** Amp's own thread/session id when present (used for continuity/debug). */
   session_id?: string;
+  message?: {
+    role?: string;
+    model?: string;
+    content?: Array<{
+      type: string;
+      text?: string;
+      thinking?: string;
+      name?: string;
+      input?: Record<string, unknown>;
+      id?: string;
+      tool_use_id?: string;
+      content?: unknown;
+    }>;
+  };
 }
 
 /**
- * Token usage metadata from Amp response metadata.
+ * Tool names that mutate files, for fs-edit surfacing on mobile.
  *
- * WHY: Amp reports per-request and per-sub-agent token usage.
- * We accumulate all sub-agent usage to give users an accurate total,
- * since deep mode sub-agents each consume tokens independently.
+ * WHY this exact set: Amp's stream-json is Claude Code-compatible, so its tool
+ * names match Claude Code's built-in edit tools. Mirrors the claude factory's
+ * CLAUDE_EDIT_TOOLS rather than guessing snake_case names that Amp does not emit.
  */
-interface AmpUsageMetadata {
-  /** Input/prompt tokens for this request */
-  input_tokens?: number;
-  /** Output/completion tokens for this request */
-  output_tokens?: number;
-  /** Cache read tokens (Anthropic prompt caching) */
-  cache_read_tokens?: number;
-  /** Cache write tokens (Anthropic prompt caching) */
-  cache_write_tokens?: number;
-  /** Estimated cost in USD */
-  cost_usd?: number;
-  /** Which sub-agent generated this usage (for deep mode) */
-  sub_agent_id?: string;
-}
-
-/**
- * Parse a single JSON line from Amp's output.
- *
- * @param line - A single line of Amp stdout (expected to be JSON)
- * @returns Parsed AmpJsonMessage or null if the line is not valid JSON
- */
-function parseAmpJsonLine(line: string): AmpJsonMessage | null {
-  const trimmed = line.trim();
-  if (!trimmed || !trimmed.startsWith('{')) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(trimmed) as AmpJsonMessage;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Extract the file path from an Amp tool input.
- *
- * Amp uses different parameter names for file paths depending on the tool.
- * This function checks common field names to extract the path.
- *
- * @param toolInput - The tool input arguments
- * @returns File path string or null if not found
- */
-function extractFilePath(toolInput?: Record<string, unknown>): string | null {
-  if (!toolInput) return null;
-  return (
-    (toolInput.path as string) ??
-    (toolInput.file_path as string) ??
-    (toolInput.filename as string) ??
-    (toolInput.target as string) ??
-    null
-  );
-}
-
-/**
- * Determine if an Amp tool call results in a file system edit.
- *
- * @param toolName - The Amp tool name
- * @returns true if this tool writes or modifies files
- */
-function isAmpFileEditTool(toolName: string): boolean {
-  const fileEditPatterns = [
-    'write',
-    'edit',
-    'create_file',
-    'patch',
-    'str_replace',
-    'apply_diff',
-    'modify',
-  ];
-  const lowerTool = toolName.toLowerCase();
-  return fileEditPatterns.some((pattern) => lowerTool.includes(pattern));
-}
+const AMP_EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'create_file']);
 
 // ============================================================================
 // AmpBackend Class
@@ -233,221 +170,110 @@ function isAmpFileEditTool(toolName: string): boolean {
 /**
  * Amp Backend implementation.
  *
- * Spawns Amp as a subprocess with JSON output and parses the structured
- * messages. Handles deep mode sub-agent events, token accumulation across
- * sub-agents, and session persistence.
+ * Spawns `amp -x "<prompt>" --stream-json` and parses the Claude Code-compatible
+ * stream-json output line by line (the same line-based pattern claude/opencode/
+ * aider use via {@link StreamingAgentBackendBase}). Cost extraction reuses the
+ * claude factory's {@link parseClaudeJsonlLine} so the schema has one owner.
  */
 class AmpBackend extends StreamingAgentBackendBase {
   protected readonly logTag = 'AmpBackend';
+  /** Amp's own thread/session id, captured from any line that carries it. */
   private ampSessionId: string | null = null;
-  private lineBuffer = '';
-  private inputTokens = 0;
-  private outputTokens = 0;
-  private cacheReadTokens = 0;
-  private cacheWriteTokens = 0;
-  private totalCostUsd = 0;
-  // WHY: Track active sub-agents in deep mode so we can emit appropriate
-  // status messages (e.g., "Running 3 sub-agents") on the mobile app.
-  private activeSubAgents = new Set<string>();
 
   constructor(private options: AmpBackendOptions) {
     super();
   }
 
   /**
-   * Handle a parsed Amp JSON message and emit AgentMessages.
+   * Parse one stream-json line: emit a cost-report if it carries usage, then map
+   * its content to {@link AgentMessage}s. Mirrors ClaudeBackend.handleLine since
+   * Amp's `--stream-json` is documented as Claude Code-compatible.
    *
-   * WHY: Amp's deep mode introduces sub_agent_start/sub_agent_complete events
-   * that don't have a direct counterpart in the AgentMessage union. We map
-   * them to 'event' messages so the mobile app can show deep mode activity
-   * without needing to know Amp-specific internals.
+   * SCHEMA NOTE (#30): not byte-verified against real keyed Amp output (see the
+   * module header). The cost path delegates to the verified claude parser; the
+   * content mapping mirrors the verified claude content schema.
    *
-   * @param msg - The parsed Amp JSON message
+   * @param line - A single stream-json line from amp stdout.
    */
-  private handleAmpMessage(msg: AmpJsonMessage): void {
-    // Extract session ID if Amp provides one (for persistence)
-    if (msg.session_id) {
-      this.ampSessionId = msg.session_id;
+  private handleLine(line: string): void {
+    if (!line.trim()) return;
+
+    // Cost extraction reuses the shared claude parser, then we re-stamp the
+    // agentType/model/billingModel for Amp. Amp is BYOK (AMP_API_KEY) so its
+    // billing model is always 'api-key' — there is no subscription pass-through.
+    const claudeReport = parseClaudeJsonlLine(line, this.sessionId ?? '', 'api-key');
+    if (claudeReport) {
+      const report: CostReport = {
+        ...claudeReport,
+        agentType: 'amp',
+        model: this.options.model ?? claudeReport.model,
+        billingModel: 'api-key',
+      };
+      this.emit({ type: 'cost-report', report });
     }
 
+    let msg: AmpStreamMessage;
+    try {
+      msg = JSON.parse(line) as AmpStreamMessage;
+    } catch {
+      logger.debug('[AmpBackend] Non-JSON stdout line ignored');
+      return;
+    }
+
+    // Capture Amp's thread id from any line that carries it (debug/continuity).
+    if (typeof msg.session_id === 'string') this.ampSessionId = msg.session_id;
+
     switch (msg.type) {
-      case 'text':
-        if (msg.content) {
-          this.emit({ type: 'model-output', textDelta: msg.content });
-        }
-        break;
-
-      case 'tool_use':
-        if (msg.tool_name && msg.call_id) {
-          this.emit({
-            type: 'tool-call',
-            toolName: msg.tool_name,
-            args: msg.tool_input ?? {},
-            callId: msg.call_id,
-          });
-        }
-        break;
-
-      case 'tool_result':
-        if (msg.call_id && msg.tool_name) {
-          this.emit({
-            type: 'tool-result',
-            toolName: msg.tool_name,
-            result: msg.tool_result,
-            callId: msg.call_id,
-          });
-
-          // Detect file edits and emit fs-edit event
-          if (isAmpFileEditTool(msg.tool_name)) {
-            const filePath = extractFilePath(msg.tool_input);
-            if (filePath) {
-              this.emit({
-                type: 'fs-edit',
-                description: `${msg.tool_name}: ${filePath}`,
-                path: filePath,
-              });
+      case 'assistant':
+        for (const block of msg.message?.content ?? []) {
+          if (block.type === 'text' && block.text) {
+            this.emit({ type: 'model-output', fullText: block.text });
+          } else if (block.type === 'thinking' && block.thinking) {
+            // Surfaced only when run with --stream-json-thinking; treated as
+            // model output so the mobile UI can show the reasoning trace.
+            this.emit({ type: 'model-output', fullText: block.thinking });
+          } else if (block.type === 'tool_use' && block.id) {
+            this.emit({
+              type: 'tool-call',
+              toolName: block.name ?? 'unknown',
+              args: block.input ?? {},
+              callId: block.id,
+            });
+            // Surface file mutations so the mobile UI can show a diff affordance.
+            if (block.name && AMP_EDIT_TOOLS.has(block.name)) {
+              const input = block.input ?? {};
+              const filePath = (input.file_path as string) ?? (input.path as string);
+              if (filePath) {
+                this.emit({ type: 'fs-edit', description: `${block.name}: ${filePath}`, path: filePath });
+              }
             }
           }
         }
-        break;
-
-      case 'sub_agent_start':
-        // WHY: Deep mode spawns sub-agents for parallel analysis. We track
-        // them so the mobile app can show "Deep mode: analyzing X files..."
-        // status text instead of appearing hung during long analysis phases.
-        if (msg.sub_agent_id) {
-          this.activeSubAgents.add(msg.sub_agent_id);
-          this.emit({
-            type: 'event',
-            name: 'sub-agent-start',
-            payload: {
-              subAgentId: msg.sub_agent_id,
-              description: msg.sub_agent_description ?? 'Analyzing codebase',
-              activeCount: this.activeSubAgents.size,
-            },
-          });
-        }
-        break;
-
-      case 'sub_agent_complete':
-        // WHY: Remove the completed sub-agent from the active set and notify
-        // the mobile app. When activeCount reaches 0, the main agent resumes.
-        if (msg.sub_agent_id) {
-          this.activeSubAgents.delete(msg.sub_agent_id);
-          this.emit({
-            type: 'event',
-            name: 'sub-agent-complete',
-            payload: {
-              subAgentId: msg.sub_agent_id,
-              activeCount: this.activeSubAgents.size,
-            },
-          });
-        }
-        break;
-
-      case 'usage':
-        // WHY: Amp emits usage events after each model response (including
-        // per-sub-agent usage in deep mode). We accumulate all usage so
-        // the total token count reflects the full cost of the deep analysis.
-        if (msg.usage) {
-          const incrInput = msg.usage.input_tokens ?? 0;
-          const incrOutput = msg.usage.output_tokens ?? 0;
-          const incrCacheRead = msg.usage.cache_read_tokens ?? 0;
-          const incrCacheWrite = msg.usage.cache_write_tokens ?? 0;
-          const incrCost = msg.usage.cost_usd ?? 0;
-
-          this.inputTokens += incrInput;
-          this.outputTokens += incrOutput;
-          this.cacheReadTokens += incrCacheRead;
-          this.cacheWriteTokens += incrCacheWrite;
-          this.totalCostUsd += incrCost;
-
-          // Emit legacy token-count (keep for existing consumers)
-          this.emit({
-            type: 'token-count',
-            inputTokens: this.inputTokens,
-            outputTokens: this.outputTokens,
-            cacheReadTokens: this.cacheReadTokens,
-            cacheWriteTokens: this.cacheWriteTokens,
-            costUsd: this.totalCostUsd,
-            // Include sub-agent attribution for deep mode cost visibility
-            subAgentId: msg.usage.sub_agent_id,
-          });
-
-          // WHY: Emit unified CostReport for cost-reporter. Amp always reports
-          // agent-provided cost_usd. Include sub_agent_id in rawAgentPayload so
-          // deep-mode attribution is preserved in the audit trail.
-          const rawPayload: Record<string, unknown> = { ...(msg.usage as unknown as Record<string, unknown>) };
-          if (msg.usage.sub_agent_id) {
-            rawPayload.sub_agent_id = msg.usage.sub_agent_id;
+        return;
+      case 'user':
+        // Amp echoes tool results back as a user message (Claude Code shape).
+        for (const block of msg.message?.content ?? []) {
+          if (block.type === 'tool_result' && block.tool_use_id) {
+            this.emit({
+              type: 'tool-result',
+              toolName: 'tool',
+              result: block.content,
+              callId: block.tool_use_id,
+            });
           }
-          const costReport: CostReport = {
-            sessionId: this.sessionId ?? '',
-            messageId: null,
-            agentType: 'amp',
-            model: this.options.model ?? 'unknown',
-            timestamp: new Date().toISOString(),
-            source: 'agent-reported',
-            billingModel: 'api-key',
-            costUsd: incrCost,
-            inputTokens: incrInput,
-            outputTokens: incrOutput,
-            cacheReadTokens: incrCacheRead,
-            cacheWriteTokens: incrCacheWrite,
-            rawAgentPayload: rawPayload,
-          };
-          this.emit({ type: 'cost-report', report: costReport });
         }
-        break;
-
-      case 'error':
-        this.emit({
-          type: 'status',
-          status: 'error',
-          detail: msg.error ?? 'Amp encountered an error',
-        });
-        break;
-
-      case 'done':
-        // WHY: Amp emits 'done' when the response is fully complete,
-        // including after all sub-agents finish in deep mode.
-        this.activeSubAgents.clear();
-        this.emit({ type: 'status', status: 'idle' });
-        break;
-
+        return;
+      case 'result':
+        // Final line; the close handler emits idle. Nothing extra to map here.
+        return;
       default:
-        logger.debug('[AmpBackend] Unknown message type:', msg);
-    }
-  }
-
-  /**
-   * Process stdout data, buffering partial lines.
-   *
-   * @param data - Raw buffer chunk from process stdout
-   */
-  private processStdout(data: Buffer): void {
-    const text = data.toString();
-    // SECURITY: Cap line buffer size to prevent memory exhaustion
-    this.lineBuffer = safeBufferAppend(this.lineBuffer, text);
-
-    const lines = this.lineBuffer.split('\n');
-    this.lineBuffer = lines.pop() ?? '';
-
-    for (const line of lines) {
-      const msg = parseAmpJsonLine(line);
-      if (msg) {
-        this.handleAmpMessage(msg);
-      } else if (line.trim()) {
-        logger.debug('[AmpBackend] Non-JSON stdout:', line);
-      }
+        // system/init and any future line types: no content to surface.
+        return;
     }
   }
 
   /**
    * Start a new Amp session.
-   *
-   * Resets all token/cost accumulators and sub-agent tracking.
-   * If a resumeSessionId was provided in options, Amp will resume that session.
    *
    * @param initialPrompt - Optional prompt to send immediately after session start
    * @returns Promise resolving to the session information
@@ -459,14 +285,7 @@ class AmpBackend extends StreamingAgentBackendBase {
     }
 
     this.sessionId = randomUUID();
-    this.ampSessionId = this.options.resumeSessionId ?? null;
-    this.inputTokens = 0;
-    this.outputTokens = 0;
-    this.cacheReadTokens = 0;
-    this.cacheWriteTokens = 0;
-    this.totalCostUsd = 0;
-    this.lineBuffer = '';
-    this.activeSubAgents.clear();
+    this.ampSessionId = null;
 
     this.emit({ type: 'status', status: 'starting' });
 
@@ -505,164 +324,78 @@ class AmpBackend extends StreamingAgentBackendBase {
     // Reset run-scoped state (clears the cancelled flag) so this run's exit is
     // classified correctly by the close handler (audit 2026-06-09 fix #6).
     this.beginRun();
-
-    this.lineBuffer = '';
-    this.activeSubAgents.clear();
     this.emit({ type: 'status', status: 'running' });
 
-    // Build Amp command arguments
-    const args: string[] = [
-      'chat',           // Amp subcommand for one-shot chat
-      '--message',
-      prompt,
-      '--format',
-      'json',           // Request structured JSON output
-      '--no-interactive', // Prevent blocking on stdin for confirmations
-    ];
+    // Build Amp execute-mode argv. ALL flags verified against `amp --help`:
+    //   -x <message>     headless execute mode (positional prompt)
+    //   --stream-json    Claude Code-compatible newline-delimited JSON output
+    //   -m <mode>        agent mode (deep|rush|smart) when opted in
+    // There is NO `chat` subcommand and NO --deep/--max-agents/--format/
+    // --no-interactive/--session flag — those were invented and are removed.
+    const args: string[] = ['-x', prompt, '--stream-json'];
 
-    // Resume existing session for context continuity
-    if (this.ampSessionId) {
-      args.push('--session', this.ampSessionId);
-    }
-
-    // Model override
-    if (this.options.model) {
-      args.push('--model', this.options.model);
-    }
-
-    // Deep mode — spawns sub-agents for parallel codebase analysis
-    if (this.options.deepMode) {
-      args.push('--deep');
-      if (this.options.maxSubAgents) {
-        args.push('--max-agents', String(this.options.maxSubAgents));
-      }
-    }
-
-    // Extra args (validated for shell safety — SEC-ARGS-001)
-    if (this.options.extraArgs) {
-      args.push(...validateExtraArgs(this.options.extraArgs));
+    // Agent mode (deep | rush | smart). Omitted -> Amp uses its configured default.
+    if (this.options.mode) {
+      args.push('--mode', this.options.mode);
     }
 
     logger.debug(`[AmpBackend] Spawning amp with args:`, args);
 
     return new Promise<void>((resolve, reject) => {
-      try {
-        // SECURITY: Use buildSafeEnv() instead of spreading process.env to prevent
-        // leaking secrets (SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL, etc.) to Amp.
-        this.process = spawn('amp', args, {
-          cwd: this.options.cwd,
-          env: buildSafeEnv({
-            ...this.options.env,
-            // WHY: Amp uses ANTHROPIC_API_KEY for Claude models and AMP_API_KEY
-            // for Sourcegraph-hosted models. We set the provided key under both
-            // names so users don't need separate keys for different model choices.
-            ...(this.options.apiKey
-              ? {
-                  ANTHROPIC_API_KEY: this.options.apiKey,
-                  AMP_API_KEY: this.options.apiKey,
-                }
-              : {}),
-          }),
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
+      const child = this.spawnAgent({
+        command: 'amp',
+        args,
+        cwd: this.options.cwd,
+        // SECURITY: Inject the Amp token ONLY as AMP_API_KEY — Amp's own
+        // documented auth var (verified in `amp --help` env section). The prior
+        // code also set ANTHROPIC_API_KEY, leaking the token to the Anthropic
+        // endpoint during startup validation (cross-vendor key disclosure). Amp
+        // is single-vendor BYOK, so resolveApiKeyEnv()'s multi-provider sniffing
+        // does not apply; a single explicit var is the correct, leak-free fix.
+        extraEnv: {
+          ...this.options.env,
+          ...(this.options.apiKey ? { AMP_API_KEY: this.options.apiKey } : {}),
+        },
+        // extraArgs validated for shell-safety by the base class (SEC-ARGS-001).
+        userExtraArgs: this.options.extraArgs,
+        // The prompt is passed via `-x`, not stdin. Ignore stdin so amp does not
+        // wait on input that never comes. stdout/stderr stay piped for parsing.
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
 
-        if (!this.process.stdout || !this.process.stderr) {
-          throw new Error('Failed to create stdio pipes');
-        }
-
-        // Handle stdout — JSON messages
-        this.process.stdout.on('data', (data: Buffer) => {
-          this.processStdout(data);
-        });
-
-        // Handle stderr — Amp diagnostic messages
-        this.process.stderr.on('data', (data: Buffer) => {
-          const text = data.toString();
-          logger.debug(`[AmpBackend] stderr: ${text.trim()}`);
-
-          if (
-            text.includes('Error') ||
-            text.includes('error') ||
-            text.includes('Exception') ||
-            text.includes('failed')
-          ) {
-            this.emit({
-              type: 'status',
-              status: 'error',
-              detail: text.trim(),
-            });
-          }
-        });
-
-        // Handle process exit
-        this.process.on('close', (code) => {
-          logger.debug(`[AmpBackend] Process exited with code: ${code}`);
-
-          // Flush remaining buffer
-          if (this.lineBuffer.trim()) {
-            const msg = parseAmpJsonLine(this.lineBuffer);
-            if (msg) {
-              this.handleAmpMessage(msg);
-            }
-            this.lineBuffer = '';
-          }
-
-          this.activeSubAgents.clear();
-
-          if (code === 0) {
-            this.emit({ type: 'status', status: 'idle' });
-            resolve();
-          } else if (this.wasCancelled()) {
-            // Intentional user cancel (or dispose) SIGTERM'd the process, which
-            // surfaces here as a non-zero/null exit. Emit a clean idle status and
-            // resolve instead of a spurious agent error (audit 2026-06-09 fix #6).
-            this.emit({ type: 'status', status: 'idle' });
-            resolve();
-          } else {
-            this.emit({
-              type: 'status',
-              status: 'error',
-              detail: `Amp exited with code ${code}`,
-            });
-            reject(new Error(`Amp exited with code ${code}`));
-          }
-
-          this.process = null;
-        });
-
-        // Handle process spawn errors
-        // WHY (Phase 0.3 / SOC2 CC7.2): Surface friendly install hint on
-        // ENOENT instead of raw "spawn ... ENOENT" Node error.
-        this.process.on('error', (err: NodeJS.ErrnoException) => {
-          if (err.code === 'ENOENT') {
-            const message = formatInstallHint('amp');
-            logger.warn(`[AmpBackend] ${message}`);
-            this.emit({ type: 'status', status: 'error', detail: message });
-            reject(new Error(message));
-            return;
-          }
-          logger.error(`[AmpBackend] Process error:`, err);
-          this.emit({ type: 'status', status: 'error', detail: err.message });
-          reject(err);
-        });
-      } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        this.emit({
-          type: 'status',
-          status: 'error',
-          detail: err.message,
-        });
-        reject(err);
+      if (child.stdout) {
+        this.streamLines(child.stdout, (line) => this.handleLine(line));
       }
+      if (child.stderr) {
+        child.stderr.on('data', (data: Buffer) => {
+          logger.debug(`[AmpBackend] stderr: ${data.toString().trim()}`);
+        });
+      }
+
+      child.on('close', (code) => {
+        logger.debug(`[AmpBackend] Process exited with code: ${code}`);
+        this.process = null;
+        this.clearCancelTimer();
+        if (code === 0 || this.wasCancelled()) {
+          // wasCancelled(): an intentional user cancel/dispose SIGTERM'd the
+          // process; treat the resulting non-zero exit as a clean stop, not a
+          // crash (audit 2026-06-09 fix #6).
+          this.emit({ type: 'status', status: 'idle' });
+          resolve();
+        } else {
+          const detail = `Amp exited with code ${code}`;
+          this.emit({ type: 'status', status: 'error', detail });
+          reject(new Error(detail));
+        }
+      });
+
+      // ENOENT -> friendly install hint; other spawn errors forwarded.
+      this.attachInstallHintErrorHandler(child, 'amp', reject);
     });
   }
 
   /**
-   * Cancel the current Amp operation.
-   *
-   * WHY: In deep mode, Amp may have spawned multiple sub-agent processes.
-   * SIGTERM propagates to Amp's child processes via the process group, so
-   * all sub-agents are terminated when we kill the main Amp process.
+   * Cancel the in-flight prompt (SIGTERM, then SIGKILL escalation via the base).
    *
    * @param sessionId - The active session ID to cancel
    * @throws {Error} When session ID does not match the active session
@@ -683,53 +416,15 @@ class AmpBackend extends StreamingAgentBackendBase {
       this.scheduleForceKill();
     }
 
-    this.activeSubAgents.clear();
     this.emit({ type: 'status', status: 'idle' });
   }
 
-  /**
-   * Respond to an Amp permission request.
-   *
-   * Amp may request permission for shell execution and file system operations.
-   * In non-interactive mode (--no-interactive), Amp auto-approves. This method
-   * handles the response for cases where permission requests surface through
-   * the MCP protocol.
-   *
-   * @param requestId - The ID of the permission request
-   * @param approved - Whether the user approved the request
-   */
-  async respondToPermission(requestId: string, approved: boolean): Promise<void> {
-    this.emit({
-      type: 'permission-response',
-      id: requestId,
-      approved,
-    });
+  // respondToPermission inherited from StreamingAgentBackendBase: amp execute
+  // mode (-x) runs non-interactively with no stdin permission prompt, so the
+  // emit-only base behavior is correct (the prior y/n stdin write targeted a
+  // --no-interactive interactive flow that does not exist).
 
-    // Write response to stdin if process is active (for interactive permission flow)
-    if (this.process?.stdin && !this.process.killed) {
-      const response = approved ? 'y\n' : 'n\n';
-      try {
-        this.process.stdin.write(response);
-      } catch {
-        // Stdin may be closed — safe to ignore
-      }
-    }
-  }
-
-  // waitForResponseComplete inherited from StreamingAgentBackendBase.
-
-  /**
-   * Clean up Amp-specific state and defer the rest to the base class.
-   *
-   * Base dispose() (StreamingAgentBackendBase) handles: SIGTERM of the active
-   * process, clearing the cancel timer (SOC2 CC7.2 event-loop hygiene), and
-   * dropping application-level listener references so handler closures are
-   * GC-eligible.
-   */
-  async dispose(): Promise<void> {
-    this.activeSubAgents.clear();
-    await super.dispose();
-  }
+  // waitForResponseComplete + dispose inherited from StreamingAgentBackendBase.
 }
 
 // ============================================================================
@@ -739,29 +434,22 @@ class AmpBackend extends StreamingAgentBackendBase {
 /**
  * Create an Amp backend.
  *
- * Amp is an AI coding agent by Sourcegraph with optional deep mode that
- * parallelizes codebase analysis using multiple sub-agents.
- *
- * The amp binary must be installed and available in PATH.
- * Install via: `npm install -g @sourcegraph/amp` or download from ampcode.com
+ * Amp (ampcode.com) is an AI coding agent run headlessly via
+ * `amp -x "<prompt>" --stream-json`. The `amp` binary must be installed and on
+ * PATH, and authenticated via `amp login` or the `AMP_API_KEY` env var.
  *
  * @param options - Configuration options for the backend
  * @returns AmpBackendResult with backend instance and resolved model
  *
  * @example
  * ```ts
- * // Standard mode
- * const { backend } = createAmpBackend({
- *   cwd: '/path/to/project',
- *   model: 'claude-sonnet-4',
- * });
+ * // Default mode
+ * const { backend } = createAmpBackend({ cwd: '/path/to/project' });
  *
- * // Deep mode for large codebase analysis
+ * // Deep agent mode for harder tasks (amp --mode deep)
  * const { backend } = createAmpBackend({
  *   cwd: '/path/to/monorepo',
- *   model: 'claude-opus-4',
- *   deepMode: true,
- *   maxSubAgents: 6,
+ *   mode: 'deep',
  * });
  *
  * const { sessionId } = await backend.startSession();
@@ -773,9 +461,7 @@ export function createAmpBackend(options: AmpBackendOptions): AmpBackendResult {
     cwd: options.cwd,
     model: options.model,
     hasApiKey: !!options.apiKey,
-    deepMode: options.deepMode,
-    maxSubAgents: options.maxSubAgents,
-    resumeSessionId: options.resumeSessionId,
+    mode: options.mode,
   });
 
   return {
@@ -785,7 +471,7 @@ export function createAmpBackend(options: AmpBackendOptions): AmpBackendResult {
       modelSource: options.model ? 'explicit' : 'default',
       supportsStreaming: true,
       supportsTools: true,
-      deepMode: !!options.deepMode,
+      mode: options.mode ?? 'default',
     },
   };
 }

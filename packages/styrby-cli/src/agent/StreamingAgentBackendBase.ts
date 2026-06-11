@@ -70,11 +70,20 @@ import { buildSafeEnv, validateExtraArgs } from '@/utils/safeEnv';
  * (Phase 0.3 — SOC2 CC7.2 reliable streaming).
  */
 const INSTALL_HINTS: Readonly<Record<string, string>> = Object.freeze({
+  // Install hints verified against the live npm registry 2026-06-10 (bin names
+  // confirmed). The three first-party CLIs (claude/codex/gemini) are included so
+  // a missing binary surfaces an actionable package name instead of a bare ENOENT.
+  claude: 'Install via: npm install -g @anthropic-ai/claude-code',
+  codex: 'Install via: npm install -g @openai/codex',
+  gemini: 'Install via: npm install -g @google/gemini-cli',
   aider: 'Install via: pip install aider-chat',
-  amp: 'Install via: npm install -g @sourcegraph/amp',
-  crush: 'Install via: brew install crush (or follow https://github.com/charmbracelet/crush)',
-  // Factory AI's Droid CLI ships as the npm package `droid`; the
-  // Factory-AI/factory monorepo is the source of truth.
+  // @sourcegraph/amp is a deprecated thin alias that re-exports @ampcode/cli;
+  // the alias is scheduled for removal — install the canonical package directly.
+  amp: 'Install via: npm install -g @ampcode/cli (or: curl -fsSL https://ampcode.com/install.sh | bash)',
+  // Crush ships from the Charmbracelet Homebrew tap (no top-level `crush` formula).
+  crush: 'Install via: brew install charmbracelet/tap/crush (or: npm install -g @charmland/crush)',
+  // Factory AI's Droid CLI ships as the npm package `droid` (verified Factory-owned,
+  // same publisher as @factory/cli — not a name-squat); Factory-AI/factory monorepo.
   droid: 'Install via: npm install -g droid (or see https://docs.factory.ai/cli)',
   // Goose was transferred from block/goose to aaif-goose/goose (LF, 2026-04-07).
   goose: 'Install via: see https://github.com/aaif-goose/goose for installation',

@@ -36,6 +36,7 @@ export type RelayChannelName = `relay:${string}`;
 export type DeviceType = 'cli' | 'mobile' | 'web';
 
 // AgentType and code review types are imported from main types
+import { AGENT_TYPES } from '../types.js';
 import type { AgentType, CodeReviewStatus, ReviewFile, ReviewComment } from '../types.js';
 export type { AgentType };
 
@@ -486,11 +487,8 @@ const BaseRelayMessageSchema = z.object({
   sender_type: z.enum(['cli', 'mobile', 'web']),
 });
 
-/** Zod schema for AgentType */
-const AgentTypeSchema = z.enum([
-  'claude', 'codex', 'gemini', 'opencode', 'aider', 'goose',
-  'amp', 'crush', 'kilo', 'kiro', 'droid',
-]);
+/** Zod schema for AgentType — derived from the canonical AGENT_TYPES list. */
+const AgentTypeSchema = z.enum(AGENT_TYPES);
 
 /** Zod schema for ChatMessage */
 export const ChatMessageSchema = BaseRelayMessageSchema.extend({

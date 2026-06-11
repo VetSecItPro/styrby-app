@@ -110,8 +110,8 @@ function resolveProcess(proc: MockProcess, transcript: string): void {
 const MINIMAL_AIDER = '> Tokens: 100 sent, 20 received, cost: $0.001';
 
 const MINIMAL_OPENCODE = [
-  '{"type":"assistant","content":"Done."}',
-  '{"type":"session","session":{"id":"oc-loop","PromptTokens":100,"CompletionTokens":20,"Cost":0.001}}',
+  '{"type":"text","sessionID":"oc-loop","part":{"type":"text","text":"Done."}}',
+  '{"type":"step_finish","sessionID":"oc-loop","part":{"type":"step-finish","cost":0.001,"tokens":{"input":100,"output":20}}}',
 ].join('\n');
 
 const MINIMAL_GOOSE = [

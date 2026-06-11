@@ -2,8 +2,24 @@
  * Shared type definitions for Styrby
  */
 
-/** Agent identifiers supported by Styrby */
-export type AgentType = 'claude' | 'codex' | 'gemini' | 'opencode' | 'aider' | 'goose' | 'amp' | 'crush' | 'kilo' | 'kiro' | 'droid';
+/**
+ * Canonical list of agent identifiers Styrby supports — the SINGLE SOURCE OF
+ * TRUTH. The {@link AgentType} union, the relay Zod enum, and the CLI's
+ * `styrby start --agent` allowlist all derive from this so they can never drift.
+ *
+ * WHY this exists: the CLI's `start` handler previously hardcoded its own
+ * 5-element allowlist that fell out of sync with the 11 registered agent
+ * factories, silently making goose/amp/crush/kilo/kiro/droid unreachable via
+ * `styrby start` even though their backends worked. Deriving every consumer from
+ * one array closes that drift class.
+ */
+export const AGENT_TYPES = [
+  'claude', 'codex', 'gemini', 'opencode', 'aider', 'goose',
+  'amp', 'crush', 'kilo', 'kiro', 'droid',
+] as const;
+
+/** Agent identifiers supported by Styrby (derived from {@link AGENT_TYPES}). */
+export type AgentType = (typeof AGENT_TYPES)[number];
 
 /** Session status */
 export type SessionStatus = 'starting' | 'running' | 'idle' | 'stopped' | 'error';

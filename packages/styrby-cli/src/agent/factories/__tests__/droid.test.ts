@@ -1,14 +1,22 @@
 /**
- * Tests for the Droid agent backend factory (BYOK).
+ * Tests for the Droid agent backend factory (Factory-hosted `droid` CLI).
  *
  * Covers:
  * - `createDroidBackend` factory function
  * - `registerDroidAgent` registry integration
  * - `DroidBackend` class: session lifecycle, subprocess management,
- *   JSONL output parsing, BYOK API key injection, multi-backend model resolution,
- *   LiteLLM cost estimation from token counts, backend_switch events,
- *   fs-edit detection, error handling, cancellation, permission response,
- *   and disposal.
+ *   stream-json output parsing, Factory API key injection, `droid exec`
+ *   invocation form, result/usage handling, error handling, cancellation,
+ *   permission response, and disposal.
+ *
+ * Invocation + the system/error/result event schema are VERIFIED against the
+ * real `droid` binary (v0.144.2, `droid exec --help` + a real unauthenticated
+ * `droid exec ... -o stream-json` capture, 2026-06-10).
+ *
+ * assistant/tool (tool_use / tool_result) events are UNVERIFIED — they could
+ * not be captured without Factory auth (#30). Those test blocks are
+ * `describe.skip`'d with a reason and exercise the best-effort Claude-Code-shaped
+ * parser only as documentation of intended behavior, NOT as proof it works.
  *
  * All child_process and logger calls are mocked so no real Droid binary
  * is required.
@@ -89,46 +97,67 @@ function simulateProcess(proc: MockProcess, lines: string[] = [], exitCode = 0) 
   proc.emit('close', exitCode);
 }
 
-// ---- Droid JSONL event builders ----
+// ---- Droid stream-json event builders (VERIFIED schema) ----
 
-function droidText(content: string): string {
-  return JSON.stringify({ type: 'text', content });
+/**
+ * `{"type":"system","subtype":"init", model, session_id, tools}`
+ * VERIFIED: captured from a real `droid exec ... -o stream-json` run.
+ */
+function droidInit(model: string, sessionId = 'droid-sess-xyz'): string {
+  return JSON.stringify({
+    type: 'system',
+    subtype: 'init',
+    cwd: '/project',
+    session_id: sessionId,
+    tools: ['Read', 'Edit', 'Create'],
+    model,
+    reasoning_effort: 'high',
+  });
 }
 
-function droidToolCall(toolName: string, callId: string, toolInput?: Record<string, unknown>): string {
-  return JSON.stringify({ type: 'tool_call', tool_name: toolName, call_id: callId, tool_input: toolInput });
+/**
+ * `{"type":"error","source","message","timestamp","session_id"}`
+ * VERIFIED: captured from a real run (auth-failure path).
+ */
+function droidError(message: string, sessionId = 'droid-sess-xyz'): string {
+  return JSON.stringify({
+    type: 'error',
+    source: 'cli',
+    message,
+    timestamp: 1781148934831,
+    session_id: sessionId,
+  });
 }
 
-function droidToolResult(
-  toolName: string,
-  callId: string,
-  result: unknown,
-  toolInput?: Record<string, unknown>
-): string {
-  return JSON.stringify({ type: 'tool_result', tool_name: toolName, call_id: callId, tool_result: result, tool_input: toolInput });
-}
-
-function droidUsage(usage: {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  cache_read_tokens?: number;
-  cache_write_tokens?: number;
-  cost_usd?: number;
-  model?: string;
+/**
+ * `{"type":"result","subtype","is_error","result","session_id","usage":{...}}`
+ * VERIFIED: usage field names are Claude-Code snake_case
+ * (input_tokens / output_tokens / cache_read_input_tokens / cache_creation_input_tokens).
+ */
+function droidResult(opts: {
+  result?: string;
+  isError?: boolean;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  sessionId?: string;
 }): string {
-  return JSON.stringify({ type: 'usage', usage });
-}
-
-function droidBackendSwitch(newBackend?: string, newModel?: string): string {
-  return JSON.stringify({ type: 'backend_switch', new_backend: newBackend, new_model: newModel });
-}
-
-function droidError(error: string): string {
-  return JSON.stringify({ type: 'error', error });
-}
-
-function droidDone(): string {
-  return JSON.stringify({ type: 'done' });
+  return JSON.stringify({
+    type: 'result',
+    subtype: opts.isError ? 'failure' : 'success',
+    is_error: opts.isError ?? false,
+    duration_ms: 1234,
+    num_turns: 1,
+    result: opts.result ?? 'Done',
+    session_id: opts.sessionId ?? 'droid-sess-xyz',
+    usage: {
+      input_tokens: opts.inputTokens ?? 0,
+      output_tokens: opts.outputTokens ?? 0,
+      cache_read_input_tokens: opts.cacheReadTokens ?? 0,
+      cache_creation_input_tokens: opts.cacheCreationTokens ?? 0,
+    },
+  });
 }
 
 const BASE_OPTIONS: DroidBackendOptions = {
@@ -156,11 +185,11 @@ afterEach(() => {
 
 describe('createDroidBackend', () => {
   it('returns a backend instance and resolved model when model is provided', () => {
-    const { backend, model } = createDroidBackend({ ...BASE_OPTIONS, model: 'gpt-4o' });
+    const { backend, model } = createDroidBackend({ ...BASE_OPTIONS, model: 'claude-opus-4-8' });
 
     expect(backend).toBeDefined();
     expect(typeof backend.startSession).toBe('function');
-    expect(model).toBe('gpt-4o');
+    expect(model).toBe('claude-opus-4-8');
   });
 
   it('returns undefined model when no model is specified', () => {
@@ -186,20 +215,14 @@ describe('createDroidBackend', () => {
     expect(mockSpawn).not.toHaveBeenCalled();
   });
 
-  it('accepts backend option', () => {
-    const { backend } = createDroidBackend({ ...BASE_OPTIONS, backend: 'anthropic' });
+  it('accepts autoLevel option', () => {
+    const { backend } = createDroidBackend({ ...BASE_OPTIONS, autoLevel: 'medium' });
 
     expect(backend).toBeDefined();
   });
 
-  it('accepts apiKeys map for multiple providers', () => {
-    const { backend } = createDroidBackend({
-      ...BASE_OPTIONS,
-      apiKeys: {
-        ANTHROPIC_API_KEY: 'sk-ant-test',
-        OPENAI_API_KEY: 'sk-test',
-      },
-    });
+  it('accepts factoryApiKey option', () => {
+    const { backend } = createDroidBackend({ ...BASE_OPTIONS, factoryApiKey: 'fk-test' });
 
     expect(backend).toBeDefined();
   });
@@ -208,6 +231,15 @@ describe('createDroidBackend', () => {
     const { backend } = createDroidBackend({
       ...BASE_OPTIONS,
       resumeSessionId: 'existing-session-123',
+    });
+
+    expect(backend).toBeDefined();
+  });
+
+  it('accepts forkSessionId for session forking', () => {
+    const { backend } = createDroidBackend({
+      ...BASE_OPTIONS,
+      forkSessionId: 'fork-from-456',
     });
 
     expect(backend).toBeDefined();
@@ -298,11 +330,11 @@ describe('DroidBackend — session lifecycle', () => {
 });
 
 // ===========================================================================
-// DroidBackend — sendPrompt
+// DroidBackend — sendPrompt invocation (VERIFIED `droid exec` form)
 // ===========================================================================
 
-describe('DroidBackend — sendPrompt', () => {
-  it('spawns the droid binary with correct arguments', async () => {
+describe('DroidBackend — sendPrompt invocation', () => {
+  it('spawns `droid exec <prompt> --output-format stream-json`', async () => {
     const { backend } = createDroidBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
 
@@ -312,26 +344,36 @@ describe('DroidBackend — sendPrompt', () => {
 
     expect(mockSpawn).toHaveBeenCalledWith(
       'droid',
-      expect.arrayContaining(['chat', '--message', 'Review the auth module', '--format', 'json']),
+      expect.arrayContaining([
+        'exec',
+        'Review the auth module',
+        '--output-format',
+        'stream-json',
+      ]),
       expect.objectContaining({ cwd: '/project' })
     );
   });
 
-  it('passes --backend flag when backend is specified', async () => {
-    const { backend } = createDroidBackend({ ...BASE_OPTIONS, backend: 'openai' });
+  it('uses a POSITIONAL prompt (no --message flag) and no legacy chat subcommand', async () => {
+    const { backend } = createDroidBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
 
-    const promptPromise = backend.sendPrompt(sessionId, 'Use OpenAI');
+    const promptPromise = backend.sendPrompt(sessionId, 'Hello');
     simulateProcess(currentMockProcess);
     await promptPromise;
 
     const args = mockSpawn.mock.calls[0][1] as string[];
-    expect(args).toContain('--backend');
-    expect(args).toContain('openai');
+    expect(args[0]).toBe('exec');
+    expect(args[1]).toBe('Hello'); // prompt is positional, immediately after `exec`
+    expect(args).not.toContain('chat');
+    expect(args).not.toContain('--message');
+    expect(args).not.toContain('--no-interactive');
+    expect(args).not.toContain('--backend');
+    expect(args).not.toContain('--format');
   });
 
-  it('passes --model flag when model is specified', async () => {
-    const { backend } = createDroidBackend({ ...BASE_OPTIONS, model: 'claude-opus-4' });
+  it('passes -m flag when model is specified', async () => {
+    const { backend } = createDroidBackend({ ...BASE_OPTIONS, model: 'gpt-5.5' });
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'Analyze deeply');
@@ -339,76 +381,36 @@ describe('DroidBackend — sendPrompt', () => {
     await promptPromise;
 
     const args = mockSpawn.mock.calls[0][1] as string[];
-    expect(args).toContain('--model');
-    expect(args).toContain('claude-opus-4');
+    expect(args).toContain('-m');
+    expect(args).toContain('gpt-5.5');
   });
 
-  // Provider-scoped API key injection (audit 2026-05-05 HIGH fix).
-  // Droid was the same fan-out class as goose/crush/kilo — fixed in the
-  // same pass since the directive said "fix everything, nothing deferred".
-
-  it('anthropic key (sk-ant-): injects ONLY ANTHROPIC_API_KEY', async () => {
-    const { backend } = createDroidBackend({ ...BASE_OPTIONS, apiKey: 'sk-ant-real' });
+  it('passes --auto flag when autoLevel is specified', async () => {
+    const { backend } = createDroidBackend({ ...BASE_OPTIONS, autoLevel: 'high' });
     const { sessionId } = await backend.startSession();
 
-    const promptPromise = backend.sendPrompt(sessionId, 'BYOK test');
+    const promptPromise = backend.sendPrompt(sessionId, 'Deploy');
     simulateProcess(currentMockProcess);
     await promptPromise;
 
-    const spawnEnv = mockSpawn.mock.calls[0][2]?.env as Record<string, string>;
-    expect(spawnEnv.ANTHROPIC_API_KEY).toBe('sk-ant-real');
-    expect(spawnEnv.OPENAI_API_KEY).toBeUndefined();
-    expect(spawnEnv.GOOGLE_API_KEY).toBeUndefined();
-    expect(spawnEnv.MISTRAL_API_KEY).toBeUndefined();
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    expect(args).toContain('--auto');
+    expect(args).toContain('high');
   });
 
-  it('openai key (sk-): injects ONLY OPENAI_API_KEY', async () => {
-    const { backend } = createDroidBackend({ ...BASE_OPTIONS, apiKey: 'sk-openai-real' });
+  it('does NOT pass --auto when autoLevel is omitted (read-only default)', async () => {
+    const { backend } = createDroidBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
 
-    const promptPromise = backend.sendPrompt(sessionId, 'BYOK test');
+    const promptPromise = backend.sendPrompt(sessionId, 'Read only');
     simulateProcess(currentMockProcess);
     await promptPromise;
 
-    const spawnEnv = mockSpawn.mock.calls[0][2]?.env as Record<string, string>;
-    expect(spawnEnv.OPENAI_API_KEY).toBe('sk-openai-real');
-    expect(spawnEnv.ANTHROPIC_API_KEY).toBeUndefined();
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    expect(args).not.toContain('--auto');
   });
 
-  it('google key (AIza): injects ONLY GOOGLE/GEMINI keys', async () => {
-    const { backend } = createDroidBackend({ ...BASE_OPTIONS, apiKey: 'AIzaSyDroid' });
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'BYOK test');
-    simulateProcess(currentMockProcess);
-    await promptPromise;
-
-    const spawnEnv = mockSpawn.mock.calls[0][2]?.env as Record<string, string>;
-    expect(spawnEnv.GOOGLE_API_KEY).toBe('AIzaSyDroid');
-    expect(spawnEnv.GEMINI_API_KEY).toBe('AIzaSyDroid');
-    expect(spawnEnv.OPENAI_API_KEY).toBeUndefined();
-  });
-
-  it('injects apiKeys map overriding individual providers', async () => {
-    const { backend } = createDroidBackend({
-      ...BASE_OPTIONS,
-      apiKeys: {
-        ANTHROPIC_API_KEY: 'ant-key',
-        OPENAI_API_KEY: 'oai-key',
-      },
-    });
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Multi-provider test');
-    simulateProcess(currentMockProcess);
-    await promptPromise;
-
-    const spawnEnv = mockSpawn.mock.calls[0][2]?.env as Record<string, string>;
-    expect(spawnEnv.ANTHROPIC_API_KEY).toBe('ant-key');
-    expect(spawnEnv.OPENAI_API_KEY).toBe('oai-key');
-  });
-
-  it('passes --session when resumeSessionId is provided', async () => {
+  it('passes -s with resumeSessionId on first prompt', async () => {
     const { backend } = createDroidBackend({ ...BASE_OPTIONS, resumeSessionId: 'existing-456' });
     const { sessionId } = await backend.startSession();
 
@@ -417,8 +419,56 @@ describe('DroidBackend — sendPrompt', () => {
     await promptPromise;
 
     const args = mockSpawn.mock.calls[0][1] as string[];
-    expect(args).toContain('--session');
+    expect(args).toContain('-s');
     expect(args).toContain('existing-456');
+  });
+
+  it('passes --fork with forkSessionId (taking precedence over resume)', async () => {
+    const { backend } = createDroidBackend({
+      ...BASE_OPTIONS,
+      forkSessionId: 'fork-789',
+    });
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'Branch off');
+    simulateProcess(currentMockProcess);
+    await promptPromise;
+
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    expect(args).toContain('--fork');
+    expect(args).toContain('fork-789');
+    expect(args).not.toContain('-s');
+  });
+
+  it('injects FACTORY_API_KEY into the subprocess env (not as a CLI flag)', async () => {
+    const { backend } = createDroidBackend({ ...BASE_OPTIONS, factoryApiKey: 'fk-real-key' });
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'Auth test');
+    simulateProcess(currentMockProcess);
+    await promptPromise;
+
+    const spawnEnv = mockSpawn.mock.calls[0][2]?.env as Record<string, string>;
+    expect(spawnEnv.FACTORY_API_KEY).toBe('fk-real-key');
+
+    // Droid is Factory-hosted, NOT a multi-provider BYOK proxy: no provider keys.
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    expect(args).not.toContain('fk-real-key'); // never on the command line
+  });
+
+  it('does NOT inject provider keys (Droid is not BYOK/LiteLLM)', async () => {
+    const { backend } = createDroidBackend({ ...BASE_OPTIONS, factoryApiKey: 'fk-x' });
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'No provider keys');
+    simulateProcess(currentMockProcess);
+    await promptPromise;
+
+    const spawnEnv = mockSpawn.mock.calls[0][2]?.env as Record<string, string>;
+    expect(spawnEnv.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(spawnEnv.OPENAI_API_KEY).toBeUndefined();
+    expect(spawnEnv.GOOGLE_API_KEY).toBeUndefined();
+    expect(spawnEnv.MISTRAL_API_KEY).toBeUndefined();
   });
 
   it('throws when sendPrompt is called with wrong sessionId', async () => {
@@ -451,84 +501,88 @@ describe('DroidBackend — sendPrompt', () => {
 });
 
 // ===========================================================================
-// DroidBackend — JSONL output parsing
+// DroidBackend — stream-json output parsing (VERIFIED events)
 // ===========================================================================
 
-describe('DroidBackend — JSONL output parsing', () => {
-  it('emits model-output for text events', async () => {
+describe('DroidBackend — stream-json parsing (verified events)', () => {
+  it('captures the resolved model from the init system event', async () => {
+    // Request one model; Droid's init advertises another. The cost-report must
+    // reflect the model Droid actually used (from init), per the result event.
+    const { backend } = createDroidBackend({ ...BASE_OPTIONS, model: 'gpt-5.5' });
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'init test');
+    simulateProcess(currentMockProcess, [
+      droidInit('claude-opus-4-8'),
+      droidResult({ inputTokens: 100, outputTokens: 50 }),
+    ]);
+    await promptPromise;
+
+    const report = messages.find((m: any) => m.type === 'cost-report') as any;
+    expect(report.report.model).toBe('claude-opus-4-8');
+  });
+
+  it('emits model-output from the result event text', async () => {
     const { backend } = createDroidBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'Generate code');
-    simulateProcess(currentMockProcess, [droidText('Here is the implementation')]);
+    simulateProcess(currentMockProcess, [
+      droidInit('claude-opus-4-8'),
+      droidResult({ result: 'Here is the implementation' }),
+    ]);
     await promptPromise;
 
     const outputMsgs = messages.filter((m: any) => m.type === 'model-output');
-    expect(outputMsgs).toHaveLength(1);
-    expect((outputMsgs[0] as any).textDelta).toBe('Here is the implementation');
+    expect(outputMsgs.length).toBeGreaterThanOrEqual(1);
+    expect((outputMsgs[outputMsgs.length - 1] as any).textDelta).toBe('Here is the implementation');
   });
 
-  it('emits tool-call for tool_call events', async () => {
-    const { backend } = createDroidBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Read file');
-    simulateProcess(currentMockProcess, [
-      droidToolCall('read_file', 'call-1', { path: '/src/main.ts' }),
-    ]);
-    await promptPromise;
-
-    const toolCalls = messages.filter((m: any) => m.type === 'tool-call');
-    expect(toolCalls).toHaveLength(1);
-    expect((toolCalls[0] as any).toolName).toBe('read_file');
-    expect((toolCalls[0] as any).callId).toBe('call-1');
-    expect((toolCalls[0] as any).args).toEqual({ path: '/src/main.ts' });
-  });
-
-  it('emits tool-result for tool_result events', async () => {
-    const { backend } = createDroidBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'List files');
-    simulateProcess(currentMockProcess, [
-      droidToolResult('list_files', 'call-2', ['file1.ts', 'file2.ts']),
-    ]);
-    await promptPromise;
-
-    const toolResults = messages.filter((m: any) => m.type === 'tool-result');
-    expect(toolResults).toHaveLength(1);
-    expect((toolResults[0] as any).toolName).toBe('list_files');
-    expect((toolResults[0] as any).callId).toBe('call-2');
-  });
-
-  it('emits idle status for done events', async () => {
+  it('emits idle status after a successful result event', async () => {
     const { backend } = createDroidBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'Final task');
-    simulateProcess(currentMockProcess, [droidDone()]);
+    simulateProcess(currentMockProcess, [droidResult({ result: 'ok' })]);
     await promptPromise;
 
     const idleStatuses = messages.filter((m: any) => m.type === 'status' && m.status === 'idle');
     expect(idleStatuses.length).toBeGreaterThan(0);
   });
 
-  it('emits error status for error events', async () => {
+  it('emits error status for a top-level error event', async () => {
     const { backend } = createDroidBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
     const promptPromise = backend.sendPrompt(sessionId, 'Cause error');
-    simulateProcess(currentMockProcess, [droidError('API rate limit exceeded')]);
+    simulateProcess(currentMockProcess, [
+      droidError('Authentication failed. Please log in using /login or set a valid FACTORY_API_KEY environment variable.'),
+    ]);
     await promptPromise;
 
     const errorStatuses = messages.filter((m: any) => m.type === 'status' && m.status === 'error');
     expect(errorStatuses).toHaveLength(1);
-    expect((errorStatuses[0] as any).detail).toBe('API rate limit exceeded');
+    expect((errorStatuses[0] as any).detail).toContain('Authentication failed');
+  });
+
+  it('emits error status for a result event with is_error=true', async () => {
+    const { backend } = createDroidBackend(BASE_OPTIONS);
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'Failing run');
+    simulateProcess(currentMockProcess, [
+      droidResult({ isError: true, result: 'rate limit exceeded' }),
+    ]);
+    await promptPromise;
+
+    const errorStatuses = messages.filter((m: any) => m.type === 'status' && m.status === 'error');
+    expect(errorStatuses.length).toBeGreaterThan(0);
+    expect((errorStatuses[errorStatuses.length - 1] as any).detail).toContain('rate limit');
   });
 
   it('ignores non-JSON lines without crashing', async () => {
@@ -538,143 +592,80 @@ describe('DroidBackend — JSONL output parsing', () => {
 
     const promptPromise = backend.sendPrompt(sessionId, 'Hello');
     simulateProcess(currentMockProcess, [
-      'Droid v2.0.0 initializing...',
-      droidText('Response content'),
+      'Droid v0.144.2 initializing...',
+      droidResult({ result: 'Response content' }),
       '',
     ]);
     await promptPromise;
 
     const outputMsgs = messages.filter((m: any) => m.type === 'model-output');
-    expect(outputMsgs).toHaveLength(1);
+    expect(outputMsgs.length).toBeGreaterThanOrEqual(1);
   });
 });
 
 // ===========================================================================
-// DroidBackend — LiteLLM cost estimation
+// DroidBackend — usage / cost-report from the result event (VERIFIED schema)
 // ===========================================================================
 
-describe('DroidBackend — LiteLLM cost estimation', () => {
-  it('uses provided cost_usd when available (no estimation needed)', async () => {
-    const { backend } = createDroidBackend({ ...BASE_OPTIONS, model: 'gpt-4o' });
+describe('DroidBackend — usage + cost-report', () => {
+  it('reads VERIFIED snake_case usage fields from the result event', async () => {
+    const { backend } = createDroidBackend({ ...BASE_OPTIONS, model: 'claude-opus-4-8' });
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
-    const promptPromise = backend.sendPrompt(sessionId, 'Query with known cost');
+    const promptPromise = backend.sendPrompt(sessionId, 'Usage test');
     simulateProcess(currentMockProcess, [
-      droidUsage({ prompt_tokens: 1000, completion_tokens: 500, cost_usd: 0.075 }),
-    ]);
-    await promptPromise;
-
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    expect(tokenCounts).toHaveLength(1);
-    expect((tokenCounts[0] as any).costUsd).toBeCloseTo(0.075, 5);
-    expect((tokenCounts[0] as any).inputTokens).toBe(1000);
-    expect((tokenCounts[0] as any).outputTokens).toBe(500);
-  });
-
-  it('estimates cost from claude-sonnet-4 pricing when cost_usd is not provided', async () => {
-    const { backend } = createDroidBackend({ ...BASE_OPTIONS, model: 'claude-sonnet-4' });
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Sonnet estimation');
-    // 1000 input tokens at $0.003/1K + 500 output tokens at $0.015/1K = $0.003 + $0.0075 = $0.0105
-    simulateProcess(currentMockProcess, [
-      droidUsage({ prompt_tokens: 1000, completion_tokens: 500 }),
-    ]);
-    await promptPromise;
-
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    expect((tokenCounts[0] as any).costUsd).toBeCloseTo(0.0105, 4);
-  });
-
-  it('estimates cost from gpt-4o pricing', async () => {
-    const { backend } = createDroidBackend({ ...BASE_OPTIONS, model: 'gpt-4o' });
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'GPT estimation');
-    // 2000 input tokens at $0.0025/1K + 1000 output tokens at $0.01/1K = $0.005 + $0.01 = $0.015
-    simulateProcess(currentMockProcess, [
-      droidUsage({ prompt_tokens: 2000, completion_tokens: 1000 }),
-    ]);
-    await promptPromise;
-
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    expect((tokenCounts[0] as any).costUsd).toBeCloseTo(0.015, 4);
-  });
-
-  it('uses default pricing for unknown model', async () => {
-    const { backend } = createDroidBackend({ ...BASE_OPTIONS, model: 'unknown-model-xyz' });
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Unknown model');
-    simulateProcess(currentMockProcess, [
-      droidUsage({ prompt_tokens: 1000, completion_tokens: 1000 }),
-    ]);
-    await promptPromise;
-
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    // Default pricing: $0.002/1K input + $0.008/1K output = $0.002 + $0.008 = $0.01
-    expect((tokenCounts[0] as any).costUsd).toBeCloseTo(0.01, 4);
-    expect((tokenCounts[0] as any).costUsd).toBeGreaterThan(0);
-  });
-
-  it('accumulates cost across multiple usage events', async () => {
-    const { backend } = createDroidBackend({ ...BASE_OPTIONS, model: 'gpt-4o-mini' });
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    let promptPromise = backend.sendPrompt(sessionId, 'First');
-    simulateProcess(currentMockProcess, [
-      droidUsage({ prompt_tokens: 1000, completion_tokens: 500, cost_usd: 0.01 }),
-    ]);
-    await promptPromise;
-
-    currentMockProcess = makeMockProcess();
-    mockSpawn.mockReturnValue(currentMockProcess);
-
-    promptPromise = backend.sendPrompt(sessionId, 'Second');
-    simulateProcess(currentMockProcess, [
-      droidUsage({ prompt_tokens: 1000, completion_tokens: 500, cost_usd: 0.02 }),
-    ]);
-    await promptPromise;
-
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    const lastTokenCount = tokenCounts[tokenCounts.length - 1] as any;
-    expect(lastTokenCount.costUsd).toBeCloseTo(0.03, 5);
-  });
-
-  it('tracks cache tokens when provided', async () => {
-    const { backend } = createDroidBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Cached request');
-    simulateProcess(currentMockProcess, [
-      droidUsage({
-        prompt_tokens: 1000,
-        completion_tokens: 200,
-        cache_read_tokens: 500,
-        cache_write_tokens: 100,
-        cost_usd: 0.005,
+      droidInit('claude-opus-4-8'),
+      droidResult({
+        inputTokens: 1000,
+        outputTokens: 500,
+        cacheReadTokens: 200,
+        cacheCreationTokens: 100,
       }),
     ]);
     await promptPromise;
 
     const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    expect((tokenCounts[0] as any).cacheReadTokens).toBe(500);
+    expect(tokenCounts).toHaveLength(1);
+    expect((tokenCounts[0] as any).inputTokens).toBe(1000);
+    expect((tokenCounts[0] as any).outputTokens).toBe(500);
+    expect((tokenCounts[0] as any).cacheReadTokens).toBe(200);
     expect((tokenCounts[0] as any).cacheWriteTokens).toBe(100);
   });
 
-  it('resets cost accumulators on each startSession', async () => {
+  it('emits a cost-report with source=styrby-estimate (Droid never reports cost)', async () => {
+    // WHY: Droid's verified result.usage block has NO cost field. Cost is
+    // derived downstream, so every Droid cost-report is a styrby-estimate.
+    const { backend } = createDroidBackend({ ...BASE_OPTIONS, model: 'claude-opus-4-8' });
+    const messages = collectMessages(backend);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'Cost test');
+    simulateProcess(currentMockProcess, [
+      droidInit('claude-opus-4-8'),
+      droidResult({ inputTokens: 800, outputTokens: 300 }),
+    ]);
+    await promptPromise;
+
+    const report = messages.find((m: any) => m.type === 'cost-report') as any;
+    expect(report).toBeDefined();
+    expect(report.report.agentType).toBe('droid');
+    expect(report.report.billingModel).toBe('api-key');
+    expect(report.report.source).toBe('styrby-estimate');
+    expect(report.report.inputTokens).toBe(800);
+    expect(report.report.outputTokens).toBe(300);
+    // rawAgentPayload carries the real usage block for downstream pricing.
+    expect(report.report.rawAgentPayload).not.toBeNull();
+    expect((report.report.rawAgentPayload as any).input_tokens).toBe(800);
+  });
+
+  it('resets token accumulators on each startSession', async () => {
     const { backend } = createDroidBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
 
     let { sessionId } = await backend.startSession();
     let promptPromise = backend.sendPrompt(sessionId, 'First session');
-    simulateProcess(currentMockProcess, [droidUsage({ cost_usd: 1.00 })]);
+    simulateProcess(currentMockProcess, [droidResult({ inputTokens: 5000, outputTokens: 5000 })]);
     await promptPromise;
 
     messages.length = 0;
@@ -683,167 +674,93 @@ describe('DroidBackend — LiteLLM cost estimation', () => {
 
     ({ sessionId } = await backend.startSession());
     promptPromise = backend.sendPrompt(sessionId, 'Second session');
-    simulateProcess(currentMockProcess, [droidUsage({ cost_usd: 0.05 })]);
+    simulateProcess(currentMockProcess, [droidResult({ inputTokens: 10, outputTokens: 20 })]);
     await promptPromise;
 
     const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    const lastTokenCount = tokenCounts[tokenCounts.length - 1] as any;
-    expect(lastTokenCount.costUsd).toBeCloseTo(0.05, 5);
+    const last = tokenCounts[tokenCounts.length - 1] as any;
+    expect(last.inputTokens).toBe(10);
+    expect(last.outputTokens).toBe(20);
   });
 });
 
 // ===========================================================================
-// DroidBackend — backend_switch events
+// DroidBackend — assistant/tool events (UNVERIFIED — schema needs keyed session)
 // ===========================================================================
 
-describe('DroidBackend — backend_switch events', () => {
-  it('emits event with backend switch details', async () => {
+/**
+ * These events (assistant text deltas, tool_use, tool_result) could NOT be
+ * captured because the test machine has no Factory auth (#30). The parser
+ * branches are written best-effort against the Claude-Code stream-json schema
+ * that Droid's init event advertises, but until a real keyed session confirms
+ * the exact envelope, we do NOT claim these work — hence `.skip`.
+ *
+ * To unskip: capture a real `droid exec "..." -o stream-json` run with a valid
+ * FACTORY_API_KEY, paste the actual assistant/tool_use/tool_result lines as the
+ * builders below, and verify the assertions hold.
+ */
+describe.skip('DroidBackend — assistant/tool events (UNVERIFIED, needs keyed session #30)', () => {
+  function droidAssistantText(text: string): string {
+    return JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text }] } });
+  }
+  function droidAssistantToolUse(name: string, id: string, input: Record<string, unknown>): string {
+    return JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name, id, input }] },
+    });
+  }
+  function droidUserToolResult(name: string, toolUseId: string, content: unknown, input?: Record<string, unknown>): string {
+    return JSON.stringify({
+      type: 'user',
+      message: { content: [{ type: 'tool_result', name, tool_use_id: toolUseId, content, input }] },
+    });
+  }
+
+  it('emits model-output from assistant text blocks', async () => {
     const { backend } = createDroidBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
-    const promptPromise = backend.sendPrompt(sessionId, 'Switch backends');
-    simulateProcess(currentMockProcess, [
-      droidBackendSwitch('openai', 'gpt-4o'),
-    ]);
+    const promptPromise = backend.sendPrompt(sessionId, 'stream');
+    simulateProcess(currentMockProcess, [droidAssistantText('partial answer'), droidResult({})]);
     await promptPromise;
 
-    const backendSwitchEvents = messages.filter(
-      (m: any) => m.type === 'event' && m.name === 'backend-switch'
-    );
-    expect(backendSwitchEvents).toHaveLength(1);
-    expect((backendSwitchEvents[0] as any).payload.newBackend).toBe('openai');
-    expect((backendSwitchEvents[0] as any).payload.newModel).toBe('gpt-4o');
+    const outputs = messages.filter((m: any) => m.type === 'model-output');
+    expect(outputs.some((m: any) => m.textDelta === 'partial answer')).toBe(true);
   });
 
-  it('updates currentModel after backend_switch for subsequent cost estimation', async () => {
-    const { backend } = createDroidBackend({ ...BASE_OPTIONS, model: 'claude-sonnet-4' });
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    // Switch to gpt-4o and then get usage
-    let promptPromise = backend.sendPrompt(sessionId, 'Switch then estimate');
-    simulateProcess(currentMockProcess, [
-      droidBackendSwitch('openai', 'gpt-4o'),
-    ]);
-    await promptPromise;
-
-    currentMockProcess = makeMockProcess();
-    mockSpawn.mockReturnValue(currentMockProcess);
-
-    promptPromise = backend.sendPrompt(sessionId, 'Post-switch usage');
-    // 2000 input + 1000 output with gpt-4o pricing = $0.005 + $0.01 = $0.015
-    simulateProcess(currentMockProcess, [
-      droidUsage({ prompt_tokens: 2000, completion_tokens: 1000, model: 'gpt-4o' }),
-    ]);
-    await promptPromise;
-
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    expect(tokenCounts.length).toBeGreaterThan(0);
-    const lastTokenCount = tokenCounts[tokenCounts.length - 1] as any;
-    expect(lastTokenCount.costUsd).toBeCloseTo(0.015, 4);
-  });
-
-  it('handles backend_switch with only new_backend (no model)', async () => {
+  it('emits tool-call from assistant tool_use blocks', async () => {
     const { backend } = createDroidBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
-    const promptPromise = backend.sendPrompt(sessionId, 'Switch backend only');
+    const promptPromise = backend.sendPrompt(sessionId, 'use a tool');
     simulateProcess(currentMockProcess, [
-      droidBackendSwitch('google'),
+      droidAssistantToolUse('Read', 'tu-1', { path: '/src/main.ts' }),
+      droidResult({}),
     ]);
     await promptPromise;
 
-    const switchEvents = messages.filter(
-      (m: any) => m.type === 'event' && m.name === 'backend-switch'
-    );
-    expect(switchEvents).toHaveLength(1);
-    expect((switchEvents[0] as any).payload.newBackend).toBe('google');
+    const calls = messages.filter((m: any) => m.type === 'tool-call');
+    expect(calls).toHaveLength(1);
+    expect((calls[0] as any).toolName).toBe('Read');
   });
-});
 
-// ===========================================================================
-// DroidBackend — fs-edit detection
-// ===========================================================================
-
-describe('DroidBackend — fs-edit detection', () => {
-  it('emits fs-edit for write tool results', async () => {
+  it('emits fs-edit for write tool_result blocks', async () => {
     const { backend } = createDroidBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
     const { sessionId } = await backend.startSession();
 
-    const promptPromise = backend.sendPrompt(sessionId, 'Write component');
+    const promptPromise = backend.sendPrompt(sessionId, 'write a file');
     simulateProcess(currentMockProcess, [
-      droidToolResult('write_file', 'call-1', 'success', { path: '/src/Button.tsx' }),
+      droidUserToolResult('Edit', 'tu-2', 'ok', { path: '/src/Button.tsx' }),
+      droidResult({}),
     ]);
     await promptPromise;
 
     const fsEdits = messages.filter((m: any) => m.type === 'fs-edit');
     expect(fsEdits).toHaveLength(1);
     expect((fsEdits[0] as any).path).toBe('/src/Button.tsx');
-    expect((fsEdits[0] as any).description).toContain('write_file');
-  });
-
-  it('emits fs-edit for edit tool results', async () => {
-    const { backend } = createDroidBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Edit config');
-    simulateProcess(currentMockProcess, [
-      droidToolResult('edit_file', 'call-2', 'ok', { file_path: '/config.ts' }),
-    ]);
-    await promptPromise;
-
-    const fsEdits = messages.filter((m: any) => m.type === 'fs-edit');
-    expect(fsEdits).toHaveLength(1);
-    expect((fsEdits[0] as any).path).toBe('/config.ts');
-  });
-
-  it('emits fs-edit for str_replace tool results', async () => {
-    const { backend } = createDroidBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Replace string');
-    simulateProcess(currentMockProcess, [
-      droidToolResult('str_replace', 'call-3', 'replaced', { path: '/utils.ts' }),
-    ]);
-    await promptPromise;
-
-    const fsEdits = messages.filter((m: any) => m.type === 'fs-edit');
-    expect(fsEdits).toHaveLength(1);
-  });
-
-  it('does NOT emit fs-edit for read_file tool results', async () => {
-    const { backend } = createDroidBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Read source');
-    simulateProcess(currentMockProcess, [
-      droidToolResult('read_file', 'call-4', 'content here', { path: '/src/auth.ts' }),
-    ]);
-    await promptPromise;
-
-    const fsEdits = messages.filter((m: any) => m.type === 'fs-edit');
-    expect(fsEdits).toHaveLength(0);
-  });
-
-  it('does NOT emit fs-edit when tool result has no path in input', async () => {
-    const { backend } = createDroidBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'Pathless write');
-    simulateProcess(currentMockProcess, [
-      droidToolResult('write_file', 'call-5', 'ok', { content: 'data' }),
-    ]);
-    await promptPromise;
-
-    const fsEdits = messages.filter((m: any) => m.type === 'fs-edit');
-    expect(fsEdits).toHaveLength(0);
   });
 });
 
@@ -944,7 +861,7 @@ describe('DroidBackend — message handler management', () => {
 
     const { sessionId } = await backend.startSession();
     const promptPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [droidText('World')]);
+    simulateProcess(currentMockProcess, [droidResult({ result: 'World' })]);
     await promptPromise;
 
     expect(received.some((m: any) => m.type === 'model-output')).toBe(true);
@@ -960,7 +877,7 @@ describe('DroidBackend — message handler management', () => {
 
     const { sessionId } = await backend.startSession();
     const promptPromise = backend.sendPrompt(sessionId, 'Hidden');
-    simulateProcess(currentMockProcess, [droidText('Invisible')]);
+    simulateProcess(currentMockProcess, [droidResult({ result: 'Invisible' })]);
     await promptPromise;
 
     const modelOutputs = received.filter((m: any) => m.type === 'model-output');
@@ -977,7 +894,7 @@ describe('DroidBackend — message handler management', () => {
 
     const { sessionId } = await backend.startSession();
     const promptPromise = backend.sendPrompt(sessionId, 'Broadcast');
-    simulateProcess(currentMockProcess, [droidText('To all')]);
+    simulateProcess(currentMockProcess, [droidResult({ result: 'To all' })]);
     await promptPromise;
 
     expect(received1.some((m: any) => m.type === 'model-output')).toBe(true);
@@ -993,7 +910,7 @@ describe('DroidBackend — message handler management', () => {
 
     const { sessionId } = await backend.startSession();
     const promptPromise = backend.sendPrompt(sessionId, 'Resilient');
-    simulateProcess(currentMockProcess, [droidText('Still works')]);
+    simulateProcess(currentMockProcess, [droidResult({ result: 'Still works' })]);
     await promptPromise;
 
     expect(received.some((m: any) => m.type === 'model-output')).toBe(true);
@@ -1069,7 +986,7 @@ describe('DroidBackend — extra args validation', () => {
   it('passes validated extra args to droid', async () => {
     const { backend } = createDroidBackend({
       ...BASE_OPTIONS,
-      extraArgs: ['--verbose', '--max-tokens', '4096'],
+      extraArgs: ['--reasoning-effort', 'high'],
     });
     const { sessionId } = await backend.startSession();
 
@@ -1078,9 +995,8 @@ describe('DroidBackend — extra args validation', () => {
     await promptPromise;
 
     const args = mockSpawn.mock.calls[0][1] as string[];
-    expect(args).toContain('--verbose');
-    expect(args).toContain('--max-tokens');
-    expect(args).toContain('4096');
+    expect(args).toContain('--reasoning-effort');
+    expect(args).toContain('high');
   });
 
   it('throws for extra args containing shell metacharacters', async () => {
@@ -1095,96 +1011,32 @@ describe('DroidBackend — extra args validation', () => {
 });
 
 // ===========================================================================
-// DroidBackend — session_id tracking
+// DroidBackend — session_id tracking across prompts
 // ===========================================================================
 
 describe('DroidBackend — session_id tracking', () => {
-  it('uses session_id from Droid output in subsequent prompts', async () => {
+  it('uses the session_id from Droid output to resume on subsequent prompts', async () => {
     const { backend } = createDroidBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
 
-    // First prompt — Droid returns a session_id
+    // First prompt — Droid emits init + result carrying a session_id
     let promptPromise = backend.sendPrompt(sessionId, 'First message');
     simulateProcess(currentMockProcess, [
-      JSON.stringify({ type: 'text', content: 'Hello', session_id: 'droid-sess-abc' }),
-      droidDone(),
+      droidInit('claude-opus-4-8', 'droid-sess-abc'),
+      droidResult({ result: 'Hello', sessionId: 'droid-sess-abc' }),
     ]);
     await promptPromise;
 
     currentMockProcess = makeMockProcess();
     mockSpawn.mockReturnValue(currentMockProcess);
 
-    // Second prompt — should pass --session droid-sess-abc
+    // Second prompt — should pass `-s droid-sess-abc`
     promptPromise = backend.sendPrompt(sessionId, 'Second message');
     simulateProcess(currentMockProcess);
     await promptPromise;
 
     const args = mockSpawn.mock.calls[1][1] as string[];
-    expect(args).toContain('--session');
+    expect(args).toContain('-s');
     expect(args).toContain('droid-sess-abc');
-  });
-});
-
-// ===========================================================================
-// DroidBackend — cost-report emission
-// ===========================================================================
-
-/**
- * Tests for the unified CostReport event emitted by Droid usage events.
- *
- * WHY: Droid mirrors Goose's pattern — source='agent-reported' with rawAgentPayload
- * when cost_usd is present; source='styrby-estimate' with rawAgentPayload=null
- * when cost_usd is absent.
- */
-describe('DroidBackend — cost-report emission', () => {
-  it('emits cost-report with source=agent-reported when usage event has cost_usd', async () => {
-    const { backend } = createDroidBackend({ ...BASE_OPTIONS, model: 'droid-v2' });
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      droidUsage({ prompt_tokens: 1200, completion_tokens: 600, cost_usd: 0.045 }),
-    ]);
-    await promptPromise;
-
-    const reports = messages.filter((m: any) => m.type === 'cost-report');
-    expect(reports.length).toBeGreaterThanOrEqual(1);
-    const r = reports[0] as any;
-    expect(r.report.billingModel).toBe('api-key');
-    expect(r.report.source).toBe('agent-reported');
-    expect(r.report.agentType).toBe('droid');
-    expect(r.report.rawAgentPayload).not.toBeNull();
-  });
-
-  it('emits cost-report with source=styrby-estimate and rawAgentPayload=null when cost_usd is absent', async () => {
-    const { backend } = createDroidBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      droidUsage({ prompt_tokens: 800, completion_tokens: 300 }),
-    ]);
-    await promptPromise;
-
-    const r = messages.find((m: any) => m.type === 'cost-report') as any;
-    expect(r.report.source).toBe('styrby-estimate');
-    expect(r.report.rawAgentPayload).toBeNull();
-  });
-
-  it('cost-report costUsd reflects the agent-provided value', async () => {
-    const { backend } = createDroidBackend(BASE_OPTIONS);
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      droidUsage({ prompt_tokens: 500, completion_tokens: 200, cost_usd: 0.022 }),
-    ]);
-    await promptPromise;
-
-    const r = messages.find((m: any) => m.type === 'cost-report') as any;
-    expect(r.report.costUsd).toBeCloseTo(0.022);
   });
 });

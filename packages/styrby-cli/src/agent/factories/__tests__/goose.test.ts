@@ -5,12 +5,23 @@
  * - `createGooseBackend` factory function
  * - `registerGooseAgent` registry integration
  * - `GooseBackend` class: session lifecycle, subprocess management,
- *   JSONL output parsing, cost/token extraction from MCP usage events,
- *   fs-edit detection from tool names, sub-agent event passthrough,
- *   error handling, cancellation, permission response, and disposal.
+ *   stream-json output parsing, cost/token extraction, fs-edit detection from
+ *   tool names, error handling, cancellation, permission response, disposal.
  *
  * All child_process and logger calls are mocked so no real Goose binary
  * is required.
+ *
+ * INVOCATION is verified against the real `goose run --help` (binary v1.37.0,
+ * 2026-06-10): `goose run -t <prompt> --output-format stream-json
+ * [--no-session] [--model] [--provider] [--name]`. The OLD `--format jsonl` +
+ * `--no-interactive` flags were invented and have been removed.
+ *
+ * PARSER schema is UNVERIFIED (#30): the local box has no provider configured,
+ * so a real `stream-json` event stream could not be captured. The event-shape
+ * tests below (cost/usage especially) exercise a BEST-GUESS schema and are
+ * marked `describe.skip` / `it.skip` with that reason until #30 captures real
+ * output. They are kept (not deleted) so they activate the moment the schema is
+ * confirmed.
  *
  * @module factories/__tests__/goose.test.ts
  */
@@ -334,7 +345,10 @@ describe('GooseBackend — session lifecycle', () => {
  * Tests for sendPrompt — verifies correct CLI arguments are passed to spawn.
  */
 describe('GooseBackend — sendPrompt arguments', () => {
-  it('spawns goose with "run", "--text", and "--format jsonl" flags', async () => {
+  it('spawns goose with "run", "--text", and real "--output-format stream-json" flags', async () => {
+    // VERIFIED against `goose run --help` (v1.37.0): the headless invocation is
+    // `goose run -t <prompt> --output-format stream-json`. The invented
+    // `--format jsonl` flag does not exist.
     const { backend } = createGooseBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
 
@@ -347,11 +361,17 @@ describe('GooseBackend — sendPrompt arguments', () => {
     expect(args).toContain('run');
     expect(args).toContain('--text');
     expect(args).toContain('Refactor auth module');
-    expect(args).toContain('--format');
-    expect(args).toContain('jsonl');
+    expect(args).toContain('--output-format');
+    expect(args).toContain('stream-json');
+    // The invented flags must NOT be present.
+    expect(args).not.toContain('--format');
+    expect(args).not.toContain('jsonl');
+    expect(args).not.toContain('--no-interactive');
   });
 
-  it('includes --no-interactive flag by default', async () => {
+  it('includes --no-session by default (ephemeral automated run)', async () => {
+    // `goose run` is already non-interactive; there is no --no-interactive flag.
+    // We pass --no-session so automated runs do not litter the session DB.
     const { backend } = createGooseBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
 
@@ -360,10 +380,10 @@ describe('GooseBackend — sendPrompt arguments', () => {
     await promptPromise;
 
     const [, args] = mockSpawn.mock.calls[0];
-    expect(args).toContain('--no-interactive');
+    expect(args).toContain('--no-session');
   });
 
-  it('omits --no-interactive flag when nonInteractive is explicitly false', async () => {
+  it('omits --no-session when nonInteractive is explicitly false (keep session file)', async () => {
     const { backend } = createGooseBackend({ ...BASE_OPTIONS, nonInteractive: false });
     const { sessionId } = await backend.startSession();
 
@@ -372,7 +392,21 @@ describe('GooseBackend — sendPrompt arguments', () => {
     await promptPromise;
 
     const [, args] = mockSpawn.mock.calls[0];
-    expect(args).not.toContain('--no-interactive');
+    expect(args).not.toContain('--no-session');
+  });
+
+  it('omits --no-session when a sessionName is provided (named session wins)', async () => {
+    const { backend } = createGooseBackend({ ...BASE_OPTIONS, sessionName: 'keep-me' });
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess);
+    await promptPromise;
+
+    const [, args] = mockSpawn.mock.calls[0];
+    expect(args).not.toContain('--no-session');
+    expect(args).toContain('--name');
+    expect(args).toContain('keep-me');
   });
 
   it('includes --model flag when model option is set', async () => {
@@ -531,10 +565,19 @@ describe('GooseBackend — sendPrompt arguments', () => {
 // ===========================================================================
 
 /**
- * Tests for JSONL parsing: message events, tool calls, tool results, fs-edits,
- * cost tracking, status events, and finish events.
+ * Tests for stream-json parsing: message events, tool calls, tool results,
+ * fs-edits, cost tracking, status events, finish events.
+ *
+ * SKIPPED (#30): every test in this block asserts a BEST-GUESS event schema
+ * (`{type:'message'|'tool_call'|'tool_result'|'cost'|'status'|'finish', ...}`)
+ * that could NOT be confirmed against real `goose run --output-format
+ * stream-json` output — the local box has no provider configured, so no authed
+ * session was capturable. These tests are retained (not deleted) and will be
+ * un-skipped once #30 captures the real schema. The parser-plumbing tests that
+ * do NOT depend on the event schema (non-JSON tolerance, partial buffering,
+ * clean exit) live in the error-handling block below and remain active.
  */
-describe('GooseBackend — JSONL output parsing and event emission', () => {
+describe.skip('GooseBackend — stream-json parsing (schema unverified #30)', () => {
   it('emits model-output message for type=message events', async () => {
     const { backend } = createGooseBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
@@ -793,6 +836,19 @@ describe('GooseBackend — JSONL output parsing and event emission', () => {
     expect(text).toContain('Hello from Goose');
   });
 
+});
+
+// ===========================================================================
+// GooseBackend — process plumbing (schema-independent)
+// ===========================================================================
+
+/**
+ * Tests for stream plumbing that does NOT depend on the (unverified #30) event
+ * schema: clean-exit status, non-JSON tolerance, and partial-line buffering.
+ * These remain active because they validate the spawn/close lifecycle and the
+ * line buffer, which are correct regardless of what JSON goose actually emits.
+ */
+describe('GooseBackend — process plumbing (schema-independent)', () => {
   it('emits idle status after process exits cleanly', async () => {
     const { backend } = createGooseBackend(BASE_OPTIONS);
     const messages = collectMessages(backend);
@@ -807,6 +863,27 @@ describe('GooseBackend — JSONL output parsing and event emission', () => {
       .at(-1) as any;
 
     expect(lastStatus?.status).toBe('idle');
+  });
+
+  it('ignores non-JSON stdout lines without crashing', async () => {
+    // Schema-independent: any non-`{`-prefixed line is dropped to a debug log.
+    const { backend } = createGooseBackend(BASE_OPTIONS);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, ['Loading Goose...', '   ', 'plain text line']);
+
+    await expect(promptPromise).resolves.not.toThrow();
+  });
+
+  it('handles partial/malformed JSON lines without crashing', async () => {
+    const { backend } = createGooseBackend(BASE_OPTIONS);
+    const { sessionId } = await backend.startSession();
+
+    const promptPromise = backend.sendPrompt(sessionId, 'hello');
+    simulateProcess(currentMockProcess, ['{ incomplete json', 'another non-json line']);
+
+    await expect(promptPromise).resolves.not.toThrow();
   });
 });
 
@@ -1103,8 +1180,12 @@ describe('GooseBackend — waitForResponseComplete', () => {
  * WHY: migration 022 columns require billing_model / source / raw_agent_payload.
  * When Goose provides cost_usd the source is 'agent-reported' with rawAgentPayload.
  * When cost_usd is absent, source falls back to 'styrby-estimate' and rawAgentPayload is null.
+ *
+ * SKIPPED (#30): depends on the assumed `{type:'cost', usage:{cost_usd}}` event
+ * shape, which is UNVERIFIED against real goose stream-json output. Un-skip once
+ * #30 confirms how goose actually surfaces token usage.
  */
-describe('GooseBackend — cost-report emission', () => {
+describe.skip('GooseBackend — cost-report emission (schema unverified #30)', () => {
   it('emits cost-report with source=agent-reported when cost event has cost_usd', async () => {
     const { backend } = createGooseBackend({ ...BASE_OPTIONS, model: 'claude-opus-4' });
     const messages = collectMessages(backend);

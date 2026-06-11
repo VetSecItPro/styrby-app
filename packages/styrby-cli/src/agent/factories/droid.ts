@@ -1,27 +1,48 @@
 /**
- * Droid Backend - Droid CLI agent adapter (BYOK)
+ * Droid Backend - Factory's `droid` CLI agent adapter.
  *
  * This module provides a factory function for creating a Droid backend.
- * Droid is a Bring Your Own Key (BYOK) AI coding agent that supports multiple
- * LLM backends through the LiteLLM proxy protocol. Users supply their own API
- * keys for any supported provider.
+ * Droid is Factory AI's terminal coding agent. It runs against Factory's
+ * hosted models (Claude, GPT, Gemini, and Factory "Droid Core" models) and
+ * authenticates via a Factory account login or a `FACTORY_API_KEY`.
  *
- * Key characteristics:
- * - Binary name: `droid` (installed via `npm install -g droid` or
- *   `curl -fsSL https://app.factory.ai/cli | sh`, or `brew install --cask droid`)
- * - Config: `~/.config/droid/config.yaml`
- * - Output: structured JSON lines via stdout
- * - Cost tracking: varies by backend model, uses LiteLLM pricing tables for estimates
- * - BYOK: users bring their own API keys for Anthropic, OpenAI, Google, Mistral, etc.
- * - Multi-backend: switches LLM backends per session without reinstallation
+ * Key characteristics (all verified against the real `droid` binary v0.144.2
+ * via `droid --help` / `droid exec --help`, 2026-06-10):
+ * - Binary name: `droid`
+ * - Headless invocation: `droid exec [prompt]` (positional prompt). There is
+ *   NO `chat` subcommand, NO `--message`, NO `--no-interactive`, NO `--backend`.
+ * - Output format flag: `-o, --output-format <format>` with three valid
+ *   values: `text` (default), `json`, and `stream-json`. We use `stream-json`
+ *   for incremental NDJSON events.
+ * - Session resume: `-s, --session-id <id>` (continue) / `--fork <id>` (fork).
+ * - Model override: `-m, --model <id>` (default `claude-opus-4-8`).
+ * - Autonomy is OFF by default (read-only). `--auto low|medium|high` raises it.
+ *   Styrby keeps the default read-only posture unless the caller opts in via
+ *   `autoLevel`, mirroring how we gate write access for the other adapters.
  *
- * WHY BYOK matters: Enterprise users often have negotiated API rates or on-prem
- * model deployments. Droid lets them use Styrby's mobile UX without being locked
- * into any single provider pricing. LiteLLM pricing is used as the fallback
- * estimator when the backend does not report token costs directly.
+ * AUTHENTICATION NOTE: Droid is Factory-hosted, not a generic BYOK/LiteLLM
+ * proxy. The single credential it reads from the environment is
+ * `FACTORY_API_KEY` (or an interactive `droid` login). The earlier assumption
+ * that Droid was a LiteLLM multi-provider BYOK agent (injecting
+ * ANTHROPIC_API_KEY / OPENAI_API_KEY / etc.) was WRONG and has been removed.
  *
- * @see https://docs.factory.ai/cli/getting-started/quickstart
- * @see https://github.com/Factory-AI/factory
+ * OUTPUT SCHEMA — verification status:
+ * - VERIFIED (captured from a real unauthenticated run, 2026-06-10):
+ *     {"type":"system","subtype":"init", session_id, tools:[...], model, reasoning_effort}
+ *     {"type":"error", source, message, timestamp, session_id}
+ *     {"type":"result", subtype:"success"|"failure", is_error, duration_ms,
+ *       num_turns, result, session_id,
+ *       usage:{ input_tokens, output_tokens,
+ *               cache_read_input_tokens, cache_creation_input_tokens }}
+ *   This is the Claude-Code stream-json schema (snake_case usage fields).
+ * - UNVERIFIED (could not capture — no Factory auth on this machine, #30):
+ *     assistant/text-delta events and tool_use / tool_result events. Droid's
+ *     `stream-json` is Claude-Code-shaped, so we parse the Claude-Code
+ *     `{"type":"assistant", message:{ content:[...] }}` envelope, but those
+ *     branches are marked UNVERIFIED below and MUST be re-confirmed against a
+ *     keyed session before we claim they work.
+ *
+ * @see https://docs.factory.ai/cli/getting-started/overview
  * @module factories/droid
  */
 
@@ -37,156 +58,67 @@ import type {
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
-import { resolveApiKeyEnv } from '@/utils/apiKeyProvider';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
 import type { CostReport } from '@styrby/shared/cost';
-
-// ============================================================================
-// LiteLLM Pricing Table
-// ============================================================================
-
-/**
- * LiteLLM-compatible pricing estimates per 1000 tokens in USD.
- *
- * WHY: Droid supports many model backends, each with different pricing.
- * Rather than requiring Droid to report costs, we estimate from the model
- * name using the LiteLLM pricing database as the authoritative source.
- * These are estimates — actual billing depends on the user's provider contract.
- *
- * Prices are per 1000 tokens (input, output).
- * Source: https://docs.litellm.ai/docs/completion/token_usage#8-token-usage
- */
-const LITELLM_PRICING: Record<string, { inputPer1K: number; outputPer1K: number }> = {
-  // Anthropic Claude models
-  'claude-opus-4': { inputPer1K: 0.015, outputPer1K: 0.075 },
-  'claude-sonnet-4': { inputPer1K: 0.003, outputPer1K: 0.015 },
-  'claude-haiku-3-5': { inputPer1K: 0.0008, outputPer1K: 0.004 },
-  // OpenAI GPT models
-  'gpt-4o': { inputPer1K: 0.0025, outputPer1K: 0.01 },
-  'gpt-4o-mini': { inputPer1K: 0.00015, outputPer1K: 0.0006 },
-  'gpt-4-turbo': { inputPer1K: 0.01, outputPer1K: 0.03 },
-  'o1': { inputPer1K: 0.015, outputPer1K: 0.06 },
-  'o3-mini': { inputPer1K: 0.0011, outputPer1K: 0.0044 },
-  // Google Gemini models
-  'gemini-2.0-flash': { inputPer1K: 0.0001, outputPer1K: 0.0004 },
-  'gemini-2.5-pro': { inputPer1K: 0.00125, outputPer1K: 0.005 },
-  // Mistral models
-  'mistral-large': { inputPer1K: 0.002, outputPer1K: 0.006 },
-  'mistral-small': { inputPer1K: 0.0002, outputPer1K: 0.0006 },
-};
-
-/**
- * Default pricing used when the model is unknown.
- *
- * WHY: Unknown models should not silently report $0.00 cost, which would
- * cause users to underestimate spending. Using a mid-range default errs
- * on the side of slight overestimation, which is safer for budgeting.
- */
-const DEFAULT_PRICING = { inputPer1K: 0.002, outputPer1K: 0.008 };
-
-/**
- * Estimate cost in USD from token counts using LiteLLM pricing.
- *
- * @param model - The model identifier (partial matches are supported)
- * @param inputTokens - Number of input/prompt tokens
- * @param outputTokens - Number of output/completion tokens
- * @returns Estimated cost in USD
- *
- * @example
- * estimateCostFromTokens('claude-sonnet-4', 1000, 500)
- * // Returns: 0.003 + 0.0075 = 0.0105 USD
- */
-function estimateCostFromTokens(
-  model: string,
-  inputTokens: number,
-  outputTokens: number
-): number {
-  // WHY: Try exact match first, then partial match for model family variants
-  // (e.g., 'claude-sonnet-4-20250514' should match 'claude-sonnet-4').
-  const exactPricing = LITELLM_PRICING[model];
-  if (exactPricing) {
-    return (
-      (inputTokens / 1000) * exactPricing.inputPer1K +
-      (outputTokens / 1000) * exactPricing.outputPer1K
-    );
-  }
-
-  // Partial match: find the longest pricing key that is a prefix of the model name
-  let bestMatch: string | null = null;
-  for (const key of Object.keys(LITELLM_PRICING)) {
-    if (model.includes(key) || key.includes(model)) {
-      if (!bestMatch || key.length > bestMatch.length) {
-        bestMatch = key;
-      }
-    }
-  }
-
-  const pricing = bestMatch ? LITELLM_PRICING[bestMatch] : DEFAULT_PRICING;
-  return (
-    (inputTokens / 1000) * pricing.inputPer1K +
-    (outputTokens / 1000) * pricing.outputPer1K
-  );
-}
 
 // ============================================================================
 // Types
 // ============================================================================
 
 /**
+ * Autonomy level for `droid exec --auto <level>`.
+ *
+ * Droid runs read-only by default; raising autonomy lets the agent write files
+ * (`low`), run dev commands (`medium`), or perform production operations
+ * (`high`). Verified via `droid exec --help`.
+ */
+export type DroidAutoLevel = 'low' | 'medium' | 'high';
+
+/**
  * Options for creating a Droid backend.
  */
 export interface DroidBackendOptions extends AgentFactoryOptions {
   /**
-   * API key for the target LLM provider.
+   * Factory API key (`FACTORY_API_KEY`).
    *
-   * WHY: Droid is BYOK — users supply their own API keys. The key is injected
-   * into the subprocess environment under the provider-specific variable name.
-   * This is the primary API key; secondary keys can be passed via apiKeys map.
+   * WHY: Droid is Factory-hosted. Unlike the BYOK adapters, it does NOT accept
+   * provider keys (Anthropic/OpenAI/etc.) — it authenticates only against
+   * Factory. When omitted, Droid falls back to the interactive login stored in
+   * `~/.factory`. Injected via the environment, never a CLI flag, so it never
+   * appears in `ps aux`.
    */
-  apiKey?: string;
+  factoryApiKey?: string;
 
   /**
-   * Provider-specific API keys for multi-backend sessions.
-   *
-   * WHY: Some users run Droid with multiple backends in the same session
-   * (e.g., using GPT-4o for fast responses and Claude for refactoring).
-   * Each provider needs its own key.
-   *
-   * @example
-   * apiKeys: {
-   *   ANTHROPIC_API_KEY: 'sk-ant-...',
-   *   OPENAI_API_KEY: 'sk-...',
-   * }
-   */
-  apiKeys?: Record<string, string>;
-
-  /**
-   * LLM backend to use (e.g., 'anthropic', 'openai', 'google', 'mistral').
-   * Passed as --backend flag. Defaults to Droid's config.yaml setting.
-   */
-  backend?: string;
-
-  /**
-   * Model to use (e.g., 'claude-sonnet-4', 'gpt-4o').
-   * Droid uses the configured default model for the selected backend.
+   * Model to use (e.g., 'claude-opus-4-8', 'gpt-5.5', 'gemini-3.1-pro-preview').
+   * Passed as `-m/--model`. Defaults to Droid's own default (`claude-opus-4-8`).
    */
   model?: string;
 
   /**
-   * Whether to run in non-interactive mode (always true for Styrby).
-   * Prevents Droid from prompting for user confirmation.
-   * Default: true
+   * Autonomy level (`--auto low|medium|high`).
+   *
+   * WHY: Droid defaults to read-only. Omitting this keeps the safe default;
+   * the mobile/relay layer decides when to grant write access, matching how the
+   * other adapters gate file mutation.
    */
-  nonInteractive?: boolean;
+  autoLevel?: DroidAutoLevel;
 
   /**
-   * Session ID to resume (Droid supports persistent sessions).
-   * When provided, Droid will resume that session's conversation context.
+   * Session ID to resume (`-s/--session-id`). When set, Droid continues that
+   * session's conversation context. Requires a prompt (enforced by Droid).
    */
   resumeSessionId?: string;
 
   /**
-   * Additional Droid CLI arguments.
+   * Session ID to fork (`--fork`). Copies the source session's history into a
+   * new local session, then continues on the forked branch. Mutually exclusive
+   * with `resumeSessionId` at the CLI level; if both are set, fork wins.
+   */
+  forkSessionId?: string;
+
+  /**
+   * Additional Droid CLI arguments (validated for shell safety).
    * See: https://docs.factory.ai/cli
    */
   extraArgs?: string[];
@@ -205,67 +137,74 @@ export interface DroidBackendResult {
 }
 
 // ============================================================================
-// JSON Output Parsing
+// stream-json Output Schema (Claude-Code-shaped)
 // ============================================================================
 
 /**
- * Droid JSON output message types.
+ * Usage block reported by Droid's `result` event.
  *
- * WHY: Droid follows the LiteLLM output format, which is a superset of the
- * OpenAI Chat Completions streaming format. Messages include token usage data
- * that we use to compute costs via the LiteLLM pricing table.
+ * VERIFIED: captured from a real `droid exec ... -o stream-json` / `-o json`
+ * run (2026-06-10). Field names are Claude-Code snake_case:
+ *   { input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens }
+ *
+ * Droid does NOT report a cost field in this block. Cost is therefore derived
+ * by Styrby's central cost layer from token counts + the resolved Factory model,
+ * NOT from a LiteLLM table here (the old hardcoded LITELLM_PRICING table was
+ * removed — it was never part of Droid's real output and produced misleading
+ * numbers for Factory-hosted models).
  */
-interface DroidJsonMessage {
-  type:
-    | 'text'
-    | 'tool_call'
-    | 'tool_result'
-    | 'usage'
-    | 'error'
-    | 'done'
-    | 'backend_switch';
-  /** Text content for text events */
-  content?: string;
-  /** Tool name for tool_call and tool_result events */
-  tool_name?: string;
-  /** Tool input arguments */
-  tool_input?: Record<string, unknown>;
-  /** Tool result for tool_result events */
-  tool_result?: unknown;
-  /** Unique call ID correlating tool_call to tool_result */
-  call_id?: string;
-  /** Token usage for usage events */
-  usage?: DroidUsageMetadata;
-  /** Error message for error events */
-  error?: string;
-  /** The newly active backend for backend_switch events */
-  new_backend?: string;
-  /** The model within the new backend */
-  new_model?: string;
-  /** Session ID for persistence */
-  session_id?: string;
+interface DroidUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
 }
 
 /**
- * Token usage metadata from Droid LiteLLM-compatible output.
+ * A single content block inside a Claude-Code `assistant` message.
  *
- * WHY: Droid reports standard token counts but the cost depends on which
- * backend and model were used. We compute cost using our LITELLM_PRICING table
- * rather than relying on Droid to report costs, since the BYOK model means
- * users may have custom pricing through their provider contracts.
+ * UNVERIFIED (#30): the assistant/tool envelope was not captured (no auth).
+ * Shape is inferred from the Claude-Code stream-json schema that Droid's
+ * init event advertises (tools list + `model` mirror Claude Code exactly).
+ * Treat as best-effort until a keyed session confirms it.
  */
-interface DroidUsageMetadata {
-  /** Input tokens for this request */
-  prompt_tokens?: number;
-  /** Output tokens for this request */
-  completion_tokens?: number;
-  /** Cache read tokens (provider-specific) */
-  cache_read_tokens?: number;
-  /** Cache write tokens (provider-specific) */
-  cache_write_tokens?: number;
-  /** Pre-computed cost in USD (used if available, otherwise estimated) */
-  cost_usd?: number;
-  /** Which backend/model generated this usage (for multi-backend sessions) */
+interface DroidContentBlock {
+  type?: string;
+  /** text for `{type:'text'}` blocks */
+  text?: string;
+  /** tool name for `{type:'tool_use'}` blocks */
+  name?: string;
+  /** tool call id for `{type:'tool_use'}` blocks */
+  id?: string;
+  /** tool input for `{type:'tool_use'}` blocks */
+  input?: Record<string, unknown>;
+  /** correlating id for `{type:'tool_result'}` blocks */
+  tool_use_id?: string;
+  /** result payload for `{type:'tool_result'}` blocks */
+  content?: unknown;
+}
+
+/**
+ * A parsed line of Droid `stream-json` / `json` output.
+ *
+ * `system`/`init`, `error`, and `result` are VERIFIED. `assistant`/`user`
+ * (which carry the content blocks above) are UNVERIFIED (#30).
+ */
+interface DroidStreamMessage {
+  type?: 'system' | 'assistant' | 'user' | 'result' | 'error';
+  subtype?: string;
+  session_id?: string;
+  /** result event: assistant's final text */
+  result?: string;
+  /** result event: whether the run errored */
+  is_error?: boolean;
+  /** result event: token usage */
+  usage?: DroidUsage;
+  /** error event: human-readable message */
+  message?: string | { content?: DroidContentBlock[] };
+  /** error event: origin (e.g. 'cli') */
+  source?: string;
+  /** init event: model id */
   model?: string;
 }
 
@@ -273,16 +212,16 @@ interface DroidUsageMetadata {
  * Parse a single JSON line from Droid's output.
  *
  * @param line - A single line of Droid stdout (expected to be JSON)
- * @returns Parsed DroidJsonMessage or null if the line is not valid JSON
+ * @returns Parsed DroidStreamMessage or null if the line is not valid JSON
  */
-function parseDroidJsonLine(line: string): DroidJsonMessage | null {
+function parseDroidJsonLine(line: string): DroidStreamMessage | null {
   const trimmed = line.trim();
   if (!trimmed || !trimmed.startsWith('{')) {
     return null;
   }
 
   try {
-    return JSON.parse(trimmed) as DroidJsonMessage;
+    return JSON.parse(trimmed) as DroidStreamMessage;
   } catch {
     return null;
   }
@@ -291,10 +230,9 @@ function parseDroidJsonLine(line: string): DroidJsonMessage | null {
 /**
  * Extract a file path from Droid tool input arguments.
  *
- * Droid normalizes tool input across different LLM backends, but field names
- * may still vary. We check multiple common names to extract the path.
+ * UNVERIFIED (#30): field names inferred from Claude-Code tool schemas.
  *
- * @param toolInput - Tool input arguments from a tool_call event
+ * @param toolInput - Tool input arguments from a tool_use block
  * @returns File path string or null if not found
  */
 function extractDroidFilePath(toolInput?: Record<string, unknown>): string | null {
@@ -311,14 +249,18 @@ function extractDroidFilePath(toolInput?: Record<string, unknown>): string | nul
 /**
  * Determine if a Droid tool call modifies the file system.
  *
- * @param toolName - The Droid tool name (normalized by LiteLLM)
+ * UNVERIFIED (#30): tool-name patterns inferred from Droid's advertised tool
+ * list (Edit, Create, ApplyPatch) plus common Claude-Code tool names.
+ *
+ * @param toolName - The tool name from a tool_use block
  * @returns true if this tool writes or modifies files
  */
 function isDroidFileEditTool(toolName: string): boolean {
   const fileEditPatterns = [
     'write',
     'edit',
-    'create_file',
+    'create',
+    'applypatch',
     'patch',
     'str_replace',
     'apply_diff',
@@ -336,9 +278,10 @@ function isDroidFileEditTool(toolName: string): boolean {
 /**
  * Droid Backend implementation.
  *
- * Spawns Droid as a subprocess with JSON output and parses LiteLLM-compatible
- * events. Handles multi-backend sessions, BYOK key injection, and cost estimation
- * from the LiteLLM pricing table for unified cost reporting.
+ * Spawns `droid exec` with `--output-format stream-json` and parses the
+ * Claude-Code-shaped NDJSON event stream. Token usage is taken from the
+ * VERIFIED `result` event; cost is left to Styrby's central cost layer
+ * (Droid does not self-report cost).
  */
 class DroidBackend extends StreamingAgentBackendBase {
   protected readonly logTag = 'DroidBackend';
@@ -348,9 +291,8 @@ class DroidBackend extends StreamingAgentBackendBase {
   private outputTokens = 0;
   private cacheReadTokens = 0;
   private cacheWriteTokens = 0;
-  private totalCostUsd = 0;
-  // WHY: Track the current active backend model so we can use the correct
-  // LiteLLM pricing for cost estimation after backend_switch events.
+  // WHY: Track the resolved model so the emitted CostReport carries the model
+  // the central cost layer needs to price the run.
   private currentModel: string | undefined;
 
   constructor(private options: DroidBackendOptions) {
@@ -359,148 +301,181 @@ class DroidBackend extends StreamingAgentBackendBase {
   }
 
   /**
-   * Handle a parsed Droid JSON message and emit AgentMessages.
+   * Handle a parsed Droid stream-json message and emit AgentMessages.
    *
-   * WHY: The backend_switch event is Droid-specific — it fires when the BYOK
-   * session switches to a different LLM backend mid-conversation. We track the
-   * new model so subsequent cost estimates use the correct LiteLLM pricing.
-   *
-   * @param msg - The parsed Droid JSON message
+   * @param msg - The parsed Droid stream message
    */
-  private handleDroidMessage(msg: DroidJsonMessage): void {
+  private handleDroidMessage(msg: DroidStreamMessage): void {
     if (msg.session_id) {
       this.droidSessionId = msg.session_id;
     }
 
     switch (msg.type) {
-      case 'text':
-        if (msg.content) {
-          this.emit({ type: 'model-output', textDelta: msg.content });
+      case 'system':
+        // VERIFIED: {"type":"system","subtype":"init", model, session_id, tools}
+        // WHY: the init event is the authoritative source of the model Droid
+        // actually resolved (it may differ from our requested model if Droid
+        // applied a default). Capture it for accurate cost attribution.
+        if (msg.subtype === 'init' && msg.model) {
+          this.currentModel = msg.model;
         }
         break;
 
-      case 'tool_call':
-        if (msg.tool_name && msg.call_id) {
-          this.emit({
-            type: 'tool-call',
-            toolName: msg.tool_name,
-            args: msg.tool_input ?? {},
-            callId: msg.call_id,
-          });
-        }
+      case 'assistant':
+        // UNVERIFIED (#30): assistant content-block envelope not captured under
+        // a keyed session. Parsed best-effort per the Claude-Code schema.
+        this.handleAssistantBlocks(msg);
         break;
 
-      case 'tool_result':
-        if (msg.call_id && msg.tool_name) {
-          this.emit({
-            type: 'tool-result',
-            toolName: msg.tool_name,
-            result: msg.tool_result,
-            callId: msg.call_id,
-          });
-
-          // Detect file edits from tool name and emit fs-edit event
-          if (isDroidFileEditTool(msg.tool_name)) {
-            const filePath = extractDroidFilePath(msg.tool_input);
-            if (filePath) {
-              this.emit({
-                type: 'fs-edit',
-                description: `${msg.tool_name}: ${filePath}`,
-                path: filePath,
-              });
-            }
-          }
-        }
+      case 'user':
+        // UNVERIFIED (#30): `user` events carry tool_result blocks in the
+        // Claude-Code schema. Parsed best-effort.
+        this.handleToolResultBlocks(msg);
         break;
 
-      case 'usage':
-        // WHY: Droid emits usage after each model response. If cost_usd is
-        // provided by the backend, prefer it. Otherwise, estimate from
-        // token counts using the LiteLLM pricing table. This handles the
-        // common case where the LLM provider reports tokens but not cost.
-        if (msg.usage) {
-          const usageModel = msg.usage.model ?? this.currentModel ?? 'unknown';
-          const newInput = msg.usage.prompt_tokens ?? 0;
-          const newOutput = msg.usage.completion_tokens ?? 0;
-          const newCacheRead = msg.usage.cache_read_tokens ?? 0;
-          const newCacheWrite = msg.usage.cache_write_tokens ?? 0;
-
-          this.inputTokens += newInput;
-          this.outputTokens += newOutput;
-          this.cacheReadTokens += newCacheRead;
-          this.cacheWriteTokens += newCacheWrite;
-
-          const hasAgentCost = msg.usage.cost_usd !== undefined;
-          const incrCost = hasAgentCost
-            ? msg.usage.cost_usd!
-            : estimateCostFromTokens(usageModel, newInput, newOutput);
-          this.totalCostUsd += incrCost;
-
-          // Emit legacy token-count (keep for existing consumers)
-          this.emit({
-            type: 'token-count',
-            inputTokens: this.inputTokens,
-            outputTokens: this.outputTokens,
-            cacheReadTokens: this.cacheReadTokens,
-            cacheWriteTokens: this.cacheWriteTokens,
-            costUsd: this.totalCostUsd,
-          });
-
-          // WHY: Emit unified CostReport. source='agent-reported' when Droid's
-          // LiteLLM backend provides cost_usd directly; 'styrby-estimate' when
-          // we compute it from the LiteLLM pricing table (BYOK model).
-          // rawAgentPayload=null for estimates (schema refinement 3).
-          const costReport: CostReport = {
-            sessionId: this.sessionId ?? '',
-            messageId: null,
-            agentType: 'droid',
-            model: usageModel,
-            timestamp: new Date().toISOString(),
-            source: hasAgentCost ? 'agent-reported' : 'styrby-estimate',
-            billingModel: 'api-key',
-            costUsd: incrCost,
-            inputTokens: newInput,
-            outputTokens: newOutput,
-            cacheReadTokens: newCacheRead,
-            cacheWriteTokens: newCacheWrite,
-            rawAgentPayload: hasAgentCost ? (msg.usage as unknown as Record<string, unknown>) : null,
-          };
-          this.emit({ type: 'cost-report', report: costReport });
-        }
-        break;
-
-      case 'backend_switch':
-        // WHY: Droid can switch LLM backends mid-session. When this happens,
-        // we update currentModel so future cost estimates use the correct pricing.
-        // We also emit an event so the mobile app can show "Switched to GPT-4o".
-        if (msg.new_backend || msg.new_model) {
-          const switchedModel = msg.new_model ?? msg.new_backend ?? 'unknown';
-          this.currentModel = switchedModel;
-          this.emit({
-            type: 'event',
-            name: 'backend-switch',
-            payload: {
-              newBackend: msg.new_backend,
-              newModel: msg.new_model,
-            },
-          });
-        }
+      case 'result':
+        // VERIFIED: final event carrying usage + the assistant's full text.
+        this.handleResult(msg);
         break;
 
       case 'error':
+        // VERIFIED: {"type":"error","source","message","timestamp","session_id"}
         this.emit({
           type: 'status',
           status: 'error',
-          detail: msg.error ?? 'Droid encountered an error',
+          detail: typeof msg.message === 'string' ? msg.message : 'Droid encountered an error',
         });
         break;
 
-      case 'done':
-        this.emit({ type: 'status', status: 'idle' });
-        break;
-
       default:
-        logger.debug('[DroidBackend] Unknown message type:', msg);
+        logger.debug('[DroidBackend] Unhandled message type:', msg);
+    }
+  }
+
+  /**
+   * Emit model-output / tool-call events from a (UNVERIFIED) assistant message.
+   *
+   * @param msg - An `assistant` stream message
+   */
+  private handleAssistantBlocks(msg: DroidStreamMessage): void {
+    const blocks =
+      msg.message && typeof msg.message === 'object' ? msg.message.content ?? [] : [];
+
+    for (const block of blocks) {
+      if (block.type === 'text' && block.text) {
+        this.emit({ type: 'model-output', textDelta: block.text });
+      } else if (block.type === 'tool_use' && block.name && block.id) {
+        this.emit({
+          type: 'tool-call',
+          toolName: block.name,
+          args: block.input ?? {},
+          callId: block.id,
+        });
+      }
+    }
+  }
+
+  /**
+   * Emit tool-result / fs-edit events from a (UNVERIFIED) user message.
+   *
+   * @param msg - A `user` stream message carrying tool_result blocks
+   */
+  private handleToolResultBlocks(msg: DroidStreamMessage): void {
+    const blocks =
+      msg.message && typeof msg.message === 'object' ? msg.message.content ?? [] : [];
+
+    for (const block of blocks) {
+      if (block.type === 'tool_result' && block.tool_use_id) {
+        this.emit({
+          type: 'tool-result',
+          toolName: block.name ?? 'unknown',
+          result: block.content,
+          callId: block.tool_use_id,
+        });
+
+        if (block.name && isDroidFileEditTool(block.name)) {
+          const filePath = extractDroidFilePath(block.input);
+          if (filePath) {
+            this.emit({
+              type: 'fs-edit',
+              description: `${block.name}: ${filePath}`,
+              path: filePath,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Handle the VERIFIED `result` event: emit final text, token counts, and a
+   * unified CostReport.
+   *
+   * @param msg - A `result` stream message
+   */
+  private handleResult(msg: DroidStreamMessage): void {
+    // Emit the assistant's final text if present (the result event carries the
+    // full answer even when streaming deltas weren't captured).
+    if (typeof msg.result === 'string' && msg.result) {
+      this.emit({ type: 'model-output', textDelta: msg.result });
+    }
+
+    if (msg.usage) {
+      // VERIFIED usage field names (Claude-Code snake_case).
+      const newInput = msg.usage.input_tokens ?? 0;
+      const newOutput = msg.usage.output_tokens ?? 0;
+      const newCacheRead = msg.usage.cache_read_input_tokens ?? 0;
+      const newCacheWrite = msg.usage.cache_creation_input_tokens ?? 0;
+
+      this.inputTokens += newInput;
+      this.outputTokens += newOutput;
+      this.cacheReadTokens += newCacheRead;
+      this.cacheWriteTokens += newCacheWrite;
+
+      const usageModel = this.currentModel ?? 'unknown';
+
+      // Emit legacy token-count (keep for existing consumers). Droid does not
+      // report cost, so costUsd is left 0 here; the central cost layer prices it.
+      this.emit({
+        type: 'token-count',
+        inputTokens: this.inputTokens,
+        outputTokens: this.outputTokens,
+        cacheReadTokens: this.cacheReadTokens,
+        cacheWriteTokens: this.cacheWriteTokens,
+        costUsd: 0,
+      });
+
+      // WHY: Emit unified CostReport with source='styrby-estimate' because
+      // Droid never reports cost_usd — pricing is always derived downstream
+      // from token counts + the Factory model. rawAgentPayload carries the
+      // real usage block so the cost layer can re-derive if needed.
+      const costReport: CostReport = {
+        sessionId: this.sessionId ?? '',
+        messageId: null,
+        agentType: 'droid',
+        model: usageModel,
+        timestamp: new Date().toISOString(),
+        source: 'styrby-estimate',
+        billingModel: 'api-key',
+        costUsd: 0,
+        inputTokens: newInput,
+        outputTokens: newOutput,
+        cacheReadTokens: newCacheRead,
+        cacheWriteTokens: newCacheWrite,
+        rawAgentPayload: msg.usage as unknown as Record<string, unknown>,
+      };
+      this.emit({ type: 'cost-report', report: costReport });
+    }
+
+    // The result event terminates the turn.
+    if (msg.is_error) {
+      this.emit({
+        type: 'status',
+        status: 'error',
+        detail: typeof msg.result === 'string' ? msg.result : 'Droid run failed',
+      });
+    } else {
+      this.emit({ type: 'status', status: 'idle' });
     }
   }
 
@@ -530,8 +505,8 @@ class DroidBackend extends StreamingAgentBackendBase {
   /**
    * Start a new Droid session.
    *
-   * Resets all token/cost accumulators. If a resumeSessionId was provided
-   * in options, Droid will resume that session's conversation context.
+   * Resets all token accumulators. If a resumeSessionId/forkSessionId was
+   * provided in options, the first prompt will continue/fork that session.
    *
    * @param initialPrompt - Optional prompt to send immediately after session start
    * @returns Promise resolving to the session information
@@ -543,13 +518,12 @@ class DroidBackend extends StreamingAgentBackendBase {
     }
 
     this.sessionId = randomUUID();
-    this.droidSessionId = this.options.resumeSessionId ?? null;
+    this.droidSessionId = this.options.resumeSessionId ?? this.options.forkSessionId ?? null;
     this.currentModel = this.options.model;
     this.inputTokens = 0;
     this.outputTokens = 0;
     this.cacheReadTokens = 0;
     this.cacheWriteTokens = 0;
-    this.totalCostUsd = 0;
     this.lineBuffer = '';
 
     this.emit({ type: 'status', status: 'starting' });
@@ -567,10 +541,55 @@ class DroidBackend extends StreamingAgentBackendBase {
   }
 
   /**
+   * Build the `droid exec` argument vector for a prompt.
+   *
+   * Real form (verified `droid exec --help`, v0.144.2):
+   *   droid exec <prompt> --output-format stream-json [--fork <id> | -s <id>]
+   *     [-m <model>] [--auto <level>] [...extraArgs]
+   *
+   * @param prompt - The user's prompt text (positional argument)
+   * @returns The argv array passed to spawn (excluding the binary name)
+   */
+  private buildArgs(prompt: string): string[] {
+    const args: string[] = [
+      'exec',
+      prompt, // positional prompt — NOT a --message flag
+      '--output-format',
+      'stream-json', // incremental NDJSON events (verified valid choice)
+    ];
+
+    // Session continuation: fork takes precedence over resume (they share the
+    // same underlying session-id; both require a prompt, which we always pass).
+    if (this.options.forkSessionId) {
+      args.push('--fork', this.options.forkSessionId);
+    } else if (this.droidSessionId) {
+      args.push('-s', this.droidSessionId);
+    }
+
+    // Model override (-m/--model). Default is claude-opus-4-8 when omitted.
+    if (this.options.model) {
+      args.push('-m', this.options.model);
+    }
+
+    // Autonomy: omit to keep Droid's safe read-only default; only raise when
+    // the caller explicitly opts in.
+    if (this.options.autoLevel) {
+      args.push('--auto', this.options.autoLevel);
+    }
+
+    // Extra args (validated for shell safety — SEC-ARGS-001)
+    if (this.options.extraArgs) {
+      args.push(...validateExtraArgs(this.options.extraArgs));
+    }
+
+    return args;
+  }
+
+  /**
    * Send a prompt to Droid.
    *
-   * Spawns a Droid subprocess with JSON output. BYOK API keys are injected
-   * via environment variables so they are never logged in process arguments.
+   * Spawns `droid exec`. The Factory API key (if supplied) is injected via the
+   * environment so it never appears in process arguments.
    *
    * @param sessionId - The active session ID (must match startSession result)
    * @param prompt - The user's prompt text
@@ -592,75 +611,26 @@ class DroidBackend extends StreamingAgentBackendBase {
     this.lineBuffer = '';
     this.emit({ type: 'status', status: 'running' });
 
-    // Build Droid command arguments
-    const args: string[] = [
-      'chat',             // Droid subcommand for one-shot prompt
-      '--message',
-      prompt,
-      '--format',
-      'json',             // Request structured JSON output
-      '--no-interactive', // Prevent blocking on stdin
-    ];
-
-    // Resume an existing session for context continuity
-    if (this.droidSessionId) {
-      args.push('--session', this.droidSessionId);
-    }
-
-    // Backend override
-    if (this.options.backend) {
-      args.push('--backend', this.options.backend);
-    }
-
-    // Model override
-    if (this.options.model) {
-      args.push('--model', this.options.model);
-    }
-
-    // Extra args (validated for shell safety — SEC-ARGS-001)
-    if (this.options.extraArgs) {
-      args.push(...validateExtraArgs(this.options.extraArgs));
-    }
+    const args = this.buildArgs(prompt);
 
     logger.debug(`[DroidBackend] Spawning droid with args:`, args);
 
-    // Build the API key environment overrides.
-    // WHY: BYOK keys must be passed as environment variables, not CLI flags,
-    // to prevent them from appearing in process lists (ps aux).
-    //
-    // SECURITY (audit 2026-05-05 HIGH fix): the previous "inject under every
-    // provider name" pattern leaked sk-ant-* keys to OpenAI / Google /
-    // Mistral validation endpoints. resolveApiKeyEnv() restricts to the
-    // detected provider; the apiKeys map below still allows callers that
-    // genuinely DO have multi-provider keys to pass them explicitly.
-    const apiKeyEnv: Record<string, string> = {
-      ...resolveApiKeyEnv(
-        this.options.apiKey,
-        ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GOOGLE_API_KEY', 'MISTRAL_API_KEY'],
-        // Droid options don't expose an explicit provider yet; rely on sniff.
-        undefined,
-        'DroidBackend',
-      ),
-    };
-    // SECURITY: Only forward keys that look like API key env vars.
-    // Without this check, a malicious caller could inject LD_PRELOAD,
-    // DYLD_INSERT_LIBRARIES, or other vars that alter process behavior.
-    if (this.options.apiKeys) {
-      const API_KEY_PATTERN = /^[A-Z][A-Z0-9_]*_(API_KEY|KEY|TOKEN|SECRET)$/;
-      for (const [key, value] of Object.entries(this.options.apiKeys)) {
-        if (API_KEY_PATTERN.test(key)) {
-          apiKeyEnv[key] = value;
-        } else {
-          logger.warn(`[DroidBackend] Ignoring non-API-key env var in apiKeys: "${key}"`);
-        }
-      }
+    // Build the Factory API key environment override.
+    // WHY: Droid authenticates against Factory only (FACTORY_API_KEY). It is
+    // NOT a multi-provider BYOK proxy, so we do NOT inject ANTHROPIC_API_KEY /
+    // OPENAI_API_KEY / etc. (the prior fan-out was based on a wrong assumption
+    // about Droid being a LiteLLM agent). The key goes in the environment, not
+    // a CLI flag, to keep it out of `ps aux`.
+    const apiKeyEnv: Record<string, string> = {};
+    if (this.options.factoryApiKey) {
+      apiKeyEnv.FACTORY_API_KEY = this.options.factoryApiKey;
     }
 
     return new Promise<void>((resolve, reject) => {
       try {
         // SECURITY: Use buildSafeEnv() to prevent leaking internal Styrby
-        // secrets to the Droid subprocess. Only allowlisted system vars and
-        // explicitly injected BYOK keys are forwarded.
+        // secrets to the Droid subprocess. Only allowlisted system vars and the
+        // explicitly injected Factory key are forwarded.
         this.process = spawn('droid', args, {
           cwd: this.options.cwd,
           env: buildSafeEnv({
@@ -674,7 +644,7 @@ class DroidBackend extends StreamingAgentBackendBase {
           throw new Error('Failed to create stdio pipes');
         }
 
-        // Handle stdout — JSON messages from Droid
+        // Handle stdout — stream-json messages from Droid
         this.process.stdout.on('data', (data: Buffer) => {
           this.processStdout(data);
         });
@@ -762,7 +732,7 @@ class DroidBackend extends StreamingAgentBackendBase {
   /**
    * Cancel the current Droid operation.
    *
-   * WHY: Droid may be mid-stream with an LLM API call when cancelled.
+   * WHY: Droid may be mid-stream with a model API call when cancelled.
    * SIGTERM allows Droid to close its HTTP connection cleanly and avoid
    * billing the user for a partial response.
    *
@@ -791,8 +761,9 @@ class DroidBackend extends StreamingAgentBackendBase {
   /**
    * Respond to a Droid permission request.
    *
-   * In non-interactive mode (--no-interactive), Droid auto-approves most actions.
-   * This method handles responses for the interactive permission flow.
+   * NOTE: `droid exec` is non-interactive — permissions are governed by the
+   * `--auto` level, not an interactive y/n prompt. This handler remains for
+   * interface compatibility and best-effort stdin signalling.
    *
    * @param requestId - The ID of the permission request
    * @param approved - Whether the user approved the request
@@ -826,34 +797,24 @@ class DroidBackend extends StreamingAgentBackendBase {
 /**
  * Create a Droid backend.
  *
- * Droid is a BYOK AI coding agent supporting multiple LLM backends through
- * the LiteLLM proxy protocol. Users supply their own API keys for maximum
- * flexibility. Cost tracking uses LiteLLM pricing tables as fallback estimates.
+ * Droid is Factory AI's hosted terminal coding agent. It is invoked headlessly
+ * via `droid exec <prompt> --output-format stream-json` and authenticates
+ * against Factory (interactive login or `FACTORY_API_KEY`). Cost is derived
+ * downstream from the token counts in Droid's `result` event.
  *
  * The droid binary must be installed and available in PATH.
- * Install via: `npm install -g droid` (other methods at https://docs.factory.ai/cli)
+ * Install via: https://docs.factory.ai/cli/getting-started/overview
  *
  * @param options - Configuration options for the backend
  * @returns DroidBackendResult with backend instance and resolved model
  *
  * @example
  * ```ts
- * // Use with Anthropic API key
  * const { backend } = createDroidBackend({
  *   cwd: '/path/to/project',
- *   backend: 'anthropic',
- *   model: 'claude-sonnet-4',
- *   apiKey: process.env.ANTHROPIC_API_KEY,
- * });
- *
- * // Use with multiple provider keys
- * const { backend } = createDroidBackend({
- *   cwd: '/path/to/project',
- *   model: 'gpt-4o',
- *   apiKeys: {
- *     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
- *     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
- *   },
+ *   model: 'claude-opus-4-8',
+ *   factoryApiKey: process.env.FACTORY_API_KEY,
+ *   autoLevel: 'medium',
  * });
  *
  * const { sessionId } = await backend.startSession();
@@ -864,10 +825,10 @@ export function createDroidBackend(options: DroidBackendOptions): DroidBackendRe
   logger.debug('[Droid] Creating backend with options:', {
     cwd: options.cwd,
     model: options.model,
-    backend: options.backend,
-    hasApiKey: !!options.apiKey,
-    hasApiKeys: !!(options.apiKeys && Object.keys(options.apiKeys).length > 0),
+    autoLevel: options.autoLevel,
+    hasFactoryApiKey: !!options.factoryApiKey,
     resumeSessionId: options.resumeSessionId,
+    forkSessionId: options.forkSessionId,
   });
 
   return {

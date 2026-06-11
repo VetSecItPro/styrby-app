@@ -66,26 +66,30 @@ const AGENT_TRANSCRIPTS = {
    * OpenCode emits JSONL events per line: assistant (text), tool_use, tool_result,
    * then a session event with cumulative cost/token data.
    */
+  // Real opencode `--format json` schema (verified vs live binary 2026-06-10):
+  // text events carry part.text; step_finish carries part.cost + part.tokens.
+  // (tool events omitted — opencode's real tool-event shape is unverified; see #30.)
   opencode: [
-    '{"type":"assistant","content":"I\'ll write a hello world to main.ts."}',
-    '{"type":"tool_use","tool_name":"write_file","tool_input":{"path":"main.ts","content":"console.log(\'Hello, world!\');"},"call_id":"tc-001"}',
-    '{"type":"tool_result","tool_name":"write_file","tool_result":{"success":true},"call_id":"tc-001"}',
-    '{"type":"session","session":{"id":"oc-sess-001","PromptTokens":312,"CompletionTokens":45,"Cost":0.001}}',
+    '{"type":"step_start","sessionID":"oc-sess-001","part":{"type":"step-start"}}',
+    '{"type":"text","sessionID":"oc-sess-001","part":{"type":"text","text":"I\'ll write a hello world to main.ts."}}',
+    '{"type":"step_finish","sessionID":"oc-sess-001","part":{"type":"step-finish","reason":"stop","cost":0.001,"tokens":{"input":312,"output":45}}}',
   ].join('\n'),
 
   /**
-   * Kilo transcript captured with:
-   *   kilo --message "write hello world to main.ts" --format json
-   * Includes a Memory Bank read event (Kilo's unique feature) followed by
-   * standard text/tool/tokens events.
+   * Kilo transcript — Kilo is an OpenCode fork, so its `--format json` envelope
+   * is `{ type, sessionID, part }` (same VERIFIED structure as opencode). The
+   * envelope + top-level sessionID + nested error payload were CONFIRMED against
+   * the real `kilo` binary (v7.3.41, 2026-06-11); see kilo.ts header.
+   * SCHEMA UNVERIFIED — needs keyed session (#30): the success-path text /
+   * step_finish part payloads below mirror opencode's verified shape on the
+   * fork assumption (no provider key available locally → 401 from the model).
+   * The invented memory_bank_read / tool_use / tokens / complete events the
+   * prior fixture used do NOT exist in the real binary and were removed.
    */
   kilo: [
-    '{"type":"memory_bank_read","memory_file":"activeContext.md","memory_content":"Current task: coding session"}',
-    '{"type":"text","content":"I\'ll write a hello world program to main.ts."}',
-    '{"type":"tool_use","tool_name":"write_file","tool_input":{"path":"main.ts","content":"console.log(\'Hello, world!\');"},"call_id":"kc-001"}',
-    '{"type":"tool_result","tool_name":"write_file","tool_result":{"success":true},"call_id":"kc-001"}',
-    '{"type":"tokens","usage":{"input_tokens":298,"output_tokens":38,"cost_usd":0.0008}}',
-    '{"type":"complete"}',
+    '{"type":"step_start","sessionID":"ses_kilo001","part":{"type":"step-start"}}',
+    '{"type":"text","sessionID":"ses_kilo001","part":{"type":"text","text":"I\'ll write a hello world program to main.ts."}}',
+    '{"type":"step_finish","sessionID":"ses_kilo001","part":{"type":"step-finish","reason":"stop","cost":0.0008,"tokens":{"input":298,"output":38}}}',
   ].join('\n'),
 
   /**
@@ -102,30 +106,26 @@ const AGENT_TRANSCRIPTS = {
   ].join('\n'),
 
   /**
-   * Amp transcript captured with:
-   *   amp chat --message "write hello world to main.ts" --format json --no-interactive
-   * Amp's deep mode is NOT active in this smoke test (uses standard mode).
+   * Amp transcript — Amp's `--stream-json` is documented as "Claude Code-compatible
+   * stream JSON format" (verified vs `amp --help`, binary 0.0.1781143784, 2026-06-11),
+   * so the factory reuses parseClaudeJsonlLine. Real events: an `assistant` line
+   * carrying message.content[].text + message.usage, then a final `result` line.
+   * Source command: `amp -x "write hello world to main.ts" --stream-json`.
    */
   amp: [
-    '{"type":"text","content":"I\'ll write a hello world program to main.ts."}',
-    '{"type":"tool_use","tool_name":"write_file","tool_input":{"path":"main.ts","content":"console.log(\'Hello, world!\');"},"call_id":"ac-001"}',
-    '{"type":"tool_result","tool_name":"write_file","tool_result":{"success":true},"call_id":"ac-001"}',
-    '{"type":"usage","usage":{"input_tokens":325,"output_tokens":42,"cost_usd":0.001}}',
-    '{"type":"done"}',
+    '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I\'ll write a hello world program to main.ts."}],"usage":{"input_tokens":325,"output_tokens":42}}}',
+    '{"type":"result","subtype":"success"}',
   ].join('\n'),
 
   /**
-   * Crush transcript captured with:
-   *   crush --message "write hello world to main.ts" --format json --no-tui
-   * Crush uses ACP-compatible JSON events with charm-style naming.
+   * Crush transcript — crush has NO machine-readable output mode (verified vs
+   * crush v0.76.0, 2026-06-10). `crush run --quiet` writes the model's reply to
+   * stdout as PLAIN TEXT. The factory does a plain-text stdout → model-output
+   * passthrough and emits NO cost-report (supportsTools:false, no usage source).
+   * So this transcript is raw text, not JSON.
+   * Source command: `crush run --quiet "write hello world to main.ts"`.
    */
-  crush: [
-    '{"type":"text_delta","delta":"I\'ll write a hello world to main.ts."}',
-    '{"type":"tool_call","tool":"write_file","args":{"path":"main.ts","content":"console.log(\'Hello, world!\');"},"call_id":"cc-001"}',
-    '{"type":"tool_result","tool":"write_file","output":{"success":true},"call_id":"cc-001"}',
-    '{"type":"usage","usage":{"input_tokens":289,"output_tokens":36,"cost_usd":0.0008}}',
-    '{"type":"done"}',
-  ].join('\n'),
+  crush: 'I\'ll write a hello world to main.ts.\nconsole.log(\'Hello, world!\');\nDone.',
 
   /**
    * Kiro transcript captured with:
@@ -142,16 +142,17 @@ const AGENT_TRANSCRIPTS = {
   ].join('\n'),
 
   /**
-   * Droid transcript captured with:
-   *   droid run --message "write hello world to main.ts" --format json
-   * Droid is BYOK via LiteLLM; it reports token counts from the provider.
+   * Droid transcript — VERIFIED stream-json schema (Claude-Code-shaped) captured
+   * from the real `droid` binary v0.144.2 via:
+   *   droid exec "write hello world to main.ts" --output-format stream-json
+   * Droid is Factory-hosted (not BYOK/LiteLLM). The result.usage block uses
+   * snake_case input_tokens/output_tokens and carries NO cost field — cost is
+   * derived downstream, so the emitted CostReport is always a styrby-estimate.
+   * (assistant/tool_use events are UNVERIFIED #30 and intentionally omitted.)
    */
   droid: [
-    '{"type":"text","content":"I\'ll create main.ts with a hello world."}',
-    '{"type":"tool_call","tool_name":"write_file","tool_input":{"path":"main.ts","content":"console.log(\'Hello, world!\');"},"call_id":"dc-001"}',
-    '{"type":"tool_result","tool_name":"write_file","tool_result":{"success":true},"call_id":"dc-001"}',
-    '{"type":"usage","usage":{"prompt_tokens":304,"completion_tokens":40,"cost_usd":0.0012}}',
-    '{"type":"done"}',
+    '{"type":"system","subtype":"init","session_id":"droid-smoke","tools":["Read","Edit","Create"],"model":"claude-opus-4-8","reasoning_effort":"high"}',
+    '{"type":"result","subtype":"success","is_error":false,"duration_ms":1200,"num_turns":1,"result":"Created main.ts with a hello world.","session_id":"droid-smoke","usage":{"input_tokens":304,"output_tokens":40,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}',
   ].join('\n'),
 } as const;
 
@@ -492,12 +493,13 @@ describe('E2E smoke — opencode', () => {
 /**
  * Kilo E2E smoke test.
  *
- * Kilo's unique feature is the Memory Bank. The transcript includes a
- * memory_bank_read event. Verifies: memory events surface as 'event' messages,
- * text streaming works, CostReport shape is correct.
+ * Kilo is an OpenCode fork: `--format json` emits `{ type, sessionID, part }`
+ * events. Verifies text streaming (part.text → model-output) and CostReport
+ * (part.cost + part.tokens on step_finish). The prior version asserted invented
+ * Memory Bank / tokens events the real binary does not emit (removed 2026-06-11).
  */
 describe('E2E smoke — kilo', () => {
-  it('spawns, parses JSONL with Memory Bank events, emits CostReport', async () => {
+  it('spawns, parses {type,sessionID,part} JSONL, emits CostReport', async () => {
     const { backend } = createKiloBackend({ cwd: '/project', model: 'claude-sonnet-4' });
     const messages = collectMessages(backend);
 
@@ -506,23 +508,17 @@ describe('E2E smoke — kilo', () => {
     resolveStreamingProcess(currentMockProcess, AGENT_TRANSCRIPTS.kilo);
     await promptPromise;
 
-    // 1. model-output captured from "text" events
+    // 1. model-output captured from "text" events (part.text)
     const textChunks = messages.filter((m: any) => m.type === 'model-output');
     expect(textChunks.length).toBeGreaterThan(0);
 
-    // 2. Memory Bank read surfaces as an 'event' message
-    const eventMessages = messages.filter((m: any) => m.type === 'event');
-    const memoryEvents = eventMessages.filter(
-      (m: any) => m.name === 'memory-bank-read' || m.name === 'memory_bank_read',
-    );
-    expect(memoryEvents.length).toBeGreaterThan(0);
-
-    // 3. CostReport emitted from "tokens" event
+    // 2. CostReport emitted from "step_finish" event (part.cost + part.tokens)
     const costReports = messages.filter((m: any) => m.type === 'cost-report');
     expect(costReports.length).toBeGreaterThan(0);
     const report = (costReports[0] as any).report;
     expect(report.agentType).toBe('kilo');
     expect(report.source).toBe('agent-reported');
+    expect(report.billingModel).toBe('api-key');
     expect(typeof report.inputTokens).toBe('number');
     expect(typeof report.outputTokens).toBe('number');
 
@@ -672,11 +668,14 @@ describe('E2E smoke — amp', () => {
 /**
  * Crush E2E smoke test.
  *
- * Crush outputs ACP-compatible JSON with events: text_delta, tool_call,
- * tool_result, usage, done. Verifies: text streaming, CostReport.
+ * Crush has NO machine-readable output mode (verified vs crush v0.76.0,
+ * 2026-06-10). `crush run` writes the model's reply to stdout as PLAIN TEXT, so
+ * the backend does a plain-text passthrough to `model-output` and emits NO
+ * cost/usage/tool events (supportsTools:false). This test asserts the plain-text
+ * passthrough and that no cost-report is fabricated.
  */
 describe('E2E smoke — crush', () => {
-  it('spawns, parses ACP JSON transcript, emits CostReport', async () => {
+  it('spawns, parses plain-text transcript, emits model-output (no cost-report)', async () => {
     const { backend } = createCrushBackend({ cwd: '/project', model: 'claude-sonnet-4' });
     const messages = collectMessages(backend);
 
@@ -685,17 +684,16 @@ describe('E2E smoke — crush', () => {
     resolveStreamingProcess(currentMockProcess, AGENT_TRANSCRIPTS.crush);
     await promptPromise;
 
-    // 1. model-output from "text_delta" events
+    // 1. plain-text stdout is forwarded verbatim as model-output deltas
     const textChunks = messages.filter((m: any) => m.type === 'model-output');
     expect(textChunks.length).toBeGreaterThan(0);
+    const fullText = textChunks.map((m: any) => m.textDelta).join('');
+    expect(fullText).toContain('hello world');
 
-    // 2. CostReport from "usage" event
+    // 2. crush has no cost-bearing output — verified 2026-06-10; it must NOT
+    //    fabricate a cost-report from plain text.
     const costReports = messages.filter((m: any) => m.type === 'cost-report');
-    expect(costReports.length).toBeGreaterThan(0);
-    const report = (costReports[0] as any).report;
-    expect(report.agentType).toBe('crush');
-    expect(report.source).toBe('agent-reported');
-    expect(typeof report.inputTokens).toBe('number');
+    expect(costReports.length).toBe(0);
 
     await backend.dispose();
   });
@@ -774,21 +772,22 @@ describe('E2E smoke — kiro', () => {
 });
 
 // ============================================================================
-// 8. Droid (Factory AI BYOK) — npm install -g droid
+// 8. Droid (Factory AI hosted) — https://docs.factory.ai/cli
 // ============================================================================
 
 /**
  * Droid E2E smoke test.
  *
- * Droid is BYOK via LiteLLM. It reports token usage and cost per request.
- * Verifies: text streaming, CostReport with LiteLLM-reported cost.
+ * Droid is Factory-hosted (not BYOK/LiteLLM). It is invoked via `droid exec`
+ * and emits Claude-Code-shaped stream-json. It reports token counts in the
+ * result event but NO cost, so the CostReport is a styrby-estimate.
+ * Verifies: result-text streaming + CostReport emission from the result usage.
  */
 describe('E2E smoke — droid', () => {
-  it('spawns, parses Droid JSONL, emits CostReport with LiteLLM cost', async () => {
+  it('spawns `droid exec`, parses stream-json, emits a CostReport', async () => {
     const { backend } = createDroidBackend({
       cwd: '/project',
-      model: 'claude-sonnet-4',
-      backend: 'anthropic',
+      model: 'claude-opus-4-8',
     });
     const messages = collectMessages(backend);
 
@@ -797,23 +796,23 @@ describe('E2E smoke — droid', () => {
     resolveStreamingProcess(currentMockProcess, AGENT_TRANSCRIPTS.droid);
     await promptPromise;
 
-    // 1. model-output from "text" events
+    // 1. model-output from the result event text
     const textChunks = messages.filter((m: any) => m.type === 'model-output');
     expect(textChunks.length).toBeGreaterThan(0);
 
-    // 2. CostReport from "usage" event
+    // 2. CostReport from the result usage block
     const costReports = messages.filter((m: any) => m.type === 'cost-report');
     expect(costReports.length).toBeGreaterThan(0);
     const report = (costReports[0] as any).report;
     expect(report.agentType).toBe('droid');
     expect(typeof report.inputTokens).toBe('number');
-    expect(typeof report.costUsd).toBe('number');
+    expect(report.source).toBe('styrby-estimate');
 
     await backend.dispose();
   });
 
   it('emits ENOENT as install hint when droid binary is missing', async () => {
-    const { backend } = createDroidBackend({ cwd: '/project', provider: 'anthropic' });
+    const { backend } = createDroidBackend({ cwd: '/project' });
     const messages = collectMessages(backend);
 
     const { sessionId } = await backend.startSession();
@@ -954,7 +953,7 @@ describe('Cross-agent contract — startSession emits starting status', () => {
     { name: 'amp', create: () => createAmpBackend({ cwd: '/p' }) },
     { name: 'crush', create: () => createCrushBackend({ cwd: '/p' }) },
     { name: 'kiro', create: () => createKiroBackend({ cwd: '/p' }) },
-    { name: 'droid', create: () => createDroidBackend({ cwd: '/p', backend: 'anthropic' }) },
+    { name: 'droid', create: () => createDroidBackend({ cwd: '/p' }) },
   ];
 
   for (const { name, create } of streamingFactories) {
@@ -1020,7 +1019,7 @@ describe('Cross-agent contract — sendPrompt emits idle after clean exit', () =
     },
     {
       name: 'droid',
-      create: () => createDroidBackend({ cwd: '/p', backend: 'anthropic' }),
+      create: () => createDroidBackend({ cwd: '/p' }),
       transcript: AGENT_TRANSCRIPTS.droid,
     },
   ];
@@ -1077,11 +1076,9 @@ describe('Cross-agent contract — CostReport shape', () => {
       create: () => createAmpBackend({ cwd: '/p', model: 'claude-sonnet-4' }),
       transcript: AGENT_TRANSCRIPTS.amp,
     },
-    {
-      name: 'crush',
-      create: () => createCrushBackend({ cwd: '/p', model: 'claude-sonnet-4' }),
-      transcript: AGENT_TRANSCRIPTS.crush,
-    },
+    // crush EXCLUDED: crush has no cost-bearing output — verified 2026-06-10.
+    // Its `crush run` plain-text mode emits no usage/cost event, so the backend
+    // (correctly) never emits a CostReport. It cannot satisfy the shape contract.
     {
       name: 'goose',
       create: () => createGooseBackend({ cwd: '/p', model: 'claude-sonnet-4' }),

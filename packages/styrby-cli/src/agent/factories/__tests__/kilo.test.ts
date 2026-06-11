@@ -1,24 +1,25 @@
 /**
- * Tests for the Kilo agent backend factory (Community, 500+ models, Memory Bank).
+ * Tests for the Kilo agent backend factory.
+ *
+ * Kilo is an OpenCode fork. Its headless surface (`kilo run <message> --format
+ * json`) and event envelope (`{ type, sessionID, part }`) were VERIFIED against
+ * the real `kilo` binary (v7.3.41, 2026-06-11) via `kilo --help` /
+ * `kilo run --help` and a live `kilo run "say OK" --format json --auto` (which
+ * returned a real `error` event envelope). See kilo.ts header for the full
+ * confirmed-facts table.
+ *
+ * SCHEMA UNVERIFIED — needs keyed session (#30): the success-path `text` and
+ * `step_finish` `part` payloads could not be captured (no provider credentials
+ * locally → 401 PAID_MODEL_AUTH_REQUIRED). Those tests assert the OpenCode-fork
+ * shape on the well-founded fork assumption and are tagged for re-verification.
  *
  * Covers:
- * - `createKiloBackend` factory function
- * - `registerKiloAgent` registry integration
- * - `KiloBackend` class: session lifecycle, subprocess management,
- *   JSON output parsing, Memory Bank read/write event tracking and emission,
- *   token/cost accumulation, fs-edit detection, error handling,
- *   cancellation, permission response, and disposal.
+ * - `createKiloBackend` factory + `registerKiloAgent` registry integration
+ * - session lifecycle, real spawn args, provider-scoped key injection
+ * - JSON parsing: text → model-output, step_finish → cost-report, error event
+ * - error handling, cancellation, permission response, disposal, line buffering
  *
- * Memory Bank tests verify:
- * - memory_bank_read events emit 'memory-bank-read' event messages
- * - memory_bank_write events emit 'memory-bank-write' event messages
- * - cumulative read/write tracking across a session
- * - memory bank is reset on new session
- * - memoryBankEnabled flag passes correct CLI args
- * - memoryBankPath flag passes correct CLI args
- *
- * All child_process and logger calls are mocked so no real Kilo binary
- * is required.
+ * All child_process and logger calls are mocked so no real Kilo binary is required.
  *
  * @module factories/__tests__/kilo.test.ts
  */
@@ -96,49 +97,41 @@ function simulateProcess(proc: MockProcess, lines: string[] = [], exitCode = 0) 
   proc.emit('close', exitCode);
 }
 
-// ---- Kilo event builders ----
+// ---- Real Kilo event builders (`{ type, sessionID, part }` envelope) ----
 
-function kiloText(content: string): string {
-  return JSON.stringify({ type: 'text', content });
+/** text event: assistant output rides in part.text (OpenCode-fork shape, #30). */
+function kiloText(text: string, sessionID = 'ses_test'): string {
+  return JSON.stringify({ type: 'text', sessionID, part: { type: 'text', text } });
 }
 
-function kiloToolUse(toolName: string, callId: string, toolInput?: Record<string, unknown>): string {
-  return JSON.stringify({ type: 'tool_use', tool_name: toolName, call_id: callId, tool_input: toolInput });
-}
-
-function kiloToolResult(
-  toolName: string,
-  callId: string,
-  toolResult: unknown,
-  toolInput?: Record<string, unknown>
+/** step_finish event: usage rides on part.cost + part.tokens (OpenCode-fork shape, #30). */
+function kiloStepFinish(
+  opts: { cost?: number; input?: number; output?: number; cacheRead?: number; cacheWrite?: number },
+  sessionID = 'ses_test',
 ): string {
-  return JSON.stringify({ type: 'tool_result', tool_name: toolName, call_id: callId, tool_result: toolResult, tool_input: toolInput });
+  return JSON.stringify({
+    type: 'step_finish',
+    sessionID,
+    part: {
+      type: 'step-finish',
+      reason: 'stop',
+      cost: opts.cost,
+      tokens: {
+        input: opts.input,
+        output: opts.output,
+        cache: { read: opts.cacheRead, write: opts.cacheWrite },
+      },
+    },
+  });
 }
 
-function kiloMemoryBankRead(memoryFile: string, content?: string): string {
-  return JSON.stringify({ type: 'memory_bank_read', memory_file: memoryFile, memory_content: content });
-}
-
-function kiloMemoryBankWrite(memoryFile: string, section?: string, content?: string): string {
-  return JSON.stringify({ type: 'memory_bank_write', memory_file: memoryFile, memory_section: section, memory_content: content });
-}
-
-function kiloTokens(usage: {
-  input_tokens?: number;
-  output_tokens?: number;
-  cache_read_tokens?: number;
-  cache_write_tokens?: number;
-  cost_usd?: number;
-}): string {
-  return JSON.stringify({ type: 'tokens', usage });
-}
-
-function kiloError(error: string): string {
-  return JSON.stringify({ type: 'error', error });
-}
-
-function kiloComplete(): string {
-  return JSON.stringify({ type: 'complete' });
+/** error event: VERIFIED nested shape error.data.message (captured from real binary). */
+function kiloError(message: string, sessionID = 'ses_test'): string {
+  return JSON.stringify({
+    type: 'error',
+    sessionID,
+    error: { name: 'APIError', data: { message } },
+  });
 }
 
 const BASE_OPTIONS: KiloBackendOptions = {
@@ -166,11 +159,11 @@ afterEach(() => {
 
 describe('createKiloBackend', () => {
   it('returns a backend instance and resolved model when model is provided', () => {
-    const { backend, model } = createKiloBackend({ ...BASE_OPTIONS, model: 'gpt-4o' });
+    const { backend, model } = createKiloBackend({ ...BASE_OPTIONS, model: 'openai/gpt-4o' });
 
     expect(backend).toBeDefined();
     expect(typeof backend.startSession).toBe('function');
-    expect(model).toBe('gpt-4o');
+    expect(model).toBe('openai/gpt-4o');
   });
 
   it('returns undefined model when no model is specified', () => {
@@ -196,21 +189,10 @@ describe('createKiloBackend', () => {
     expect(mockSpawn).not.toHaveBeenCalled();
   });
 
-  it('accepts memoryBankEnabled, memoryBankPath, and apiBaseUrl options', () => {
-    const { backend } = createKiloBackend({
-      ...BASE_OPTIONS,
-      memoryBankEnabled: true,
-      memoryBankPath: '/custom/memory',
-      apiBaseUrl: 'http://localhost:11434/v1',
-    });
-
-    expect(backend).toBeDefined();
-  });
-
   it('accepts resumeSessionId option', () => {
     const { backend } = createKiloBackend({
       ...BASE_OPTIONS,
-      resumeSessionId: 'prev-session-uuid',
+      resumeSessionId: 'ses_prev',
     });
 
     expect(backend).toBeDefined();
@@ -301,11 +283,11 @@ describe('KiloBackend — session lifecycle', () => {
 });
 
 // ===========================================================================
-// KiloBackend — sendPrompt
+// KiloBackend — sendPrompt (REAL CLI surface)
 // ===========================================================================
 
 describe('KiloBackend — sendPrompt', () => {
-  it('spawns kilo with run --prompt --output json --no-interactive flags', async () => {
+  it('spawns kilo with the run subcommand, positional prompt, --format json --auto', async () => {
     const { backend } = createKiloBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
 
@@ -313,14 +295,13 @@ describe('KiloBackend — sendPrompt', () => {
     simulateProcess(currentMockProcess);
     await sendPromise;
 
-    expect(mockSpawn).toHaveBeenCalledWith(
-      'kilo',
-      expect.arrayContaining(['run', '--prompt', 'Add user auth', '--output', 'json', '--no-interactive']),
-      expect.any(Object)
-    );
+    // VERIFIED real surface: `kilo run <message> --format json --auto`.
+    // The prompt is POSITIONAL — there is no --prompt flag.
+    const args = (mockSpawn.mock.calls[0] as any[])[1] as string[];
+    expect(args.slice(0, 5)).toEqual(['run', 'Add user auth', '--format', 'json', '--auto']);
   });
 
-  it('enables memory bank with --memory-bank flag by default', async () => {
+  it('does NOT pass the invented --prompt / --output / --no-interactive / --memory-bank flags', async () => {
     const { backend } = createKiloBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
 
@@ -328,53 +309,18 @@ describe('KiloBackend — sendPrompt', () => {
     simulateProcess(currentMockProcess);
     await sendPromise;
 
-    expect(mockSpawn).toHaveBeenCalledWith(
-      'kilo',
-      expect.arrayContaining(['--memory-bank']),
-      expect.any(Object)
-    );
-  });
-
-  it('disables memory bank with --no-memory-bank when memoryBankEnabled is false', async () => {
-    const { backend } = createKiloBackend({ ...BASE_OPTIONS, memoryBankEnabled: false });
-    const { sessionId } = await backend.startSession();
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess);
-    await sendPromise;
-
-    expect(mockSpawn).toHaveBeenCalledWith(
-      'kilo',
-      expect.arrayContaining(['--no-memory-bank']),
-      expect.any(Object)
-    );
-
-    // Confirm --memory-bank is NOT in args
-    const spawnArgs = (mockSpawn.mock.calls[0] as any[])[1] as string[];
-    expect(spawnArgs).not.toContain('--memory-bank');
-  });
-
-  it('includes --memory-bank-path when memoryBankPath is specified', async () => {
-    const { backend } = createKiloBackend({
-      ...BASE_OPTIONS,
-      memoryBankEnabled: true,
-      memoryBankPath: '/custom/memory',
-    });
-    const { sessionId } = await backend.startSession();
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess);
-    await sendPromise;
-
-    expect(mockSpawn).toHaveBeenCalledWith(
-      'kilo',
-      expect.arrayContaining(['--memory-bank-path', '/custom/memory']),
-      expect.any(Object)
-    );
+    const args = (mockSpawn.mock.calls[0] as any[])[1] as string[];
+    expect(args).not.toContain('--prompt');
+    expect(args).not.toContain('--output');
+    expect(args).not.toContain('--no-interactive');
+    expect(args).not.toContain('--memory-bank');
+    expect(args).not.toContain('--no-memory-bank');
+    expect(args).not.toContain('--api-base');
+    expect(args).not.toContain('--resume');
   });
 
   it('includes --model flag when model is specified', async () => {
-    const { backend } = createKiloBackend({ ...BASE_OPTIONS, model: 'ollama/llama3' });
+    const { backend } = createKiloBackend({ ...BASE_OPTIONS, model: 'anthropic/claude-sonnet-4' });
     const { sessionId } = await backend.startSession();
 
     const sendPromise = backend.sendPrompt(sessionId, 'Hello');
@@ -383,13 +329,13 @@ describe('KiloBackend — sendPrompt', () => {
 
     expect(mockSpawn).toHaveBeenCalledWith(
       'kilo',
-      expect.arrayContaining(['--model', 'ollama/llama3']),
+      expect.arrayContaining(['--model', 'anthropic/claude-sonnet-4']),
       expect.any(Object)
     );
   });
 
-  it('includes --api-base flag when apiBaseUrl is specified', async () => {
-    const { backend } = createKiloBackend({ ...BASE_OPTIONS, apiBaseUrl: 'http://localhost:11434/v1' });
+  it('includes --session flag when resumeSessionId is specified', async () => {
+    const { backend } = createKiloBackend({ ...BASE_OPTIONS, resumeSessionId: 'ses_prev' });
     const { sessionId } = await backend.startSession();
 
     const sendPromise = backend.sendPrompt(sessionId, 'Hello');
@@ -398,24 +344,29 @@ describe('KiloBackend — sendPrompt', () => {
 
     expect(mockSpawn).toHaveBeenCalledWith(
       'kilo',
-      expect.arrayContaining(['--api-base', 'http://localhost:11434/v1']),
+      expect.arrayContaining(['--session', 'ses_prev']),
       expect.any(Object)
     );
   });
 
-  it('includes --resume flag when resumeSessionId is specified', async () => {
-    const { backend } = createKiloBackend({ ...BASE_OPTIONS, resumeSessionId: 'prev-session' });
+  it('captures sessionID from events and passes --session on the next prompt', async () => {
+    const { backend } = createKiloBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
 
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess);
-    await sendPromise;
+    const send1 = backend.sendPrompt(sessionId, 'first');
+    simulateProcess(currentMockProcess, [kiloText('ok', 'ses_captured')]);
+    await send1;
 
-    expect(mockSpawn).toHaveBeenCalledWith(
-      'kilo',
-      expect.arrayContaining(['--resume', 'prev-session']),
-      expect.any(Object)
-    );
+    currentMockProcess = makeMockProcess();
+    mockSpawn.mockReturnValue(currentMockProcess);
+
+    const send2 = backend.sendPrompt(sessionId, 'second');
+    simulateProcess(currentMockProcess);
+    await send2;
+
+    const args = (mockSpawn.mock.calls[1] as any[])[1] as string[];
+    expect(args).toContain('--session');
+    expect(args).toContain('ses_captured');
   });
 
   // Provider-scoped API key injection (audit 2026-05-05 HIGH fix).
@@ -491,273 +442,15 @@ describe('KiloBackend — sendPrompt', () => {
 });
 
 // ===========================================================================
-// KiloBackend — Memory Bank read events
-// ===========================================================================
-
-describe('KiloBackend — Memory Bank read events', () => {
-  it('emits memory-bank-read event when memory_bank_read message is received', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Help me with auth');
-    simulateProcess(currentMockProcess, [
-      kiloMemoryBankRead('projectbrief.md', '# My Project\nAn e-commerce app...'),
-    ]);
-    await sendPromise;
-
-    const memReadEvents = messages.filter(
-      (m: any) => m.type === 'event' && m.name === 'memory-bank-read'
-    );
-    expect(memReadEvents).toHaveLength(1);
-    expect((memReadEvents[0] as any).payload.file).toBe('projectbrief.md');
-  });
-
-  it('includes content preview in the memory-bank-read payload', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Help');
-    simulateProcess(currentMockProcess, [
-      kiloMemoryBankRead('activeContext.md', 'Current task: implement login'),
-    ]);
-    await sendPromise;
-
-    const event = (messages.find(
-      (m: any) => m.type === 'event' && m.name === 'memory-bank-read'
-    ) as any);
-    expect(event.payload.contentPreview).toBe('Current task: implement login');
-  });
-
-  it('tracks cumulative read count across multiple reads', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Help');
-    simulateProcess(currentMockProcess, [
-      kiloMemoryBankRead('projectbrief.md'),
-      kiloMemoryBankRead('activeContext.md'),
-      kiloMemoryBankRead('systemPatterns.md'),
-    ]);
-    await sendPromise;
-
-    const memReadEvents = messages.filter(
-      (m: any) => m.type === 'event' && m.name === 'memory-bank-read'
-    );
-    expect(memReadEvents).toHaveLength(3);
-    expect((memReadEvents[2] as any).payload.totalReads).toBe(3);
-  });
-
-  it('includes all previously read files in allFiles list', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Help');
-    simulateProcess(currentMockProcess, [
-      kiloMemoryBankRead('projectbrief.md'),
-      kiloMemoryBankRead('activeContext.md'),
-    ]);
-    await sendPromise;
-
-    const lastReadEvent = (messages.filter(
-      (m: any) => m.type === 'event' && m.name === 'memory-bank-read'
-    ) as any[]).at(-1);
-
-    expect(lastReadEvent.payload.allFiles).toContain('projectbrief.md');
-    expect(lastReadEvent.payload.allFiles).toContain('activeContext.md');
-  });
-
-  it('ignores memory_bank_read events with no memory_file', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Help');
-    simulateProcess(currentMockProcess, [
-      JSON.stringify({ type: 'memory_bank_read' }), // no memory_file
-    ]);
-    await sendPromise;
-
-    const memReadEvents = messages.filter(
-      (m: any) => m.type === 'event' && m.name === 'memory-bank-read'
-    );
-    expect(memReadEvents).toHaveLength(0);
-  });
-
-  it('resets memory bank reads on new session', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId: s1 } = await backend.startSession();
-
-    const sendPromise1 = backend.sendPrompt(s1, 'First');
-    simulateProcess(currentMockProcess, [
-      kiloMemoryBankRead('projectbrief.md'),
-      kiloMemoryBankRead('activeContext.md'),
-    ]);
-    await sendPromise1;
-
-    // Start new session — memory reads should reset
-    currentMockProcess = makeMockProcess();
-    mockSpawn.mockReturnValue(currentMockProcess);
-
-    const { sessionId: s2 } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise2 = backend.sendPrompt(s2, 'Second');
-    simulateProcess(currentMockProcess, [
-      kiloMemoryBankRead('systemPatterns.md'),
-    ]);
-    await sendPromise2;
-
-    const memReadEvents = messages.filter(
-      (m: any) => m.type === 'event' && m.name === 'memory-bank-read'
-    );
-    // Only 1 read from the second session, not 3 total
-    expect(memReadEvents).toHaveLength(1);
-    expect((memReadEvents[0] as any).payload.totalReads).toBe(1);
-  });
-});
-
-// ===========================================================================
-// KiloBackend — Memory Bank write events
-// ===========================================================================
-
-describe('KiloBackend — Memory Bank write events', () => {
-  it('emits memory-bank-write event when memory_bank_write message is received', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Add auth');
-    simulateProcess(currentMockProcess, [
-      kiloMemoryBankWrite('activeContext.md', 'progress', 'Implementing JWT auth...'),
-    ]);
-    await sendPromise;
-
-    const memWriteEvents = messages.filter(
-      (m: any) => m.type === 'event' && m.name === 'memory-bank-write'
-    );
-    expect(memWriteEvents).toHaveLength(1);
-    expect((memWriteEvents[0] as any).payload.file).toBe('activeContext.md');
-  });
-
-  it('includes section info in the memory-bank-write payload', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Add auth');
-    simulateProcess(currentMockProcess, [
-      kiloMemoryBankWrite('systemPatterns.md', 'decisions', 'Use bcrypt for password hashing'),
-    ]);
-    await sendPromise;
-
-    const event = (messages.find(
-      (m: any) => m.type === 'event' && m.name === 'memory-bank-write'
-    ) as any);
-    expect(event.payload.section).toBe('decisions');
-    expect(event.payload.contentPreview).toBe('Use bcrypt for password hashing');
-  });
-
-  it('tracks cumulative write count across multiple writes', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Build feature');
-    simulateProcess(currentMockProcess, [
-      kiloMemoryBankWrite('activeContext.md', 'progress'),
-      kiloMemoryBankWrite('systemPatterns.md', 'decisions'),
-      kiloMemoryBankWrite('progress.md', 'status'),
-    ]);
-    await sendPromise;
-
-    const memWriteEvents = messages.filter(
-      (m: any) => m.type === 'event' && m.name === 'memory-bank-write'
-    );
-    expect(memWriteEvents).toHaveLength(3);
-    expect((memWriteEvents[2] as any).payload.totalWrites).toBe(3);
-  });
-
-  it('deduplicates file names in allFiles list for writes', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Build feature');
-    simulateProcess(currentMockProcess, [
-      kiloMemoryBankWrite('activeContext.md', 'progress'),
-      kiloMemoryBankWrite('activeContext.md', 'status'), // same file twice
-    ]);
-    await sendPromise;
-
-    const lastWriteEvent = (messages.filter(
-      (m: any) => m.type === 'event' && m.name === 'memory-bank-write'
-    ) as any[]).at(-1);
-
-    // allFiles should deduplicate 'activeContext.md'
-    const occurrences = lastWriteEvent.payload.allFiles.filter(
-      (f: string) => f === 'activeContext.md'
-    );
-    expect(occurrences).toHaveLength(1);
-  });
-
-  it('ignores memory_bank_write events with no memory_file', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Build');
-    simulateProcess(currentMockProcess, [
-      JSON.stringify({ type: 'memory_bank_write' }), // no memory_file
-    ]);
-    await sendPromise;
-
-    const memWriteEvents = messages.filter(
-      (m: any) => m.type === 'event' && m.name === 'memory-bank-write'
-    );
-    expect(memWriteEvents).toHaveLength(0);
-  });
-
-  it('resets memory bank writes on new session', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId: s1 } = await backend.startSession();
-
-    const sendPromise1 = backend.sendPrompt(s1, 'First');
-    simulateProcess(currentMockProcess, [
-      kiloMemoryBankWrite('activeContext.md'),
-      kiloMemoryBankWrite('systemPatterns.md'),
-    ]);
-    await sendPromise1;
-
-    currentMockProcess = makeMockProcess();
-    mockSpawn.mockReturnValue(currentMockProcess);
-
-    const { sessionId: s2 } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise2 = backend.sendPrompt(s2, 'Second');
-    simulateProcess(currentMockProcess, [
-      kiloMemoryBankWrite('progress.md'),
-    ]);
-    await sendPromise2;
-
-    const memWriteEvents = messages.filter(
-      (m: any) => m.type === 'event' && m.name === 'memory-bank-write'
-    );
-    expect(memWriteEvents).toHaveLength(1);
-    expect((memWriteEvents[0] as any).payload.totalWrites).toBe(1);
-  });
-});
-
-// ===========================================================================
-// KiloBackend — text events
+// KiloBackend — text events (part.text → model-output)
+//
+// SCHEMA UNVERIFIED — needs keyed session (#30): the part.text success-path
+// shape mirrors OpenCode's verified schema on the fork assumption; re-verify
+// against a real keyed Kilo session.
 // ===========================================================================
 
 describe('KiloBackend — text events', () => {
-  it('emits model-output messages for text events', async () => {
+  it('emits model-output (fullText) from part.text on text events', async () => {
     const { backend } = createKiloBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
     const messages = collectMessages(backend);
@@ -771,208 +464,83 @@ describe('KiloBackend — text events', () => {
 
     const textMessages = messages.filter((m: any) => m.type === 'model-output');
     expect(textMessages).toHaveLength(2);
-    expect((textMessages[0] as any).textDelta).toBe('I will help you with that. ');
-    expect((textMessages[1] as any).textDelta).toBe('Let me read the codebase.');
-  });
-});
-
-// ===========================================================================
-// KiloBackend — tool events
-// ===========================================================================
-
-describe('KiloBackend — tool events', () => {
-  it('emits tool-call messages for tool_use events', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Read a file');
-    simulateProcess(currentMockProcess, [
-      kiloToolUse('read_file', 'call-1', { path: '/project/src/index.ts' }),
-    ]);
-    await sendPromise;
-
-    const toolCalls = messages.filter((m: any) => m.type === 'tool-call');
-    expect(toolCalls).toHaveLength(1);
-    expect((toolCalls[0] as any).toolName).toBe('read_file');
-    expect((toolCalls[0] as any).callId).toBe('call-1');
+    expect((textMessages[0] as any).fullText).toBe('I will help you with that. ');
+    expect((textMessages[1] as any).fullText).toBe('Let me read the codebase.');
   });
 
-  it('emits tool-result messages for tool_result events', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Read file');
-    simulateProcess(currentMockProcess, [
-      kiloToolResult('read_file', 'call-1', 'file contents'),
-    ]);
-    await sendPromise;
-
-    const toolResults = messages.filter((m: any) => m.type === 'tool-result');
-    expect(toolResults).toHaveLength(1);
-    expect((toolResults[0] as any).result).toBe('file contents');
-  });
-
-  it('emits fs-edit for write_file tool results', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Write file');
-    simulateProcess(currentMockProcess, [
-      kiloToolResult('write_file', 'call-2', 'ok', { path: '/project/src/auth.ts' }),
-    ]);
-    await sendPromise;
-
-    const fsEdits = messages.filter((m: any) => m.type === 'fs-edit');
-    expect(fsEdits).toHaveLength(1);
-    expect((fsEdits[0] as any).path).toBe('/project/src/auth.ts');
-  });
-
-  it('emits fs-edit for edit_file tool results', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Edit file');
-    simulateProcess(currentMockProcess, [
-      kiloToolResult('edit_file', 'call-3', 'done', { file_path: '/project/app.ts' }),
-    ]);
-    await sendPromise;
-
-    const fsEdits = messages.filter((m: any) => m.type === 'fs-edit');
-    expect(fsEdits).toHaveLength(1);
-    expect((fsEdits[0] as any).path).toBe('/project/app.ts');
-  });
-
-  it('does NOT emit fs-edit for read-only tools', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Read file');
-    simulateProcess(currentMockProcess, [
-      kiloToolResult('read_file', 'call-1', 'contents'),
-      kiloToolResult('run_command', 'call-2', 'ls output'),
-    ]);
-    await sendPromise;
-
-    const fsEdits = messages.filter((m: any) => m.type === 'fs-edit');
-    expect(fsEdits).toHaveLength(0);
-  });
-});
-
-// ===========================================================================
-// KiloBackend — token/cost accumulation (tokens events)
-// ===========================================================================
-
-describe('KiloBackend — tokens events', () => {
-  it('emits token-count messages with cumulative totals', async () => {
+  it('ignores text events without part.text', async () => {
     const { backend } = createKiloBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
     const messages = collectMessages(backend);
 
     const sendPromise = backend.sendPrompt(sessionId, 'Hello');
     simulateProcess(currentMockProcess, [
-      kiloTokens({ input_tokens: 100, output_tokens: 50, cost_usd: 0.005 }),
+      JSON.stringify({ type: 'text', sessionID: 'ses_test', part: { type: 'text' } }),
+    ]);
+    await sendPromise;
+
+    expect(messages.filter((m: any) => m.type === 'model-output')).toHaveLength(0);
+  });
+});
+
+// ===========================================================================
+// KiloBackend — step_finish events (cost-report)
+//
+// SCHEMA UNVERIFIED — needs keyed session (#30): part.cost + part.tokens shape
+// mirrors OpenCode's verified schema on the fork assumption.
+// ===========================================================================
+
+describe('KiloBackend — step_finish / cost-report', () => {
+  it('emits token-count and cost-report from a step_finish event', async () => {
+    const { backend } = createKiloBackend({ ...BASE_OPTIONS, model: 'anthropic/claude-sonnet-4' });
+    const { sessionId } = await backend.startSession();
+    const messages = collectMessages(backend);
+
+    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
+    simulateProcess(currentMockProcess, [
+      kiloStepFinish({ cost: 0.0123, input: 600, output: 250, cacheRead: 40, cacheWrite: 0 }),
     ]);
     await sendPromise;
 
     const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
     expect(tokenCounts).toHaveLength(1);
-    expect((tokenCounts[0] as any).inputTokens).toBe(100);
-    expect((tokenCounts[0] as any).outputTokens).toBe(50);
-    expect((tokenCounts[0] as any).costUsd).toBeCloseTo(0.005);
+    expect((tokenCounts[0] as any).inputTokens).toBe(600);
+    expect((tokenCounts[0] as any).outputTokens).toBe(250);
+
+    const reports = messages.filter((m: any) => m.type === 'cost-report');
+    expect(reports).toHaveLength(1);
+    const r = (reports[0] as any).report;
+    expect(r.agentType).toBe('kilo');
+    expect(r.source).toBe('agent-reported');
+    expect(r.billingModel).toBe('api-key');
+    expect(r.costUsd).toBe(0.0123);
+    expect(r.inputTokens).toBe(600);
+    expect(r.outputTokens).toBe(250);
+    expect(r.cacheReadTokens).toBe(40);
+    expect(r.cacheWriteTokens).toBe(0);
   });
 
-  it('accumulates token counts across multiple tokens events', async () => {
+  it('cost-report timestamp is a valid ISO 8601 string', async () => {
     const { backend } = createKiloBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
     const messages = collectMessages(backend);
 
     const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [
-      kiloTokens({ input_tokens: 100, output_tokens: 50 }),
-      kiloTokens({ input_tokens: 200, output_tokens: 80 }),
-    ]);
+    simulateProcess(currentMockProcess, [kiloStepFinish({ cost: 0.001, input: 10, output: 5 })]);
     await sendPromise;
 
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    const last = tokenCounts[tokenCounts.length - 1] as any;
-    expect(last.inputTokens).toBe(300);
-    expect(last.outputTokens).toBe(130);
-  });
-
-  it('tracks cache tokens from tokens events', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [
-      kiloTokens({
-        input_tokens: 100,
-        output_tokens: 50,
-        cache_read_tokens: 60,
-        cache_write_tokens: 15,
-      }),
-    ]);
-    await sendPromise;
-
-    const tc = (messages.filter((m: any) => m.type === 'token-count')[0]) as any;
-    expect(tc.cacheReadTokens).toBe(60);
-    expect(tc.cacheWriteTokens).toBe(15);
-  });
-
-  it('resets token counts on new session', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId: s1 } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const send1 = backend.sendPrompt(s1, 'First');
-    simulateProcess(currentMockProcess, [kiloTokens({ input_tokens: 500 })]);
-    await send1;
-
-    currentMockProcess = makeMockProcess();
-    mockSpawn.mockReturnValue(currentMockProcess);
-
-    const { sessionId: s2 } = await backend.startSession();
-    const send2 = backend.sendPrompt(s2, 'Second');
-    simulateProcess(currentMockProcess, [kiloTokens({ input_tokens: 100 })]);
-    await send2;
-
-    const tokenCounts = messages.filter((m: any) => m.type === 'token-count');
-    const lastCount = tokenCounts[tokenCounts.length - 1] as any;
-    expect(lastCount.inputTokens).toBe(100);
+    const r = messages.find((m: any) => m.type === 'cost-report') as any;
+    expect(r).toBeDefined();
+    expect(new Date(r.report.timestamp).toISOString()).toBe(r.report.timestamp);
   });
 });
 
 // ===========================================================================
-// KiloBackend — complete event
+// KiloBackend — error events (VERIFIED nested error.data.message shape)
 // ===========================================================================
 
-describe('KiloBackend — complete event', () => {
-  it('emits "idle" status on complete event', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    simulateProcess(currentMockProcess, [kiloComplete()]);
-    await sendPromise;
-
-    const statuses = messages.filter((m: any) => m.type === 'status').map((m: any) => m.status);
-    expect(statuses).toContain('idle');
-  });
-});
-
-// ===========================================================================
-// KiloBackend — error handling
-// ===========================================================================
-
-describe('KiloBackend — error handling', () => {
-  it('emits error status on "error" events', async () => {
+describe('KiloBackend — error events', () => {
+  it('emits error status with the nested error.data.message detail', async () => {
     const { backend } = createKiloBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
     const messages = collectMessages(backend);
@@ -985,23 +553,41 @@ describe('KiloBackend — error handling', () => {
       (m: any) => m.type === 'status' && m.status === 'error'
     );
     expect(errorStatuses.length).toBeGreaterThan(0);
-    expect((errorStatuses[0] as any).detail).toContain('timeout');
+    expect((errorStatuses[0] as any).detail).toBe('Model API timeout');
   });
 
-  it('emits error status on process spawn error', async () => {
+  it('falls back to error.name when error.data.message is absent', async () => {
     const { backend } = createKiloBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
     const messages = collectMessages(backend);
 
     const sendPromise = backend.sendPrompt(sessionId, 'Hello');
-    currentMockProcess.emit('error', new Error('spawn kilo ENOENT'));
+    simulateProcess(currentMockProcess, [
+      JSON.stringify({ type: 'error', sessionID: 'ses_test', error: { name: 'APIError' } }),
+    ]);
+    await sendPromise;
 
-    await expect(sendPromise).rejects.toThrow('spawn kilo ENOENT');
+    const errorStatus = messages.find(
+      (m: any) => m.type === 'status' && m.status === 'error'
+    ) as any;
+    expect(errorStatus.detail).toBe('APIError');
+  });
+
+  it('emits error status on process spawn error (ENOENT install hint)', async () => {
+    const { backend } = createKiloBackend(BASE_OPTIONS);
+    const { sessionId } = await backend.startSession();
+    const messages = collectMessages(backend);
+
+    const sendPromise = backend.sendPrompt(sessionId, 'Hello').catch(() => {});
+    const err = Object.assign(new Error('spawn kilo ENOENT'), { code: 'ENOENT' });
+    currentMockProcess.emit('error', err);
+    await sendPromise;
 
     const errorStatuses = messages.filter(
       (m: any) => m.type === 'status' && m.status === 'error'
     );
     expect(errorStatuses.length).toBeGreaterThan(0);
+    expect((errorStatuses[0] as any).detail).toMatch(/not installed/i);
   });
 
   it('ignores non-JSON stdout lines without crashing', async () => {
@@ -1010,8 +596,8 @@ describe('KiloBackend — error handling', () => {
 
     const sendPromise = backend.sendPrompt(sessionId, 'Hello');
     simulateProcess(currentMockProcess, [
-      'Kilo v1.2.3 starting...',
-      'Loading memory bank...',
+      'Kilo v7.3.41 starting...',
+      'Loading config...',
     ]);
 
     await expect(sendPromise).resolves.toBeUndefined();
@@ -1056,7 +642,10 @@ describe('KiloBackend — cancellation', () => {
 });
 
 // ===========================================================================
-// KiloBackend — permission response
+// KiloBackend — permission response (inherited emit-only behavior)
+//
+// Kilo runs headless with `--auto`, so there is no interactive y/n stdin
+// protocol. The base class default just emits a permission-response message.
 // ===========================================================================
 
 describe('KiloBackend — permission response', () => {
@@ -1073,28 +662,15 @@ describe('KiloBackend — permission response', () => {
     expect((permResponses[0] as any).approved).toBe(true);
   });
 
-  it('writes "y\\n" to stdin when approved and process is running', async () => {
+  it('emits permission-response with approved=false', async () => {
     const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
+    await backend.startSession();
+    const messages = collectMessages(backend);
 
-    const sendPromise = backend.sendPrompt(sessionId, 'Run shell command');
-    await backend.respondToPermission?.('req-456', true);
+    await backend.respondToPermission?.('req-456', false);
 
-    expect(currentMockProcess.stdin.write).toHaveBeenCalledWith('y\n');
-    currentMockProcess.emit('close', 0);
-    await sendPromise;
-  });
-
-  it('writes "n\\n" to stdin when denied', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Dangerous op');
-    await backend.respondToPermission?.('req-789', false);
-
-    expect(currentMockProcess.stdin.write).toHaveBeenCalledWith('n\n');
-    currentMockProcess.emit('close', 0);
-    await sendPromise;
+    const permResponses = messages.filter((m: any) => m.type === 'permission-response');
+    expect((permResponses[0] as any).approved).toBe(false);
   });
 });
 
@@ -1115,24 +691,6 @@ describe('KiloBackend — dispose', () => {
     await backend.dispose();
 
     await expect(backend.dispose()).resolves.toBeUndefined();
-  });
-
-  it('resets memory bank tracking on dispose', async () => {
-    const { backend } = createKiloBackend(BASE_OPTIONS);
-    const { sessionId } = await backend.startSession();
-    const messages = collectMessages(backend);
-
-    const sendPromise = backend.sendPrompt(sessionId, 'Build feature');
-    simulateProcess(currentMockProcess, [
-      kiloMemoryBankRead('projectbrief.md'),
-      kiloMemoryBankWrite('activeContext.md'),
-    ]);
-    await sendPromise;
-
-    await backend.dispose();
-    // After dispose, no further events should arrive
-    const countAfter = messages.length;
-    expect(messages.length).toBe(countAfter);
   });
 
   it('clears message listeners on dispose', async () => {
@@ -1223,111 +781,25 @@ describe('KiloBackend — line buffer handling', () => {
 
     const textMessages = messages.filter((m: any) => m.type === 'model-output');
     expect(textMessages).toHaveLength(1);
-    expect((textMessages[0] as any).textDelta).toBe('Split JSON content');
-  });
-});
-
-// ===========================================================================
-// KiloBackend — cost-report emission
-// ===========================================================================
-
-/**
- * Tests for the unified CostReport event emitted by Kilo token events.
- *
- * WHY: Kilo supports local (Ollama / local-* models) and cloud models.
- * Local models → billingModel='free', costUsd=0.
- * Cloud models → billingModel='api-key', source determined by presence of cost_usd.
- */
-describe('KiloBackend — cost-report emission (cloud model)', () => {
-  it('emits billingModel=api-key and source=agent-reported when cost_usd is present', async () => {
-    const { backend } = createKiloBackend({ ...BASE_OPTIONS, model: 'claude-sonnet-4' });
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      kiloTokens({ input_tokens: 600, output_tokens: 250, cache_read_tokens: 40, cost_usd: 0.009 }),
-    ]);
-    await promptPromise;
-
-    const reports = messages.filter((m: any) => m.type === 'cost-report');
-    expect(reports.length).toBeGreaterThanOrEqual(1);
-    const r = reports[0] as any;
-    expect(r.report.billingModel).toBe('api-key');
-    expect(r.report.source).toBe('agent-reported');
-    expect(r.report.agentType).toBe('kilo');
-    expect(r.report.costUsd).toBe(0.009);
-    expect(r.report.inputTokens).toBe(600);
-    expect(r.report.cacheReadTokens).toBe(40);
+    expect((textMessages[0] as any).fullText).toBe('Split JSON content');
   });
 
-  it('emits billingModel=api-key and source=styrby-estimate when cost_usd is absent', async () => {
-    const { backend } = createKiloBackend({ ...BASE_OPTIONS, model: 'claude-sonnet-4' });
-    const messages = collectMessages(backend);
+  it('processes a buffered incomplete line on process close', async () => {
+    const { backend } = createKiloBackend(BASE_OPTIONS);
     const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      kiloTokens({ input_tokens: 400, output_tokens: 100 }),
-    ]);
-    await promptPromise;
-
-    const r = messages.find((m: any) => m.type === 'cost-report') as any;
-    expect(r.report.billingModel).toBe('api-key');
-    expect(r.report.source).toBe('styrby-estimate');
-  });
-});
-
-describe('KiloBackend — cost-report emission (local / Ollama model)', () => {
-  it('emits billingModel=free and costUsd=0 for ollama model names', async () => {
-    const { backend } = createKiloBackend({ ...BASE_OPTIONS, model: 'ollama/llama3' });
     const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
 
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      kiloTokens({ input_tokens: 300, output_tokens: 120, cost_usd: 0 }),
-    ]);
-    await promptPromise;
+    const sendPromise = backend.sendPrompt(sessionId, 'Hello');
+    // Emit without trailing newline so it stays in the line buffer until close.
+    (currentMockProcess.stdout as EventEmitter).emit(
+      'data',
+      Buffer.from(kiloText('buffered')),
+    );
+    currentMockProcess.emit('close', 0);
+    await sendPromise;
 
-    const r = messages.find((m: any) => m.type === 'cost-report') as any;
-    expect(r.report.billingModel).toBe('free');
-    expect(r.report.costUsd).toBe(0);
-  });
-
-  it('emits billingModel=free for local- prefixed model names', async () => {
-    const { backend } = createKiloBackend({ ...BASE_OPTIONS, model: 'local-mistral-7b' });
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      kiloTokens({ input_tokens: 200, output_tokens: 80 }),
-    ]);
-    await promptPromise;
-
-    const r = messages.find((m: any) => m.type === 'cost-report') as any;
-    expect(r.report.billingModel).toBe('free');
-    expect(r.report.costUsd).toBe(0);
-  });
-
-  it('emits billingModel=free when apiBaseUrl points to localhost', async () => {
-    const { backend } = createKiloBackend({
-      ...BASE_OPTIONS,
-      model: 'llama3',
-      apiBaseUrl: 'http://localhost:11434',
-    });
-    const messages = collectMessages(backend);
-    const { sessionId } = await backend.startSession();
-
-    const promptPromise = backend.sendPrompt(sessionId, 'hello');
-    simulateProcess(currentMockProcess, [
-      kiloTokens({ input_tokens: 100, output_tokens: 50 }),
-    ]);
-    await promptPromise;
-
-    const r = messages.find((m: any) => m.type === 'cost-report') as any;
-    expect(r.report.billingModel).toBe('free');
-    expect(r.report.costUsd).toBe(0);
+    const textMessages = messages.filter((m: any) => m.type === 'model-output');
+    expect(textMessages).toHaveLength(1);
+    expect((textMessages[0] as any).fullText).toBe('buffered');
   });
 });
