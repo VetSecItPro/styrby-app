@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2026-06-11 - Version-compat + concurrency fixes
+
+#### Fixed
+
+- **amp no longer falsely reports a version warning.** The version-compat check
+  assumed semver `major.minor`, but amp ships a `0.0.<build-number>` scheme
+  (real binary reports e.g. `0.0.1781143784`). Against the old `0.5.0` floor,
+  every real amp install sorted "below minimum supported." Set amp's floor to
+  the absolute `0.0.0`. Also corrected amp's `installHint` from the deprecated
+  `@sourcegraph/amp` alias to canonical `@ampcode/cli`.
+- **Concurrent prompts no longer orphan an agent process.** The relay dispatches
+  `sendPrompt` fire-and-forget, so two chat messages in quick succession both
+  reached the backend, and each spawn-per-prompt agent (opencode/amp/droid/
+  kilo/crush/goose/kiro/aider/claude — all 9 streaming backends) does
+  `this.process = spawn(...)` — the second
+  spawn overwrote `this.process` and left the first child running detached with
+  interleaved output. Added a busy guard in `beginRun()`: an overlapping prompt
+  is now rejected ("agent is busy") so the caller can retry after the current
+  run finishes or is cancelled. One agent process per backend at a time.
+
+### 2026-06-11 - OSI-layer resilience hardening
+
+#### Fixed
+
+- **kiro output is cleaner on mobile.** The kiro-cli ANSI stripper only removed
+  CSI color codes and two ESC characters, so OSC sequences (window-title /
+  hyperlink), charset designators, and stray control bytes (carriage returns,
+  BEL, DEL) passed through into the relayed `model-output` and rendered as
+  garbage glyphs on the mobile app. Centralized into a hardened `utils/ansi.ts`
+  (OSC + CSI + 3-byte charset + C0-control handling; preserves tab and newline)
+  and pointed kiro at it.
+
+#### Changed
+
+- Added malformed-frame regression tests for the codex MCP event handler and
+  shared ANSI stripping, locking in the existing null/non-object guards so a
+  buggy or truncated protocol frame can never throw out of the parse path
+  (test-only; no behavior change).
+
 ### 2026-06-11 - Managed agent sessions + real-binary reconciliation + relay hardening
 
 The CLI now drives **all 11 agents through a uniform managed-spawn path** and every

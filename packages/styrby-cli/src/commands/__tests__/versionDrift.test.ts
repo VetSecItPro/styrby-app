@@ -189,7 +189,10 @@ describe('checkVersionCompatibility', () => {
   const cases: Array<{
     agentId: AllAgentType;
     within: string;
-    below: string;
+    // null = this agent has no below-min state (its floor is the absolute
+    // 0.0.0). amp is the case: it ships a `0.0.<build-number>` calver scheme,
+    // so minSupported is 0.0.0 and nothing can sort below it (#27).
+    below: string | null;
     above: string;
   }> = [
     { agentId: 'claude', within: '1.2.0', below: '0.9.0', above: '3.0.0' },
@@ -198,7 +201,8 @@ describe('checkVersionCompatibility', () => {
     { agentId: 'opencode', within: '0.5.0', below: '0.0.9', above: '2.0.0' },
     { agentId: 'aider', within: '0.65.0', below: '0.59.9', above: '1.0.0' },
     { agentId: 'goose', within: '1.1.0', below: '0.9.9', above: '3.0.0' },
-    { agentId: 'amp', within: '0.8.0', below: '0.4.9', above: '2.0.0' },
+    // amp: 0.0.<build-number> scheme; within = a real build version, no below-min.
+    { agentId: 'amp', within: '0.0.1781143784', below: null, above: '2.0.0' },
     { agentId: 'crush', within: '0.5.0', below: '0.0.9', above: '2.0.0' },
     // kilo maxTestedVersion was bumped to 7.x (real binary is v7.3.41), so the
     // "within" and "above max-tested" probes must track that.
@@ -218,8 +222,9 @@ describe('checkVersionCompatibility', () => {
         expect(result.maxTested).toBeTruthy();
       });
 
-      it(`v${below} (below minimum) → below-min`, () => {
-        const result = checkVersionCompatibility(agentId, below);
+      // Skipped for agents whose floor is 0.0.0 (no version sorts below min).
+      it.skipIf(below === null)(`v${below} (below minimum) → below-min`, () => {
+        const result = checkVersionCompatibility(agentId, below as string);
         expect(result.compatibility).toBe('below-min');
         expect(result.detectedVersion).toBe(below);
       });

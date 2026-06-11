@@ -43,27 +43,14 @@ import type {
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
+// WHY shared util (#26): kiro-cli writes styled markdown (CSI color codes,
+// OSC sequences, cursor show/hide, spinner frames, stray control bytes) that is
+// not part of the model's text. stripAnsi removes it at the L6 encoding boundary
+// before forwarding model-output. Centralised in utils/ansi (the prior inline
+// copy only handled CSI + two ESC chars).
+import { stripAnsi } from '@/utils/ansi';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
-/**
- * Strip ANSI/terminal control sequences from kiro-cli output.
- *
- * WHY: kiro-cli writes its chat response as styled markdown — it emits CSI color
- * codes, cursor show/hide (`ESC[?25l`), and spinner frames. None of that is part
- * of the model's actual text, so we remove it before forwarding `model-output`.
- * Matches CSI (`ESC[ … final`) and a couple of common single-char escapes.
- *
- * @param text - Raw stdout chunk from kiro-cli.
- * @returns The text with ANSI control sequences removed.
- */
-function stripAnsi(text: string): string {
-  // eslint-disable-next-line no-control-regex
-  return text.replace(/\u001b\[[0-?]*[ -\/]*[@-~]/g, '').replace(/\u001b[=>]/g, '');
-}
 
 // ============================================================================
 // Types

@@ -382,8 +382,15 @@ const AGENT_PROBE_REGISTRY: Record<AllAgentType, AgentProbeConfig> = {
       'usage.cost_usd': 'number',
     },
     parserFile: 'agent/factories/amp.ts (handleAmpMessage)',
-    installHint: 'npm install -g @sourcegraph/amp',
-    minSupportedVersion: '0.5.0',
+    // @sourcegraph/amp is a deprecated alias re-exporting @ampcode/cli (see
+    // INSTALL_HINTS in StreamingAgentBackendBase.ts) — point users at canonical.
+    installHint: 'npm install -g @ampcode/cli',
+    // WHY 0.0.0 (#27 fix): amp does NOT use semver major.minor — it ships a
+    // `0.0.<build-number>` calver scheme (real binary reports e.g.
+    // 0.0.1781143784). The prior 0.5.0 floor flagged EVERY real amp install as
+    // "below minimum supported" (minor 0 < 5). 0.0.0 makes the build-number
+    // patch the only meaningful component; maxTested 1.99.99 still covers it.
+    minSupportedVersion: '0.0.0',
     maxTestedVersion: '1.99.99',
     startupVersionPatterns: [/amp v?(\d+\.\d+\.\d+)/i, /amp@(\d+\.\d+\.\d+)/i],
   },

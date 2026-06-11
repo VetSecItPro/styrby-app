@@ -233,6 +233,28 @@ describe('codex event -> AgentMessage mapping', () => {
     expect(out).toContainEqual(expect.objectContaining({ type: 'event', name: 'some_future_event' }));
   });
 
+  // #26 L7 resilience: the codex MCP event stream is semi-trusted. A buggy
+  // server, a truncated frame, or a protocol drift can deliver a null,
+  // primitive, or array where an event object is expected. handleCodexEvent
+  // guards with `if (!raw || typeof raw !== 'object') return` — these tests
+  // lock that guard in so a malformed frame can never throw out of the handler.
+  it('ignores null/undefined/primitive frames without throwing or emitting', () => {
+    const { messages } = makeBackend();
+    for (const bad of [null, undefined, 0, 42, '', 'a string', true, NaN]) {
+      expect(() => captured.handler!(bad as never)).not.toThrow();
+    }
+    expect(messages).toHaveLength(0);
+  });
+
+  it('does not throw on an object frame with a missing or non-string type', () => {
+    const { messages } = makeBackend();
+    for (const bad of [{}, { type: 123 }, { type: null }, { notType: 'x' }, { type: {} }]) {
+      expect(() => captured.handler!(bad as never)).not.toThrow();
+    }
+    // Coercion-heavy fields must not crash even when present with wrong types.
+    expect(() => captured.handler!({ type: 'exec_command_begin', call_id: {}, command: 5 } as never)).not.toThrow();
+  });
+
   it('non-object event is ignored', () => {
     const { messages } = makeBackend();
     captured.handler!('not an object');
