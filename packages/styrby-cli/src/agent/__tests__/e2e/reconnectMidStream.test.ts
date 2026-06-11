@@ -209,8 +209,11 @@ const PARTIAL_TRANSCRIPTS = {
   kilo: '{"type":"text","content":"Writing hello world..."}\n',
   goose: '{"type":"message","content":"Starting hello world task..."}\n',
   amp: '{"type":"text","content":"I\'ll write a hello world program."}\n',
-  crush: '{"type":"text_delta","delta":"Writing hello world to main.ts..."}\n',
-  kiro: '{"type":"message","content":"Creating hello world program..."}\n',
+  // crush + kiro emit PLAIN TEXT (no JSON schema) — verified 2026-06-10. A
+  // mid-stream kill leaves a partial text chunk; the backend still classifies the
+  // non-zero exit as an error.
+  crush: 'Writing hello world to main.ts...',
+  kiro: 'Creating hello world program...',
   droid: '{"type":"text","content":"Writing main.ts..."}\n',
 } as const;
 
