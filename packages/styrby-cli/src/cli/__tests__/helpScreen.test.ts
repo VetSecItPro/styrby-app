@@ -9,6 +9,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { buildHelpText, printHelp } from '@/cli/helpScreen';
 import { VERSION } from '@/cli/version';
+import { AGENT_TYPES } from 'styrby-shared';
 
 describe('buildHelpText', () => {
   const help = buildHelpText();
@@ -44,9 +45,16 @@ describe('buildHelpText', () => {
     }
   });
 
-  it('lists every supported agent in the Options section', () => {
-    // All five agents must be mentioned so users know what to pass to --agent.
-    expect(help).toMatch(/claude .+codex.+gemini.+opencode.+aider/s);
+  it('lists every supported agent in the install command', () => {
+    // WHY derive from AGENT_TYPES (not a hardcoded list): the help text once
+    // advertised only 5 of the 11 agents, the same drift that left 6 factories
+    // unreachable from `styrby start`. Asserting against the canonical const
+    // makes the help text impossible to silently regress when an agent is added.
+    for (const agent of AGENT_TYPES) {
+      expect(help).toContain(agent);
+    }
+    // And the agent count in the tagline must stay in sync with the const.
+    expect(help).toContain(`${AGENT_TYPES.length} agents total`);
   });
 
   it('documents the standard exit codes', () => {

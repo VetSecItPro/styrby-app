@@ -15,9 +15,11 @@ import { execSync } from 'node:child_process';
 import { rmSync, mkdirSync, copyFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
+const require = createRequire(import.meta.url);
 
 // Clean dist folder
 console.log('🧹 Cleaning dist folder...');
@@ -25,15 +27,29 @@ rmSync(join(ROOT, 'dist'), { recursive: true, force: true });
 mkdirSync(join(ROOT, 'dist'), { recursive: true });
 
 // First, run tsc to generate declaration files (.d.ts)
-// These are needed for library consumers
+// These are needed for library consumers of the dist/lib.js entry point.
+//
+// WHY resolve the binary instead of `npx tsc`: `typescript` is a hoisted
+// workspace devDependency, not a direct dep of this package. In that setup
+// `npx tsc` does NOT find the local compiler and instead silently downloads
+// the unrelated registry package literally named `tsc` (which just prints
+// "This is not the tsc command you are looking for" and exits non-zero).
+// The old code swallowed that as "non-fatal" and shipped ZERO .d.ts files on
+// every publish. require.resolve walks up to the workspace root node_modules
+// where the real compiler lives, so we invoke it directly via `node`.
 console.log('📝 Generating type declarations...');
+const tscBin = require.resolve('typescript/bin/tsc');
 try {
-  execSync('npx tsc --emitDeclarationOnly --declaration --declarationMap', {
+  execSync(`node "${tscBin}" --emitDeclarationOnly --declaration --declarationMap`, {
     cwd: ROOT,
     stdio: 'inherit',
   });
 } catch (error) {
-  console.error('⚠️  Type declaration generation had issues (non-fatal)');
+  // tsc may exit non-zero on pre-existing type errors while still emitting
+  // most .d.ts files. Surface the real error loudly but don't abort the
+  // bundle build (the `styrby` bin is fully bundled and unaffected by types).
+  console.error('⚠️  tsc reported errors during declaration emit (see above). ' +
+    'Declarations may be incomplete — investigate if dist/*.d.ts is empty.');
 }
 
 // Bundle with esbuild

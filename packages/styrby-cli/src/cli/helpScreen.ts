@@ -10,6 +10,7 @@
  */
 
 import { VERSION } from '@/cli/version';
+import { AGENT_TYPES } from 'styrby-shared';
 
 /**
  * Build the `styrby help` / `styrby --help` text as a single string.
@@ -27,7 +28,8 @@ styrby v${VERSION}
 Usage: styrby [command] [options]
 
 Mobile relay for AI coding agents. Control Claude Code, Codex, Gemini CLI,
-OpenCode, and Aider from your phone. Code stays local — only I/O is relayed.
+OpenCode, Aider, and ${AGENT_TYPES.length} agents total from your phone. Code
+stays local; only I/O is relayed.
 
   styrby                    Start a coding session (auto-setup on first run)
 
@@ -37,7 +39,7 @@ Commands:
     onboard                 Re-run setup wizard (auth + machine registration + pairing)
     auth                    Re-authenticate only
     pair                    Generate QR code for mobile app pairing
-    install <agent>         Install an AI agent (claude, codex, gemini, opencode, aider)
+    install <agent>         Install an AI agent (${AGENT_TYPES.join(', ')})
 
   Session
     start                   Start a coding session (same as bare styrby)

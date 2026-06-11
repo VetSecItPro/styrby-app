@@ -7,6 +7,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2026-06-11 - Managed agent sessions + real-binary reconciliation + relay hardening
+
+The CLI now drives **all 11 agents through a uniform managed-spawn path** and every
+integration has been **verified against its real installed binary**. The prior
+integrations were largely written against imagined protocols and several never
+fired. Two security fixes ship alongside. PRs #339-#353.
+
+#### Added
+
+- **Managed-spawn for `claude` and `codex`** (PR #339). `styrby start --agent claude`
+  and `--agent codex` now open a real managed session (relay-to-chat dispatcher, live
+  session row) instead of the old connect-3s-then-disconnect informational stub.
+  `claude` is a clean-room `StreamingAgentBackendBase` spawn of the `claude` binary
+  (`-p --output-format stream-json --verbose`). It **preserves Max/Pro subscription
+  billing** by spawning the user's binary rather than adopting the official Agent SDK.
+  `codex` wraps the MCP transport (`codex mcp-server`).
+- **Interactive per-tool mobile approval for `claude`** (PR #349). claude now pauses
+  at each gated tool (`Bash`, `Edit`, `Write`, `NotebookEdit`, `WebFetch`, `WebSearch`)
+  and relays a `permission-request` to mobile; the user approves/denies per call.
+  Implemented via an in-process HTTP MCP server (`claudePermissionServer.ts`) bound to
+  claude's `--permission-prompt-tool` contract plus a `--settings` `permissions.ask`
+  list (precedence deny > ask > allow).
+
+#### Changed
+
+- **All 11 agent integrations reconciled against real binaries** (PRs #352/#353). Each
+  invocation + stdout parser was rewritten to match what the installed binary actually
+  emits:
+  - `opencode`: `run <prompt> --format json`, parses `{step_start|text|step_finish, part:{cost,tokens}}`.
+  - `amp`: `amp -x <prompt> --stream-json` (Claude-compatible stream-json; reuses `parseClaudeJsonlLine`).
+  - `droid`: `droid exec <prompt> --output-format stream-json` (Claude-shaped; usage has no cost, so styrby-estimated).
+  - `kilo`: opencode-fork `run <prompt> --format json` (the prior "memory-bank protocol" was fabricated).
+  - `crush`: plain-text passthrough (`crush run <prompt>`); has no machine-readable output, `supportsTools:false`.
+  - `goose`: `goose run -t <prompt> --output-format stream-json`.
+  - `kiro`: plain-text agent spawning **`kiro-cli`** (not `kiro`; Kiro CLI = rebranded
+    Amazon Q Developer CLI). `kiro-cli chat --no-interactive --trust-all-tools <prompt>`,
+    ANSI-stripped to model-output; `KIRO_API_KEY` auth; no cost telemetry.
+  - `claude`, `codex`, `gemini`, `aider`: verified already-correct, no change.
+- **`AGENT_TYPES` is now a single source of truth** (`@styrby/shared`). The `styrby start`
+  allowlist had drifted to 5 agents, leaving 6 registered factories (goose/amp/crush/
+  kilo/kiro/droid) **unreachable**. Type, relay Zod enum, and CLI gate now all derive
+  from one const, so drift is impossible.
+- **claude billing detection** now reads the live stream-json `apiKeySource` instead of a
+  potentially-stale `~/.claude/auth.json` (PR #346), so subscription vs. API-key billing
+  is classified from the actual running session.
+- **Install hints** registry-verified and corrected: `amp` to `@ampcode/cli`,
+  `crush` to `charmbracelet/tap/crush`, `kiro` to `curl cli.kiro.dev/install` (binary `kiro-cli`),
+  `goose` to its curl installer, plus added `claude`/`codex`/`gemini`.
+
+#### Security
+
+- **Relay channels are now private** (PR #351, SEC-RELAY-AUTH-001, the one HIGH).
+  `relay:{userId}` was a public Supabase broadcast channel (read-all-chat + forge-chat =
+  RCE-class). `RelayClient` now sets `private:true` + pushes the session JWT pre-subscribe;
+  migration 100 adds `realtime.messages` RLS gating each user to their own `relay:{uid}` topic.
+- **Hardening batch** (PR #350): capability-URL token on the in-process permission MCP
+  server (SEC-CLAUDEPERM-001), `mcp-config` temp file written `0o600` (SEC-CLAUDEPERM-002),
+  and `assertSafeArgValue` arg-confusion guard rejecting control chars in spawn args
+  (SEC-CLIINJ-002). `amp` no longer dual-injects `ANTHROPIC_API_KEY`; it uses `AMP_API_KEY` only.
+
+#### Removed
+
+- **Stale Happy-derived dead code**: the old claude engine (~7k LOC, PR #344) and the
+  gemini turn-loop sub-island (PR #347), both superseded by the managed-spawn backends.
+
+#### Fixed
+
+- **Type declarations are shipped again.** The build invoked `npx tsc`, which (because
+  `typescript` is a hoisted workspace devDependency, not a direct dep of this package)
+  silently downloaded the unrelated registry package named `tsc` and failed. The failure
+  was swallowed as "non-fatal," so every publish shipped **zero `.d.ts` files**. The build
+  now resolves the real compiler via `require.resolve('typescript/bin/tsc')`; the tarball
+  now includes all 141 declaration files for the `dist/lib.js` programmatic entry point.
+- **`styrby --help` lists all 11 agents.** The help text advertised only 5
+  (claude/codex/gemini/opencode/aider) and the `install <agent>` line listed the same 5,
+  while 11 are supported. Both are now derived from the canonical `AGENT_TYPES` const, with
+  a unit test asserting every agent appears (drift-proof).
+- **`SECURITY.md` is now included in the package.** It was declared in `files[]` but did
+  not exist on disk, so it never shipped. Added a CLI-focused security policy (reporting,
+  E2E crypto matrix, local MCP/permission-server trust model, secret storage).
+- **Cost/token parsing hardened against malformed agent output.** A parser-fuzz pass
+  (malformed-input corpus through every rewritten stdout parser) found that the
+  `opencode` and `kilo` backends assigned `part.tokens.{input,output}` and `part.cost`
+  straight through. A buggy or schema-drifted binary sending a string or negative would
+  propagate a non-number into the `number`-typed cost-report and into token arithmetic
+  (string concatenation), corrupting the cost dashboard. Both now coerce at the parse
+  boundary via a new `toNonNegativeNumber` helper (numeric strings accepted; NaN,
+  Infinity, negatives, and non-numbers degrade to a safe fallback). The other parsers
+  (amp/droid/goose/crush/kiro) already handled the corpus cleanly.
+
 ### 2026-05-05 — CLI optimization sprint + B4 error-handling completeness
 
 Single-day sprint hardening the CLI across five dimensions: cold-start

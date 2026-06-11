@@ -1,0 +1,55 @@
+# gitleaks configuration for the Styrby monorepo.
+#
+# WHY this file exists: Styrby is a PUBLIC repo, so a leaked secret in git
+# history is permanent (mirrored, cached, indexed). A full-history scan
+# (`gitleaks detect --source .`) is part of the SAST pass (#23). This config
+# makes that scan REPRODUCIBLE and ZERO-NOISE by allowlisting the findings that
+# were inspected on 2026-06-11 and confirmed to be designed-public values,
+# pattern definitions, doc placeholders, or test fixtures - NOT real secrets.
+#
+# Re-run the audited scan with:
+#   gitleaks detect --source . --redact
+#
+# A finding NOT covered by an allowlist below is a real signal: triage it,
+# rotate if real, and only add an allowlist entry once confirmed false.
+
+# Inherit gitleaks' full default ruleset (150+ rules + entropy detection).
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Styrby false positives - audited 2026-06-11 (SAST #23). Each entry has a verified rationale."
+
+# --- Path-based allowlists (whole files that legitimately match) ---
+paths = [
+  # Test fixtures + mock keys. Every match is a deliberately-fake credential
+  # used to exercise auth/validation paths; none is a live value.
+  '''.*\.test\.ts$''',
+  '''.*\.spec\.ts$''',
+  '''.*\.appspec\.ts$''',           # deriveKey.appspec.ts - test-style spec file
+  # API docs render `curl -H "Authorization: Bearer <token>"` placeholder
+  # examples; the token is a literal placeholder, not a value.
+  '''packages/styrby-web/src/app/docs/api/page\.tsx$''',
+  '''packages/styrby-web/src/app/dashboard/settings/api/docs/page\.tsx$''',
+  # Session-replay redaction module: DEFINES the secret-shaped regexes
+  # (sk_live_*, AKIA*, etc.) used to scrub secrets out of replays. The
+  # patterns are the point; there are no values.
+  '''packages/styrby-shared/src/session-replay/scrub\.ts$''',
+  # Styrby's own API-key feature: references the public "styrby_" key PREFIX
+  # for DB lookup. The full key is never stored or hardcoded here.
+  '''packages/styrby-shared/src/utils/api-keys\.ts$''',
+  # Firebase config: the AIzaSy... values are PUBLIC client identifiers
+  # (project, not auth - secured by Firebase rules + app restrictions).
+  # Intentionally committed per Firebase docs (backlog P2-C). Restrict these
+  # keys to the app bundle IDs in the GCP console as defense in depth.
+  '''packages/styrby-mobile/google-services\.json$''',
+]
+
+# --- Regex-based allowlists (specific known-public values) ---
+regexes = [
+  # The Supabase ANON key hardcoded as a default in the CLI. This is a
+  # designed-public, RLS-protected client key (JWT payload: role=anon,
+  # ref=akmtmxunjhsgldjztdtt) - the same value shipped as
+  # NEXT_PUBLIC_SUPABASE_ANON_KEY. It is NOT the service_role key.
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFrbXRteHVuamhzZ2xkanp0ZHR0Iiwicm9sZSI6ImFub24i''',
+]

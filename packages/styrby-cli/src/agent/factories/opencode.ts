@@ -25,6 +25,7 @@ import type {
 import { agentRegistry } from '../core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, safeBufferAppend, validateExtraArgs } from '@/utils/safeEnv';
+import { toNonNegativeNumber } from '@/utils/coerce';
 import { resolveApiKeyEnv, type ApiKeyProvider } from '@/utils/apiKeyProvider';
 import { StreamingAgentBackendBase, formatInstallHint } from '../StreamingAgentBackendBase';
 import type { CostReport } from '@styrby/shared/cost';
@@ -209,11 +210,17 @@ class OpenCodeBackend extends StreamingAgentBackendBase {
         // captured — taking the latest avoids double-counting the resent context
         // window (part.tokens.input includes full context each step). Multi-step
         // aggregation is a tracked follow-up (real tool-session capture needed).
-        this.inputTokens = t.input ?? this.inputTokens;
-        this.outputTokens = t.output ?? this.outputTokens;
-        const cacheRead = t.cache?.read ?? 0;
-        const cacheWrite = t.cache?.write ?? 0;
-        if (typeof part.cost === 'number') this.totalCost = part.cost;
+        //
+        // WHY toNonNegativeNumber (#24 DAST fix): the raw values are typed
+        // `number?` but come from untrusted stdout. A buggy/old binary that sends
+        // a string or negative would otherwise propagate a non-number into the
+        // `number`-typed CostReport and into `input + output` arithmetic (string
+        // concat). Coercing at the parse boundary keeps the declared type honest.
+        this.inputTokens = t.input === undefined ? this.inputTokens : toNonNegativeNumber(t.input);
+        this.outputTokens = t.output === undefined ? this.outputTokens : toNonNegativeNumber(t.output);
+        const cacheRead = toNonNegativeNumber(t.cache?.read);
+        const cacheWrite = toNonNegativeNumber(t.cache?.write);
+        if (part.cost !== undefined) this.totalCost = toNonNegativeNumber(part.cost, this.totalCost);
 
         // Legacy token-count (kept for existing consumers).
         this.emit({
