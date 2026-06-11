@@ -59,6 +59,21 @@ vi.mock('@/ui/logger', () => ({
   },
 }));
 
+// Controllable mock of the #26855 storage reader. Defaults to "no stored parts"
+// so every existing test sees the recovery as a no-op; the cost-recovery test
+// sets `storageMock.parts` to simulate steps opencode persisted but dropped from
+// stdout. selectMissedStepFinishes is kept REAL (pure dedupe logic).
+const storageMock = vi.hoisted(() => ({ parts: [] as Array<Record<string, number | string>> }));
+vi.mock('../opencodeStorage', async (importActual) => {
+  const actual = await importActual<typeof import('../opencodeStorage')>();
+  return {
+    ...actual,
+    resolveOpencodeStorageDir: () => '/fake/storage',
+    findLatestAssistantMessageId: () => 'msg_test',
+    readStepFinishParts: () => storageMock.parts,
+  };
+});
+
 // ---------------------------------------------------------------------------
 // Import SUT (after mocks are in place)
 // ---------------------------------------------------------------------------
@@ -478,6 +493,92 @@ describe('OpenCodeBackend — JSON-line parsing', () => {
     expect(cost?.report).toMatchObject({
       agentType: 'opencode', source: 'agent-reported', billingModel: 'api-key',
       costUsd: 0.0123, inputTokens: 11346, outputTokens: 17, cacheReadTokens: 5, cacheWriteTokens: 0,
+    });
+  });
+
+  // Multi-step billing contract (verified 2026-06-11): a tool-using turn emits
+  // one step_finish PER API call; we emit one cost-report per event; the
+  // cost-reporter writes one summed cost_records row per event. So each
+  // cost-report must carry THAT step's values (a delta), NOT a running total —
+  // otherwise the downstream SUM over-counts. This guards against a regression
+  // back to accumulation.
+  it('emits one PER-STEP cost-report per step_finish (deltas, not a running total)', async () => {
+    const { messages, promptPromise } = await setupWithRunningPrompt();
+    const steps = [
+      { cost: 0.01, tokens: { input: 1000, output: 10, cache: { read: 0, write: 0 } } },
+      { cost: 0.02, tokens: { input: 1500, output: 20, cache: { read: 0, write: 0 } } },
+      { cost: 0.03, tokens: { input: 2000, output: 30, cache: { read: 0, write: 0 } } },
+    ];
+    for (const s of steps) {
+      emitStdout(JSON.stringify({ type: 'step_finish', sessionID: 'ses_1', part: { type: 'step-finish', reason: 'stop', ...s } }));
+    }
+    setImmediate(() => closeProcess(0));
+    await promptPromise;
+
+    const costs = messages.filter((m: any) => m.type === 'cost-report').map((m: any) => m.report);
+    expect(costs).toHaveLength(3);
+    // Each row carries its OWN step's values (delta semantics) ...
+    expect(costs.map((r: any) => r.costUsd)).toEqual([0.01, 0.02, 0.03]);
+    expect(costs.map((r: any) => r.inputTokens)).toEqual([1000, 1500, 2000]);
+    expect(costs.map((r: any) => r.outputTokens)).toEqual([10, 20, 30]);
+    // ... so the downstream SUM is the true turn total (the regression guard:
+    // if any row carried a running total, these sums would be inflated).
+    const sum = (k: string) => costs.reduce((a: number, r: any) => a + r[k], 0);
+    expect(sum('costUsd')).toBeCloseTo(0.06, 10);
+    expect(sum('inputTokens')).toBe(4500);
+    expect(sum('outputTokens')).toBe(60);
+  });
+
+  // Root-cause fix for opencode #26855: `run --format json` can exit before
+  // flushing the final step-finish to stdout, but it persists to session
+  // storage. On close we reconcile against storage and recover the missed cost.
+  describe('#26855 cost recovery from session storage', () => {
+    afterEach(() => {
+      storageMock.parts = []; // restore the default "no stored parts" for other tests
+    });
+
+    const stored = [
+      { id: 'prt_1', cost: 0.01, inputTokens: 1000, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      { id: 'prt_2', cost: 0.02, inputTokens: 1500, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      { id: 'prt_3', cost: 0.03, inputTokens: 2000, outputTokens: 30, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    ];
+
+    /** Emit `n` step-finish events on stdout (the first n of `stored`). */
+    function emitFirstN(n: number) {
+      for (let i = 0; i < n; i++) {
+        const s = stored[i];
+        emitStdout(JSON.stringify({
+          type: 'step_finish', sessionID: 'ses_1',
+          part: { type: 'step-finish', id: s.id, messageID: 'msg_test', cost: s.cost, tokens: { input: s.inputTokens, output: s.outputTokens } },
+        }));
+      }
+    }
+
+    it('recovers the final step-finish that stdout dropped', async () => {
+      storageMock.parts = stored; // storage has all 3
+      const { messages, promptPromise } = await setupWithRunningPrompt();
+      emitFirstN(2); // stdout only delivered 2 (the 3rd is the #26855 drop)
+      setImmediate(() => closeProcess(0));
+      await promptPromise;
+
+      const costs = messages.filter((m: any) => m.type === 'cost-report').map((m: any) => m.report);
+      expect(costs).toHaveLength(3); // 2 live + 1 recovered
+      expect(costs[2]).toMatchObject({ costUsd: 0.03, inputTokens: 2000, outputTokens: 30 });
+      expect(costs[2].rawAgentPayload).toMatchObject({ recovered: true, source: 'session-storage', partId: 'prt_3' });
+      // Downstream sum is now the true turn total (0.01 + 0.02 + 0.03).
+      expect(costs.reduce((a: number, r: any) => a + r.costUsd, 0)).toBeCloseTo(0.06, 10);
+    });
+
+    it('does NOT double-count when stdout was already complete', async () => {
+      storageMock.parts = stored;
+      const { messages, promptPromise } = await setupWithRunningPrompt();
+      emitFirstN(3); // stdout delivered all 3
+      setImmediate(() => closeProcess(0));
+      await promptPromise;
+
+      const costs = messages.filter((m: any) => m.type === 'cost-report').map((m: any) => m.report);
+      expect(costs).toHaveLength(3); // no recovery row added
+      expect(costs.some((r: any) => r.rawAgentPayload?.recovered)).toBe(false);
     });
   });
 });
