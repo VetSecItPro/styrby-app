@@ -151,3 +151,5 @@ scripts/__pycache__/
 .gh-ship-history.json
 .monitor-reports/
 .deps-audit.json
+.sec-ship-reports/
+.sec-ship-history.json

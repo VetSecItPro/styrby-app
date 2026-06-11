@@ -32,7 +32,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse, type Server as HttpServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -185,6 +185,17 @@ export async function startClaudePermissionServer(
   // for the lifetime of a prompt run, but we support N defensively).
   const transports = new Map<string, StreamableHTTPServerTransport>();
 
+  // Capability-URL token (SEC-CLAUDEPERM-001): the endpoint path embeds an
+  // unguessable 256-bit token. claude connects to the full URL verbatim from its
+  // --mcp-config (which we write 0600), so the token rides along automatically —
+  // no header support needed. Any OTHER local process that reaches the loopback
+  // port but can't read the 0600 config file hits a path it can't guess and gets
+  // a 404, so it can neither call the permission tool (notification-spam /
+  // approver-phishing) nor learn what tools claude is running. Defense-in-depth
+  // atop loopback-only binding + ephemeral port + transient lifetime.
+  const capabilityToken = randomBytes(32).toString('hex');
+  const basePath = `/mcp/${capabilityToken}`;
+
   /** Read and JSON-parse a request body (POST carries the JSON-RPC message). */
   const readBody = (req: IncomingMessage): Promise<unknown> =>
     new Promise((resolve) => {
@@ -204,6 +215,15 @@ export async function startClaudePermissionServer(
   const httpServer: HttpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
     void (async () => {
       try {
+        // Capability check: reject any path that doesn't present the token.
+        // Constant-ish prefix check; the token is high-entropy so a timing side
+        // channel on the prefix compare is not meaningful here.
+        const reqPath = (req.url ?? '').split('?')[0];
+        if (reqPath !== basePath) {
+          res.writeHead(404).end('Not found');
+          return;
+        }
+
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
         const existing = sessionId ? transports.get(sessionId) : undefined;
 
@@ -262,8 +282,8 @@ export async function startClaudePermissionServer(
     httpServer.close();
     throw new Error('Permission server failed to bind a TCP port');
   }
-  const url = `http://127.0.0.1:${addr.port}/mcp`;
-  logger.debug(`[ClaudePermissionServer] listening at ${url}`);
+  const url = `http://127.0.0.1:${addr.port}${basePath}`;
+  logger.debug(`[ClaudePermissionServer] listening on 127.0.0.1:${addr.port} (capability path)`);
 
   return {
     url,
