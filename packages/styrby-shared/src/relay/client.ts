@@ -159,6 +159,32 @@ export class RelayClient extends EventEmitter<RelayChannelEvents> {
   // --------------------------------------------------------------------------
 
   /**
+   * Push the current Supabase session's access token onto the Realtime socket so
+   * private-channel authorization (SEC-RELAY-AUTH-001 / migration 100) succeeds.
+   *
+   * Best-effort + defensive: tolerates a client that doesn't expose
+   * `auth.getSession` / `realtime.setAuth` (e.g. a test double) and a missing
+   * session. Failures are non-fatal — `subscribe()` then surfaces a
+   * `CHANNEL_ERROR` that `scheduleReconnect()` already classifies as an auth
+   * failure, so we never hang.
+   */
+  private async ensureRealtimeAuth(): Promise<void> {
+    try {
+      const supa = this.config.supabase as unknown as {
+        auth?: { getSession?: () => Promise<{ data: { session: { access_token?: string } | null } }> };
+        realtime?: { setAuth?: (token: string) => void | Promise<void> };
+      };
+      const token = (await supa.auth?.getSession?.())?.data?.session?.access_token;
+      if (token && supa.realtime?.setAuth) {
+        await supa.realtime.setAuth(token);
+        this.log('Realtime auth token set for private channel');
+      }
+    } catch (err) {
+      this.log('ensureRealtimeAuth (non-fatal):', err);
+    }
+  }
+
+  /**
    * Connect to the relay channel
    */
   async connect(): Promise<void> {
@@ -170,10 +196,30 @@ export class RelayClient extends EventEmitter<RelayChannelEvents> {
     this.setState('connecting');
 
     try {
+      // WHY (SEC-RELAY-AUTH-001): private channels authorize against the JWT on
+      // the Realtime socket. Explicitly push the current session's access token to
+      // Realtime before subscribing so authorization is guaranteed regardless of
+      // how each caller's client propagates auth — the CLI is a Node client with
+      // no browser auto-session, so relying on implicit propagation would risk a
+      // total relay outage. Best-effort: if there's no session (or the client
+      // doesn't expose realtime.setAuth) we proceed; subscribe surfaces a
+      // CHANNEL_ERROR that scheduleReconnect already handles as an auth failure.
+      await this.ensureRealtimeAuth();
+
       const channelName = getChannelName(this.config.userId, this.config.channelSuffix);
 
       this.channel = this.config.supabase.channel(channelName, {
         config: {
+          // WHY private: true (SEC-RELAY-AUTH-001): makes Supabase Realtime
+          // authorize every subscribe + broadcast/presence write against RLS on
+          // realtime.messages (migration 100), keyed to realtime.topic(). The
+          // broker then rejects any client trying to join or publish to a
+          // relay:{userId} topic that isn't their own — closing the public-
+          // broadcast hole where anyone knowing a userId could read all chat or
+          // forge a `chat` that drives the agent. Requires an authenticated JWT
+          // on the realtime connection (CLI uses its Supabase JWT session; web +
+          // mobile use the browser/device session) — all three already do.
+          private: true,
           presence: { key: this.config.deviceId },
           broadcast: { self: false }, // Don't receive own broadcasts
         },
