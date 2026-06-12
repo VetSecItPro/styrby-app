@@ -98,6 +98,76 @@ export type RequestApprovalOutput = {
 };
 
 // ============================================================================
+// get_team_policy
+// ============================================================================
+
+/**
+ * Input schema for the `get_team_policy` tool.
+ *
+ * The tool returns the calling user's active team governance policies so an
+ * agent can self-check BEFORE acting (e.g. "is there a cost threshold or a
+ * tool allowlist I should respect?"). Input is intentionally minimal — the
+ * agent reasons over the returned rules rather than the server pre-filtering.
+ *
+ * @property agentType - Optional. The agent's own type (e.g. `claude`, `codex`).
+ *                       Advisory only — included so future server-side filtering
+ *                       can narrow to policies whose `agentFilter` matches.
+ */
+export const GetTeamPolicyInputSchema = {
+  agentType: z.string().min(1).max(50).optional(),
+};
+
+/**
+ * A single team governance policy as exposed to an agent.
+ *
+ * Mirrors the agent-relevant columns of the `team_policies` table
+ * (migration 021). Internal columns (ids, approver_user_id, timestamps) are
+ * deliberately omitted — an agent only needs to know WHAT the rule is and what
+ * happens when it matches, not who authored it.
+ *
+ * @property name - Human-readable policy name.
+ * @property description - Optional longer explanation.
+ * @property ruleType - 'cost_threshold' | 'agent_filter' | 'tool_allowlist' | 'time_window'.
+ * @property action - What happens on match: 'block' | 'require_approval' | 'allow_with_audit'.
+ * @property threshold - Numeric threshold (e.g. USD for cost_threshold); null when N/A.
+ * @property agentFilter - Agent types / tool names the rule applies to ([] = all).
+ * @property priority - Lower = evaluated first.
+ */
+export const TeamPolicySchema = z.object({
+  name: z.string(),
+  description: z.string().nullable(),
+  ruleType: z.enum(['cost_threshold', 'agent_filter', 'tool_allowlist', 'time_window']),
+  action: z.enum(['block', 'require_approval', 'allow_with_audit']),
+  threshold: z.number().nullable(),
+  agentFilter: z.array(z.string()),
+  priority: z.number(),
+});
+export type TeamPolicy = z.infer<typeof TeamPolicySchema>;
+
+/**
+ * Output of the `get_team_policy` tool.
+ *
+ * @property policies - Enabled governance policies for the user's team, ordered
+ *                      by priority (ascending). Empty for solo users (no team).
+ * @property hasTeam - False when the user belongs to no team (solo Free/Pro).
+ *                     Lets the agent distinguish "no team" from "team with zero
+ *                     policies" without inspecting array length semantics.
+ */
+export const GetTeamPolicyOutputSchema = {
+  policies: z.array(TeamPolicySchema),
+  hasTeam: z.boolean(),
+};
+
+export type GetTeamPolicyInput = {
+  agentType?: string;
+};
+
+export type GetTeamPolicyOutput = {
+  policies: TeamPolicy[];
+  hasTeam: boolean;
+};
+
+// ============================================================================
 // Tool catalog metadata
 // ============================================================================
 

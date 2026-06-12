@@ -46,8 +46,12 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   RequestApprovalInputSchema,
   RequestApprovalOutputSchema,
+  GetTeamPolicyInputSchema,
+  GetTeamPolicyOutputSchema,
   type RequestApprovalInput,
   type RequestApprovalOutput,
+  type GetTeamPolicyInput,
+  type GetTeamPolicyOutput,
 } from './tools.js';
 
 // ============================================================================
@@ -97,6 +101,23 @@ export interface ApprovalHandler {
   request(input: RequestApprovalInput, timeoutMs: number): Promise<RequestApprovalOutput>;
 }
 
+/**
+ * Reads the calling user's team governance policies. Injected (like
+ * {@link ApprovalHandler}) so tests can stub it and the real implementation
+ * (`./teamPolicyHandler.ts`, backed by `GET /api/v1/team-policies`) stays out
+ * of the server factory's import graph.
+ */
+export interface TeamPolicyHandler {
+  /**
+   * Fetches enabled governance policies for the user's active team.
+   *
+   * @param input - Validated tool input (optional advisory agentType).
+   * @returns The team's policies (empty + hasTeam:false for solo users).
+   * @throws {Error} On API failures — converted to a tool error response by the MCP layer.
+   */
+  getPolicies(input: GetTeamPolicyInput): Promise<GetTeamPolicyOutput>;
+}
+
 // ============================================================================
 // Server factory
 // ============================================================================
@@ -109,16 +130,22 @@ export interface ApprovalHandler {
  * exercise the tool handlers directly without a transport.
  *
  * @param approvalHandler - The dependency that delivers approval requests to mobile
+ * @param teamPolicyHandler - Optional. When provided, registers the
+ *   `get_team_policy` tool. Omitted in contexts that only need approvals (and
+ *   to keep existing single-arg callers/tests working unchanged).
  * @returns The configured McpServer instance
  *
  * @example
  * ```ts
  * const handler = await createSupabaseApprovalHandler(supabase);
- * const server = createStyrbyMcpServer(handler);
+ * const server = createStyrbyMcpServer(handler, teamPolicyHandler);
  * await server.connect(new StdioServerTransport());
  * ```
  */
-export function createStyrbyMcpServer(approvalHandler: ApprovalHandler): McpServer {
+export function createStyrbyMcpServer(
+  approvalHandler: ApprovalHandler,
+  teamPolicyHandler?: TeamPolicyHandler,
+): McpServer {
   const server = new McpServer(SERVER_INFO);
 
   // ── request_approval tool ────────────────────────────────────────────────
@@ -164,6 +191,48 @@ export function createStyrbyMcpServer(approvalHandler: ApprovalHandler): McpServ
     },
   );
 
+  // ── get_team_policy tool (optional) ──────────────────────────────────────
+  // Only registered when a team-policy handler is injected. This is the
+  // orchestration primitive: an agent fetches its team's governance rules so
+  // it can self-check (and call request_approval) BEFORE a risky action,
+  // rather than acting blind and being blocked after the fact.
+  if (teamPolicyHandler) {
+    server.registerTool(
+      'get_team_policy',
+      {
+        title: 'Get team governance policies',
+        description:
+          "Return the calling user's active team governance policies (cost thresholds, agent/tool filters, time windows) and what each does on match (block / require_approval / allow_with_audit). Call this BEFORE a risky or costly action to decide whether to proceed or request approval. Returns an empty list for solo users with no team.",
+        inputSchema: GetTeamPolicyInputSchema,
+        outputSchema: GetTeamPolicyOutputSchema,
+        annotations: {
+          // WHY readOnlyHint=true: this is a pure read of governance config; it
+          // never mutates state, so MCP clients may call it freely.
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true,
+        },
+      },
+      async (input): Promise<{ content: Array<{ type: 'text'; text: string }>; structuredContent: GetTeamPolicyOutput }> => {
+        const result = await teamPolicyHandler.getPolicies(input as GetTeamPolicyInput);
+
+        const summary = !result.hasTeam
+          ? 'No team — no governance policies apply (solo account).'
+          : result.policies.length === 0
+            ? 'Team has no active governance policies.'
+            : result.policies
+                .map((p) => `[${p.priority}] ${p.name} (${p.ruleType}) → ${p.action}`)
+                .join('\n');
+
+        return {
+          content: [{ type: 'text', text: summary }],
+          structuredContent: result,
+        };
+      },
+    );
+  }
+
   return server;
 }
 
@@ -178,9 +247,13 @@ export function createStyrbyMcpServer(approvalHandler: ApprovalHandler): McpServ
  * shutdown signal — we never want the server outliving its consumer).
  *
  * @param approvalHandler - Real or test approval handler
+ * @param teamPolicyHandler - Optional team-policy handler; enables `get_team_policy`.
  */
-export async function runStdioServer(approvalHandler: ApprovalHandler): Promise<void> {
-  const server = createStyrbyMcpServer(approvalHandler);
+export async function runStdioServer(
+  approvalHandler: ApprovalHandler,
+  teamPolicyHandler?: TeamPolicyHandler,
+): Promise<void> {
+  const server = createStyrbyMcpServer(approvalHandler, teamPolicyHandler);
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // The transport keeps process.stdin alive; resolution happens when the

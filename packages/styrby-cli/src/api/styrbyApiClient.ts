@@ -324,6 +324,30 @@ export interface AuditSearchResponse {
   count: number;
 }
 
+/** Query params for {@link StyrbyApiClient.getTeamPolicies}. */
+export interface TeamPoliciesQuery {
+  /** Advisory agent type; the endpoint may use it to narrow results. */
+  agentType?: string;
+}
+
+/** A single governance policy as returned by GET /api/v1/team-policies. */
+export interface TeamPolicyRow {
+  name: string;
+  description: string | null;
+  ruleType: 'cost_threshold' | 'agent_filter' | 'tool_allowlist' | 'time_window';
+  action: 'block' | 'require_approval' | 'allow_with_audit';
+  threshold: number | null;
+  agentFilter: string[];
+  priority: number;
+}
+
+/** Response shape of GET /api/v1/team-policies. */
+export interface TeamPoliciesResponse {
+  policies: TeamPolicyRow[];
+  /** False when the user belongs to no team (solo Free/Pro). */
+  hasTeam: boolean;
+}
+
 export type SessionStatus = 'starting' | 'running' | 'idle' | 'paused' | 'stopped' | 'error' | 'expired';
 
 export interface SessionListQuery {
@@ -941,6 +965,25 @@ export class StyrbyApiClient {
         limit: query.limit,
         since: query.since,
       },
+      retryable: true,
+    });
+  }
+
+  /**
+   * Fetch the calling user's active team governance policies.
+   *
+   * The team is resolved server-side from the API key (never passed in), so an
+   * agent cannot probe another team's policies. Returns `hasTeam:false` + an
+   * empty list for solo accounts. Backs the MCP `get_team_policy` tool.
+   *
+   * @param query - Optional advisory agentType.
+   * @returns The team's enabled policies (priority-ordered) + hasTeam flag.
+   */
+  getTeamPolicies(query: TeamPoliciesQuery = {}): Promise<TeamPoliciesResponse> {
+    return this.request<TeamPoliciesResponse>({
+      method: 'GET',
+      path: '/api/v1/team-policies',
+      query: { agent_type: query.agentType },
       retryable: true,
     });
   }
