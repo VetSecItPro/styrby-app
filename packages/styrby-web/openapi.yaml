@@ -337,6 +337,100 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/team-policies:
+    get:
+      summary: Get the authenticated user's active team governance policies
+      tags:
+        - teams
+      security:
+        - apiKeyBearer: []
+      parameters:
+        - schema:
+            type: string
+            minLength: 1
+            maxLength: 50
+          required: false
+          name: agent_type
+          in: query
+      responses:
+        "200":
+          description: The user's enabled team governance policies (priority-ordered). Empty + hasTeam:false for solo users.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  policies:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        description:
+                          type:
+                            - string
+                            - "null"
+                        ruleType:
+                          type: string
+                          enum:
+                            - cost_threshold
+                            - agent_filter
+                            - tool_allowlist
+                            - time_window
+                        action:
+                          type: string
+                          enum:
+                            - block
+                            - require_approval
+                            - allow_with_audit
+                        threshold:
+                          type:
+                            - number
+                            - "null"
+                        agentFilter:
+                          type: array
+                          items:
+                            type: string
+                        priority:
+                          type: integer
+                      required:
+                        - name
+                        - description
+                        - ruleType
+                        - action
+                        - threshold
+                        - agentFilter
+                        - priority
+                  hasTeam:
+                    type: boolean
+                required:
+                  - policies
+                  - hasTeam
+        "400":
+          description: Bad Request — validation failed or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized — missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests — rate limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /api/v1/auth/exchange:
     post:
       summary: Exchange a session cookie for a short-lived API token
