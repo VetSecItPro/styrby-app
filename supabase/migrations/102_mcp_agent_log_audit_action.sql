@@ -1,0 +1,34 @@
+-- Migration 102: mcp_agent_log audit_action enum value (Cluster B2 — log_to_audit)
+--
+-- WHY: the MCP server exposes a `log_to_audit` tool (styrby-cli/src/mcp) that
+-- lets an agent record what it did to the user's audit trail (the
+-- audit/compliance leg of the orchestration wedge). All such writes flow
+-- through POST /api/v1/audit, whose action column is the `audit_action` ENUM.
+--
+-- WHY a single, dedicated, NON-authority-bearing value: /api/v1/audit
+-- allowlists which actions an API-key holder may write, specifically to stop a
+-- leaked write-scoped key from forging authority-bearing actions like
+-- `mcp_approval_decided` (which the CLI treats as "the user approved this
+-- command" — forging it is RCE). `mcp_agent_log` is purely informational: it
+-- carries the agent's free-text note in metadata and has zero authority on the
+-- receiving side. Giving log_to_audit its OWN value (rather than letting the
+-- tool write arbitrary actions) preserves the forgery guard — the web
+-- allowlist adds exactly this one value, nothing else.
+--
+-- WHY no data migration: forward-only enum addition; no existing rows use it.
+--
+-- WHY no rollback: PostgreSQL enum values cannot be dropped without recreating
+-- the type and rewriting every dependent column. An unused value is harmless;
+-- if the CLI/web side rolls back, the value simply goes unwritten.
+--
+-- Technical note: ALTER TYPE ... ADD VALUE IF NOT EXISTS is safe on Supabase
+-- (PG 15+) and idempotent on re-run. The new value is NOT used in this same
+-- migration (Postgres forbids using a freshly-added enum value in the
+-- transaction that added it), so there is no DO/assert block here — the
+-- migrations-apply CI job validates the statement applies, and the web
+-- allowlist test (api/v1/audit) validates the value is accepted end to end.
+--
+-- @security SOC 2 CC6.1 (least privilege — scoped allowlist), OWASP A04:2021
+--   (insecure design — forgery-resistant audit action surface).
+
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'mcp_agent_log';

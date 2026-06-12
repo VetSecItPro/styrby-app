@@ -168,6 +168,63 @@ export type GetTeamPolicyOutput = {
 };
 
 // ============================================================================
+// log_to_audit
+// ============================================================================
+
+/**
+ * Advisory severity for an agent-logged audit event. Informational only — it
+ * has no authority-bearing meaning; it just helps a human scanning the trail.
+ */
+export const AuditLogLevelSchema = z.enum(['info', 'warning', 'error']);
+export type AuditLogLevel = z.infer<typeof AuditLogLevelSchema>;
+
+/**
+ * Input schema for the `log_to_audit` tool.
+ *
+ * Lets an agent record what it did to the user's audit trail (e.g. "ran
+ * database migration 014", "deleted 3 stale branches"). Writes the fixed,
+ * non-authority-bearing `mcp_agent_log` action; the note + context live in
+ * metadata. This is the compliance leg of the orchestration wedge.
+ *
+ * @property message - Human-readable note describing what the agent did.
+ * @property level - Optional advisory severity (default 'info').
+ * @property resourceType - Optional entity type the event relates to (e.g. 'session').
+ * @property resourceId - Optional entity id.
+ * @property context - Optional structured detail (files touched, command, etc.).
+ */
+export const LogToAuditInputSchema = {
+  message: z.string().min(1).max(2000),
+  level: AuditLogLevelSchema.optional(),
+  resourceType: z.string().min(1).max(100).optional(),
+  resourceId: z.string().min(1).max(255).optional(),
+  context: z.record(z.unknown()).optional(),
+};
+
+/**
+ * Output of the `log_to_audit` tool.
+ *
+ * @property id - The audit_log row id created.
+ * @property recordedAt - ISO 8601 timestamp the event was recorded.
+ */
+export const LogToAuditOutputSchema = {
+  id: z.string(),
+  recordedAt: z.string(),
+};
+
+export type LogToAuditInput = {
+  message: string;
+  level?: AuditLogLevel;
+  resourceType?: string;
+  resourceId?: string;
+  context?: Record<string, unknown>;
+};
+
+export type LogToAuditOutput = {
+  id: string;
+  recordedAt: string;
+};
+
+// ============================================================================
 // Tool catalog metadata
 // ============================================================================
 

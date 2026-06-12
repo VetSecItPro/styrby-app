@@ -38,6 +38,7 @@ import { logger } from '@/ui/logger';
 import { runStdioServer } from '@/mcp/server';
 import { createSupabaseApprovalHandler } from '@/mcp/approvalHandler';
 import { createApiTeamPolicyHandler } from '@/mcp/teamPolicyHandler';
+import { createApiAuditLogHandler } from '@/mcp/auditLogHandler';
 
 /**
  * Top-level entry for `styrby mcp <subcommand>`.
@@ -112,13 +113,14 @@ async function handleMcpServe(): Promise<void> {
 
   const handler = createSupabaseApprovalHandler(apiClient, data.userId, data.machineId);
   const teamPolicyHandler = createApiTeamPolicyHandler(apiClient);
+  const auditLogHandler = createApiAuditLogHandler(apiClient);
 
   // Banner goes to stderr — invisible to the JSON-RPC protocol on stdout.
   logger.info(chalk.bold.cyan('Styrby MCP server starting on stdio…'));
-  logger.info(chalk.gray('  Tools exposed: request_approval, get_team_policy'));
+  logger.info(chalk.gray('  Tools exposed: request_approval, get_team_policy, log_to_audit'));
   logger.info(chalk.gray('  Awaiting client handshake'));
 
-  await runStdioServer(handler, teamPolicyHandler);
+  await runStdioServer(handler, teamPolicyHandler, auditLogHandler);
 
   logger.info(chalk.gray('MCP transport closed; exiting.'));
 }

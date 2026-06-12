@@ -15,13 +15,34 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createStyrbyMcpServer, type ApprovalHandler, type TeamPolicyHandler } from '../server';
+import {
+  createStyrbyMcpServer,
+  type ApprovalHandler,
+  type TeamPolicyHandler,
+  type AuditLogHandler,
+} from '../server';
 import type {
   RequestApprovalInput,
   RequestApprovalOutput,
   GetTeamPolicyInput,
   GetTeamPolicyOutput,
+  LogToAuditInput,
+  LogToAuditOutput,
 } from '../tools';
+
+/** Stub AuditLogHandler that records calls and returns a canned row. */
+function auditLogStub(
+  canned: LogToAuditOutput = { id: 'audit-1', recordedAt: '2026-06-12T00:00:00.000Z' },
+): AuditLogHandler & { calls: LogToAuditInput[] } {
+  const calls: LogToAuditInput[] = [];
+  return {
+    calls,
+    async log(input) {
+      calls.push(input);
+      return canned;
+    },
+  };
+}
 
 /**
  * Stub TeamPolicyHandler that records calls and returns canned output.
@@ -130,6 +151,19 @@ describe('createStyrbyMcpServer', () => {
       const registered = (server as any)._registeredTools;
       expect(Object.keys(registered)).toContain('get_team_policy');
       expect(Object.keys(registered)).toContain('request_approval');
+    });
+
+    it('registers log_to_audit only when an audit-log handler IS injected', () => {
+      const without = createStyrbyMcpServer(handler, teamPolicyStub());
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(Object.keys((without as any)._registeredTools)).not.toContain('log_to_audit');
+
+      const withAll = createStyrbyMcpServer(handler, teamPolicyStub(), auditLogStub());
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const registered = Object.keys((withAll as any)._registeredTools);
+      expect(registered).toContain('log_to_audit');
+      expect(registered).toContain('get_team_policy');
+      expect(registered).toContain('request_approval');
     });
   });
 
@@ -312,6 +346,56 @@ describe('createStyrbyMcpServer', () => {
       const server = createStyrbyMcpServer(handler, failing);
 
       await expect(callTool(server, 'get_team_policy', {})).rejects.toThrow('policy API unreachable');
+    });
+  });
+
+  // ==========================================================================
+  // log_to_audit handler (Cluster B2)
+  // ==========================================================================
+
+  describe('log_to_audit handler', () => {
+    it('forwards the note + optional fields to the audit-log handler', async () => {
+      const stub = auditLogStub();
+      const server = createStyrbyMcpServer(handler, teamPolicyStub(), stub);
+
+      await callTool(server, 'log_to_audit', {
+        message: 'ran migration 014',
+        level: 'warning',
+        resourceType: 'migration',
+        resourceId: '014',
+      });
+
+      expect(stub.calls).toHaveLength(1);
+      expect(stub.calls[0]).toMatchObject({
+        message: 'ran migration 014',
+        level: 'warning',
+        resourceType: 'migration',
+        resourceId: '014',
+      });
+    });
+
+    it('returns the created audit row id in both content and structuredContent', async () => {
+      const server = createStyrbyMcpServer(
+        handler,
+        teamPolicyStub(),
+        auditLogStub({ id: 'audit-xyz', recordedAt: '2026-06-12T01:02:03.000Z' }),
+      );
+
+      const res = await callTool(server, 'log_to_audit', { message: 'did a thing' });
+
+      expect(res.structuredContent).toEqual({ id: 'audit-xyz', recordedAt: '2026-06-12T01:02:03.000Z' });
+      expect(res.content[0].text).toContain('audit-xyz');
+    });
+
+    it('propagates handler errors as a tool error', async () => {
+      const failing: AuditLogHandler = {
+        async log() {
+          throw new Error('audit API unreachable');
+        },
+      };
+      const server = createStyrbyMcpServer(handler, teamPolicyStub(), failing);
+
+      await expect(callTool(server, 'log_to_audit', { message: 'x' })).rejects.toThrow('audit API unreachable');
     });
   });
 });

@@ -48,10 +48,14 @@ import {
   RequestApprovalOutputSchema,
   GetTeamPolicyInputSchema,
   GetTeamPolicyOutputSchema,
+  LogToAuditInputSchema,
+  LogToAuditOutputSchema,
   type RequestApprovalInput,
   type RequestApprovalOutput,
   type GetTeamPolicyInput,
   type GetTeamPolicyOutput,
+  type LogToAuditInput,
+  type LogToAuditOutput,
 } from './tools.js';
 
 // ============================================================================
@@ -118,6 +122,23 @@ export interface TeamPolicyHandler {
   getPolicies(input: GetTeamPolicyInput): Promise<GetTeamPolicyOutput>;
 }
 
+/**
+ * Records an agent-authored audit-log event. Injected (like the other
+ * handlers); the real implementation (`./auditLogHandler.ts`, backed by
+ * `POST /api/v1/audit` with the `mcp_agent_log` action) stays out of the
+ * server factory's import graph.
+ */
+export interface AuditLogHandler {
+  /**
+   * Writes the agent's note to the audit trail.
+   *
+   * @param input - Validated tool input (message + optional level/resource/context).
+   * @returns The created audit row id + timestamp.
+   * @throws {Error} On API failures — converted to a tool error response by the MCP layer.
+   */
+  log(input: LogToAuditInput): Promise<LogToAuditOutput>;
+}
+
 // ============================================================================
 // Server factory
 // ============================================================================
@@ -133,18 +154,21 @@ export interface TeamPolicyHandler {
  * @param teamPolicyHandler - Optional. When provided, registers the
  *   `get_team_policy` tool. Omitted in contexts that only need approvals (and
  *   to keep existing single-arg callers/tests working unchanged).
+ * @param auditLogHandler - Optional. When provided, registers the
+ *   `log_to_audit` tool.
  * @returns The configured McpServer instance
  *
  * @example
  * ```ts
  * const handler = await createSupabaseApprovalHandler(supabase);
- * const server = createStyrbyMcpServer(handler, teamPolicyHandler);
+ * const server = createStyrbyMcpServer(handler, teamPolicyHandler, auditLogHandler);
  * await server.connect(new StdioServerTransport());
  * ```
  */
 export function createStyrbyMcpServer(
   approvalHandler: ApprovalHandler,
   teamPolicyHandler?: TeamPolicyHandler,
+  auditLogHandler?: AuditLogHandler,
 ): McpServer {
   const server = new McpServer(SERVER_INFO);
 
@@ -233,6 +257,40 @@ export function createStyrbyMcpServer(
     );
   }
 
+  // ── log_to_audit tool (optional) ─────────────────────────────────────────
+  // The compliance leg of the wedge: an agent records what it did to the
+  // user's audit trail. Writes the fixed, non-authority-bearing mcp_agent_log
+  // action (the note lives in metadata), so a write-scoped key cannot use this
+  // to forge an authority-bearing event.
+  if (auditLogHandler) {
+    server.registerTool(
+      'log_to_audit',
+      {
+        title: 'Record an event to the audit log',
+        description:
+          "Record a note in the user's audit trail describing what you did (e.g. 'ran migration 014', 'deleted 3 stale branches'). Use after a significant or irreversible action so there is a durable, user-visible record. Returns the audit row id.",
+        inputSchema: LogToAuditInputSchema,
+        outputSchema: LogToAuditOutputSchema,
+        annotations: {
+          // WHY readOnlyHint=false: it appends a row. But it is append-only and
+          // non-destructive, so destructiveHint stays false.
+          readOnlyHint: false,
+          destructiveHint: false,
+          // Not idempotent: each call appends a distinct audit row.
+          idempotentHint: false,
+          openWorldHint: true,
+        },
+      },
+      async (input): Promise<{ content: Array<{ type: 'text'; text: string }>; structuredContent: LogToAuditOutput }> => {
+        const result = await auditLogHandler.log(input as LogToAuditInput);
+        return {
+          content: [{ type: 'text', text: `Recorded audit event ${result.id} at ${result.recordedAt}.` }],
+          structuredContent: result,
+        };
+      },
+    );
+  }
+
   return server;
 }
 
@@ -248,12 +306,14 @@ export function createStyrbyMcpServer(
  *
  * @param approvalHandler - Real or test approval handler
  * @param teamPolicyHandler - Optional team-policy handler; enables `get_team_policy`.
+ * @param auditLogHandler - Optional audit-log handler; enables `log_to_audit`.
  */
 export async function runStdioServer(
   approvalHandler: ApprovalHandler,
   teamPolicyHandler?: TeamPolicyHandler,
+  auditLogHandler?: AuditLogHandler,
 ): Promise<void> {
-  const server = createStyrbyMcpServer(approvalHandler, teamPolicyHandler);
+  const server = createStyrbyMcpServer(approvalHandler, teamPolicyHandler, auditLogHandler);
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // The transport keeps process.stdin alive; resolution happens when the

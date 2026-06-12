@@ -74,10 +74,10 @@ export const STYRBY_MCP_TOOLS: readonly MCPToolDescriptor[] = [
     name: 'log_to_audit',
     title: 'Write to audit log',
     description:
-      'Appends a structured event to the user\'s audit log table. Useful for compliance trails (SOC2 CC7.2) when agents take significant actions. Phase 4.',
+      "Appends a structured event to the user's audit log table. Useful for compliance trails (SOC2 CC7.2) when agents take significant actions. Writes the non-authority-bearing mcp_agent_log action.",
     category: 'audit',
-    status: 'planned',
-    introducedIn: '0.4.0',
+    status: 'ga',
+    introducedIn: '0.2.0',
   },
   {
     name: 'query_session_history',

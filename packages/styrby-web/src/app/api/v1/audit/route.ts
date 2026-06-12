@@ -117,6 +117,11 @@ const ALLOWED_AUDIT_ACTIONS = [
   // The CLI is the only writer; the decision row is gated separately.
   'mcp_approval_requested',
   'mcp_approval_timeout',
+  // MCP `log_to_audit` tool: an agent records what it did. Purely
+  // informational — the agent's note lives in metadata and this action has NO
+  // authority-bearing semantics on the receiving side (unlike the deliberately
+  // EXCLUDED mcp_approval_decided). Added by migration 102. SOC2 CC6.1.
+  'mcp_agent_log',
   // Budget alert side-effect: CLI writes when a budget action mutated settings
   'settings_updated',
 ] as const;
