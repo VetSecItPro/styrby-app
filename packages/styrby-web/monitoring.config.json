@@ -1,0 +1,22 @@
+{
+  "$comment": "Monitor-config note for /monitor (post-deploy health checks). Committed because the working baseline at .monitor-reports/baseline.json is gitignored (local-only) and would otherwise lose this config across machines/sessions. This file records the EXPECTED production topology so a health check does not re-flag normal config as drift. Update it when the canonical host, redirect behavior, or health contract changes.",
+  "canonical_host": "www.styrbyapp.com",
+  "production_url": "https://www.styrbyapp.com",
+  "apex_redirect": {
+    "from": "https://styrbyapp.com",
+    "status": 307,
+    "to": "https://www.styrbyapp.com/",
+    "expected": true,
+    "note": "Canonical host moved from the apex to www; the apex 307-redirects to www. This is the expected steady state, not drift. Recorded 2026-06-11 during MON-20260611-2100 (prior baseline captured 2026-04-27 still listed the apex as canonical)."
+  },
+  "health_endpoint": {
+    "path": "/api/health",
+    "returns_commit_sha": true,
+    "note": "Returns { status, checks:{ db, polar, openrouter, resend }, commit }. The `commit` field is the running deploy SHA - the canonical way to confirm production is serving a specific shipped commit. 200 when status='ok', 503 when degraded/down."
+  },
+  "edge_functions": {
+    "supabase": ["generate-summary"],
+    "note": "generate-summary (Supabase Edge) and the digest crons are trigger/cron-invoked, not GET-reachable, so /monitor cannot black-box hit them. Their correctness is covered by unit tests + the Postgres migrations-apply CI job."
+  },
+  "last_reviewed": "2026-06-11"
+}
