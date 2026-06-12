@@ -198,6 +198,38 @@ describe('StreamingAgentBackendBase.emit (disposed gate)', () => {
 });
 
 // ===========================================================================
+// emit — Cluster A1 secret redaction at the choke point
+// ===========================================================================
+
+describe('StreamingAgentBackendBase.emit (secret redaction)', () => {
+  it('scrubs credential values from terminal-output before listeners see them', () => {
+    const b = new TestBackend();
+    const received: AgentMessage[] = [];
+    b.onMessage((m) => received.push(m));
+
+    // Simulate an agent that ran `env` and streamed a real key on stdout.
+    b.testEmit({ type: 'terminal-output', data: 'OPENAI_API_KEY=sk-ant-realvalue0123456789ABCD' });
+
+    const msg = received[0] as { type: 'terminal-output'; data: string };
+    expect(msg.data).toContain('[REDACTED]');
+    expect(msg.data).not.toContain('sk-ant-realvalue0123456789');
+  });
+
+  it('scrubs model-output text without altering non-secret content', () => {
+    const b = new TestBackend();
+    const received: AgentMessage[] = [];
+    b.onMessage((m) => received.push(m));
+
+    b.testEmit({ type: 'model-output', fullText: 'Done. Your token is ghp_' + 'a'.repeat(36) + ' now.' });
+
+    const msg = received[0] as { type: 'model-output'; fullText: string };
+    expect(msg.fullText).toContain('Done.');
+    expect(msg.fullText).toContain('now.');
+    expect(msg.fullText).not.toMatch(/ghp_a{36}/);
+  });
+});
+
+// ===========================================================================
 // scheduleForceKill / clearCancelTimer
 // ===========================================================================
 

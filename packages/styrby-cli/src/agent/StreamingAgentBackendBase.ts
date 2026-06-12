@@ -63,6 +63,7 @@ import type {
 } from './core';
 import { logger } from '@/ui/logger';
 import { buildSafeEnv, validateExtraArgs } from '@/utils/safeEnv';
+import { redactAgentMessage } from '@/utils/redactSecrets';
 
 /**
  * Install hint for the well-known agent CLIs we wrap. Used by
@@ -315,9 +316,16 @@ export abstract class StreamingAgentBackendBase implements AgentBackend {
    */
   protected emit(msg: AgentMessage): void {
     if (this.disposed) return;
+    // SECURITY (Cluster A1): scrub credential values from every outbound message
+    // BEFORE it reaches any listener. `buildSafeEnv` guards what env we pass
+    // INTO an agent; this is the symmetric guard for what the agent prints OUT.
+    // Agent stdout (e.g. an `env` dump, `cat .env`, or an echoed Bearer header)
+    // flows through here to operational logs + the relay, which are not E2E
+    // sinks. Redacting at this single choke point covers all streaming agents.
+    const safe = redactAgentMessage(msg);
     for (const listener of this.listeners) {
       try {
-        listener(msg);
+        listener(safe);
       } catch (error) {
         logger.warn(`[${this.logTag}] Error in message handler:`, error);
       }
