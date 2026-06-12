@@ -20,6 +20,7 @@ import type { RelayMessage, AgentType as SharedAgentType } from 'styrby-shared';
 import { logger } from '@/ui/logger';
 import { classifyRelayMessage } from './relayMessageDispatch';
 import { safeRelaySend } from './safeRelaySend';
+import { createFileWatcher, type FileWatcherHandle } from '@/session/fileWatcher';
 
 /**
  * Callback type for session updates (status changes, errors, completion).
@@ -191,6 +192,39 @@ export class ApiSessionManager {
     // Update status to running
     await this.updateSessionStatus(supabase, sessionId, 'running');
 
+    // 4b. Optional project file watcher → fs-edit events to mobile.
+    //
+    // WHY opt-in (STYRBY_SESSION_FILE_EVENTS): watching the project dir lets
+    // mobile see which files the agent touches in real time, but it adds an
+    // OS watcher per session and emits relay traffic. Gating it keeps the
+    // default behavior unchanged; operators opt in (and can pair it with
+    // STYRBY_NATIVE_WATCHER for the SIMD-fast recursive native backend). The
+    // watcher already filters node_modules/.git/build noise. Each change is
+    // bridged as an `fs-edit` AgentMessage through the SAME path as real agent
+    // output, so it reaches mobile via the existing relay plumbing.
+    let fileWatcher: FileWatcherHandle | undefined;
+    if (process.env.STYRBY_SESSION_FILE_EVENTS === 'true' && projectPath) {
+      try {
+        fileWatcher = await createFileWatcher({
+          dir: projectPath,
+          onChange: (changes) => {
+            for (const change of changes) {
+              this.handleAgentMessage(
+                sessionId,
+                agentType,
+                { type: 'fs-edit', description: `${change.kind} ${change.path}`, path: change.path },
+                api,
+              );
+            }
+          },
+        });
+        logger.debug('Session file watcher started', { sessionId, backend: fileWatcher.backend });
+      } catch (error) {
+        // Non-fatal: a session must run even if the watcher can't start.
+        logger.debug('Session file watcher failed to start (non-fatal)', { sessionId, error });
+      }
+    }
+
     // 5. Build the ActiveSession handle
     let stopped = false;
     const activeSession: ActiveSession = {
@@ -214,6 +248,10 @@ export class ApiSessionManager {
 
         // Remove relay message handler first to stop accepting new mobile input
         api.offRelayMessage(relayMessageHandler);
+
+        // Stop the project file watcher (releases the OS watcher + its threads).
+        // Done before agent dispose so no fs-edit events fire mid-teardown.
+        fileWatcher?.stop();
 
         // Dispose the agent process
         try {
