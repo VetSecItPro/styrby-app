@@ -11,448 +11,64 @@
  * - Play/pause with speed control
  * - Auto-scroll to current message
  *
+ * Orchestrator only (Cluster A2 split): the rAF playback engine lives in
+ * `useReplayPlayback`, timing math in `replay-timing`, and the free-tier gate +
+ * speed dropdown in their own sub-components. This file wires them together.
+ *
  * @tier Pro+ only - Free users see an upgrade prompt
  */
 
-import {
-  View,
-  Text,
-  ScrollView,
-  Pressable,
-  Animated,
-  Dimensions,
-  Linking,
-} from 'react-native';
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { View, Text, ScrollView, Pressable, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { ChatMessage, type ChatMessageData, type ContentBlock } from './ChatMessage';
-import type { AgentType } from 'styrby-shared';
-import {
-  getUpgradeMessage,
-  getUpgradeButtonLabel,
-  getIosManageNote,
-  POLAR_CUSTOMER_PORTAL_URL,
-} from '../lib/platform-billing';
+import { ChatMessage } from './ChatMessage';
+import { formatTime, toChatMessageData } from './session-replay/replay-timing';
+import { useReplayPlayback } from './session-replay/useReplayPlayback';
+import { UpgradePrompt } from './session-replay/UpgradePrompt';
+import { SpeedSelector } from './session-replay/SpeedSelector';
+import type { SessionReplayProps } from './session-replay/types';
 
-// ============================================================================
-// Types
-// ============================================================================
-
-/**
- * Message data from the session_messages table.
- */
-export interface ReplayMessageData {
-  /** Unique message identifier */
-  id: string;
-  /** Message role */
-  role: 'user' | 'assistant' | 'system' | 'error';
-  /** Agent type for assistant messages */
-  agentType?: AgentType;
-  /** Message content (decrypted) */
-  content: string;
-  /** Message timestamp */
-  createdAt: string;
-  /** Cost in USD */
-  costUsd?: number;
-  /** Duration in milliseconds */
-  durationMs?: number;
-}
-
-/**
- * Props for the SessionReplay component.
- */
-interface SessionReplayProps {
-  /** All messages in the session, sorted by createdAt */
-  messages: ReplayMessageData[];
-  /** User's subscription tier */
-  userTier: 'free' | 'pro' | 'growth';
-  /** Callback when replay completes */
-  onComplete?: () => void;
-  /** Callback when user exits replay */
-  onExit?: () => void;
-}
-
-/**
- * Playback speed options.
- */
-type PlaybackSpeed = 0.5 | 1 | 2 | 4;
-
-/**
- * Playback state.
- */
-type PlaybackState = 'playing' | 'paused' | 'stopped';
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-const SPEED_OPTIONS: PlaybackSpeed[] = [0.5, 1, 2, 4];
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-/**
- * Formats milliseconds to MM:SS or HH:MM:SS.
- */
-function formatTime(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-  }
-
-  return `${minutes}:${String(seconds).padStart(2, '0')}`;
-}
-
-/**
- * Converts ReplayMessageData to ChatMessageData for rendering.
- */
-function toChatMessageData(message: ReplayMessageData): ChatMessageData {
-  const contentBlock: ContentBlock = { type: 'text', content: message.content };
-
-  return {
-    id: message.id,
-    role: message.role,
-    agentType: message.agentType,
-    content: [contentBlock],
-    timestamp: message.createdAt,
-    costUsd: message.costUsd,
-    durationMs: message.durationMs,
-  };
-}
-
-// ============================================================================
-// Upgrade Prompt Component
-// ============================================================================
-
-/**
- * Shown to free users who don't have access to replay.
- *
- * WHY platform-conditional rendering:
- * Apple App Store §3.1.3(a) classifies Styrby as a Reader App and prohibits
- * showing upgrade buttons, pricing, or links to external payment flows on iOS.
- * Android has no such restriction, so the full upgrade CTA is shown there.
- *
- * @param props.onExit - Optional callback when user presses "Go Back"
- */
-function UpgradePrompt({ onExit }: { onExit?: () => void }) {
-  const upgradeButtonLabel = getUpgradeButtonLabel('pro');
-  const iosManageNote = getIosManageNote();
-
-  return (
-    <View className="flex-1 bg-background items-center justify-center px-6">
-      <View className="w-16 h-16 rounded-2xl bg-orange-500/20 items-center justify-center mb-4">
-        <Ionicons name="play-circle" size={32} color="#f97316" />
-      </View>
-      <Text className="text-white text-xl font-semibold text-center mb-2">
-        Session Replay
-      </Text>
-      <Text className="text-zinc-500 text-center mb-6">
-        {getUpgradeMessage('Session Replay', 'pro')}
-      </Text>
-
-      {/* WHY: Only render the upgrade button on Android. Apple Reader App rules
-          (§3.1.3(a)) prohibit showing purchase CTAs or external payment links
-          on iOS. On iOS we show an informational note instead. */}
-      {upgradeButtonLabel !== null ? (
-        <Pressable
-          className="bg-brand px-6 py-3 rounded-xl active:opacity-80"
-          onPress={() => Linking.openURL(POLAR_CUSTOMER_PORTAL_URL).catch(() => null)}
-          accessibilityRole="button"
-          accessibilityLabel={upgradeButtonLabel}
-        >
-          <Text className="text-white font-semibold">{upgradeButtonLabel}</Text>
-        </Pressable>
-      ) : (
-        // iOS: informational note only — no button, no price, no external link
-        iosManageNote !== null && (
-          <Text className="text-zinc-600 text-xs text-center">{iosManageNote}</Text>
-        )
-      )}
-
-      {onExit && (
-        <Pressable
-          onPress={onExit}
-          className="mt-4 px-4 py-2"
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-        >
-          <Text className="text-zinc-500">Go Back</Text>
-        </Pressable>
-      )}
-    </View>
-  );
-}
-
-// ============================================================================
-// Speed Selector Component
-// ============================================================================
-
-/**
- * Dropdown for selecting playback speed.
- */
-function SpeedSelector({
-  speed,
-  onSpeedChange,
-}: {
-  speed: PlaybackSpeed;
-  onSpeedChange: (speed: PlaybackSpeed) => void;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-
-  return (
-    <View className="relative">
-      <Pressable
-        onPress={() => setIsOpen(!isOpen)}
-        className="flex-row items-center px-3 py-1.5 rounded-lg bg-zinc-800"
-        accessibilityRole="button"
-        accessibilityLabel={`Playback speed: ${speed}x`}
-      >
-        <Text className="text-white text-sm font-medium">{speed}x</Text>
-        <Ionicons
-          name={isOpen ? 'chevron-up' : 'chevron-down'}
-          size={16}
-          color="#71717a"
-          style={{ marginLeft: 4 }}
-        />
-      </Pressable>
-
-      {isOpen && (
-        <View className="absolute bottom-full mb-1 right-0 bg-zinc-800 rounded-lg border border-zinc-700 overflow-hidden z-10">
-          {SPEED_OPTIONS.map((option) => (
-            <Pressable
-              key={option}
-              onPress={() => {
-                onSpeedChange(option);
-                setIsOpen(false);
-              }}
-              className={`px-4 py-2 ${speed === option ? 'bg-zinc-700' : ''}`}
-              accessibilityRole="button"
-              accessibilityLabel={`Set speed to ${option}x`}
-            >
-              <Text
-                className={`text-sm ${
-                  speed === option ? 'text-orange-500 font-medium' : 'text-white'
-                }`}
-              >
-                {option}x
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-    </View>
-  );
-}
-
-// ============================================================================
-// Main Component
-// ============================================================================
+export type { ReplayMessageData } from './session-replay/types';
 
 /**
  * Session replay component for mobile.
  *
- * WHY: Session replay allows users to review past sessions step-by-step,
- * understanding the flow of conversation and agent actions. The mobile
- * version uses a simplified interface optimized for touch.
+ * WHY: Session replay lets users review past sessions step-by-step,
+ * understanding the flow of conversation and agent actions. The mobile version
+ * uses a simplified interface optimized for touch.
  *
- * @param props - SessionReplay configuration
+ * @param props - SessionReplay configuration.
  */
-export function SessionReplay({
-  messages,
-  userTier,
-  onComplete,
-  onExit,
-}: SessionReplayProps) {
-  // Gate access for free users
+export function SessionReplay({ messages, userTier, onComplete, onExit }: SessionReplayProps) {
+  // Gate access for free users.
   const canAccessReplay = userTier !== 'free';
 
-  // Playback state
-  const [playbackState, setPlaybackState] = useState<PlaybackState>('stopped');
-  const [speed, setSpeed] = useState<PlaybackSpeed>(1);
-  const [currentTimeMs, setCurrentTimeMs] = useState(0);
+  const {
+    playbackState,
+    speed,
+    setSpeed,
+    currentTimeMs,
+    totalDurationMs,
+    currentMessageIndex,
+    progressAnim,
+    scrollRef,
+    togglePlay,
+    jumpToMessage,
+    handleProgressPress,
+    handlePrevMessage,
+    handleNextMessage,
+  } = useReplayPlayback(messages, onComplete);
 
-  // Animation refs
-  const animationRef = useRef<number | null>(null);
-  const lastTickTimeRef = useRef<number>(0);
-  const onCompleteRef = useRef(onComplete);
-  const scrollRef = useRef<ScrollView>(null);
-
-  // Progress bar animation
-  const progressAnim = useRef(new Animated.Value(0)).current;
-
-  // Update onComplete ref
-  useEffect(() => {
-    onCompleteRef.current = onComplete;
-  }, [onComplete]);
-
-  // Calculate timing data
-  const { totalDurationMs, messageTimestamps } = useMemo(() => {
-    if (messages.length === 0) {
-      return { totalDurationMs: 0, messageTimestamps: [] };
-    }
-
-    const startTime = new Date(messages[0].createdAt).getTime();
-    const endTime = new Date(messages[messages.length - 1].createdAt).getTime();
-
-    const timestamps = messages.map(
-      (msg) => new Date(msg.createdAt).getTime() - startTime
-    );
-
-    return {
-      totalDurationMs: endTime - startTime,
-      messageTimestamps: timestamps,
-    };
-  }, [messages]);
-
-  // Calculate visible messages
-  // WHY: visibleMessages is prefixed _ because the replay UI currently renders
-  // all messages and relies on currentMessageIndex for scroll position. The
-  // sliced array is retained in the computed return for future use when the
-  // component gains a windowed-render mode.
-  const { visibleMessages: _visibleMessages, currentMessageIndex } = useMemo(() => {
-    if (messages.length === 0) {
-      return { visibleMessages: [], currentMessageIndex: -1 };
-    }
-
-    let lastVisibleIndex = -1;
-    for (let i = 0; i < messageTimestamps.length; i++) {
-      if (messageTimestamps[i] <= currentTimeMs) {
-        lastVisibleIndex = i;
-      } else {
-        break;
-      }
-    }
-
-    const visible = lastVisibleIndex >= 0 ? messages.slice(0, lastVisibleIndex + 1) : [];
-
-    return {
-      visibleMessages: visible,
-      currentMessageIndex: lastVisibleIndex,
-    };
-  }, [messages, messageTimestamps, currentTimeMs]);
-
-  // Update progress bar animation
-  useEffect(() => {
-    const progress = totalDurationMs > 0 ? currentTimeMs / totalDurationMs : 0;
-    Animated.timing(progressAnim, {
-      toValue: progress,
-      duration: 50,
-      useNativeDriver: false,
-    }).start();
-  }, [currentTimeMs, totalDurationMs, progressAnim]);
-
-  // Animation tick
-  const tick = useCallback(() => {
-    const now = performance.now();
-    const deltaMs = now - lastTickTimeRef.current;
-    lastTickTimeRef.current = now;
-
-    setCurrentTimeMs((prev) => {
-      const newTime = prev + deltaMs * speed;
-
-      if (newTime >= totalDurationMs) {
-        setPlaybackState('stopped');
-        onCompleteRef.current?.();
-        return totalDurationMs;
-      }
-
-      return newTime;
-    });
-
-    animationRef.current = requestAnimationFrame(tick);
-  }, [speed, totalDurationMs]);
-
-  // Start/stop animation based on playback state
-  useEffect(() => {
-    if (playbackState === 'playing') {
-      lastTickTimeRef.current = performance.now();
-      animationRef.current = requestAnimationFrame(tick);
-    } else if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
-      animationRef.current = null;
-    }
-
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, [playbackState, tick]);
-
-  // Auto-scroll to current message
-  useEffect(() => {
-    if (currentMessageIndex >= 0 && scrollRef.current) {
-      // Approximate scroll position based on message index
-      // Each message is roughly 100-150px tall
-      const estimatedOffset = currentMessageIndex * 120;
-      scrollRef.current.scrollTo({ y: estimatedOffset, animated: true });
-    }
-  }, [currentMessageIndex]);
-
-  // Control handlers
-  const togglePlay = useCallback(() => {
-    if (playbackState === 'playing') {
-      setPlaybackState('paused');
-    } else {
-      // If at end, restart
-      if (currentTimeMs >= totalDurationMs) {
-        setCurrentTimeMs(0);
-      }
-      setPlaybackState('playing');
-    }
-  }, [playbackState, currentTimeMs, totalDurationMs]);
-
-  const jumpToMessage = useCallback(
-    (index: number) => {
-      if (index >= 0 && index < messageTimestamps.length) {
-        setCurrentTimeMs(messageTimestamps[index]);
-      }
-    },
-    [messageTimestamps]
-  );
-
-  const handleProgressPress = useCallback(
-    (event: { nativeEvent: { locationX: number } }) => {
-      const { locationX } = event.nativeEvent;
-      const progress = locationX / (SCREEN_WIDTH - 32); // Account for padding
-      const newTime = progress * totalDurationMs;
-      setCurrentTimeMs(Math.max(0, Math.min(newTime, totalDurationMs)));
-    },
-    [totalDurationMs]
-  );
-
-  const handlePrevMessage = useCallback(() => {
-    if (currentMessageIndex > 0) {
-      jumpToMessage(currentMessageIndex - 1);
-    }
-  }, [currentMessageIndex, jumpToMessage]);
-
-  const handleNextMessage = useCallback(() => {
-    if (currentMessageIndex < messages.length - 1) {
-      jumpToMessage(currentMessageIndex + 1);
-    }
-  }, [currentMessageIndex, messages.length, jumpToMessage]);
-
-  // Show upgrade prompt for free users
+  // Show upgrade prompt for free users.
   if (!canAccessReplay) {
     return <UpgradePrompt onExit={onExit} />;
   }
 
-  // Empty state
+  // Empty state.
   if (messages.length === 0) {
     return (
       <View className="flex-1 bg-background items-center justify-center px-6">
         <Ionicons name="chatbubbles-outline" size={48} color="#3f3f46" />
-        <Text className="text-zinc-400 text-lg font-semibold mt-4">
-          No Messages to Replay
-        </Text>
+        <Text className="text-zinc-400 text-lg font-semibold mt-4">No Messages to Replay</Text>
         <Text className="text-zinc-500 text-center mt-2">
           This session has no recorded messages.
         </Text>
@@ -551,13 +167,9 @@ export function SessionReplay({
         <View className="flex-row items-center justify-between">
           {/* Time display */}
           <View className="flex-row items-center min-w-[80px]">
-            <Text className="text-zinc-400 text-xs font-mono">
-              {formatTime(currentTimeMs)}
-            </Text>
+            <Text className="text-zinc-400 text-xs font-mono">{formatTime(currentTimeMs)}</Text>
             <Text className="text-zinc-600 text-xs mx-1">/</Text>
-            <Text className="text-zinc-600 text-xs font-mono">
-              {formatTime(totalDurationMs)}
-            </Text>
+            <Text className="text-zinc-600 text-xs font-mono">{formatTime(totalDurationMs)}</Text>
           </View>
 
           {/* Playback controls */}
@@ -592,9 +204,7 @@ export function SessionReplay({
             <Pressable
               onPress={handleNextMessage}
               disabled={currentMessageIndex >= messages.length - 1}
-              className={`p-2 ${
-                currentMessageIndex >= messages.length - 1 ? 'opacity-30' : ''
-              }`}
+              className={`p-2 ${currentMessageIndex >= messages.length - 1 ? 'opacity-30' : ''}`}
               accessibilityRole="button"
               accessibilityLabel="Next message"
             >
@@ -605,8 +215,7 @@ export function SessionReplay({
           {/* Right side: message count and speed */}
           <View className="flex-row items-center min-w-[80px] justify-end">
             <Text className="text-zinc-500 text-xs mr-3">
-              {currentMessageIndex >= 0 ? currentMessageIndex + 1 : 0}/
-              {messages.length}
+              {currentMessageIndex >= 0 ? currentMessageIndex + 1 : 0}/{messages.length}
             </Text>
             <SpeedSelector speed={speed} onSpeedChange={setSpeed} />
           </View>
