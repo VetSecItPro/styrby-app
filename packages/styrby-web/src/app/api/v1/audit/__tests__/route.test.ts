@@ -297,6 +297,22 @@ describe('POST /api/v1/audit', () => {
       expect(response.status).toBe(201);
     });
 
+    it('accepts mcp_agent_log (log_to_audit tool — informational, non-authority-bearing)', async () => {
+      // The MCP log_to_audit tool writes this action; it carries the agent's
+      // note in metadata and has no authority on the receiving side (migration 102).
+      insertCallQueue.push({
+        data: { id: 'log-001', created_at: '2026-06-12T00:00:00Z' },
+        error: null,
+      });
+      const response = await POST(
+        createRequest({
+          action: 'mcp_agent_log',
+          metadata: { message: 'ran migration 014', level: 'info' },
+        }),
+      );
+      expect(response.status).toBe(201);
+    });
+
     it('accepts mcp_approval_timeout (CLI-only writer)', async () => {
       insertCallQueue.push({
         data: { id: 'tmo-001', created_at: '2026-05-05T00:00:00Z' },
