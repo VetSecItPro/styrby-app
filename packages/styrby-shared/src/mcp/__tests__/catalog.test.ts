@@ -99,14 +99,20 @@ describe('request_approval tool', () => {
   });
 });
 
-describe('planned tools', () => {
+describe('roadmap vs shipped tools', () => {
   const planned = STYRBY_MCP_TOOLS.filter((t) => t.status === 'planned');
+  const ga = STYRBY_MCP_TOOLS.filter((t) => t.status === 'ga');
 
-  it('there are at least 2 planned tools on the roadmap', () => {
-    expect(planned.length).toBeGreaterThanOrEqual(2);
+  // WHY ga-presence (not a planned-count floor): the previous assertion required
+  // >= 2 'planned' tools, which our own progress invalidates — shipping a tool
+  // moves it planned -> ga and shrinks the roadmap toward zero. A count floor on
+  // unshipped work makes completing work fail CI. Instead assert the catalog
+  // reflects REAL shipped capability (>= 1 ga tool), which only grows.
+  it('has at least one shipped (ga) tool — the catalog reflects real capability', () => {
+    expect(ga.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('planned tools are all scheduled for 0.4.0 or later', () => {
+  it('planned tools (if any remain) are scheduled for 0.4.0 or later', () => {
     for (const tool of planned) {
       const [, minor] = tool.introducedIn.split('.').map(Number);
       // 0.4.0+ => minor >= 4
