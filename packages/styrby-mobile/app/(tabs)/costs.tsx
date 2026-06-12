@@ -205,6 +205,9 @@ export default function CostsScreen() {
         <Text className="text-zinc-500 text-center mt-2">{error}</Text>
         <Pressable
           onPress={refresh}
+          accessibilityRole="button"
+          accessibilityLabel="Try again"
+          accessibilityHint="Reloads your cost data"
           className="bg-brand px-6 py-3 rounded-xl mt-6 active:opacity-80"
         >
           <Text className="text-white font-semibold">Try Again</Text>
