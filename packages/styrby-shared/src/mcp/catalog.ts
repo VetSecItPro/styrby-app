@@ -65,10 +65,10 @@ export const STYRBY_MCP_TOOLS: readonly MCPToolDescriptor[] = [
     name: 'get_team_policy',
     title: 'Look up team policy',
     description:
-      'Returns the effective approval/budget/blocked-tool policy for the agent\'s session. Lets agents check before attempting an action whether it would auto-block or require approval. Phase 4.',
+      "Returns the calling user's active team governance policies (cost thresholds, agent/tool filters, time windows) and what each does on match. Lets agents self-check before an action whether it would block or require approval. Empty for solo users.",
     category: 'policy',
-    status: 'planned',
-    introducedIn: '0.4.0',
+    status: 'ga',
+    introducedIn: '0.2.0',
   },
   {
     name: 'log_to_audit',

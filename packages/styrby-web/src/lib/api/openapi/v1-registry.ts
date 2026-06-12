@@ -216,6 +216,45 @@ registry.registerPath({
   },
 });
 
+// GET /api/v1/team-policies
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/team-policies',
+  summary: "Get the authenticated user's active team governance policies",
+  tags: ['teams'],
+  security: [{ [apiKeyAuth.name]: [] }],
+  request: {
+    query: z.object({
+      agent_type: z.string().min(1).max(50).optional(),
+    }),
+  },
+  responses: {
+    200: {
+      description:
+        "The user's enabled team governance policies (priority-ordered). Empty + hasTeam:false for solo users.",
+      content: {
+        'application/json': {
+          schema: z.object({
+            policies: z.array(
+              z.object({
+                name: z.string(),
+                description: z.string().nullable(),
+                ruleType: z.enum(['cost_threshold', 'agent_filter', 'tool_allowlist', 'time_window']),
+                action: z.enum(['block', 'require_approval', 'allow_with_audit']),
+                threshold: z.number().nullable(),
+                agentFilter: z.array(z.string()),
+                priority: z.number().int(),
+              }),
+            ),
+            hasTeam: z.boolean(),
+          }),
+        },
+      },
+    },
+    ...standardErrorResponses,
+  },
+});
+
 // POST /api/v1/auth/exchange
 registry.registerPath({
   method: 'post',

@@ -15,8 +15,30 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createStyrbyMcpServer, type ApprovalHandler } from '../server';
-import type { RequestApprovalInput, RequestApprovalOutput } from '../tools';
+import { createStyrbyMcpServer, type ApprovalHandler, type TeamPolicyHandler } from '../server';
+import type {
+  RequestApprovalInput,
+  RequestApprovalOutput,
+  GetTeamPolicyInput,
+  GetTeamPolicyOutput,
+} from '../tools';
+
+/**
+ * Stub TeamPolicyHandler that records calls and returns canned output.
+ * Defaults to a solo user (no team) unless overridden.
+ */
+function teamPolicyStub(
+  canned: GetTeamPolicyOutput = { policies: [], hasTeam: false },
+): TeamPolicyHandler & { calls: GetTeamPolicyInput[] } {
+  const calls: GetTeamPolicyInput[] = [];
+  return {
+    calls,
+    async getPolicies(input) {
+      calls.push(input);
+      return canned;
+    },
+  };
+}
 
 // ============================================================================
 // Stub handler
@@ -95,11 +117,19 @@ describe('createStyrbyMcpServer', () => {
       expect(Object.keys(registered)).toContain('request_approval');
     });
 
-    it('does not register any other tools in the Phase 1 wedge', () => {
+    it('registers ONLY request_approval when no team-policy handler is injected', () => {
       const server = createStyrbyMcpServer(handler);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const registered = (server as any)._registeredTools;
       expect(Object.keys(registered)).toEqual(['request_approval']);
+    });
+
+    it('registers get_team_policy only when a team-policy handler IS injected', () => {
+      const server = createStyrbyMcpServer(handler, teamPolicyStub());
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const registered = (server as any)._registeredTools;
+      expect(Object.keys(registered)).toContain('get_team_policy');
+      expect(Object.keys(registered)).toContain('request_approval');
     });
   });
 
@@ -212,6 +242,76 @@ describe('createStyrbyMcpServer', () => {
           risk: 'low',
         }),
       ).rejects.toThrow('Supabase unreachable');
+    });
+  });
+
+  // ==========================================================================
+  // get_team_policy handler (Cluster B2)
+  // ==========================================================================
+
+  describe('get_team_policy handler', () => {
+    it('forwards the optional agentType to the team-policy handler', async () => {
+      const policyStub = teamPolicyStub();
+      const server = createStyrbyMcpServer(handler, policyStub);
+
+      await callTool(server, 'get_team_policy', { agentType: 'claude' });
+
+      expect(policyStub.calls).toHaveLength(1);
+      expect(policyStub.calls[0]).toEqual({ agentType: 'claude' });
+    });
+
+    it('returns hasTeam=false summary for a solo user', async () => {
+      const server = createStyrbyMcpServer(handler, teamPolicyStub({ policies: [], hasTeam: false }));
+
+      const res = await callTool(server, 'get_team_policy', {});
+
+      expect(res.structuredContent).toEqual({ policies: [], hasTeam: false });
+      expect(res.content[0].text).toMatch(/solo account/i);
+    });
+
+    it('summarizes each policy as "[priority] name (ruleType) -> action"', async () => {
+      const server = createStyrbyMcpServer(
+        handler,
+        teamPolicyStub({
+          hasTeam: true,
+          policies: [
+            {
+              name: 'Prod cost cap',
+              description: null,
+              ruleType: 'cost_threshold',
+              action: 'require_approval',
+              threshold: 50,
+              agentFilter: [],
+              priority: 10,
+            },
+          ],
+        }),
+      );
+
+      const res = await callTool(server, 'get_team_policy', {});
+
+      expect(res.structuredContent.hasTeam).toBe(true);
+      expect(res.structuredContent.policies).toHaveLength(1);
+      expect(res.content[0].text).toContain('[10] Prod cost cap (cost_threshold) → require_approval');
+    });
+
+    it('reports a team with zero active policies distinctly from no team', async () => {
+      const server = createStyrbyMcpServer(handler, teamPolicyStub({ policies: [], hasTeam: true }));
+
+      const res = await callTool(server, 'get_team_policy', {});
+
+      expect(res.content[0].text).toMatch(/no active governance policies/i);
+    });
+
+    it('propagates handler errors as a tool error', async () => {
+      const failing: TeamPolicyHandler = {
+        async getPolicies() {
+          throw new Error('policy API unreachable');
+        },
+      };
+      const server = createStyrbyMcpServer(handler, failing);
+
+      await expect(callTool(server, 'get_team_policy', {})).rejects.toThrow('policy API unreachable');
     });
   });
 });
