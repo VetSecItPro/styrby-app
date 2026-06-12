@@ -106,6 +106,9 @@ export function SessionCarousel({ sessions, onSessionPress, onApprove, onDeny }:
                 onPress={() => onSessionPress(session)}
                 style={{ backgroundColor: config.bgColor }}
                 className="rounded-2xl p-4 h-full"
+                accessibilityRole="button"
+                accessibilityLabel={`${config.name} session: ${session.title || 'Active session'}, status ${session.status.replace('_', ' ')}`}
+                accessibilityHint="Opens this session's details"
               >
                 {/* Header */}
                 <View className="flex-row items-center justify-between">
@@ -152,12 +155,16 @@ export function SessionCarousel({ sessions, onSessionPress, onApprove, onDeny }:
                       <Pressable
                         onPress={() => onApprove?.(session)}
                         className="bg-green-500 px-4 py-1.5 rounded-lg mr-2"
+                        accessibilityRole="button"
+                        accessibilityLabel="Approve permission request"
                       >
                         <Text className="text-white font-medium text-sm">Approve</Text>
                       </Pressable>
                       <Pressable
                         onPress={() => onDeny?.(session)}
                         className="bg-zinc-700 px-4 py-1.5 rounded-lg"
+                        accessibilityRole="button"
+                        accessibilityLabel="Deny permission request"
                       >
                         <Text className="text-zinc-300 font-medium text-sm">Deny</Text>
                       </Pressable>

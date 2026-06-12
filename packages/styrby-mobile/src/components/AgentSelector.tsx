@@ -186,6 +186,9 @@ export function AgentSelector({
       <Pressable
         onPress={() => !disabled && setModalVisible(true)}
         disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={currentConfig ? `Selected agent: ${currentConfig.name}. Change agent` : 'Select agent'}
+        accessibilityState={{ disabled }}
         className={`flex-row items-center px-3 py-2 rounded-xl ${
           disabled ? 'opacity-50' : ''
         }`}
@@ -254,6 +257,8 @@ export function AgentSelector({
               </Text>
               <Pressable
                 onPress={() => setModalVisible(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close agent selector"
                 className="p-2"
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
@@ -271,6 +276,9 @@ export function AgentSelector({
                   <Pressable
                     key={agent}
                     onPress={() => handleSelect(agent)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${config.name}. ${config.description}`}
+                    accessibilityState={{ selected: isSelected }}
                     className={`flex-row items-center p-4 rounded-xl ${
                       isSelected ? '' : 'bg-zinc-800/50'
                     }`}

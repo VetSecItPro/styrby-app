@@ -98,6 +98,9 @@ function NotificationItem({
       className={`flex-row p-3 border-b border-zinc-800 ${
         !notification.read ? 'bg-zinc-900/50' : ''
       }`}
+      accessibilityRole="button"
+      accessibilityLabel={`${notification.read ? '' : 'Unread. '}${notification.title}. ${notification.message}`}
+      accessibilityHint={notification.actionable ? 'Action required. Opens this notification' : 'Opens this notification'}
     >
       {/* Icon */}
       <View
