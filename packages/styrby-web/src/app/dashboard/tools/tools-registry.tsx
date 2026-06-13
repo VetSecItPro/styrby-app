@@ -21,6 +21,8 @@ import {
   type MCPToolDescriptor,
   type MCPToolStatus,
 } from '@styrby/shared';
+import { McpConnectionStatus } from './McpConnectionStatus';
+import type { McpReadiness } from './mcp-readiness';
 import {
   KeyRound,
   ShieldCheck,
@@ -192,7 +194,7 @@ function SetupSnippet() {
  * Top-level registry view: header, setup instructions, GA tools, planned
  * tools (collapsed by default).
  */
-export function ToolsRegistry() {
+export function ToolsRegistry({ readiness }: { readiness: McpReadiness }) {
   const { gaTools, plannedTools } = useMemo(() => {
     return {
       gaTools: STYRBY_MCP_TOOLS.filter((t) => t.status === 'ga' || t.status === 'beta'),
@@ -216,10 +218,24 @@ export function ToolsRegistry() {
         </p>
       </header>
 
+      {/* Connection readiness */}
+      <section aria-labelledby="status-heading">
+        <h2 id="status-heading" className="text-sm font-semibold text-foreground">
+          1. Check your connection
+        </h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Whether the snippet below actually works depends on your account state.
+          Here is what is ready and what needs action.
+        </p>
+        <div className="mt-3">
+          <McpConnectionStatus readiness={readiness} />
+        </div>
+      </section>
+
       {/* Setup snippet */}
       <section aria-labelledby="setup-heading">
         <h2 id="setup-heading" className="text-sm font-semibold text-foreground">
-          1. Add Styrby to your agent&apos;s MCP config
+          2. Add Styrby to your agent&apos;s MCP config
         </h2>
         <p className="mt-1 text-xs text-muted-foreground">
           Drop this into <code className="rounded bg-zinc-800 px-1 py-0.5">.mcp.json</code>{' '}
@@ -233,7 +249,7 @@ export function ToolsRegistry() {
       {/* Available tools */}
       <section aria-labelledby="ga-heading">
         <h2 id="ga-heading" className="text-sm font-semibold text-foreground">
-          2. Available tools ({gaTools.length})
+          3. Available tools ({gaTools.length})
         </h2>
         <p className="mt-1 text-xs text-muted-foreground">
           Your agents can call these the moment Styrby&apos;s MCP server is
@@ -250,7 +266,7 @@ export function ToolsRegistry() {
       {plannedTools.length > 0 && (
         <section aria-labelledby="planned-heading">
           <h2 id="planned-heading" className="text-sm font-semibold text-foreground">
-            3. Planned ({plannedTools.length})
+            4. Planned ({plannedTools.length})
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
             Roadmap items shipping in 0.4. Listed for transparency.
