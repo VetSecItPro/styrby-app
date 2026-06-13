@@ -626,16 +626,22 @@ export type ValidatedUserTeamRow = z.infer<typeof UserTeamRowSchema>;
  * const rawRows = await supabase.from('sessions').select('*');
  * const validSessions = safeParseArray(SessionSchema, rawRows.data, 'sessions');
  */
-export function safeParseArray<T>(
-  schema: z.ZodType<T>,
+export function safeParseArray<S extends z.ZodTypeAny>(
+  schema: S,
   data: unknown[] | null | undefined,
   label: string,
-): T[] {
+): z.output<S>[] {
+  // WHY z.output<S> (not a single z.ZodType<T> param): a schema with .default()
+  // fields has divergent input/output types under zod v3 (input optional, output
+  // required once the default fills). The old z.ZodType<T> signature collapsed
+  // both to the input shape, so callers saw `field?: X | undefined` even though
+  // the parsed value is always present. Returning z.output<S> gives the post-parse
+  // (required) type every consumer actually expects.
   if (!data || !Array.isArray(data)) {
     return [];
   }
 
-  const validItems: T[] = [];
+  const validItems: z.output<S>[] = [];
 
   for (let i = 0; i < data.length; i++) {
     const result = schema.safeParse(data[i]);
@@ -669,11 +675,11 @@ export function safeParseArray<T>(
  * const alert = safeParseSingle(BudgetAlertSchema, raw.data, 'budget_alert');
  * if (!alert) return; // validation failed
  */
-export function safeParseSingle<T>(
-  schema: z.ZodType<T>,
+export function safeParseSingle<S extends z.ZodTypeAny>(
+  schema: S,
   data: unknown | null | undefined,
   label: string,
-): T | null {
+): z.output<S> | null {
   if (data == null) {
     return null;
   }
