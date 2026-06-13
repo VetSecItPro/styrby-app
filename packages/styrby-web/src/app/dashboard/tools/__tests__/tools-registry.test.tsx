@@ -13,6 +13,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ToolsRegistry } from '../tools-registry';
+import { computeMcpReadiness } from '../mcp-readiness';
+
+// A "fully connected" readiness so the registry renders without action banners
+// in the catalog-focused tests below.
+const readiness = computeMcpReadiness({
+  machineCount: 2,
+  hasOnlineMachine: true,
+  deviceTokenCount: 1,
+  hasTeam: true,
+});
 
 describe('ToolsRegistry', () => {
   beforeEach(() => {
@@ -25,12 +35,12 @@ describe('ToolsRegistry', () => {
   });
 
   it('renders the page header with MCP Tools title', () => {
-    render(<ToolsRegistry />);
+    render(<ToolsRegistry readiness={readiness} />);
     expect(screen.getByRole('heading', { name: /mcp tools/i, level: 1 })).toBeTruthy();
   });
 
   it('shows the GA request_approval tool prominently', () => {
-    render(<ToolsRegistry />);
+    render(<ToolsRegistry readiness={readiness} />);
     // Both the human title and the snake_case tool name should appear
     expect(screen.getByText('Request human approval')).toBeTruthy();
     // request_approval may appear in multiple places - just need at least one match
@@ -39,20 +49,20 @@ describe('ToolsRegistry', () => {
   });
 
   it('shows planned tools in a separate section', () => {
-    render(<ToolsRegistry />);
+    render(<ToolsRegistry readiness={readiness} />);
     expect(screen.getByText(/look up team policy/i)).toBeTruthy();
     expect(screen.getByText(/write to audit log/i)).toBeTruthy();
   });
 
   it('includes the setup snippet with styrby mcp serve command', () => {
-    render(<ToolsRegistry />);
+    render(<ToolsRegistry readiness={readiness} />);
     // Snippet uses literal text - search for unique strings
     expect(screen.getByText(/mcpServers/)).toBeTruthy();
     expect(screen.getByText(/"command": "styrby"/)).toBeTruthy();
   });
 
   it('copy button writes snippet to clipboard and shows confirmation', async () => {
-    render(<ToolsRegistry />);
+    render(<ToolsRegistry readiness={readiness} />);
     const copyButton = screen.getByRole('button', { name: /copy setup snippet/i });
 
     fireEvent.click(copyButton);
@@ -70,10 +80,28 @@ describe('ToolsRegistry', () => {
   });
 
   it('links to the modelcontextprotocol.io docs', () => {
-    render(<ToolsRegistry />);
+    render(<ToolsRegistry readiness={readiness} />);
     const link = screen.getByRole('link', { name: /learn about model context protocol/i });
     expect(link.getAttribute('href')).toBe('https://modelcontextprotocol.io');
     expect(link.getAttribute('target')).toBe('_blank');
     expect(link.getAttribute('rel')).toContain('noopener');
+  });
+
+  it('shows the ready connection banner when the user has a machine', () => {
+    render(<ToolsRegistry readiness={readiness} />);
+    expect(screen.getByText(/your mcp server is ready to serve tools/i)).toBeTruthy();
+  });
+
+  it('surfaces the onboard fix command when no machine is registered', () => {
+    const notConnected = computeMcpReadiness({
+      machineCount: 0,
+      hasOnlineMachine: false,
+      deviceTokenCount: 0,
+      hasTeam: false,
+    });
+    render(<ToolsRegistry readiness={notConnected} />);
+    expect(screen.getByText(/finish connecting your mcp server/i)).toBeTruthy();
+    // The exact CLI command to fix the hard requirement must be shown verbatim.
+    expect(screen.getByText('styrby onboard')).toBeTruthy();
   });
 });
