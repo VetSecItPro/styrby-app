@@ -95,6 +95,22 @@ export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
  *   { status: 403 }
  * );
  * ```
+ *
+ * @remarks
+ * ADOPTION STATUS (Cluster A4 decision, 2026-06-13): this envelope is NOT yet
+ * the wire format for existing web API routes, and adopting it on one is a
+ * BREAKING CHANGE. The shipped CLI and mobile clients parse a top-level
+ * `{ error: string }` field, not this `{ code, message, timestamp }` shape:
+ *   - CLI:    cli/handlers/resume.ts (`response.error`),
+ *             commands/privacy.ts (`raw.error` for /api/account/export+delete)
+ *   - Mobile: hooks/useApiKeys.ts + useWebhooks.ts (`.error`),
+ *             lib/handle-invite-deep-link.ts (maps `body.error` -> its `code`)
+ * Each coupled route's tests already assert `data.error`, so swapping a route
+ * to this envelope (which omits `error`) breaks those clients AND their tests.
+ * Migrating is therefore a coordinated, versioned (v2) change that updates the
+ * route + CLI parser + mobile parser in lockstep - not per-route hygiene. Until
+ * then use this helper only for NEW routes with no existing client, or behind a
+ * v2 path. See styrby-backlog.md "A4 disposition".
  */
 export function apiError(
   code: ApiErrorCode | string,
