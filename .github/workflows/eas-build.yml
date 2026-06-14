@@ -1,0 +1,115 @@
+# EAS Build — on-demand native build / compile verification.
+#
+# WHY this exists: React Native native builds (iOS WidgetKit extensions, Swift,
+# config-plugin output) cannot be compiled by the JS-only "Build Mobile" CI job
+# (which runs `expo export`). They compile on EAS's cloud runners. This workflow
+# triggers an EAS build on demand so native code — e.g. the C1 home-screen
+# widget's Swift — is actually compiled + an installable artifact produced.
+#
+# WHY in CI (not local): the EAS CLI loads Metro config locally before upload.
+# Under pnpm strict isolation that resolves cleanly only from a fresh
+# `pnpm install --frozen-lockfile` on a clean tree (which a CI runner always is)
+# plus a globally-installed eas-cli — exactly what this job does. Running it from
+# a long-lived local checkout is fragile; a clean runner is the reliable path.
+#
+# ACTIVATION (operator, one-time): native builds need a paid EAS tier. Create an
+# Expo robot token (expo.dev > account > robot users) and add it as the repo
+# secret EAS_ROBOT_TOKEN. Until then this workflow guards and skips cleanly.
+#
+# USAGE: Actions > "EAS Build" > Run workflow > pick platform (ios | android | all).
+
+name: EAS Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to build'
+        required: true
+        default: 'ios'
+        type: choice
+        options:
+          - ios
+          - android
+          - all
+      profile:
+        description: 'eas.json build profile'
+        required: false
+        default: 'cold-start-test'
+        type: string
+
+concurrency:
+  group: eas-build-${{ github.ref_name }}-${{ inputs.platform }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  # Bail out gracefully if EAS_ROBOT_TOKEN is not configured, so a dispatch
+  # before the paid tier is enabled reports a clear notice instead of failing.
+  check-prerequisites:
+    name: Check EAS Prerequisites
+    runs-on: ubuntu-latest
+    outputs:
+      eas-ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - name: Check EAS_ROBOT_TOKEN secret
+        id: check
+        run: |
+          if [ -z "${{ secrets.EAS_ROBOT_TOKEN }}" ]; then
+            echo "::notice title=EAS Build Skipped::EAS_ROBOT_TOKEN is not set. Add an Expo robot token as the EAS_ROBOT_TOKEN repo secret (requires a paid EAS tier) to enable native builds."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  eas-build:
+    name: EAS Build (${{ inputs.platform }})
+    runs-on: ubuntu-latest
+    needs: check-prerequisites
+    if: needs.check-prerequisites.outputs.eas-ready == 'true'
+    steps:
+      # SEC-INFRA-001: pin actions to full commit SHA (same policy as ci.yml).
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@cb9c4fdd700176d874d52d64ce3b7418842cf6d3 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      # Clean, frozen install on a fresh runner — the reliable resolution path
+      # for the EAS CLI's local Metro-config load under pnpm strict isolation.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install EAS CLI
+        run: pnpm add -g eas-cli
+
+      - name: Authenticate with EAS
+        env:
+          EXPO_TOKEN: ${{ secrets.EAS_ROBOT_TOKEN }}
+        run: eas whoami
+
+      - name: Build on EAS
+        env:
+          EXPO_TOKEN: ${{ secrets.EAS_ROBOT_TOKEN }}
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+        working-directory: packages/styrby-mobile
+        run: |
+          # --no-wait returns once the build is queued; the build (incl. the
+          # Swift WidgetKit target) compiles on EAS. View status at expo.dev.
+          eas build \
+            --profile "${{ inputs.profile }}" \
+            --platform "${{ inputs.platform }}" \
+            --non-interactive \
+            --no-wait
