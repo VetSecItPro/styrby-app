@@ -24,7 +24,12 @@
       },
       "associatedDomains": [
         "applinks:styrbyapp.com"
-      ]
+      ],
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.steelmotion.styrby"
+        ]
+      }
     },
     "android": {
       "package": "com.steelmotion.styrby",
@@ -96,6 +101,7 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      "@bacons/apple-targets",
       [
         "expo-splash-screen",
         {
