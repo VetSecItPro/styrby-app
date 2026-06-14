@@ -100,16 +100,22 @@ jobs:
         run: eas whoami
 
       - name: Build on EAS
+        # WHY inputs via env (not inline ${{ }} in run): interpolating workflow
+        # inputs directly into a shell command is a GitHub Actions script-
+        # injection vector (flagged by Semgrep SAST). Binding them to env vars
+        # and referencing the shell variables is the safe, lint-clean pattern.
         env:
           EXPO_TOKEN: ${{ secrets.EAS_ROBOT_TOKEN }}
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          INPUT_PLATFORM: ${{ inputs.platform }}
+          INPUT_PROFILE: ${{ inputs.profile }}
         working-directory: packages/styrby-mobile
         run: |
           # --no-wait returns once the build is queued; the build (incl. the
           # Swift WidgetKit target) compiles on EAS. View status at expo.dev.
           eas build \
-            --profile "${{ inputs.profile }}" \
-            --platform "${{ inputs.platform }}" \
+            --profile "$INPUT_PROFILE" \
+            --platform "$INPUT_PLATFORM" \
             --non-interactive \
             --no-wait
