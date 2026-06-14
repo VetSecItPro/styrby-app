@@ -8,7 +8,7 @@ overrides:
   flatted: '>=3.4.0'
   hono: '>=4.12.21'
   '@hono/node-server': '>=1.19.13'
-  '@xmldom/xmldom': '>=0.8.12'
+  '@xmldom/xmldom': 0.8.13
   rollup: '>=4.59.0'
   tar: '>=7.5.13'
   minimatch: '>=9.0.7'
@@ -5635,9 +5635,9 @@ packages:
       detox: '>=20.33.0'
       expect: 29.x.x || 28.x.x || ^27.2.5
 
-  '@xmldom/xmldom@0.9.10':
-    resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
-    engines: {node: '>=14.6'}
+  '@xmldom/xmldom@0.8.13':
+    resolution: {integrity: sha512-KRYzxepc14G/CEpEGc3Yn+JKaAeT63smlDr+vjB8jRfgTBBI9wRj/nkQEO+ucV8p8I9bfKLWp37uHgFrbntPvw==}
+    engines: {node: '>=10.0.0'}
 
   '@xtuc/ieee754@1.2.0':
     resolution: {integrity: sha512-DX8nKgqcGwsc0eJSqYt5lwP4DH5FlHnmuWWBRy7X0NcaGR0ZtuyeESgMwTYVEtxmsNGY+qit4QYT/MIYTOTPeA==}
@@ -12734,13 +12734,13 @@ snapshots:
 
   '@expo/plist@0.4.8':
     dependencies:
-      '@xmldom/xmldom': 0.9.10
+      '@xmldom/xmldom': 0.8.13
       base64-js: 1.5.1
       xmlbuilder: 15.1.1
 
   '@expo/plist@0.4.9':
     dependencies:
-      '@xmldom/xmldom': 0.9.10
+      '@xmldom/xmldom': 0.8.13
       base64-js: 1.5.1
       xmlbuilder: 15.1.1
 
@@ -17215,7 +17215,7 @@ snapshots:
       detox: 20.51.0(@jest/environment@29.7.0)(@jest/types@29.6.3)(expect@29.7.0)(jest-environment-jsdom@29.7.0)(jest-environment-node@29.7.0)(jest@29.7.0(@types/node@22.15.35))
       expect: 29.7.0
 
-  '@xmldom/xmldom@0.9.10': {}
+  '@xmldom/xmldom@0.8.13': {}
 
   '@xtuc/ieee754@1.2.0': {}
 
@@ -22072,7 +22072,7 @@ snapshots:
 
   plist@3.1.0:
     dependencies:
-      '@xmldom/xmldom': 0.9.10
+      '@xmldom/xmldom': 0.8.13
       base64-js: 1.5.1
       xmlbuilder: 15.1.1
 
