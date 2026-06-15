@@ -6,6 +6,7 @@ import { DashboardShell } from './dashboard-shell';
 import { PlanCheckout } from './plan-checkout';
 import { getOnboardingState } from '@/lib/onboarding';
 import { PWAInstallPrompt } from '@/components/pwa-install-prompt';
+import { AnalyticsIdentify } from '@/components/providers/analytics-identify';
 
 /**
  * Prevents all dashboard routes from being indexed by search engines.
@@ -51,6 +52,7 @@ export default async function DashboardLayout({
 
   return (
     <DashboardShell onboardingState={onboardingState.isComplete ? undefined : onboardingState}>
+      <AnalyticsIdentify userId={user.id} />
       <Suspense>
         <PlanCheckout />
       </Suspense>
