@@ -65,7 +65,9 @@ const cspHeader = [
   //     injection, all user data goes through parameterized Supabase queries.
   //   - 'unsafe-inline' is a defense-in-depth weakness (CSP won't catch a
   //     future XSS), but with zero current attack surface, the risk is low.
-  //   - No third-party analytics scripts (no GTM, GA, Segment, etc.)
+  //   - Analytics is PostHog loaded as a bundled npm module (not a remote
+  //     <script>), so it needs no script-src allowance — only connect-src for
+  //     its API host (added below). No GTM/GA/Segment remote scripts.
   //
   // WHEN TO REVISIT:
   //   - When Next.js ships native nonce propagation for App Router (roadmap item)
@@ -78,7 +80,11 @@ const cspHeader = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
   "font-src 'self' data:",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.polar.sh https://exp.host",
+  // PostHog (Cluster B1, cookieless product analytics): the browser SDK POSTs
+  // events to + pulls remote config from us.i.posthog.com (ingestion) and
+  // us-assets.i.posthog.com (static config/assets). Without these in
+  // connect-src the CSP silently blocks every analytics request.
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.polar.sh https://exp.host https://us.i.posthog.com https://us-assets.i.posthog.com",
   // WHY: worker-src 'self' is required for the PWA service worker (sw.js).
   // Without it, the browser blocks navigator.serviceWorker.register() calls.
   "worker-src 'self'",
