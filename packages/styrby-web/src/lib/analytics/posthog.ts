@@ -92,13 +92,14 @@ function ensureLoaded(): Promise<PostHog | null> {
       // - and our CSP script-src intentionally does not allow remote scripts,
       // so the browser would block them with console errors. Turning them off
       // here means zero blocked requests, zero console noise, smaller runtime.
-      // Catch-all: never fetch ANY external script from us-assets.i.posthog.com
-      // (recorder, surveys, dead-clicks, web-vitals, remote config.js). The
-      // SDK is bundled via npm; we want zero remote-script loads (our CSP
-      // script-src blocks them anyway). This is the switch that fully clears
-      // the console — the per-feature flags below only stop modules *running*,
-      // not the bootstrap fetch. Event capture + the JSON config fetch
-      // (connect-src) are unaffected.
+      // Feature posture: every optional module OFF (manual events + pageviews
+      // only; cookieless). These flags stop the modules from *running* /
+      // capturing. NOTE (verified in a live browser): they do NOT stop the SDK
+      // *fetching* a couple of its own bootstrap scripts (remote config.js, the
+      // dead-clicks loader) from us-assets.i.posthog.com — those are allowed in
+      // the CSP script-src (see next.config.ts) and stay inert because of these
+      // flags. disable_external_dependency_loading is kept as belt-and-suspenders
+      // (it does suppress the heavier recorder/surveys/web-vitals loads).
       disable_external_dependency_loading: true,
       autocapture: false,
       capture_dead_clicks: false,

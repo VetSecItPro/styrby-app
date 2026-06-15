@@ -65,9 +65,13 @@ const cspHeader = [
   //     injection, all user data goes through parameterized Supabase queries.
   //   - 'unsafe-inline' is a defense-in-depth weakness (CSP won't catch a
   //     future XSS), but with zero current attack surface, the risk is low.
-  //   - Analytics is PostHog loaded as a bundled npm module (not a remote
-  //     <script>), so it needs no script-src allowance — only connect-src for
-  //     its API host (added below). No GTM/GA/Segment remote scripts.
+  //   - Analytics is PostHog: the SDK itself is a bundled npm module, but it
+  //     still fetches a few of its own bootstrap scripts (remote config.js,
+  //     the dead-clicks loader) from us-assets.i.posthog.com even with the
+  //     optional features disabled. Those are allowed in script-src below; our
+  //     init keeps every feature OFF (autocapture/recording/surveys/etc.), so
+  //     the loaded scripts stay inert. us-assets is a trusted vendor CDN and
+  //     this matches PostHog's documented CSP. No GTM/GA/Segment scripts.
   //
   // WHEN TO REVISIT:
   //   - When Next.js ships native nonce propagation for App Router (roadmap item)
@@ -76,7 +80,10 @@ const cspHeader = [
   //
   // 'unsafe-eval' is NOT included — production builds do not require eval().
   // ──────────────────────────────────────────────────────────────────────────
-  "script-src 'self' 'unsafe-inline'",
+  // us-assets.i.posthog.com: PostHog fetches its own bootstrap scripts (remote
+  // config.js + dead-clicks loader) from here even with features disabled.
+  // Allowed so they don't throw CSP errors; they stay inert via the init flags.
+  "script-src 'self' 'unsafe-inline' https://us-assets.i.posthog.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
   "font-src 'self' data:",
