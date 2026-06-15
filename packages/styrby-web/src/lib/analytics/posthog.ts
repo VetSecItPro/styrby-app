@@ -85,6 +85,18 @@ function ensureLoaded(): Promise<PostHog | null> {
       capture_pageview: false,
       // Respect Do Not Track at the SDK level as a second guard.
       respect_dnt: true,
+      // WHY disable every optional auto-loaded module: by default posthog-js
+      // lazy-fetches recorder/surveys/dead-clicks/web-vitals/autocapture
+      // scripts from us-assets.i.posthog.com. We deliberately want ONLY manual
+      // events + pageviews (minimal, cookieless posture), so these are unwanted
+      // - and our CSP script-src intentionally does not allow remote scripts,
+      // so the browser would block them with console errors. Turning them off
+      // here means zero blocked requests, zero console noise, smaller runtime.
+      autocapture: false,
+      capture_dead_clicks: false,
+      capture_performance: false, // disables the web-vitals module
+      disable_session_recording: true,
+      disable_surveys: true,
       loaded: (ph) => {
         // Stamp the product tag on every event for the shared "Styrby-App"
         // project so Styrby data stays filterable from the sibling product.
