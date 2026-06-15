@@ -5,6 +5,7 @@ import './globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
 import { CookieConsent } from '@/components/cookie-consent';
 import { SWRegister } from '@/components/sw-register';
+import { PostHogProvider } from '@/components/providers/posthog-provider';
 
 /**
  * WHY Outfit: geometric sans-serif with tight tracking and optical weight that
@@ -136,9 +137,11 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
-          <CookieConsent />
-          <SWRegister />
+          <PostHogProvider>
+            {children}
+            <CookieConsent />
+            <SWRegister />
+          </PostHogProvider>
         </ThemeProvider>
         <Toaster
           position="bottom-right"

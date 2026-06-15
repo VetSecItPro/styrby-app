@@ -171,9 +171,12 @@ export default function PrivacyPolicyPage() {
           <h3 className="scroll-mt-20" id="what-we-do-not-collect">What We Do Not Collect</h3>
           <ul>
             <li>
-              We do not use analytics services (no Mixpanel, Amplitude,
-              Segment, Google Analytics, or similar). We do not track your
-              behavior across the app.
+              We do not use advertising or cross-site tracking networks (no
+              Google Analytics, no ad pixels, no Segment). We do not track you
+              across other websites, and we never sell or share your behavioral
+              data. We use a single privacy-preserving product-analytics tool,
+              configured cookielessly - see{' '}
+              <a href="#product-analytics">Product Analytics</a> below.
             </li>
             <li>
               We do not collect your AI API keys or credentials. You configure
@@ -220,12 +223,44 @@ export default function PrivacyPolicyPage() {
             purposes.
           </p>
 
+          {/* ── Product Analytics ─────────────────────────────── */}
+          <h2 className="scroll-mt-20" id="product-analytics">Product Analytics</h2>
+
+          <p>
+            We use PostHog to understand which features are used and where the
+            product can improve. We configure it to be privacy-preserving:
+          </p>
+
+          <ul>
+            <li>
+              <strong>Cookieless</strong>: PostHog is run in memory-only mode -
+              it sets no cookies and writes nothing to your browser&apos;s
+              storage. This is why we can still say we use no analytics cookies.
+            </li>
+            <li>
+              <strong>No anonymous profiles</strong>: visitors who are not
+              logged in are counted only in aggregate (for example, page views);
+              we do not build a profile of an anonymous visitor.
+            </li>
+            <li>
+              <strong>Logged-in usage</strong>: when you are signed in, product
+              events (such as which dashboard pages you open) are associated
+              with your account id so we can measure real product usage. We do
+              not record the contents of your AI sessions.
+            </li>
+            <li>
+              <strong>No cross-site tracking</strong>: PostHog here cannot follow
+              you to other websites.
+            </li>
+          </ul>
+
           {/* ── Cookies ───────────────────────────────────────── */}
           <h2 className="scroll-mt-20" id="3-cookies">3. Cookies</h2>
 
           <p>
             Styrby uses only two cookies. No tracking cookies. No analytics
-            cookies. No third-party advertising cookies.
+            cookies. No third-party advertising cookies. (Our product analytics
+            is cookieless - see <a href="#product-analytics">Product Analytics</a>.)
           </p>
 
           <ul>
