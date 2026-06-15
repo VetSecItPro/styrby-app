@@ -99,6 +99,7 @@ describe('when a PostHog key is configured', () => {
     expect(opts.api_host).toBe('https://us.i.posthog.com');
     // Optional auto-loaded modules disabled (no remote-script CSP errors,
     // minimal cookieless posture - manual events + pageviews only).
+    expect(opts.disable_external_dependency_loading).toBe(true);
     expect(opts.autocapture).toBe(false);
     expect(opts.capture_dead_clicks).toBe(false);
     expect(opts.capture_performance).toBe(false);

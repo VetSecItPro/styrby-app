@@ -153,3 +153,4 @@ scripts/__pycache__/
 .deps-audit.json
 .sec-ship-reports/
 .sec-ship-history.json
+.playwright-mcp/
