@@ -34,6 +34,7 @@ import { useNotifications } from '../src/hooks/useNotifications';
 import { startConnectivityListener } from '../src/services/offline-sync';
 import { useInviteLinkHandler } from '../src/hooks/useInviteLinkHandler';
 import { useWidgetSync } from '../src/hooks/useWidgetSync';
+import { useAnalytics } from '../src/hooks/useAnalytics';
 import type { Session } from '@supabase/supabase-js';
 
 import type { ErrorBoundaryProps } from 'expo-router';
@@ -121,6 +122,13 @@ export default function RootLayout() {
    * cold start. useWidgetSync is a no-op off iOS and when signed out.
    */
   useWidgetSync(session?.user?.id ?? null);
+
+  /**
+   * WHY at root layout: analytics identity must follow auth state app-wide,
+   * and screen views are captured on every route change from one place.
+   * useAnalytics no-ops when no PostHog key is configured.
+   */
+  useAnalytics(session?.user?.id ?? null);
 
   // Re-register push token when user signs in (token may have been obtained
   // before auth was available, so savePushToken would have silently failed).
