@@ -1,0 +1,71 @@
+# Self-hosted Renovate. Runs entirely inside our own GitHub Actions (no
+# third-party Mend app, so this PUBLIC repo grants no external app write
+# access) and reads renovate.json from the repo. Scoped to THIS repo only.
+#
+# WHY Renovate instead of Dependabot here: Styrby is a pnpm monorepo that pins
+# several deps centrally via `pnpm.overrides` in the root package.json. Renovate
+# reads pnpm-lock.yaml AND the overrides, so it sees the real resolved versions.
+# Dependabot only parses per-package manifests, can't see pnpm overrides, and
+# therefore perpetually mis-reports override-pinned deps (esbuild, ws,
+# form-data, ...) as vulnerable - firing security-update jobs that find nothing
+# to do and exit red. Renovate does not have that blind spot, groups updates to
+# bound CI cost, and pins GitHub Actions to digests to match our SHA-pinning
+# supply-chain convention.
+#
+# Auth: the built-in GITHUB_TOKEN (the workflow grants it the write scopes
+# Renovate needs below). Chosen over a personal-access-token because it needs
+# zero manual setup and can't be leaked/revoked. KNOWN TRADE-OFF: pull requests
+# opened by GITHUB_TOKEN do NOT automatically trigger the service CI workflows
+# (GitHub's loop-prevention), so Renovate's update PRs won't self-run CI -
+# review the diff + re-run checks manually, or upgrade to a PAT for auto-CI
+# (see the note at the `token:` line below).
+
+name: renovate
+
+on:
+  schedule:
+    # 10:00 UTC daily = ~05:00 America/Chicago (off-hours). GitHub Actions cron
+    # is UTC-only, so this encodes the CT intent of the project time-zone rule.
+    # Daily cadence so security/vulnerability updates are picked up within ~a
+    # day; routine PR volume is bounded by prConcurrentLimit/prHourlyLimit +
+    # grouping in renovate.json, not by the run frequency.
+    - cron: "0 10 * * *"
+  workflow_dispatch:
+    inputs:
+      logLevel:
+        description: Renovate log level (use debug to troubleshoot)
+        required: false
+        default: info
+        type: choice
+        options: [info, debug]
+
+# Scopes the GITHUB_TOKEN needs: create branches/commits (contents), open
+# update PRs (pull-requests), and maintain the Dependency Dashboard (issues).
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+# Never run two Renovate passes at once (they'd race on branches/PRs).
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Self-hosted Renovate
+        uses: renovatebot/github-action@8217b3fc286df088d7c27f3255fe8414463bc0fd # v46.1.15
+        with:
+          # To get CI to run on Renovate's PRs, replace this with a fine-grained
+          # PAT secret (token: ${{ secrets.RENOVATE_TOKEN }}) - a PAT's PRs DO
+          # trigger workflows. Until then GITHUB_TOKEN keeps it working with
+          # zero setup.
+          token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          # Only this repo - no autodiscovery across the VetSecItPro account.
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_AUTODISCOVER: "false"
+          LOG_LEVEL: ${{ github.event.inputs.logLevel || 'info' }}
