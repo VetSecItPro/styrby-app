@@ -97,6 +97,13 @@ describe('when a PostHog key is configured', () => {
     expect(opts.person_profiles).toBe('identified_only');
     expect(opts.capture_pageview).toBe(false);
     expect(opts.api_host).toBe('https://us.i.posthog.com');
+    // Optional auto-loaded modules disabled (no remote-script CSP errors,
+    // minimal cookieless posture - manual events + pageviews only).
+    expect(opts.autocapture).toBe(false);
+    expect(opts.capture_dead_clicks).toBe(false);
+    expect(opts.capture_performance).toBe(false);
+    expect(opts.disable_session_recording).toBe(true);
+    expect(opts.disable_surveys).toBe(true);
     // loaded() ran and stamped the product super-property
     expect(mockPosthog.register).toHaveBeenCalledWith({ product: 'styrby' });
   });
