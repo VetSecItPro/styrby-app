@@ -31,7 +31,7 @@
     "overrides": {
       "flatted": ">=3.4.0",
       "hono": ">=4.12.21",
-      "@hono/node-server": ">=1.19.13",
+      "@hono/node-server": ">=1.19.14",
       "@xmldom/xmldom": "0.8.13",
       "esbuild": ">=0.28.1",
       "rollup": ">=4.59.0",
