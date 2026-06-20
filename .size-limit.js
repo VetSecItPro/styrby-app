@@ -186,7 +186,17 @@ module.exports = [
     // enough to crack 790 KB (measured 790.28 KB gzip). The mobile upgrade
     // itself doesn't change web code; this is pure transitive-dep drift.
     // Bumping +10 KB gives ~10 KB headroom for the next normal phase.
-    limit: '800 KB',
+    //
+    // Sentry SDK security ratchet 800 -> 820 (2026-06-20): @sentry/nextjs
+    // 10.46.0 -> 10.59.0 (shipped to clear the @opentelemetry/core <2.8.0
+    // moderate DoS, GHSA W3C-Baggage — the SDK upgrade was the safe way to move
+    // all consumers to otel-core 2.x). The newer browser SDK added ~3.4 KB to
+    // first-load (798.27 -> 801.64 KB gzip), cracking the already-razor-thin
+    // 800 KB budget that had drifted up since the 2026-05-07 set. The growth is
+    // a security fix in a largely-irreducible dep (the Sentry browser layer is
+    // part of the ~136 KB irreducible floor noted above) and dynamic-import
+    // reduction was declined by the operator. +20 KB gives ~18 KB headroom.
+    limit: '820 KB',
     gzip: true,
     // WHY import is omitted: We cannot import directly from Next.js output —
     // these are already-built assets. size-limit stats the files and sums sizes.
