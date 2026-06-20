@@ -2127,6 +2127,7 @@ export async function POST(request: Request) {
         // a side-purchase, refundedSubscriptionId !== mainSubscriptionId by
         // definition, so a SELECT keyed on it would miss the user entirely.
         // polar_customer_id is stable across all of a customer's purchases.
+        //
         type MainSubLookup = {
           user_id: string;
           polar_subscription_id: string;
@@ -2142,10 +2143,28 @@ export async function POST(request: Request) {
             .single<MainSubLookup>();
 
           if (subLookupErr) {
-            // Not fatal: customer may have been hard-deleted or this is a refund
-            // for a customer who never had a stored subscription (test order,
-            // pre-Styrby-era purchase). Audit and acknowledge.
-            if (isDev) {
+            // .single() returns PGRST116 for BOTH zero rows AND multiple rows.
+            // LOGIC-003: a customer who churned and re-subscribed legitimately
+            // has >1 subscriptions rows under one polar_customer_id (the
+            // created.upsert conflicts on polar_subscription_id, NOT
+            // customer_id). The naive .single() then errored on multi-row and
+            // fell through to the side-purchase branch, silently preserving
+            // paid tier after a genuine main-sub refund (revenue leak). On the
+            // ambiguous error, re-resolve deterministically to the customer's
+            // most-recent (current main) subscription. If this still finds
+            // nothing, it was a genuine zero-row case (deleted customer / test
+            // order) — fall through to the conservative side-purchase path.
+            const { data: latestSub } = await supabase
+              .from('subscriptions')
+              .select('user_id, polar_subscription_id, tier')
+              .eq('polar_customer_id', refundedCustomerId)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle<MainSubLookup>();
+
+            if (latestSub) {
+              mainSubscription = latestSub;
+            } else if (isDev) {
               console.log(
                 `polar/route: order.refunded — no subscription row for customer ${refundedCustomerId}: ${subLookupErr.message}`
               );

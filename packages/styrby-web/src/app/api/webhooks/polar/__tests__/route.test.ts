@@ -1057,6 +1057,57 @@ describe('POST /api/webhooks/polar', () => {
       );
     });
 
+    it('LOGIC-003: re-subscribed customer (multi-row .single() PGRST116) resolves latest sub and resets a genuine main refund', async () => {
+      // A churned+re-subscribed customer legitimately has >1 subscriptions rows
+      // under one polar_customer_id, so the primary .single() lookup errors
+      // PGRST116. Previously that fell through to the side-purchase branch and
+      // silently preserved paid tier after a real refund (revenue leak). The
+      // fallback must re-resolve to the latest row and reset to free.
+      mockSingle.mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: 'PGRST116',
+          message: 'JSON object requested, multiple (or no) rows returned',
+        },
+      });
+      // Both the SEC-FOLLOWUP-3 guard lookup and the fallback resolve via
+      // maybeSingle — return the customer's current (latest) main subscription.
+      mockMaybeSingle.mockResolvedValue({
+        data: {
+          user_id: 'user-uuid-123',
+          polar_subscription_id: 'sub_main_xyz',
+          tier: 'pro',
+        },
+        error: null,
+      });
+
+      const event = {
+        id: 'evt_refund_multirow_001',
+        type: 'order.refunded',
+        data: {
+          id: 'ord_refund_multirow_001',
+          customer_id: 'cust_test_456',
+          subscription_id: 'sub_main_xyz', // refund of the current main sub
+        },
+      };
+
+      const response = await sendSignedRefund(event);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      // Must NOT be misclassified as a side-purchase refund.
+      expect(body.side_purchase_refund).toBeUndefined();
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ tier: 'free', status: 'canceled' })
+      );
+      expect(mockInsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            event_subtype: 'order_refunded_main',
+          }),
+        })
+      );
+    });
+
     it('side-purchase refund (subscription_id !== main): preserves main tier, audit event_subtype=order_refunded_side_purchase, response side_purchase_refund=true', async () => {
       // Subscription lookup returns the user's main sub with a DIFFERENT id
       // than the refunded subscription_id.
