@@ -32,7 +32,7 @@ function createChainMock() {
   const chain: Record<string, unknown> = {};
   for (const method of [
     'select', 'eq', 'neq', 'gte', 'lte', 'lt', 'gt', 'order', 'limit',
-    'insert', 'update', 'delete', 'is', 'not', 'in', 'single', 'maybeSingle',
+    'insert', 'upsert', 'update', 'delete', 'is', 'not', 'in', 'single', 'maybeSingle',
   ]) {
     chain[method] = vi.fn().mockReturnValue(chain);
   }
@@ -151,8 +151,8 @@ describe('POST /api/cron/budget-threshold', () => {
     fromCallQueue.push({ data: { tier: 'power' }, error: null });
     // MTD spend: $180 (above $160 threshold)
     fromCallQueue.push({ data: [{ cost_usd: 180 }], error: null });
-    // Insert budget_threshold_sends row
-    fromCallQueue.push({ data: null, error: null });
+    // Claim idempotency row (upsert .select) — THIS run won the claim
+    fromCallQueue.push({ data: [{ id: 'claim-3' }], error: null });
     // Insert audit_log row
     fromCallQueue.push({ data: null, error: null });
 
@@ -168,21 +168,46 @@ describe('POST /api/cron/budget-threshold', () => {
     );
   });
 
-  it('skips send when Expo push returns false', async () => {
+  it('releases the claim (compensating delete) when Expo push returns false', async () => {
     mockSendRetentionPush.mockResolvedValueOnce(false);
 
     fromCallQueue.push({
       data: [{ user_id: 'user-4', push_budget_threshold: true, push_enabled: true }],
       error: null,
     });
-    fromCallQueue.push({ data: null, error: null }); // idempotency
+    fromCallQueue.push({ data: null, error: null }); // idempotency fast-path
     fromCallQueue.push({ data: { tier: 'power' }, error: null }); // subscription
     fromCallQueue.push({ data: [{ cost_usd: 180 }], error: null }); // costs
+    fromCallQueue.push({ data: [{ id: 'claim-4' }], error: null }); // claim won
+    fromCallQueue.push({ data: null, error: null }); // compensating delete
 
     const res = await POST(makeRequest(`Bearer ${CRON_SECRET}`));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.skipped).toBe(1);
     expect(body.sent).toBe(0);
+    // push was attempted (returned false), so the claim must be released
+    expect(mockSendRetentionPush).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT send a duplicate push when the claim is lost to a concurrent run', async () => {
+    // LOGIC-002 regression: two overlapping cron runs both pass the fast-path
+    // SELECT, but the ON CONFLICT DO NOTHING claim returns empty for the loser,
+    // which must skip WITHOUT sending a push.
+    fromCallQueue.push({
+      data: [{ user_id: 'user-5', push_budget_threshold: true, push_enabled: true }],
+      error: null,
+    });
+    fromCallQueue.push({ data: null, error: null }); // idempotency fast-path: not yet recorded
+    fromCallQueue.push({ data: { tier: 'power' }, error: null }); // subscription
+    fromCallQueue.push({ data: [{ cost_usd: 180 }], error: null }); // costs (above threshold)
+    fromCallQueue.push({ data: [], error: null }); // claim LOST (conflict → empty)
+
+    const res = await POST(makeRequest(`Bearer ${CRON_SECRET}`));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.skipped).toBe(1);
+    expect(body.sent).toBe(0);
+    expect(mockSendRetentionPush).not.toHaveBeenCalled();
   });
 });
