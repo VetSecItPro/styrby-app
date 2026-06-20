@@ -16,15 +16,22 @@
 -- WHY we still need API-side serialization with the Polar update:
 --   The lock CANNOT span the Polar HTTP call — that's a network round-trip
 --   outside Postgres. The mitigation is layered:
---     (1) This RPC serializes the count read against any other holder of
---         the same lock id (concurrent invite-accepts that use
---         acquire_team_invite_lock with the same hash, OR a parallel PATCH
---         on the same team).
---     (2) The teams-invite edge function already calls
+--     (1) This RPC serializes the count read against any other holder of the
+--         same lock id: a parallel seat PATCH on the same team, AND the
+--         invite-SEND path (the teams-invite edge function). NOTE (corrected
+--         per LOGIC-001 audit 2026-06): invite-ACCEPT does NOT hold this lock.
+--         accept_team_invitation (migration 073) only does FOR UPDATE on the
+--         single invitation row; it never calls acquire_team_invite_lock. An
+--         earlier version of this comment wrongly listed "invite-accepts" as
+--         holders of the lock.
+--     (2) The teams-invite edge function (invite-SEND) calls
 --         acquire_team_invite_lock(teamIdHash) before its seat-cap check
 --         (migration 030, line 502 of supabase/functions/teams-invite/index.ts).
---         Both paths must use the SAME lock id (derived from team_id) so they
---         serialize against each other.
+--         SEND and this PATCH must use the SAME lock id (derived from team_id)
+--         so they serialize against each other. The seat is RESERVED at send
+--         time (a pending invitation increments teams.active_seats under the
+--         lock, gated by the cap), so a later ACCEPT is net-zero on that
+--         reservation and cannot over-provision even though it skips the lock.
 --     (3) The Polar webhook (Unit B) reconciles teams.seat_cap with Polar's
 --         canonical state asynchronously — even if a transient skew slips
 --         through, it converges.

@@ -680,13 +680,25 @@ export async function PATCH(request: Request): Promise<Response> {
   //   team_members row between this count read and the Polar update below,
   //   leaving the team with fewer paid seats than active members. The RPC
   //   acquires a per-team advisory lock and reads the count in the SAME
-  //   transaction, so any concurrent invite-accept (which uses
-  //   acquire_team_invite_lock with the same lock id) is serialized against
-  //   us. The lock releases at the RPC's transaction end — the residual
-  //   window between count and Polar update is closed by (a) the
-  //   invitation-accept path also taking the same lock at its critical
-  //   section and (b) the Unit B Polar webhook reconciling seat_cap
-  //   asynchronously.
+  //   transaction.
+  //
+  //   CORRECTION (LOGIC-003 audit 2026-06): a prior version of this comment
+  //   claimed the invite-ACCEPT path "also takes the same lock id" so the two
+  //   serialize on the advisory lock. That is FALSE - accept_team_invitation
+  //   (migration 073) only does FOR UPDATE on the single invitation row; it
+  //   never calls acquire_team_invite_lock. The path that DOES hold this lock
+  //   is invite-SEND (the teams-invite edge function, migration 030), which
+  //   acquires acquire_team_invite_lock(teamIdHash) before its seat-cap check.
+  //
+  //   Why the seat count is nonetheless safe against a concurrent accept: the
+  //   seat is reserved at SEND time (a pending invitation already increments
+  //   teams.active_seats via fn_team_invitations_seat_delta, under the lock and
+  //   gated by the cap), and accept is net-zero on the reservation
+  //   (pending -> accepted = -1, team_member insert = +1). So accept does not
+  //   over-provision; the worst case is a transient 1-row skew in this live
+  //   member count that (b) the Unit B Polar webhook reconciles asynchronously.
+  //   This advisory lock genuinely serializes SEND vs this PATCH; ACCEPT relies
+  //   on its per-invitation FOR UPDATE + the send-time reservation instead.
 
   const teamLockKey = await teamIdToSeatLockKey(team_id);
 
@@ -810,13 +822,17 @@ export async function PATCH(request: Request): Promise<Response> {
   // ── Step 9: Update Polar subscription quantity ────────────────────────────
 
   // WHY: WAVE-E-001 mitigation — by this point the count_team_members_with_seat_lock
-  // RPC has already serialized us against any concurrent seat change OR
-  // invitation accept on this team (see Step 6). Two concurrent PATCHes for
-  // the same team will see the second one return CONCURRENT_SEAT_CHANGE 409,
-  // forcing client retry rather than allowing both to call Polar simultaneously.
-  // The lock has technically released at the RPC's transaction end, but the
-  // invitation-accept path also takes the same lock id, and the Polar webhook
-  // reconciles seat_cap asynchronously, closing the residual window.
+  // RPC has serialized us against any concurrent invite-SEND and any concurrent
+  // seat PATCH on this team (both hold acquire_team_invite_lock with the same
+  // team-derived lock id; see Step 6). Two concurrent PATCHes for the same team
+  // will see the second one return CONCURRENT_SEAT_CHANGE 409, forcing client
+  // retry rather than allowing both to call Polar simultaneously.
+  // The lock has technically released at the RPC's transaction end. The residual
+  // window is closed by: invite-ACCEPT being net-zero on the seat reservation
+  // (the seat was already reserved at send under the lock), and the Polar
+  // webhook reconciling seat_cap asynchronously. (ACCEPT itself does NOT hold
+  // this advisory lock - it serializes per-invitation via FOR UPDATE; see the
+  // corrected note in Step 6.)
   try {
     await polar.subscriptions.update({
       id: team.polar_subscription_id!,
