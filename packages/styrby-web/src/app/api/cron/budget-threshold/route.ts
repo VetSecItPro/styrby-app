@@ -207,7 +207,40 @@ async function checkAndNotifyUser({
 
   const pctUsed = Math.round((mtdSpend / monthlyCap) * 100);
 
-  // Send the push
+  // WHY claim-before-send (not send-then-record):
+  // The early SELECT above is a cheap fast-path skip, NOT a concurrency gate —
+  // two overlapping cron runs can both pass it, both send, and one INSERT then
+  // loses the unique-constraint race. To make the unique constraint the real
+  // gate, atomically claim the idempotency row FIRST via an
+  // ON CONFLICT DO NOTHING upsert and only send if THIS run created the row.
+  // Mirrors the polar_webhook_events claim+compensate pattern used elsewhere.
+  const { data: claimed, error: claimError } = await supabase
+    .from('budget_threshold_sends')
+    .upsert(
+      {
+        user_id: userId,
+        threshold_pct: thresholdPct,
+        billing_period_start: billingPeriodStart,
+      },
+      {
+        // matches CONSTRAINT uq_budget_threshold_send (migration 026)
+        onConflict: 'user_id,threshold_pct,billing_period_start',
+        ignoreDuplicates: true,
+      }
+    )
+    .select('id');
+
+  if (claimError) {
+    throw new Error(
+      `Budget threshold claim failed for user ${userId}: ${claimError.message}`
+    );
+  }
+
+  // Empty result = another concurrent run already claimed this threshold this
+  // period. Skip silently — the run that won the claim sends the push.
+  if (!claimed || claimed.length === 0) return 'skipped';
+
+  // Send the push (claim is held; we are the sole sender for this threshold).
   const pushSent = await sendRetentionPush({
     userId,
     type: 'budget_threshold',
@@ -224,14 +257,17 @@ async function checkAndNotifyUser({
     respectQuietHours: true,
   });
 
-  if (!pushSent) return 'skipped';
-
-  // Record idempotency row
-  await supabase.from('budget_threshold_sends').insert({
-    user_id: userId,
-    threshold_pct: thresholdPct,
-    billing_period_start: billingPeriodStart,
-  });
+  if (!pushSent) {
+    // Compensating delete: release the claim so a later run retries, rather
+    // than leaving a "sent" row for a push that never went out.
+    await supabase
+      .from('budget_threshold_sends')
+      .delete()
+      .eq('user_id', userId)
+      .eq('threshold_pct', thresholdPct)
+      .eq('billing_period_start', billingPeriodStart);
+    return 'skipped';
+  }
 
   // Audit log (SOC2 CC7.2)
   await supabase.from('audit_log').insert({
