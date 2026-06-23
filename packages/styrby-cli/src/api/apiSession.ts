@@ -141,10 +141,28 @@ export class ApiSessionManager {
       });
 
     if (insertError) {
-      logger.error('Failed to create session in Supabase', { error: insertError.message });
-      // Non-fatal: session works without remote record, just log and continue
-      // WHY: The relay bridge is more important than the database record.
-      // If Supabase is temporarily unavailable, we still want the session to work.
+      // Surface the FULL Postgrest error (code/details/hint), not just the bare
+      // message. INV token-tracking (2026-06): a swallowed message hid WHY
+      // sessions never persisted — and a missing sessions row silently breaks
+      // cost aggregation, because the cost_records AFTER INSERT trigger does
+      // `UPDATE sessions ... WHERE id = session_id` (no row → no token totals).
+      // Common causes: agent_type enum value missing (code 22P02 — extended in
+      // migration 103), or an RLS WITH CHECK failure if the client JWT uid does
+      // not match user_id.
+      logger.error(
+        'Failed to persist session row in Supabase — durable session + token/cost tracking will NOT work for this session',
+        {
+          sessionId,
+          agentType,
+          userId,
+          code: insertError.code,
+          message: insertError.message,
+          details: insertError.details,
+          hint: insertError.hint,
+        }
+      );
+      // Non-fatal: the relay bridge (live mirror to mobile) still works even if
+      // the durable record fails. We keep the session alive rather than abort.
     }
 
     // Track locally
