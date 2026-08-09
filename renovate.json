@@ -2,29 +2,47 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended", ":dependencyDashboard"],
   "timezone": "America/Chicago",
-  "prConcurrentLimit": 5,
-  "prHourlyLimit": 2,
+  "prConcurrentLimit": 15,
+  "prHourlyLimit": 4,
   "labels": ["dependencies"],
   "rangeStrategy": "bump",
+  "platformAutomerge": true,
   "vulnerabilityAlerts": {
     "enabled": true,
     "labels": ["dependencies", "security"],
     "schedule": ["at any time"]
   },
   "osvVulnerabilityAlerts": true,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true,
+    "schedule": ["before 5am on monday"]
+  },
   "packageRules": [
     {
-      "description": "Group GitHub Actions bumps; pin to digests to match the repo's SHA-pinning supply-chain convention (CLAUDE.md / CI standard).",
+      "description": "Group GitHub Actions bumps; pin to digests to match the repo's SHA-pinning supply-chain convention. Safe to automerge (digest-pinned).",
       "matchManagers": ["github-actions"],
       "groupName": "github actions",
-      "pinDigests": true
+      "pinDigests": true,
+      "automerge": true
     },
     {
-      "description": "Group non-major npm devDependencies across the monorepo packages to reduce PR + CI churn.",
+      "description": "Group non-major npm devDependencies across the monorepo; automerge (dev-only, low blast radius).",
       "matchManagers": ["npm"],
       "matchDepTypes": ["devDependencies"],
       "matchUpdateTypes": ["minor", "patch"],
-      "groupName": "npm devDependencies (non-major)"
+      "groupName": "npm devDependencies (non-major)",
+      "automerge": true
+    },
+    {
+      "description": "Automerge all patch-level updates (low risk) once required CI checks pass.",
+      "matchUpdateTypes": ["patch"],
+      "automerge": true
+    },
+    {
+      "description": "Never automerge major updates - they need human review.",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
     }
   ]
 }
