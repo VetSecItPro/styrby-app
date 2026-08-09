@@ -10,7 +10,8 @@
   "vulnerabilityAlerts": {
     "enabled": true,
     "labels": ["dependencies", "security"],
-    "schedule": ["at any time"]
+    "schedule": ["at any time"],
+    "minimumReleaseAge": null
   },
   "osvVulnerabilityAlerts": true,
   "lockFileMaintenance": {
@@ -20,11 +21,17 @@
   },
   "packageRules": [
     {
+      "description": "Supply-chain: 7-day cooldown before proposing any newly published version. WHY: fresh releases are the malicious-update / compromised-maintainer vector; a release-age gate lets a bad publish be caught before we adopt it. Vulnerability-fix PRs (vulnerabilityAlerts, above) are exempt from this delay so security patches still land immediately.",
+      "matchPackageNames": ["*"],
+      "minimumReleaseAge": "7 days"
+    },
+    {
       "description": "Group GitHub Actions bumps; pin to digests to match the repo's SHA-pinning supply-chain convention. Safe to automerge (digest-pinned).",
       "matchManagers": ["github-actions"],
       "groupName": "github actions",
       "pinDigests": true,
-      "automerge": true
+      "automerge": true,
+      "minimumReleaseAge": "7 days"
     },
     {
       "description": "Group non-major npm devDependencies across the monorepo; automerge (dev-only, low blast radius).",
@@ -32,12 +39,14 @@
       "matchDepTypes": ["devDependencies"],
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "npm devDependencies (non-major)",
-      "automerge": true
+      "automerge": true,
+      "minimumReleaseAge": "7 days"
     },
     {
       "description": "Automerge all patch-level updates (low risk) once required CI checks pass.",
       "matchUpdateTypes": ["patch"],
-      "automerge": true
+      "automerge": true,
+      "minimumReleaseAge": "7 days"
     },
     {
       "description": "Never automerge major updates - they need human review.",
