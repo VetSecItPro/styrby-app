@@ -59,11 +59,11 @@ jobs:
       - name: Self-hosted Renovate
         uses: renovatebot/github-action@8217b3fc286df088d7c27f3255fe8414463bc0fd # v46.1.15
         with:
-          # To get CI to run on Renovate's PRs, replace this with a fine-grained
-          # PAT secret (token: ${{ secrets.RENOVATE_TOKEN }}) - a PAT's PRs DO
-          # trigger workflows. Until then GITHUB_TOKEN keeps it working with
-          # zero setup.
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # Fine-grained PAT (RENOVATE_TOKEN). Switched from GITHUB_TOKEN 2026-08-08 so:
+          # (1) Renovate can read Dependabot vulnerability alerts (GITHUB_TOKEN cannot), and
+          # (2) Renovate's PRs trigger CI, which platformAutomerge gates the merge on.
+          # This repo is public, so the extra CI runs cost no Actions minutes.
+          token: ${{ secrets.RENOVATE_TOKEN }}
         env:
           # Only this repo - no autodiscovery across the VetSecItPro account.
           RENOVATE_REPOSITORIES: ${{ github.repository }}
