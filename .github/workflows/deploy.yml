@@ -47,7 +47,10 @@ env:
   # Bundle 2 (Turbo) — share build cache between this workflow and the
   # main CI workflow so `vercel build` hits cache for unchanged @styrby/shared
   # and incremental Next.js compiles.
-  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  # SUPPLY-CHAIN: TURBO_TOKEN (a secret) is NOT set here at workflow level - that
+  # exposes it to every job/step incl. untrusted PR code (semgrep
+  # gha-workflow-env-secret). It is scoped at job level on the two vercel-build
+  # jobs below (vercel build runs `pnpm turbo run build`). TURBO_TEAM is a var.
   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
   TURBO_TELEMETRY_DISABLED: '1'
   VERCEL_TELEMETRY_DISABLED: '1'
@@ -125,6 +128,9 @@ jobs:
     if: |
       github.event_name == 'pull_request' &&
       needs.changes.outputs.should-deploy == 'true'
+    # TURBO_TOKEN scoped to this job (vercel build -> turbo remote cache).
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -227,6 +233,9 @@ jobs:
       needs.changes.outputs.should-deploy == 'true'
     # Production env may be slower to settle; 10 min is generous.
     timeout-minutes: 10
+    # TURBO_TOKEN scoped to this job (vercel build --prod -> turbo remote cache).
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
