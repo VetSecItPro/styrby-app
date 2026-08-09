@@ -1,2 +1,65 @@
 packages:
   - 'packages/*'
+
+# Supply-chain hardening (pnpm secure defaults). WHY: newly-published package
+# versions are the primary vector for malicious-update / typosquat attacks;
+# these settings raise the bar without touching the pinned lockfile.
+#
+# minimumReleaseAge: wait 7 days (10080 min) before RESOLVING a newly published
+# version. Does not affect `--frozen-lockfile` installs (those use locked,
+# already-vetted versions), so CI is unaffected; it only gates fresh resolutions
+# (pnpm add/update, Renovate). Requires pnpm >= 10.16. (semgrep pnpm-minimum-release-age)
+minimumReleaseAge: 10080
+# minimumReleaseAgeExclude: packages we EXPLICITLY security-pin via pnpm.overrides
+# in package.json. WHY: an override's whole purpose is to force-adopt a vetted
+# security patch; the release-age cooldown would otherwise block a just-published
+# fix (e.g. a CVE patch < 7 days old) and stall the lockfile regeneration. This is
+# the same principle as renovate.json exempting vulnerabilityAlerts from the delay:
+# security fixes bypass the cooldown; everything else waits. Keep this list in sync
+# with the pnpm.overrides keys.
+minimumReleaseAgeExclude:
+  - flatted
+  - hono
+  - '@hono/node-server'
+  - '@xmldom/xmldom'
+  - esbuild
+  - rollup
+  - '@opentelemetry/core'
+  - tar
+  - minimatch
+  - undici
+  - dompurify
+  - serialize-javascript
+  - express-rate-limit
+  - qs
+  - mailparser
+  - form-data
+  - '@tootallnate/once'
+  - path-to-regexp
+  - js-yaml
+  - linkify-it
+  - sharp
+  - nanoid
+  - body-parser
+  - next
+  - picomatch
+  - node-forge
+  - brace-expansion
+  - nodemailer
+  - follow-redirects
+  - lodash
+  - vite
+  - react-native-css-interop
+  - shell-quote
+  - fast-uri
+  - postcss
+  - ip-address
+  - uuid
+  - ws
+# trustPolicy: no-downgrade prevents a malicious update from silently weakening
+# security-relevant settings. Requires pnpm >= 10.21. (semgrep pnpm-trust-policy)
+trustPolicy: no-downgrade
+# blockExoticSubdeps: refuse transitive deps pulled from non-registry (git/http/
+# tarball) sources - a common supply-chain smuggling path. Requires pnpm >= 10.26.
+# (semgrep pnpm-block-exotic-sub-dependencies)
+blockExoticSubdeps: true

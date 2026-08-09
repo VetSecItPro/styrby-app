@@ -74,7 +74,12 @@ env:
   # to local-only cache — still useful within a single CI run for tasks that
   # invoke each other, but no cross-run sharing. Setup: `npx turbo link` once,
   # then add the resulting token + team slug as repo secrets.
-  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  # SUPPLY-CHAIN: TURBO_TOKEN (a secret) is deliberately NOT set at the
+  # workflow-level env. A secret here is exposed to every job and step,
+  # including untrusted code in pull-request runs (semgrep
+  # gha-workflow-env-secret). It is scoped at job level only on `quality`
+  # (the sole turbo-invoking job here; the build jobs use `pnpm --filter`
+  # and never touch turbo). TURBO_TEAM is a var, not a secret, so it stays.
   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
   # Per Turbo's recommendation: opt out of telemetry on CI runners.
   TURBO_TELEMETRY_DISABLED: '1'
@@ -201,9 +206,11 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       # Dependency Graph is enabled in repo settings (Settings > Code security).
       # Enabled 2026-03-27 via GitHub API.
-      # WHY continue-on-error: 9 upstream-locked CVEs remain (node-forge via Expo,
-      # picomatch via chokidar, serialize-javascript via jest-expo, nodemailer via resend).
-      # These cannot be fixed without upstream releases. Remove when Expo SDK 55+ ships.
+      # WHY continue-on-error: dependency-review can flag transitive advisories with no
+      # upstream fix yet - currently the 2 image-size DoS advisories reached via
+      # expo -> @expo/metro -> metro (build-time only). No patched image-size exists;
+      # the latest published 2.0.2 is still vulnerable. All patchable CVEs are resolved
+      # via pnpm.overrides. Remove when image-size ships a fix.
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5
         continue-on-error: true
         with:
@@ -215,6 +222,10 @@ jobs:
     name: Lint & Type Check
     runs-on: ubuntu-latest
     timeout-minutes: 20  # SEC-INFRA-011: runaway-job guard
+    # TURBO_TOKEN scoped to this job (turbo remote cache for the typecheck task).
+    # Kept out of the workflow-level env so it is not exposed to other jobs.
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -420,18 +431,19 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Dependency audit
-        # WHY continue-on-error: 9 upstream-locked CVEs remain that cannot be
-        # fixed without Expo SDK 55+, jest-expo, or resend releasing updates.
-        # All patchable CVEs have been resolved via pnpm overrides.
-        # Remove continue-on-error when upstream deps ship fixes.
+        # WHY continue-on-error: 2 upstream-unpatched high advisories remain, both in
+        # image-size (build-time only, via expo -> @expo/metro -> metro). No patched
+        # image-size version exists - the latest published 2.0.2 is still vulnerable.
+        # They are recorded in package.json pnpm.auditConfig.ignoreGhsas, but pnpm audit
+        # still exits non-zero on them (metadata count), so the step stays soft-fail.
+        # All other advisories (was 54, now these 2) are resolved via pnpm.overrides.
+        # Remove continue-on-error when image-size ships a fix.
         continue-on-error: true
-        # Known upstream unpatched CVEs — upgrade deps or add overrides if CI fails:
-        #   @modelcontextprotocol/sdk:
-        #     - GHSA-345p-7cg4-v4c7 (SSRF via fetch in MCP SDK)
-        #   tar via expo -> cacache -> tar:
-        #     - GHSA-8qq5-rm4j-mr97 (arbitrary file creation via symlink)
-        #     - GHSA-r6q2-hw4h-h46w (path traversal in tar extraction)
-        #     - GHSA-34x7-hfp2-rc4v (denial of service via crafted tar)
+        # Known upstream-unpatched advisories (recorded in pnpm.auditConfig.ignoreGhsas):
+        #   image-size via expo -> @expo/metro -> metro (build-time only):
+        #     - GHSA-w3rx-r6r6-pgpr (ICNS parser DoS)
+        #     - GHSA-5p2g-fcmc-qvqq (JXL/HEIF parser DoS)
+        #   No patched image-size exists (vulnerable <=2.0.2; latest published is 2.0.2).
         # Check current state with: pnpm audit
         run: pnpm audit --audit-level=high
 
