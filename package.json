@@ -67,7 +67,7 @@
       "tinyglobby>picomatch": "^4.0.4",
       "vite>picomatch": "^4.0.4",
       "rollup>picomatch": "^4.0.4",
-      "fdir>picomatch": "^4.0.4",
+      "fdir>picomatch": "^4.0.5",
       "vitest>picomatch": "^4.0.4",
       "anymatch>picomatch": "^2.3.2",
       "node-forge": ">=1.4.0",
