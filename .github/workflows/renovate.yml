@@ -57,7 +57,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Self-hosted Renovate
-        uses: renovatebot/github-action@8217b3fc286df088d7c27f3255fe8414463bc0fd # v46.1.15
+        uses: renovatebot/github-action@316d7cd859606d6039a2182b7d69199e9b036835 # v46.2.1
         with:
           # Fine-grained PAT (RENOVATE_TOKEN). Switched from GITHUB_TOKEN 2026-08-08 so:
           # (1) Renovate can read Dependabot vulnerability alerts (GITHUB_TOKEN cannot), and
