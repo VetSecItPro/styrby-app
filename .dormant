@@ -1,0 +1,10 @@
+DORMANT - operator directive 2026-08-27.
+
+Not under active development. Do not spend effort on baseline work, dependency sweeps,
+CI hardening or audits here unless it is explicitly revived.
+
+The SessionStart baseline check reads this file and stays quiet in repos that carry it.
+Delete this file and the CLAUDE.md banner to bring the repo back under the normal baseline.
+
+See the banner at the top of CLAUDE.md for the standing findings, including an
+UNCOMMITTED dependency diff that must be committed or reverted before revival.
