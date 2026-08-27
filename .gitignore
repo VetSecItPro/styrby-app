@@ -154,3 +154,6 @@ scripts/__pycache__/
 .sec-ship-reports/
 .sec-ship-history.json
 .playwright-mcp/
+
+# /investigate scratch output
+.investigate/

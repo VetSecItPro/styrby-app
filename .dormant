@@ -1,0 +1,14 @@
+DORMANT - operator directive 2026-08-27.
+
+This repository is not under active development. Do not spend effort on baseline work,
+dependency sweeps, CI hardening or audits here unless it is explicitly revived.
+
+The SessionStart baseline check reads this file and stays quiet in repos that carry it.
+Delete this file to bring the repo back under the normal baseline.
+
+Standing findings, recorded 2026-08-27 so they are not rediscovered as new, and NOT acted on:
+  - 29 dependency pins, 27 of them UNBOUNDED (>=X with no upper bound), the largest
+    unbounded count in the estate. No Renovate or Dependabot.
+  - Unbounded pins can cross a major and break the build silently. Measured cost elsewhere:
+    the same shape broke 05.steelmotion three times on 2026-08-27.
+  - Baseline score 7/8, the joint-highest in the estate. It is in good shape otherwise.
